@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from "@/components/ui/label"
 import { format, isSameDay } from "date-fns"
 import { es } from "date-fns/locale"
-import { useGetContentPlan, useGenerateContentPlan, useDeleteContentItem, useGenerateVideo, useUpdateContentItem, useCreateContentItem, useProcessContentItemNow, useGetHeyGenAllLooks, useGenerateScript, getGetContentPlanQueryKey, type ContentPlanItem } from "@workspace/api-client-react"
+import { useGetContentPlan, useGenerateContentPlan, useDeleteContentItem, useGenerateVideo, useUpdateContentItem, useCreateContentItem, useProcessContentItemNow, useGetHeyGenAllLooks, useGenerateScript, usePublishVideo, getGetContentPlanQueryKey, type ContentPlanItem } from "@workspace/api-client-react"
 import { Textarea } from "@/components/ui/textarea"
 import { Wand2, Edit3, Trash2, Video, CheckCircle2, Clock, AlertTriangle, CalendarDays, Plus, Zap, Users, List, Calendar, Loader2, FileText, RefreshCw, Sparkles, Check, X } from "lucide-react"
 import PipelineTimeline from "@/components/PipelineTimeline"
@@ -86,7 +86,9 @@ export default function ContentPlan() {
   const updateItem = useUpdateContentItem()
   const createItem = useCreateContentItem()
   const processNow = useProcessContentItemNow()
+  const publishVideo = usePublishVideo()
   const [processingId, setProcessingId] = useState<number | null>(null)
+  const [publishingVideoId, setPublishingVideoId] = useState<number | null>(null)
   const [editingTopic, setEditingTopic] = useState<{ id: number; value: string } | null>(null)
   const [suggestingId, setSuggestingId] = useState<number | null>(null)
   const [topicSuggestion, setTopicSuggestion] = useState<{ id: number; topic: string } | null>(null)
@@ -399,9 +401,26 @@ export default function ContentPlan() {
           onDelete={handleDelete}
           onGenerateVideo={handleGenerateVideo}
           onProcessNow={handleProcessNow}
+          onPublishNow={(videoId) => {
+            setPublishingVideoId(videoId)
+            publishVideo.mutate(
+              { id: videoId, data: {} },
+              {
+                onSuccess: () => {
+                  queryClient.invalidateQueries({ queryKey: getGetContentPlanQueryKey() })
+                  toast({ title: "¡Publicado!", description: "El video fue enviado a Instagram." })
+                },
+                onError: () => {
+                  toast({ title: "Error al publicar", description: "Verificá la conexión con Instagram.", variant: "destructive" })
+                },
+                onSettled: () => setPublishingVideoId(null),
+              }
+            )
+          }}
           onPickAvatar={setAvatarPickerItem}
           processingId={processingId}
           generateVideoPending={generateVideo.isPending}
+          publishingVideoId={publishingVideoId}
         />
       ) : (
       <Tabs value={filter} onValueChange={setFilter} className="flex-1 flex flex-col min-h-0">

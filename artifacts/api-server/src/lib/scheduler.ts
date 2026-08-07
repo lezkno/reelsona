@@ -327,7 +327,7 @@ export async function pollAndPublishVideos(): Promise<void> {
   // This handles the case where the server restarted after captions were applied
   // but before publishing, leaving videos stuck in "ready" state.
   const [automation] = await db.select().from(automationConfigTable).limit(1);
-  if (automation?.autoPublish) {
+  if (automation?.enabled && automation?.autoPublish) {
     const readyVideos = await db
       .select()
       .from(videosTable)
@@ -447,8 +447,8 @@ export async function pollAndPublishVideos(): Promise<void> {
         }
         // ─────────────────────────────────────────────────────────────────────
 
-        // Auto-publish if enabled
-        if (automation?.autoPublish && status.video_url) {
+        // Auto-publish only when both the master switch and auto_publish are on
+        if (automation?.enabled && automation?.autoPublish && status.video_url) {
           await publishVideoToInstagram(video.id);
         }
       } else if (status.status === "failed") {

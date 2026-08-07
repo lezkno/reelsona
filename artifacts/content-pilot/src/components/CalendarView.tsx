@@ -3,7 +3,7 @@ import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addDays, addW
 import { es } from "date-fns/locale"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { ChevronLeft, ChevronRight, Plus, Trash2, Video, CheckCircle2, Clock, AlertTriangle, Edit3, Zap, Users } from "lucide-react"
+import { ChevronLeft, ChevronRight, Plus, Trash2, Video, CheckCircle2, Clock, AlertTriangle, Edit3, Zap, Users, Send } from "lucide-react"
 import type { ContentPlanItem } from "@workspace/api-client-react"
 
 const STATUS_COLOR: Record<string, string> = {
@@ -16,7 +16,7 @@ const STATUS_COLOR: Record<string, string> = {
 }
 const STATUS_LABEL: Record<string, string> = {
   draft: "Borrador", scripted: "Guion", generating: "Generando",
-  ready: "Listo", published: "Publicado", failed: "Error",
+  ready: "Listo para publicar", published: "Publicado", failed: "Error",
 }
 const STATUS_ICON: Record<string, any> = {
   draft: Edit3, scripted: CheckCircle2, generating: Clock,
@@ -30,22 +30,26 @@ interface Props {
   onDelete: (id: number) => void
   onGenerateVideo: (id: number) => void
   onProcessNow: (id: number) => void
+  onPublishNow: (videoId: number) => void
   onPickAvatar: (item: ContentPlanItem) => void
   processingId: number | null
   generateVideoPending: boolean
+  publishingVideoId: number | null
 }
 
 type CalView = "month" | "week" | "day"
 
-function ItemPill({ item, lookById, onDelete, onGenerateVideo, onProcessNow, onPickAvatar, processingId, generateVideoPending, compact = false }: {
+function ItemPill({ item, lookById, onDelete, onGenerateVideo, onProcessNow, onPublishNow, onPickAvatar, processingId, generateVideoPending, publishingVideoId, compact = false }: {
   item: ContentPlanItem
   lookById: Map<string, { name: string; image_url: string | null }>
   onDelete: (id: number) => void
   onGenerateVideo: (id: number) => void
   onProcessNow: (id: number) => void
+  onPublishNow: (videoId: number) => void
   onPickAvatar: (item: ContentPlanItem) => void
   processingId: number | null
   generateVideoPending: boolean
+  publishingVideoId: number | null
   compact?: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
@@ -61,7 +65,7 @@ function ItemPill({ item, lookById, onDelete, onGenerateVideo, onProcessNow, onP
         onClick={() => setExpanded(!expanded)}
         className={`group w-full text-left rounded px-1.5 py-0.5 text-[11px] font-medium flex items-center gap-1 truncate transition-colors ${dot === "bg-primary" ? "bg-primary/15 text-primary hover:bg-primary/25" : "bg-muted hover:bg-muted/80"}`}
       >
-        <span className={`shrink-0 w-1.5 h-1.5 rounded-full ${dot}`} />
+        <span className={`shrink-0 w-1.5 h-1.5 rounded-full ${dot} ${item.status === "ready" ? "animate-pulse" : ""}`} />
         <span className="truncate">{item.topic}</span>
       </button>
     )
@@ -113,6 +117,17 @@ function ItemPill({ item, lookById, onDelete, onGenerateVideo, onProcessNow, onP
               <Video className="w-3 h-3" /> Video
             </Button>
           )}
+          {item.status === "ready" && item.video_id != null && (
+            <Button
+              size="sm"
+              className="h-7 gap-1 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
+              disabled={publishingVideoId === item.video_id}
+              onClick={() => onPublishNow(item.video_id!)}
+            >
+              <Send className="w-3 h-3" />
+              {publishingVideoId === item.video_id ? "Publicando..." : "Publicar en Instagram"}
+            </Button>
+          )}
           <Button size="sm" variant="ghost" className="h-7 text-xs text-destructive hover:text-destructive ml-auto"
             onClick={() => onDelete(item.id)}>
             <Trash2 className="w-3 h-3" />
@@ -123,7 +138,7 @@ function ItemPill({ item, lookById, onDelete, onGenerateVideo, onProcessNow, onP
   )
 }
 
-export default function CalendarView({ items, lookById, onAddDay, onDelete, onGenerateVideo, onProcessNow, onPickAvatar, processingId, generateVideoPending }: Props) {
+export default function CalendarView({ items, lookById, onAddDay, onDelete, onGenerateVideo, onProcessNow, onPublishNow, onPickAvatar, processingId, generateVideoPending, publishingVideoId }: Props) {
   const [view, setView] = useState<CalView>("month")
   const [current, setCurrent] = useState(startOfDay(new Date()))
 
@@ -177,9 +192,9 @@ export default function CalendarView({ items, lookById, onAddDay, onDelete, onGe
                 {dayItems.slice(0, 3).map((item) => (
                   <ItemPill key={item.id} item={item} lookById={lookById}
                     onDelete={onDelete} onGenerateVideo={onGenerateVideo}
-                    onProcessNow={onProcessNow} onPickAvatar={onPickAvatar}
+                    onProcessNow={onProcessNow} onPublishNow={onPublishNow} onPickAvatar={onPickAvatar}
                     processingId={processingId} generateVideoPending={generateVideoPending}
-                    compact />
+                    publishingVideoId={publishingVideoId} compact />
                 ))}
                 {dayItems.length > 3 && (
                   <button type="button" onClick={() => { setCurrent(day); setView("day") }}
@@ -228,8 +243,9 @@ export default function CalendarView({ items, lookById, onAddDay, onDelete, onGe
                 {dayItems.map((item) => (
                   <ItemPill key={item.id} item={item} lookById={lookById}
                     onDelete={onDelete} onGenerateVideo={onGenerateVideo}
-                    onProcessNow={onProcessNow} onPickAvatar={onPickAvatar}
-                    processingId={processingId} generateVideoPending={generateVideoPending} />
+                    onProcessNow={onProcessNow} onPublishNow={onPublishNow} onPickAvatar={onPickAvatar}
+                    processingId={processingId} generateVideoPending={generateVideoPending}
+                    publishingVideoId={publishingVideoId} />
                 ))}
                 <button
                   type="button"
@@ -268,8 +284,9 @@ export default function CalendarView({ items, lookById, onAddDay, onDelete, onGe
             dayItems.map((item) => (
               <ItemPill key={item.id} item={item} lookById={lookById}
                 onDelete={onDelete} onGenerateVideo={onGenerateVideo}
-                onProcessNow={onProcessNow} onPickAvatar={onPickAvatar}
-                processingId={processingId} generateVideoPending={generateVideoPending} />
+                onProcessNow={onProcessNow} onPublishNow={onPublishNow} onPickAvatar={onPickAvatar}
+                processingId={processingId} generateVideoPending={generateVideoPending}
+                publishingVideoId={publishingVideoId} />
             ))
           )}
           <button
