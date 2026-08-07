@@ -175,7 +175,27 @@ export async function runAutomationCycle(targetItemId?: number): Promise<{
     return { success: true, message: "Script ready, video generation disabled", contentItemId: contentItem.id };
   }
 
+  // Backfill missing avatar/voice so scripted items never get stuck
+  if (!contentItem.avatarId) {
+    contentItem.avatarId = pickNextAvatar(
+      avatarCfg.selectedAvatarIds,
+      avatarCfg.lastUsedAvatarId,
+      avatarCfg.rotationStrategy,
+      (avatarCfg.avatarUsageCount as Record<string, number>) ?? {}
+    );
+  }
+  if (!contentItem.voiceId) {
+    contentItem.voiceId = avatarCfg.preferredVoiceId ?? (await ensurePreferredVoiceId());
+  }
+  if (contentItem.avatarId && contentItem.voiceId) {
+    await db
+      .update(contentPlanItemsTable)
+      .set({ avatarId: contentItem.avatarId, voiceId: contentItem.voiceId, updatedAt: new Date() })
+      .where(eq(contentPlanItemsTable.id, contentItem.id));
+  }
+
   if (!contentItem.avatarId || !contentItem.voiceId || !contentItem.script) {
+    logger.error({ itemId: contentItem.id, hasAvatar: !!contentItem.avatarId, hasVoice: !!contentItem.voiceId, hasScript: !!contentItem.script }, "Content item missing avatar, voice, or script");
     return { success: false, message: "Content item missing avatar, voice, or script" };
   }
 
