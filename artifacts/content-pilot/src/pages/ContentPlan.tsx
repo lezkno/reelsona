@@ -8,9 +8,9 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from "@/components/ui/label"
 import { format, isSameDay } from "date-fns"
 import { es } from "date-fns/locale"
-import { useGetContentPlan, useGenerateContentPlan, useDeleteContentItem, useGenerateVideo, useUpdateContentItem, useCreateContentItem, useProcessContentItemNow, useGetHeyGenAllLooks, useGenerateScript, usePublishVideo, getGetContentPlanQueryKey, type ContentPlanItem } from "@workspace/api-client-react"
+import { useGetContentPlan, useGenerateContentPlan, useDeleteContentItem, useGenerateVideo, useUpdateContentItem, useCreateContentItem, useGetHeyGenAllLooks, useGenerateScript, usePublishVideo, useGetAutomation, getGetContentPlanQueryKey, type ContentPlanItem } from "@workspace/api-client-react"
 import { Textarea } from "@/components/ui/textarea"
-import { Wand2, Edit3, Trash2, Video, CheckCircle2, Clock, AlertTriangle, CalendarDays, Plus, Zap, Users, List, Calendar, Loader2, FileText, RefreshCw, Sparkles, Check, X } from "lucide-react"
+import { Wand2, Edit3, Trash2, Video, CheckCircle2, Clock, AlertTriangle, CalendarDays, Plus, Zap, Users, List, Calendar, Loader2, FileText, RefreshCw, Sparkles, Check, X, Send, Bot, Hand } from "lucide-react"
 import PipelineTimeline from "@/components/PipelineTimeline"
 import CalendarView from "@/components/CalendarView"
 import { useToast } from "@/hooks/use-toast"
@@ -80,14 +80,15 @@ export default function ContentPlan() {
     published: (allItems ?? []).filter(i => i.status === "published").length,
     failed:    (allItems ?? []).filter(i => i.status === "failed").length,
   }
+  const { data: automation } = useGetAutomation()
+  const willAutoPublish = !!(automation?.enabled && automation?.auto_publish)
+
   const generatePlan = useGenerateContentPlan()
   const deleteItem = useDeleteContentItem()
   const generateVideo = useGenerateVideo()
   const updateItem = useUpdateContentItem()
   const createItem = useCreateContentItem()
-  const processNow = useProcessContentItemNow()
   const publishVideo = usePublishVideo()
-  const [processingId, setProcessingId] = useState<number | null>(null)
   const [publishingVideoId, setPublishingVideoId] = useState<number | null>(null)
   const [editingTopic, setEditingTopic] = useState<{ id: number; value: string } | null>(null)
   const [suggestingId, setSuggestingId] = useState<number | null>(null)
@@ -130,13 +131,10 @@ export default function ContentPlan() {
   // from a cancelled request never overwrite state for a different item.
   const scriptGenerationItemIdRef = useRef<number | null>(null)
 
-  // Derived from real API data — true if ANY item is currently being produced.
-  // Used to block all manual generate buttons so only one HeyGen job runs at a time.
-  const anyVideoInFlight = (allItems ?? []).some(
-    (i) => i.status === "generating" || i.status === "ready"
-  )
-  // Combined disable flag: in-flight from real data OR local pending request
-  const generateBlocked = anyVideoInFlight || processingId !== null
+  // Only block new video generation when HeyGen is actively rendering.
+  // A "ready" item is just waiting for publish — it doesn't consume a HeyGen slot.
+  const anyVideoInFlight = (allItems ?? []).some((i) => i.status === "generating")
+  const generateBlocked = anyVideoInFlight || generateVideo.isPending
 
   const closeScriptModal = () => {
     // Clear the in-flight binding so any late-arriving callback is ignored
@@ -226,18 +224,29 @@ export default function ContentPlan() {
 
   const handleProcessNow = (id: number) => {
     const item = items?.find((i) => i.id === id)
-    if (item) {
-      // Open script review first instead of going straight to pipeline
-      handleOpenScriptReview(item)
-    }
+    if (item) handleOpenScriptReview(item)
   }
 
   const handleGenerateVideo = (id: number) => {
     const item = items?.find((i) => i.id === id)
-    if (item) {
-      // Open script review so user can verify/edit before sending to HeyGen
-      handleOpenScriptReview(item)
-    }
+    if (item) handleOpenScriptReview(item)
+  }
+
+  const handlePublishNow = (videoId: number) => {
+    setPublishingVideoId(videoId)
+    publishVideo.mutate(
+      { id: videoId, data: {} },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: getGetContentPlanQueryKey() })
+          toast({ title: "¡Publicado!", description: "El video fue enviado a Instagram." })
+        },
+        onError: () => {
+          toast({ title: "Error al publicar", description: "Verificá la conexión con Instagram.", variant: "destructive" })
+        },
+        onSettled: () => setPublishingVideoId(null),
+      }
+    )
   }
 
   // "Add video to this day" dialog state
@@ -393,6 +402,14 @@ export default function ContentPlan() {
 
       <PipelineTimeline />
 
+      {/* Automation mode banner */}
+      <div className={`flex items-center gap-2.5 px-4 py-2.5 rounded-lg border text-sm shrink-0 ${willAutoPublish ? "border-primary/30 bg-primary/5 text-primary" : "border-muted-foreground/20 bg-muted/40 text-muted-foreground"}`}>
+        {willAutoPublish
+          ? <><Bot className="w-4 h-4 shrink-0" /><span><strong>Piloto automático activo</strong> — el sistema crea y publica los videos según tu calendario.</span></>
+          : <><Hand className="w-4 h-4 shrink-0" /><span><strong>Modo manual</strong> — revisá, generá y publicá cada video cuando estés listo.</span></>
+        }
+      </div>
+
       {viewMode === "calendar" ? (
         <CalendarView
           items={items ?? []}
@@ -401,26 +418,11 @@ export default function ContentPlan() {
           onDelete={handleDelete}
           onGenerateVideo={handleGenerateVideo}
           onProcessNow={handleProcessNow}
-          onPublishNow={(videoId) => {
-            setPublishingVideoId(videoId)
-            publishVideo.mutate(
-              { id: videoId, data: {} },
-              {
-                onSuccess: () => {
-                  queryClient.invalidateQueries({ queryKey: getGetContentPlanQueryKey() })
-                  toast({ title: "¡Publicado!", description: "El video fue enviado a Instagram." })
-                },
-                onError: () => {
-                  toast({ title: "Error al publicar", description: "Verificá la conexión con Instagram.", variant: "destructive" })
-                },
-                onSettled: () => setPublishingVideoId(null),
-              }
-            )
-          }}
+          onPublishNow={handlePublishNow}
           onPickAvatar={setAvatarPickerItem}
-          processingId={processingId}
           generateVideoPending={generateVideo.isPending}
           publishingVideoId={publishingVideoId}
+          willAutoPublish={willAutoPublish}
         />
       ) : (
       <Tabs value={filter} onValueChange={setFilter} className="flex-1 flex flex-col min-h-0">
@@ -519,9 +521,37 @@ export default function ContentPlan() {
                                     onClick={() => handleProcessNow(item.id)}
                                   >
                                     <Zap className="w-3 h-3" />
-                                    {processingId === item.id ? "Iniciando..." : "Crear ahora"}
+                                    Revisar guion
                                   </Button>
                                 )}
+                                {item.status === "ready" && item.video_id != null && (() => {
+                                  const captionTerminal = item.caption_status === "done" || item.caption_status === "failed" || item.caption_status === "disabled"
+                                  if (!captionTerminal) {
+                                    return (
+                                      <div className="flex items-center gap-1 text-xs text-muted-foreground py-1">
+                                        <Loader2 className="w-3 h-3 animate-spin" /> Captions...
+                                      </div>
+                                    )
+                                  }
+                                  if (willAutoPublish) {
+                                    return (
+                                      <div className="flex items-center gap-1 text-xs text-primary py-1">
+                                        <CheckCircle2 className="w-3 h-3" /> Auto-publicación
+                                      </div>
+                                    )
+                                  }
+                                  return (
+                                    <Button
+                                      size="sm"
+                                      className="w-full h-7 gap-1 text-xs bg-gradient-to-r from-pink-500 to-orange-400 hover:from-pink-600 hover:to-orange-500 text-white border-0"
+                                      disabled={publishingVideoId === item.video_id}
+                                      onClick={() => handlePublishNow(item.video_id!)}
+                                    >
+                                      <Send className="w-3 h-3" />
+                                      {publishingVideoId === item.video_id ? "Publicando..." : "Publicar en IG"}
+                                    </Button>
+                                  )
+                                })()}
                               </>
                             ) : item.scheduled_at && (
                               <div className="text-xs text-muted-foreground font-medium flex items-center gap-1">

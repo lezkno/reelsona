@@ -13,49 +13,58 @@ import { FileText, UserSquare2, Captions, Send, CheckCircle2, Clock, AlertTriang
  * 4. Publicar en IG  — the Reel is uploaded and published
  */
 const STEPS = [
-  { key: "script",  label: "Guion",           desc: "La IA escribe el guion y el hook",        eta: "~1 min",   icon: FileText    },
-  { key: "video",   label: "Video con Avatar", desc: "HeyGen crea el video con tu avatar",      eta: "~5-15 min", icon: UserSquare2 },
-  { key: "caption", label: "Caption Studio",   desc: "Se aplican captions animados al video",   eta: "~2-5 min",  icon: Captions    },
-  { key: "publish", label: "Publicar en IG",   desc: "Se sube y publica el Reel",               eta: "~2-5 min",  icon: Send        },
+  { key: "script",  label: "Guion",           desc: "La IA escribe el guion y el hook",       eta: "~1 min",    icon: FileText    },
+  { key: "video",   label: "Video con Avatar", desc: "HeyGen crea el video con tu avatar",     eta: "~5-15 min", icon: UserSquare2 },
+  { key: "caption", label: "Caption Studio",   desc: "Se aplican captions animados al video",  eta: "~2-5 min",  icon: Captions    },
+  { key: "publish", label: "Publicar en IG",   desc: "Se sube y publica el Reel",              eta: "~2-5 min",  icon: Send        },
 ] as const
 
 /**
- * Determine which step (0-based) is active and the overall % progress.
+ * Pipeline display modes — more specific than the old "processing | next | done".
+ *
+ *  generating       → HeyGen is actively rendering the video
+ *  captioning       → ready, but captions are pending/processing (null or "processing")
+ *  awaiting_publish → ready, captions terminal (done/failed/disabled), waiting to publish
+ *  scripted_waiting → script done, waiting for video to be generated
+ *  next             → upcoming draft/scripted scheduled in the future
+ *  done             → all done, showing the last published item
+ */
+type PipelineMode = "generating" | "captioning" | "awaiting_publish" | "scripted_waiting" | "next" | "done"
+
+/**
+ * Determine which step (0-based) is the current/active step and the overall % progress.
  *
  * caption_status values: null | "disabled" | "processing" | "done" | "failed"
  *
  * Step mapping:
- *  step -1 → not started
- *  step  0 → Guion in progress
- *  step  1 → Video in progress
- *  step  2 → Caption Studio in progress
- *  step  3 → Publishing in progress
- *  step  4 → all done
+ *  step 0 → Guion        (script being written or done)
+ *  step 1 → Video        (HeyGen rendering, or script done → video pending)
+ *  step 2 → Caption Studio (captions processing or pending)
+ *  step 3 → Publicar     (video ready with terminal captions, waiting to publish)
+ *  step 4 → all done
  */
 function getProgress(item: ContentPlanItem): { step: number; percent: number } {
-  const cs = item.caption_status   // null | "disabled" | "processing" | "done" | "failed"
+  const cs = item.caption_status // null | "disabled" | "processing" | "done" | "failed"
 
   switch (item.status) {
     case "draft":
-      return { step: -1, percent: 0 }
+      // Script step is the active one (not yet started)
+      return { step: 0, percent: 10 }
 
     case "scripted":
-      return { step: 0, percent: item.caption ? 35 : 30 }
+      // Script is done; video step is next (step 0 = done, step 1 = pending)
+      return { step: 1, percent: 35 }
 
     case "generating":
+      // Video actively rendering
       return { step: 1, percent: 55 }
 
     case "ready": {
-      // Video is done. Now check caption_status:
-      if (cs === "processing") {
-        // Caption Studio actively running
-        return { step: 2, percent: 75 }
-      }
-      if (cs === "done" || cs === "failed" || cs === "disabled" || cs === null) {
-        // Caption step finished (or skipped) → publishing
+      // Only terminal caption states unlock the publish step.
+      // null (pending) or "processing" → caption step is still in flight.
+      if (cs === "done" || cs === "failed" || cs === "disabled") {
         return { step: 3, percent: 90 }
       }
-      // Default: caption step in progress (unknown state)
       return { step: 2, percent: 75 }
     }
 
@@ -67,23 +76,51 @@ function getProgress(item: ContentPlanItem): { step: number; percent: number } {
   }
 }
 
-function pickActiveItem(items: ContentPlanItem[]): { item: ContentPlanItem; mode: "processing" | "next" | "done" } | null {
-  const inProcess =
-    items.find((i) => i.status === "generating") ??
-    items.find((i) => i.status === "ready")
-  if (inProcess) return { item: inProcess, mode: "processing" }
+function pickActiveItem(items: ContentPlanItem[]): { item: ContentPlanItem; mode: PipelineMode } | null {
+  // Priority 1: video is actively rendering in HeyGen
+  const generating = items.find((i) => i.status === "generating")
+  if (generating) return { item: generating, mode: "generating" }
 
-  const now = Date.now()
+  // Priority 2: ready but caption is still pending/processing
+  const captioning = items.find(
+    (i) => i.status === "ready" && (i.caption_status === null || i.caption_status === "processing")
+  )
+  if (captioning) return { item: captioning, mode: "captioning" }
+
+  // Priority 3: ready with terminal caption — waiting to be published
+  const awaitingPublish = items.find(
+    (i) =>
+      i.status === "ready" &&
+      (i.caption_status === "done" || i.caption_status === "failed" || i.caption_status === "disabled")
+  )
+  if (awaitingPublish) return { item: awaitingPublish, mode: "awaiting_publish" }
+
+  // Priority 4: scripted item (script done, video not yet started)
+  const scripted = items.find((i) => i.status === "scripted")
+  if (scripted) return { item: scripted, mode: "scripted_waiting" }
+
+  // Priority 5: upcoming draft items scheduled in the future
   const upcoming = items
-    .filter((i) => (i.status === "draft" || i.status === "scripted") && i.scheduled_at)
+    .filter((i) => i.status === "draft" && i.scheduled_at)
     .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime())
-  const due = upcoming.find((i) => new Date(i.scheduled_at!).getTime() <= now)
-  if (due) return { item: due, mode: "processing" }
   if (upcoming[0]) return { item: upcoming[0], mode: "next" }
 
+  // Priority 6: last published (summary state)
   const lastPublished = [...items].reverse().find((i) => i.status === "published")
   if (lastPublished) return { item: lastPublished, mode: "done" }
+
   return null
+}
+
+function getHeaderLabel(mode: PipelineMode, willAutoPublish: boolean | undefined): string {
+  switch (mode) {
+    case "generating":       return "Producción en curso"
+    case "captioning":       return "Aplicando captions al video"
+    case "awaiting_publish": return willAutoPublish ? "En cola para publicar automáticamente" : "Listo para publicar manualmente"
+    case "scripted_waiting": return willAutoPublish ? "Guion listo — el sistema generará el video" : "Guion listo — revisá y generá el video"
+    case "next":             return "Próximo video en cola"
+    case "done":             return "Último video producido"
+  }
 }
 
 export default function PipelineTimeline() {
@@ -98,15 +135,15 @@ export default function PipelineTimeline() {
   const willAutoPublish = automation?.enabled && automation?.auto_publish
   const scheduled = item.scheduled_at ? new Date(item.scheduled_at) : null
 
-  // Caption Studio step is hidden only when explicitly disabled (captions turned off in automation).
-  // null = pending (will run), "processing" = active, "done"/"failed" = finished — all show the step.
+  // Caption Studio step is hidden only when explicitly disabled (captions turned off).
   const captionDisabled = item.caption_status === "disabled"
-  const visibleSteps = captionDisabled
-    ? STEPS.filter((s) => s.key !== "caption")
-    : STEPS
+  const visibleSteps = captionDisabled ? STEPS.filter((s) => s.key !== "caption") : STEPS
 
   // Remap step index when caption step is hidden
   const displayStep = captionDisabled && step >= 2 ? step - 1 : step
+
+  // Only show a spinner when something is *actively* processing — not when waiting.
+  const isActivelyProcessing = mode === "generating" || mode === "captioning"
 
   return (
     <Card className="border-primary/20 bg-gradient-to-r from-primary/5 to-transparent shrink-0">
@@ -114,7 +151,7 @@ export default function PipelineTimeline() {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 mb-4">
           <div className="min-w-0">
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-0.5">
-              {mode === "next" ? "Próximo video en cola" : mode === "done" ? "Último video producido" : "Producción en curso"}
+              {getHeaderLabel(mode, willAutoPublish)}
             </p>
             <h3 className="font-display font-bold truncate">{item.topic}</h3>
           </div>
@@ -137,18 +174,29 @@ export default function PipelineTimeline() {
           {visibleSteps.map((s, i) => {
             const Icon = s.icon
             const done    = displayStep > i
-            const current = displayStep === i && mode !== "next" && item.status !== "draft" && item.status !== "failed"
+            // "current" means this step is the active/next one, but NOT for draft or failed items
+            const current = displayStep === i && mode !== "next" && mode !== "done" && item.status !== "draft" && item.status !== "failed"
             const failed  = item.status === "failed"
+            // Spinner only appears when something is genuinely running
+            const showSpinner = current && isActivelyProcessing
 
-            // Caption Studio step: show extra detail on the status label
-            let statusLabel = done ? "Completado" : current ? "En proceso..." : s.eta
+            // ── Status label ────────────────────────────────────────────────
+            let statusLabel = done ? "Completado" : current ? "En espera..." : s.eta
+
+            // Video step: distinguish rendering vs. queued
+            if (s.key === "video" && current) {
+              statusLabel = mode === "generating" ? "Renderizando..." : "En espera de HeyGen"
+            }
+
+            // Caption step: distinguish null (queued) vs. processing
             if (s.key === "caption" && current) {
-              statusLabel = "Procesando..."
+              statusLabel = item.caption_status === "processing" ? "Procesando..." : "En cola..."
             }
             if (s.key === "caption" && done && item.caption_status === "failed") {
               statusLabel = "Omitido (error)"
             }
-            // Publish step: never show generic "En proceso..." — the video is just waiting
+
+            // Publish step: never show generic "En espera..." — be explicit about what's needed
             if (s.key === "publish" && current) {
               statusLabel = willAutoPublish ? "En cola para publicar" : "Publicar manualmente"
             }
@@ -167,8 +215,11 @@ export default function PipelineTimeline() {
                     <AlertTriangle className="w-4 h-4 text-destructive" />
                   ) : done ? (
                     <CheckCircle2 className="w-4 h-4 text-primary" />
-                  ) : current ? (
+                  ) : showSpinner ? (
                     <Loader2 className="w-4 h-4 text-primary animate-spin" />
+                  ) : current ? (
+                    // Waiting (not actively processing) — use a static clock icon
+                    <Clock className="w-4 h-4 text-primary" />
                   ) : (
                     <Icon className="w-4 h-4 text-muted-foreground" />
                   )}
