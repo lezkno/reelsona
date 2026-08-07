@@ -1,9 +1,10 @@
 import { useGetVideos, usePublishVideo, useScheduleVideo, getGetVideosQueryKey } from "@workspace/api-client-react"
+import type { Video } from "@workspace/api-client-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { ExternalLink, Play, Clock, AlertTriangle, CheckCircle2, Instagram, CalendarClock, Send } from "lucide-react"
@@ -22,6 +23,7 @@ export default function Videos() {
 
   const [scheduleDialog, setScheduleDialog] = useState<{ videoId: number; topic: string; current?: string } | null>(null)
   const [scheduleDatetime, setScheduleDatetime] = useState("")
+  const [previewVideo, setPreviewVideo] = useState<Video | null>(null)
 
   const minDatetime = () => {
     const d = new Date(Date.now() + 5 * 60 * 1000)
@@ -106,6 +108,19 @@ export default function Videos() {
                   </div>
                 )}
 
+                {/* Play overlay — visible on hover when video is available */}
+                {(video.captioned_video_url || video.video_url) && (
+                  <button
+                    onClick={() => setPreviewVideo(video)}
+                    className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/40 transition-colors"
+                    aria-label="Reproducir video"
+                  >
+                    <div className="w-14 h-14 rounded-full bg-white/90 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-lg">
+                      <Play className="w-6 h-6 text-black fill-black ml-0.5" />
+                    </div>
+                  </button>
+                )}
+
                 <div className="absolute top-3 left-3">
                   {video.status === 'generating' && <Badge variant="warning" className="shadow-lg"><Clock className="w-3 h-3 mr-1"/> Generando</Badge>}
                   {video.status === 'ready' && <Badge variant="success" className="shadow-lg"><CheckCircle2 className="w-3 h-3 mr-1"/> Listo</Badge>}
@@ -178,6 +193,31 @@ export default function Videos() {
           ))}
         </div>
       )}
+
+      {/* ── Video preview dialog ─────────────────────────────────────────────── */}
+      <Dialog open={!!previewVideo} onOpenChange={(o) => { if (!o) setPreviewVideo(null) }}>
+        <DialogContent className="sm:max-w-sm p-0 overflow-hidden">
+          <DialogHeader className="px-4 pt-4 pb-2">
+            <DialogTitle className="text-base leading-snug line-clamp-2">
+              {previewVideo?.topic ?? `Video #${previewVideo?.id}`}
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              {previewVideo?.captioned_video_url ? "Con captions aplicados" : "Video generado por HeyGen"}
+            </DialogDescription>
+          </DialogHeader>
+          {previewVideo && (
+            <div className="bg-black">
+              <video
+                key={previewVideo.id}
+                src={previewVideo.captioned_video_url ?? previewVideo.video_url ?? undefined}
+                poster={previewVideo.thumbnail_url ?? undefined}
+                controls
+                className="w-full max-h-[65vh] object-contain"
+              />
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* ── Schedule dialog ─────────────────────────────────────────────────────── */}
       <Dialog open={!!scheduleDialog} onOpenChange={(o) => { if (!o) { setScheduleDialog(null); setScheduleDatetime("") } }}>
