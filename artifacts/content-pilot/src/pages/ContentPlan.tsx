@@ -9,8 +9,9 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from "@/components/ui/label"
 import { format, isSameDay } from "date-fns"
 import { es } from "date-fns/locale"
-import { Wand2, Edit3, Trash2, Video, CheckCircle2, Clock, AlertTriangle, CalendarDays, Plus, Zap, Users } from "lucide-react"
+import { Wand2, Edit3, Trash2, Video, CheckCircle2, Clock, AlertTriangle, CalendarDays, Plus, Zap, Users, List, Calendar } from "lucide-react"
 import PipelineTimeline from "@/components/PipelineTimeline"
+import CalendarView from "@/components/CalendarView"
 import { useToast } from "@/hooks/use-toast"
 import { useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
@@ -45,6 +46,7 @@ function groupByDay(items: ContentPlanItem[]): { date: Date | null, label: strin
 }
 
 export default function ContentPlan() {
+  const [viewMode, setViewMode] = useState<"list" | "calendar">("list")
   const [filter, setFilter] = useState<string>("all")
   const [dialogOpen, setDialogOpen] = useState(false)
   const [days, setDays] = useState(7)
@@ -172,6 +174,18 @@ export default function ContentPlan() {
           <h1 className="text-4xl font-display font-bold tracking-tight">Plan de Contenido</h1>
           <p className="text-muted-foreground mt-1 text-lg">Tu calendario de ideas a videos publicados.</p>
         </div>
+        {/* View toggle */}
+        <div className="flex rounded-lg border overflow-hidden">
+          <button type="button" onClick={() => setViewMode("list")}
+            className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors border-r ${viewMode === "list" ? "bg-primary text-primary-foreground" : "hover:bg-muted text-muted-foreground"}`}>
+            <List className="w-4 h-4" /> Lista
+          </button>
+          <button type="button" onClick={() => setViewMode("calendar")}
+            className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors ${viewMode === "calendar" ? "bg-primary text-primary-foreground" : "hover:bg-muted text-muted-foreground"}`}>
+            <Calendar className="w-4 h-4" /> Calendario
+          </button>
+        </div>
+
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
             <Button className="gap-2 shadow-lg shadow-primary/20 bg-gradient-to-r from-primary to-violet-600">
@@ -215,6 +229,19 @@ export default function ContentPlan() {
 
       <PipelineTimeline />
 
+      {viewMode === "calendar" ? (
+        <CalendarView
+          items={items ?? []}
+          lookById={lookById}
+          onAddDay={(date) => { setAddDay(date); setAddTopic("") }}
+          onDelete={handleDelete}
+          onGenerateVideo={handleGenerateVideo}
+          onProcessNow={handleProcessNow}
+          onPickAvatar={setAvatarPickerItem}
+          processingId={processingId}
+          generateVideoPending={generateVideo.isPending}
+        />
+      ) : (
       <Tabs value={filter} onValueChange={setFilter} className="flex-1 flex flex-col min-h-0">
         <TabsList className="bg-muted p-1 mb-6 inline-flex shrink-0">
           <TabsTrigger value="all">Todos</TabsTrigger>
@@ -347,6 +374,7 @@ export default function ContentPlan() {
           )}
         </div>
       </Tabs>
+      )}
 
       <Dialog open={avatarPickerItem !== null} onOpenChange={(open) => !open && setAvatarPickerItem(null)}>
         <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
