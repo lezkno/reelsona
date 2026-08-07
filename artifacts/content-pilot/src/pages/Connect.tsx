@@ -1,4 +1,5 @@
-import { useGetInstagramAccount, useDisconnectInstagram, useHandleInstagramCallback, getGetInstagramAccountQueryKey } from "@workspace/api-client-react"
+import { useGetInstagramAccount, useDisconnectInstagram, useHandleInstagramCallback, getGetInstagramAccountQueryKey, useGetInstagramPosts } from "@workspace/api-client-react"
+import { Heart, MessageCircle, ExternalLink, Film } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -200,7 +201,72 @@ export default function Connect() {
           </CardContent>
         </Card>
       )}
+
+      {status?.connected && status.account && <PublishedReels />}
     </div>
+  )
+}
+
+function PublishedReels() {
+  const { data: posts, isLoading } = useGetInstagramPosts({ limit: 12 })
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-xl">
+          <Film className="w-5 h-5 text-primary" />
+          Reels Publicados
+        </CardTitle>
+        <CardDescription>Tus publicaciones más recientes en Instagram.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <Skeleton key={i} className="aspect-[9/16] rounded-xl" />
+            ))}
+          </div>
+        ) : !posts || posts.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-8">
+            No se encontraron publicaciones en tu cuenta.
+          </p>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+            {posts.map((post) => (
+              <a
+                key={post.id}
+                href={post.permalink ?? undefined}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group relative aspect-[9/16] rounded-xl overflow-hidden border bg-muted"
+              >
+                {post.thumbnail_url ? (
+                  <img
+                    src={post.thumbnail_url}
+                    alt={post.caption ?? "Reel"}
+                    className="w-full h-full object-cover transition-transform group-hover:scale-105"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+                    <Film className="w-8 h-8" />
+                  </div>
+                )}
+                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-3 text-white">
+                  <div className="flex items-center gap-3 text-xs font-medium">
+                    <span className="flex items-center gap-1"><Heart className="w-3.5 h-3.5" /> {post.like_count}</span>
+                    <span className="flex items-center gap-1"><MessageCircle className="w-3.5 h-3.5" /> {post.comments_count}</span>
+                    <ExternalLink className="w-3.5 h-3.5 ml-auto opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </div>
+                  {post.caption && (
+                    <p className="text-[11px] mt-1 line-clamp-2 opacity-80">{post.caption}</p>
+                  )}
+                </div>
+              </a>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 
