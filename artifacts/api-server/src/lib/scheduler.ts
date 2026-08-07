@@ -323,7 +323,32 @@ export async function runAutomationCycle(targetItemId?: number): Promise<{
 }
 
 export async function pollAndPublishVideos(): Promise<void> {
-  // Check all generating videos
+  // ── Publish videos that are already "ready" (captions done/failed/disabled) ──
+  // This handles the case where the server restarted after captions were applied
+  // but before publishing, leaving videos stuck in "ready" state.
+  const [automation] = await db.select().from(automationConfigTable).limit(1);
+  if (automation?.autoPublish) {
+    const readyVideos = await db
+      .select()
+      .from(videosTable)
+      .where(
+        and(
+          eq(videosTable.status, "ready"),
+          inArray(videosTable.captionStatus as any, ["done", "failed", "disabled"])
+        )
+      );
+
+    for (const video of readyVideos) {
+      try {
+        logger.info({ videoId: video.id }, "[Scheduler] Publishing stalled ready video");
+        await publishVideoToInstagram(video.id);
+      } catch (err) {
+        logger.error({ videoId: video.id, err }, "[Scheduler] Failed to publish stalled video");
+      }
+    }
+  }
+
+  // ── Poll HeyGen for videos still generating ───────────────────────────────
   const generatingVideos = await db
     .select()
     .from(videosTable)
