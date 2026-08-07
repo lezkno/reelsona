@@ -30,6 +30,8 @@ export async function generateScript(
 
   const prompt = `Eres un experto en creación de contenido para Instagram Reels.
 
+IMPORTANTE: Usa español neutro (sin voseo, sin modismos regionales). Tutea al espectador ("tú", "te", "tu"), no uses "vos" ni conjugaciones del voseo como "seguime", "guardá", "comentá", "hacé". El contenido debe ser comprensible para cualquier hispanohablante.
+
 Crea un guion de video para un Reel de Instagram con estas especificaciones:
 - Nicho: ${niche}
 - Tema: ${topic}
@@ -38,8 +40,8 @@ Crea un guion de video para un Reel de Instagram con estas especificaciones:
 - Duración aproximada: ${durationSeconds} segundos (~${wordCount} palabras)
 
 REGLAS OBLIGATORIAS para el campo "script":
-1. El guion DEBE terminar con una llamada a la acción clara y directa hablada por el avatar (ej: "Seguime para más tips como este", "Guardá este video y ponelo en práctica hoy", "Comentá abajo si te pasó esto").
-2. La ÚLTIMA oración del guion SIEMPRE debe ser: "Este video fue creado con inteligencia artificial. Seguime para más contenido como este." — exactamente así, integrado de forma natural en el cierre.
+1. El guion DEBE terminar con una llamada a la acción clara y directa hablada por el avatar (ej: "Sígueme para más tips como este", "Guarda este video y ponlo en práctica hoy", "Comenta abajo si te pasó esto").
+2. La ÚLTIMA oración del guion SIEMPRE debe ser: "Este video fue creado con inteligencia artificial. Sígueme para más contenido como este." — exactamente así, integrado de forma natural en el cierre.
 3. El hook debe ser la primera frase del guion (ya incluida dentro de "script").
 4. Sin indicaciones de escena, sin corchetes, sin asteriscos — solo texto hablado corrido.
 5. El tono debe sentirse conversacional, no como un comercial.
@@ -91,7 +93,7 @@ Formatos a alternar (no repetir el mismo más de 3 veces seguidas):
   - "Mito vs realidad: [creencia común del nicho]"
   - "[Número] señales de que tu [X] está funcionando"
   - "El secreto detrás de [resultado que la audiencia quiere]"
-  - "Esto que hacías antes ya no funciona — hacé esto en cambio"
+  - "Esto que hacías antes ya no funciona — haz esto en cambio"
 `.trim();
 
 export async function generateContentTopics(
@@ -124,13 +126,15 @@ export async function generateContentTopics(
 
   const prompt = `Eres un estratega de contenido para Instagram Reels especializado en crecimiento orgánico.
 
+IMPORTANTE: Usa español neutro en todos los títulos y textos (sin voseo, sin modismos regionales). El contenido debe ser comprensible para cualquier hispanohablante.
+
 Genera un plan de contenido con ${total} temas únicos para el siguiente nicho:
 - Nicho: ${niche}
 - Tono de comunicación: ${tone}
 - Idioma: ${language}
 - Temas que ya existen (NO repetir ni parafrasear): ${topPerformingTopics.slice(0, 8).join(" | ") || "N/A"}
 
-PILARES DE CONTENIDO — distribuí los ${total} temas equitativamente entre todos estos pilares.
+PILARES DE CONTENIDO — distribuye los ${total} temas equitativamente entre todos estos pilares.
 Cada pilar puede tener como máximo ${maxPerPillar} temas. No pongas más de 2 temas seguidos del mismo pilar:
 ${allPillars.map((p, i) => `  ${i + 1}. ${p}`).join("\n")}
 
