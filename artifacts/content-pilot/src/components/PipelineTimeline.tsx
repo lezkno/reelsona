@@ -1,4 +1,4 @@
-import { useGetContentPlan, type ContentPlanItem } from "@workspace/api-client-react"
+import { useGetContentPlan, useGetAutomation, type ContentPlanItem } from "@workspace/api-client-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { format } from "date-fns"
@@ -88,12 +88,14 @@ function pickActiveItem(items: ContentPlanItem[]): { item: ContentPlanItem; mode
 
 export default function PipelineTimeline() {
   const { data: items } = useGetContentPlan({ limit: 100 }, { query: { refetchInterval: 15000 } as any })
+  const { data: automation } = useGetAutomation()
 
   const active = items ? pickActiveItem(items) : null
   if (!active) return null
 
   const { item, mode } = active
   const { step, percent } = getProgress(item)
+  const willAutoPublish = automation?.enabled && automation?.auto_publish
   const scheduled = item.scheduled_at ? new Date(item.scheduled_at) : null
 
   // Caption Studio step is hidden only when explicitly disabled (captions turned off in automation).
@@ -145,6 +147,10 @@ export default function PipelineTimeline() {
             }
             if (s.key === "caption" && done && item.caption_status === "failed") {
               statusLabel = "Omitido (error)"
+            }
+            // Publish step: only show "En proceso..." if auto-publish is actually active
+            if (s.key === "publish" && current && !willAutoPublish) {
+              statusLabel = "Publicar manualmente"
             }
 
             return (
