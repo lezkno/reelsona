@@ -60,6 +60,7 @@ export default function ContentPlan() {
   const createItem = useCreateContentItem()
   const processNow = useProcessContentItemNow()
   const [processingId, setProcessingId] = useState<number | null>(null)
+  const [editingTopic, setEditingTopic] = useState<{ id: number; value: string } | null>(null)
 
   // Derived from real API data — true if ANY item is currently being produced.
   // Used to block all manual generate buttons so only one HeyGen job runs at a time.
@@ -109,6 +110,16 @@ export default function ContentPlan() {
   const { data: allLooks } = useGetHeyGenAllLooks()
   const lookById = new Map((allLooks ?? []).map((l) => [l.id, l]))
   const [avatarPickerItem, setAvatarPickerItem] = useState<ContentPlanItem | null>(null)
+
+  const handleSaveTopic = (id: number, value: string) => {
+    const trimmed = value.trim()
+    setEditingTopic(null)
+    if (!trimmed) return
+    updateItem.mutate({ id, data: { topic: trimmed } }, {
+      onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetContentPlanQueryKey() }),
+      onError: () => toast({ title: "Error", description: "No se pudo guardar el título.", variant: "destructive" }),
+    })
+  }
 
   const handlePickAvatar = (itemId: number, avatarId: string) => {
     updateItem.mutate({ id: itemId, data: { avatar_id: avatarId } }, {
@@ -359,7 +370,30 @@ export default function ContentPlan() {
                                   </button>
                                 )
                               })()}
-                              <h4 className="text-lg font-bold font-display leading-tight pt-1.5">{item.topic}</h4>
+                              {item.status === "draft" && editingTopic?.id === item.id ? (
+                                <input
+                                  autoFocus
+                                  className="flex-1 text-lg font-bold font-display leading-tight pt-1.5 bg-transparent border-b-2 border-primary outline-none w-full"
+                                  value={editingTopic.value}
+                                  onChange={(e) => setEditingTopic({ id: item.id, value: e.target.value })}
+                                  onBlur={() => handleSaveTopic(item.id, editingTopic.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") handleSaveTopic(item.id, editingTopic.value)
+                                    if (e.key === "Escape") setEditingTopic(null)
+                                  }}
+                                />
+                              ) : (
+                                <h4
+                                  className={`text-lg font-bold font-display leading-tight pt-1.5 ${item.status === "draft" ? "cursor-text hover:text-primary transition-colors" : ""}`}
+                                  title={item.status === "draft" ? "Clic para editar el título" : undefined}
+                                  onClick={() => item.status === "draft" && setEditingTopic({ id: item.id, value: item.topic })}
+                                >
+                                  {item.topic}
+                                  {item.status === "draft" && (
+                                    <Edit3 className="inline-block w-3.5 h-3.5 ml-1.5 opacity-0 group-hover:opacity-40 transition-opacity align-middle" />
+                                  )}
+                                </h4>
+                              )}
                             </div>
                             {item.hook && (
                               <p className="text-sm text-muted-foreground line-clamp-2 italic border-l-2 border-primary/30 pl-3 py-0.5">
