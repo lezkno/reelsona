@@ -24,6 +24,8 @@ tags:
     description: Automation engine configuration
   - name: settings
     description: App settings and niche configuration
+  - name: captions
+    description: Caption Studio — dynamic motion captions layer
 
 paths:
   /healthz:
@@ -593,6 +595,51 @@ paths:
               schema:
                 $ref: "#/components/schemas/Settings"
 
+  /captions/presets:
+    get:
+      operationId: getCaptionPresets
+      tags: [captions]
+      summary: List built-in caption presets
+      responses:
+        "200":
+          description: List of presets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CaptionPreset"
+
+  /captions/config:
+    get:
+      operationId: getCaptionConfig
+      tags: [captions]
+      summary: Get current caption studio configuration
+      responses:
+        "200":
+          description: Caption config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CaptionConfig"
+    put:
+      operationId: updateCaptionConfig
+      tags: [captions]
+      summary: Update caption studio configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CaptionConfigInput"
+      responses:
+        "200":
+          description: Updated caption config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CaptionConfig"
+
 components:
   schemas:
     HealthStatus:
@@ -999,6 +1046,11 @@ components:
           type: ["string", "null"]
         duration_seconds:
           type: ["number", "null"]
+        captioned_video_url:
+          type: ["string", "null"]
+        caption_status:
+          type: ["string", "null"]
+          enum: [disabled, processing, done, failed, null]
         created_at:
           type: string
         updated_at:
@@ -1043,6 +1095,8 @@ components:
           type: boolean
         auto_publish:
           type: boolean
+        captions_enabled:
+          type: boolean
         last_run_at:
           type: ["string", "null"]
         next_run_at:
@@ -1057,6 +1111,7 @@ components:
         - auto_generate_script
         - auto_generate_video
         - auto_publish
+        - captions_enabled
 
     AutomationConfigInput:
       type: object
@@ -1078,6 +1133,8 @@ components:
         auto_generate_video:
           type: boolean
         auto_publish:
+          type: boolean
+        captions_enabled:
           type: boolean
 
     AutomationRunResult:
@@ -1145,3 +1202,126 @@ components:
           type: boolean
         watermark_text:
           type: ["string", "null"]
+
+    CaptionPreset:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        primary_color:
+          type: string
+        active_word_color:
+          type: string
+        outline_color:
+          type: string
+        background_color:
+          type: ["string", "null"]
+        font_family:
+          type: string
+        font_size:
+          type: number
+        active_word_scale:
+          type: number
+        highlight_mode:
+          type: string
+          enum: [color, scale, both]
+        auto_movement:
+          type: boolean
+        subtle_rotation:
+          type: boolean
+      required: [id, name, description, primary_color, active_word_color, outline_color, font_family, font_size, active_word_scale, highlight_mode, auto_movement, subtle_rotation]
+
+    CaptionConfig:
+      type: object
+      properties:
+        preset_id:
+          type: string
+        position:
+          type: string
+          enum: [top, center, bottom]
+        words_per_line:
+          type: number
+        primary_color:
+          type: string
+        active_word_color:
+          type: string
+        outline_color:
+          type: string
+        background_color:
+          type: ["string", "null"]
+        font_family:
+          type: string
+        font_size:
+          type: number
+        active_word_scale:
+          type: number
+        highlight_mode:
+          type: string
+          enum: [color, scale, both]
+        auto_scale:
+          type: boolean
+        auto_movement:
+          type: boolean
+        subtle_rotation:
+          type: boolean
+        updated_at:
+          type: string
+      required:
+        - preset_id
+        - position
+        - words_per_line
+        - primary_color
+        - active_word_color
+        - outline_color
+        - font_family
+        - font_size
+        - active_word_scale
+        - highlight_mode
+        - auto_scale
+        - auto_movement
+        - subtle_rotation
+        - updated_at
+
+    CaptionConfigInput:
+      type: object
+      properties:
+        preset_id:
+          type: string
+        position:
+          type: string
+          enum: [top, center, bottom]
+        words_per_line:
+          type: number
+          minimum: 1
+          maximum: 8
+        primary_color:
+          type: string
+        active_word_color:
+          type: string
+        outline_color:
+          type: string
+        background_color:
+          type: ["string", "null"]
+        font_family:
+          type: string
+        font_size:
+          type: number
+          minimum: 24
+          maximum: 120
+        active_word_scale:
+          type: number
+          minimum: 1.0
+          maximum: 2.0
+        highlight_mode:
+          type: string
+          enum: [color, scale, both]
+        auto_scale:
+          type: boolean
+        auto_movement:
+          type: boolean
+        subtle_rotation:
+          type: boolean

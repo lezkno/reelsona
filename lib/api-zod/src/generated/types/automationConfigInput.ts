@@ -14,4 +14,5 @@ export interface AutomationConfigInput {
   auto_generate_script?: boolean;
   auto_generate_video?: boolean;
   auto_publish?: boolean;
+  captions_enabled?: boolean;
 }

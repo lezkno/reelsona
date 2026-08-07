@@ -471,6 +471,8 @@ export const GetVideosResponseItem = zod.object({
   "ig_permalink": zod.string().nullish(),
   "error_message": zod.string().nullish(),
   "duration_seconds": zod.number().nullish(),
+  "captioned_video_url": zod.string().nullish(),
+  "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish(),
   "created_at": zod.string(),
   "updated_at": zod.string(),
   "published_at": zod.string().nullish()
@@ -498,6 +500,8 @@ export const GenerateVideoResponse = zod.object({
   "ig_permalink": zod.string().nullish(),
   "error_message": zod.string().nullish(),
   "duration_seconds": zod.number().nullish(),
+  "captioned_video_url": zod.string().nullish(),
+  "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish(),
   "created_at": zod.string(),
   "updated_at": zod.string(),
   "published_at": zod.string().nullish()
@@ -524,6 +528,8 @@ export const GetVideoResponse = zod.object({
   "ig_permalink": zod.string().nullish(),
   "error_message": zod.string().nullish(),
   "duration_seconds": zod.number().nullish(),
+  "captioned_video_url": zod.string().nullish(),
+  "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish(),
   "created_at": zod.string(),
   "updated_at": zod.string(),
   "published_at": zod.string().nullish()
@@ -555,6 +561,8 @@ export const PublishVideoResponse = zod.object({
   "ig_permalink": zod.string().nullish(),
   "error_message": zod.string().nullish(),
   "duration_seconds": zod.number().nullish(),
+  "captioned_video_url": zod.string().nullish(),
+  "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish(),
   "created_at": zod.string(),
   "updated_at": zod.string(),
   "published_at": zod.string().nullish()
@@ -572,6 +580,7 @@ export const GetAutomationResponse = zod.object({
   "auto_generate_script": zod.boolean(),
   "auto_generate_video": zod.boolean(),
   "auto_publish": zod.boolean(),
+  "captions_enabled": zod.boolean(),
   "last_run_at": zod.string().nullish(),
   "next_run_at": zod.string().nullish(),
   "last_run_status": zod.string().nullish()
@@ -588,7 +597,8 @@ export const UpdateAutomationBody = zod.object({
   "timezone": zod.string().optional(),
   "auto_generate_script": zod.boolean().optional(),
   "auto_generate_video": zod.boolean().optional(),
-  "auto_publish": zod.boolean().optional()
+  "auto_publish": zod.boolean().optional(),
+  "captions_enabled": zod.boolean().optional()
 })
 
 export const UpdateAutomationResponse = zod.object({
@@ -599,6 +609,7 @@ export const UpdateAutomationResponse = zod.object({
   "auto_generate_script": zod.boolean(),
   "auto_generate_video": zod.boolean(),
   "auto_publish": zod.boolean(),
+  "captions_enabled": zod.boolean(),
   "last_run_at": zod.string().nullish(),
   "next_run_at": zod.string().nullish(),
   "last_run_status": zod.string().nullish()
@@ -654,6 +665,97 @@ export const UpdateSettingsResponse = zod.object({
   "video_duration_seconds": zod.number(),
   "include_captions": zod.boolean(),
   "watermark_text": zod.string().nullish()
+})
+
+
+/**
+ * @summary List built-in caption presets
+ */
+export const GetCaptionPresetsResponseItem = zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "description": zod.string(),
+  "primary_color": zod.string(),
+  "active_word_color": zod.string(),
+  "outline_color": zod.string(),
+  "background_color": zod.string().nullish(),
+  "font_family": zod.string(),
+  "font_size": zod.number(),
+  "active_word_scale": zod.number(),
+  "highlight_mode": zod.enum(['color', 'scale', 'both']),
+  "auto_movement": zod.boolean(),
+  "subtle_rotation": zod.boolean()
+})
+export const GetCaptionPresetsResponse = zod.array(GetCaptionPresetsResponseItem)
+
+
+/**
+ * @summary Get current caption studio configuration
+ */
+export const GetCaptionConfigResponse = zod.object({
+  "preset_id": zod.string(),
+  "position": zod.enum(['top', 'center', 'bottom']),
+  "words_per_line": zod.number(),
+  "primary_color": zod.string(),
+  "active_word_color": zod.string(),
+  "outline_color": zod.string(),
+  "background_color": zod.string().nullish(),
+  "font_family": zod.string(),
+  "font_size": zod.number(),
+  "active_word_scale": zod.number(),
+  "highlight_mode": zod.enum(['color', 'scale', 'both']),
+  "auto_scale": zod.boolean(),
+  "auto_movement": zod.boolean(),
+  "subtle_rotation": zod.boolean(),
+  "updated_at": zod.string()
+})
+
+
+/**
+ * @summary Update caption studio configuration
+ */
+export const updateCaptionConfigBodyWordsPerLineMax = 8;
+
+export const updateCaptionConfigBodyFontSizeMin = 24;
+export const updateCaptionConfigBodyFontSizeMax = 120;
+
+export const updateCaptionConfigBodyActiveWordScaleMax = 2;
+
+
+
+export const UpdateCaptionConfigBody = zod.object({
+  "preset_id": zod.string().optional(),
+  "position": zod.enum(['top', 'center', 'bottom']).optional(),
+  "words_per_line": zod.number().min(1).max(updateCaptionConfigBodyWordsPerLineMax).optional(),
+  "primary_color": zod.string().optional(),
+  "active_word_color": zod.string().optional(),
+  "outline_color": zod.string().optional(),
+  "background_color": zod.string().nullish(),
+  "font_family": zod.string().optional(),
+  "font_size": zod.number().min(updateCaptionConfigBodyFontSizeMin).max(updateCaptionConfigBodyFontSizeMax).optional(),
+  "active_word_scale": zod.number().min(1).max(updateCaptionConfigBodyActiveWordScaleMax).optional(),
+  "highlight_mode": zod.enum(['color', 'scale', 'both']).optional(),
+  "auto_scale": zod.boolean().optional(),
+  "auto_movement": zod.boolean().optional(),
+  "subtle_rotation": zod.boolean().optional()
+})
+
+export const UpdateCaptionConfigResponse = zod.object({
+  "preset_id": zod.string(),
+  "position": zod.enum(['top', 'center', 'bottom']),
+  "words_per_line": zod.number(),
+  "primary_color": zod.string(),
+  "active_word_color": zod.string(),
+  "outline_color": zod.string(),
+  "background_color": zod.string().nullish(),
+  "font_family": zod.string(),
+  "font_size": zod.number(),
+  "active_word_scale": zod.number(),
+  "highlight_mode": zod.enum(['color', 'scale', 'both']),
+  "auto_scale": zod.boolean(),
+  "auto_movement": zod.boolean(),
+  "subtle_rotation": zod.boolean(),
+  "updated_at": zod.string()
 })
 
 

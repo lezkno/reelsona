@@ -11,6 +11,7 @@ export const automationConfigTable = pgTable("automation_config", {
   autoGenerateScript: boolean("auto_generate_script").notNull().default(true),
   autoGenerateVideo: boolean("auto_generate_video").notNull().default(true),
   autoPublish: boolean("auto_publish").notNull().default(true),
+  captionsEnabled: boolean("captions_enabled").notNull().default(false),
   lastRunAt: timestamp("last_run_at"),
   nextRunAt: timestamp("next_run_at"),
   lastRunStatus: text("last_run_status"),

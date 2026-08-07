@@ -13,6 +13,7 @@ import Avatars from "@/pages/Avatars"
 import Videos from "@/pages/Videos"
 import Settings from "@/pages/Settings"
 import Automation from "@/pages/Automation"
+import CaptionStudio from "@/pages/CaptionStudio"
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -35,6 +36,7 @@ function Router() {
         <Route path="/videos" component={Videos} />
         <Route path="/settings" component={Settings} />
         <Route path="/automation" component={Automation} />
+        <Route path="/captions" component={CaptionStudio} />
         <Route component={NotFound} />
       </Switch>
     </Layout>

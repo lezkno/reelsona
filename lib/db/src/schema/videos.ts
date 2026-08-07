@@ -16,6 +16,8 @@ export const videosTable = pgTable("videos", {
   errorMessage: text("error_message"),
   durationSeconds: integer("duration_seconds"),
   publishedAt: timestamp("published_at"),
+  captionedVideoUrl: text("captioned_video_url"),
+  captionStatus: text("caption_status").default("disabled"), // disabled | processing | done | failed
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

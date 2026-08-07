@@ -5,6 +5,7 @@
  * ContentPilot API — automated Instagram Reels content machine using HeyGen avatars
  * OpenAPI spec version: 0.1.0
  */
+import type { VideoCaptionStatus } from './videoCaptionStatus';
 import type { VideoStatus } from './videoStatus';
 
 export interface Video {
@@ -30,6 +31,10 @@ export interface Video {
   error_message?: string | null;
   /** @nullable */
   duration_seconds?: number | null;
+  /** @nullable */
+  captioned_video_url?: string | null;
+  /** @nullable */
+  caption_status?: VideoCaptionStatus;
   created_at: string;
   updated_at: string;
   /** @nullable */

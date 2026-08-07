@@ -288,6 +288,19 @@ export const VideoStatus = {
   failed: 'failed',
 } as const;
 
+/**
+ * @nullable
+ */
+export type VideoCaptionStatus = typeof VideoCaptionStatus[keyof typeof VideoCaptionStatus] | null;
+
+
+export const VideoCaptionStatus = {
+  disabled: 'disabled',
+  processing: 'processing',
+  done: 'done',
+  failed: 'failed',
+} as const;
+
 export interface Video {
   id: number;
   /** @nullable */
@@ -311,6 +324,10 @@ export interface Video {
   error_message?: string | null;
   /** @nullable */
   duration_seconds?: number | null;
+  /** @nullable */
+  captioned_video_url?: string | null;
+  /** @nullable */
+  caption_status?: VideoCaptionStatus;
   created_at: string;
   updated_at: string;
   /** @nullable */
@@ -336,6 +353,7 @@ export interface AutomationConfig {
   auto_generate_script: boolean;
   auto_generate_video: boolean;
   auto_publish: boolean;
+  captions_enabled: boolean;
   /** @nullable */
   last_run_at?: string | null;
   /** @nullable */
@@ -352,6 +370,7 @@ export interface AutomationConfigInput {
   auto_generate_script?: boolean;
   auto_generate_video?: boolean;
   auto_publish?: boolean;
+  captions_enabled?: boolean;
 }
 
 export interface AutomationRunResult {
@@ -409,6 +428,117 @@ export interface SettingsInput {
   include_captions?: boolean;
   /** @nullable */
   watermark_text?: string | null;
+}
+
+export type CaptionPresetHighlightMode = typeof CaptionPresetHighlightMode[keyof typeof CaptionPresetHighlightMode];
+
+
+export const CaptionPresetHighlightMode = {
+  color: 'color',
+  scale: 'scale',
+  both: 'both',
+} as const;
+
+export interface CaptionPreset {
+  id: string;
+  name: string;
+  description: string;
+  primary_color: string;
+  active_word_color: string;
+  outline_color: string;
+  /** @nullable */
+  background_color?: string | null;
+  font_family: string;
+  font_size: number;
+  active_word_scale: number;
+  highlight_mode: CaptionPresetHighlightMode;
+  auto_movement: boolean;
+  subtle_rotation: boolean;
+}
+
+export type CaptionConfigPosition = typeof CaptionConfigPosition[keyof typeof CaptionConfigPosition];
+
+
+export const CaptionConfigPosition = {
+  top: 'top',
+  center: 'center',
+  bottom: 'bottom',
+} as const;
+
+export type CaptionConfigHighlightMode = typeof CaptionConfigHighlightMode[keyof typeof CaptionConfigHighlightMode];
+
+
+export const CaptionConfigHighlightMode = {
+  color: 'color',
+  scale: 'scale',
+  both: 'both',
+} as const;
+
+export interface CaptionConfig {
+  preset_id: string;
+  position: CaptionConfigPosition;
+  words_per_line: number;
+  primary_color: string;
+  active_word_color: string;
+  outline_color: string;
+  /** @nullable */
+  background_color?: string | null;
+  font_family: string;
+  font_size: number;
+  active_word_scale: number;
+  highlight_mode: CaptionConfigHighlightMode;
+  auto_scale: boolean;
+  auto_movement: boolean;
+  subtle_rotation: boolean;
+  updated_at: string;
+}
+
+export type CaptionConfigInputPosition = typeof CaptionConfigInputPosition[keyof typeof CaptionConfigInputPosition];
+
+
+export const CaptionConfigInputPosition = {
+  top: 'top',
+  center: 'center',
+  bottom: 'bottom',
+} as const;
+
+export type CaptionConfigInputHighlightMode = typeof CaptionConfigInputHighlightMode[keyof typeof CaptionConfigInputHighlightMode];
+
+
+export const CaptionConfigInputHighlightMode = {
+  color: 'color',
+  scale: 'scale',
+  both: 'both',
+} as const;
+
+export interface CaptionConfigInput {
+  preset_id?: string;
+  position?: CaptionConfigInputPosition;
+  /**
+     * @minimum 1
+     * @maximum 8
+     */
+  words_per_line?: number;
+  primary_color?: string;
+  active_word_color?: string;
+  outline_color?: string;
+  /** @nullable */
+  background_color?: string | null;
+  font_family?: string;
+  /**
+     * @minimum 24
+     * @maximum 120
+     */
+  font_size?: number;
+  /**
+     * @minimum 1
+     * @maximum 2
+     */
+  active_word_scale?: number;
+  highlight_mode?: CaptionConfigInputHighlightMode;
+  auto_scale?: boolean;
+  auto_movement?: boolean;
+  subtle_rotation?: boolean;
 }
 
 export type GetInstagramPostsParams = {

@@ -27,6 +27,9 @@ import type {
   AutomationRunResult,
   AvatarConfig,
   AvatarConfigInput,
+  CaptionConfig,
+  CaptionConfigInput,
+  CaptionPreset,
   ContentPlanGenerateInput,
   ContentPlanItem,
   ContentPlanItemCreateInput,
@@ -2484,5 +2487,230 @@ export const useUpdateSettings = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getUpdateSettingsMutationOptions(options));
+    }
+
+export const getGetCaptionPresetsUrl = () => {
+
+
+
+
+  return `/api/captions/presets`
+}
+
+/**
+ * @summary List built-in caption presets
+ */
+export const getCaptionPresets = async ( options?: Parameters<typeof customFetch>[1]): Promise<CaptionPreset[]> => {
+
+  return customFetch<CaptionPreset[]>(getGetCaptionPresetsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetCaptionPresetsQueryKey = () => {
+    return [
+    `/api/captions/presets`
+    ] as const;
+    }
+
+
+export const getGetCaptionPresetsQueryOptions = <TData = Awaited<ReturnType<typeof getCaptionPresets>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCaptionPresets>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetCaptionPresetsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getCaptionPresets>>> = ({ signal }) => getCaptionPresets({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getCaptionPresets>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetCaptionPresetsQueryResult = NonNullable<Awaited<ReturnType<typeof getCaptionPresets>>>
+export type GetCaptionPresetsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List built-in caption presets
+ */
+
+export function useGetCaptionPresets<TData = Awaited<ReturnType<typeof getCaptionPresets>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCaptionPresets>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetCaptionPresetsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetCaptionConfigUrl = () => {
+
+
+
+
+  return `/api/captions/config`
+}
+
+/**
+ * @summary Get current caption studio configuration
+ */
+export const getCaptionConfig = async ( options?: Parameters<typeof customFetch>[1]): Promise<CaptionConfig> => {
+
+  return customFetch<CaptionConfig>(getGetCaptionConfigUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetCaptionConfigQueryKey = () => {
+    return [
+    `/api/captions/config`
+    ] as const;
+    }
+
+
+export const getGetCaptionConfigQueryOptions = <TData = Awaited<ReturnType<typeof getCaptionConfig>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCaptionConfig>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetCaptionConfigQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getCaptionConfig>>> = ({ signal }) => getCaptionConfig({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getCaptionConfig>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetCaptionConfigQueryResult = NonNullable<Awaited<ReturnType<typeof getCaptionConfig>>>
+export type GetCaptionConfigQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get current caption studio configuration
+ */
+
+export function useGetCaptionConfig<TData = Awaited<ReturnType<typeof getCaptionConfig>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCaptionConfig>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetCaptionConfigQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateCaptionConfigUrl = () => {
+
+
+
+
+  return `/api/captions/config`
+}
+
+/**
+ * @summary Update caption studio configuration
+ */
+export const updateCaptionConfig = async (captionConfigInput: CaptionConfigInput, options?: Parameters<typeof customFetch>[1]): Promise<CaptionConfig> => {
+
+  return customFetch<CaptionConfig>(getUpdateCaptionConfigUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(captionConfigInput)
+  }
+);}
+
+
+
+
+
+export const getUpdateCaptionConfigMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateCaptionConfig>>, TError,{data: BodyType<CaptionConfigInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateCaptionConfig>>, TError,{data: BodyType<CaptionConfigInput>}, TContext> => {
+
+const mutationKey = ['updateCaptionConfig'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateCaptionConfig>>, {data: BodyType<CaptionConfigInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  updateCaptionConfig(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateCaptionConfigMutationResult = NonNullable<Awaited<ReturnType<typeof updateCaptionConfig>>>
+    export type UpdateCaptionConfigMutationBody = BodyType<CaptionConfigInput>
+    export type UpdateCaptionConfigMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Update caption studio configuration
+ */
+export const useUpdateCaptionConfig = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateCaptionConfig>>, TError,{data: BodyType<CaptionConfigInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateCaptionConfig>>,
+        TError,
+        {data: BodyType<CaptionConfigInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateCaptionConfigMutationOptions(options));
     }
 

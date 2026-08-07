@@ -7,7 +7,9 @@ import {
   contentPlanItemsTable,
   videosTable,
   instagramAccountsTable,
+  captionConfigTable,
 } from "@workspace/db";
+import { applyCaptions, type CaptionStyle } from "./caption-engine";
 import { eq, and, lte, inArray } from "drizzle-orm";
 import { logger } from "./logger";
 import { generateScript } from "./ai-scripts";
@@ -328,10 +330,71 @@ export async function pollAndPublishVideos(): Promise<void> {
 
         logger.info({ videoId: video.id }, "Video ready");
 
-        // Auto-publish if enabled
+        // ── Caption Studio: optional captions layer (Punto A) ─────────────────
         const [automation] = await db.select().from(automationConfigTable).limit(1);
+        if (automation?.captionsEnabled) {
+          try {
+            const [captionCfg] = await db.select().from(captionConfigTable).limit(1);
+            if (captionCfg) {
+              await db.update(videosTable)
+                .set({ captionStatus: "processing", updatedAt: new Date() })
+                .where(eq(videosTable.id, video.id));
+
+              // Fetch script for word-timing (passed to render engine)
+              let script: string | null = null;
+              if (video.contentPlanId) {
+                const [item] = await db.select().from(contentPlanItemsTable)
+                  .where(eq(contentPlanItemsTable.id, video.contentPlanId));
+                script = item?.script ?? null;
+              }
+
+              const style: CaptionStyle = {
+                presetId: captionCfg.presetId,
+                position: captionCfg.position as CaptionStyle["position"],
+                wordsPerLine: captionCfg.wordsPerLine,
+                primaryColor: captionCfg.primaryColor,
+                activeWordColor: captionCfg.activeWordColor,
+                outlineColor: captionCfg.outlineColor,
+                backgroundColor: captionCfg.backgroundColor ?? null,
+                fontFamily: captionCfg.fontFamily,
+                fontSize: captionCfg.fontSize,
+                activeWordScale: captionCfg.activeWordScale,
+                highlightMode: captionCfg.highlightMode as CaptionStyle["highlightMode"],
+                autoScale: captionCfg.autoScale,
+                autoMovement: captionCfg.autoMovement,
+                subtleRotation: captionCfg.subtleRotation,
+              };
+
+              const captionResult = await applyCaptions(status.video_url, script, style);
+
+              if (captionResult.url) {
+                await db.update(videosTable)
+                  .set({ captionedVideoUrl: captionResult.url, captionStatus: "done", updatedAt: new Date() })
+                  .where(eq(videosTable.id, video.id));
+                logger.info({ videoId: video.id }, "[CaptionEngine] Captioned video ready");
+              } else {
+                await db.update(videosTable)
+                  .set({ captionStatus: "failed", updatedAt: new Date() })
+                  .where(eq(videosTable.id, video.id));
+                logger.warn({ videoId: video.id, error: captionResult.error }, "[CaptionEngine] Failed — using original video");
+              }
+            }
+          } catch (captionErr) {
+            logger.error({ videoId: video.id, captionErr }, "[CaptionEngine] Unexpected error — using original video");
+            await db.update(videosTable)
+              .set({ captionStatus: "failed", updatedAt: new Date() })
+              .where(eq(videosTable.id, video.id)).catch(() => {});
+          }
+        } else {
+          await db.update(videosTable)
+            .set({ captionStatus: "disabled", updatedAt: new Date() })
+            .where(eq(videosTable.id, video.id));
+        }
+        // ─────────────────────────────────────────────────────────────────────
+
+        // Auto-publish if enabled
         if (automation?.autoPublish && status.video_url) {
-          await publishVideoToInstagram(video.id, status.video_url);
+          await publishVideoToInstagram(video.id);
         }
       } else if (status.status === "failed") {
         await db
@@ -353,8 +416,13 @@ export async function publishVideoToInstagram(videoId: number, videoUrl?: string
   const [video] = await db.select().from(videosTable).where(eq(videosTable.id, videoId));
   if (!video) throw new Error("Video not found");
 
-  const url = videoUrl ?? video.videoUrl;
-  if (!url) throw new Error("Video URL not available");
+  // Use captioned URL if available (Caption Studio layer), fallback to original
+  const rawUrl = videoUrl ?? video.videoUrl;
+  if (!rawUrl) throw new Error("Video URL not available");
+  const url = video.captionedVideoUrl ?? rawUrl;
+  if (url !== rawUrl) {
+    logger.info({ videoId, captionedUrl: url.slice(0, 60) }, "[CaptionEngine] Publishing with captioned video");
+  }
 
   const [igAccount] = await db.select().from(instagramAccountsTable).limit(1);
   if (!igAccount) throw new Error("Instagram account not connected");

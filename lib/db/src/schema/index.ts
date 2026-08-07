@@ -4,3 +4,4 @@ export * from "./avatar-config";
 export * from "./content-plan-items";
 export * from "./videos";
 export * from "./automation-config";
+export * from "./caption-config";

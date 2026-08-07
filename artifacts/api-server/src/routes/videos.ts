@@ -32,6 +32,8 @@ function mapVideo(v: typeof videosTable.$inferSelect) {
     ig_permalink: v.igPermalink ?? null,
     error_message: v.errorMessage ?? null,
     duration_seconds: v.durationSeconds ?? null,
+    captioned_video_url: v.captionedVideoUrl ?? null,
+    caption_status: v.captionStatus ?? null,
     created_at: v.createdAt.toISOString(),
     updated_at: v.updatedAt.toISOString(),
     published_at: v.publishedAt?.toISOString() ?? null,
