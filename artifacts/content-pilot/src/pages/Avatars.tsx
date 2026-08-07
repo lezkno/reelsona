@@ -246,7 +246,9 @@ export default function Avatars() {
   const unhideAll = () => { setHiddenGroups(new Set()); saveHidden(new Set()) }
 
   const selectedByGroup = new Map<string, number>()
+  const lookCountByGroup = new Map<string, number>()
   for (const l of allLooks ?? []) {
+    lookCountByGroup.set(l.group_id, (lookCountByGroup.get(l.group_id) ?? 0) + 1)
     if (selectedIds.has(l.id)) {
       selectedByGroup.set(l.group_id, (selectedByGroup.get(l.group_id) ?? 0) + 1)
     }
@@ -472,8 +474,8 @@ export default function Avatars() {
           })
           .map((group) => {
             const count = selectedByGroup.get(group.id) ?? 0
-            // How many of this group's selected looks have a voice override
-            const overrideCount = (allLooks ?? []).filter(l => l.group_id === group.id && selectedIds.has(l.id) && voiceOverrides[l.id]).length
+            // Use actual look count from allLooks — group.num_looks from HeyGen can be stale/wrong
+            const totalLooks = lookCountByGroup.get(group.id) ?? group.num_looks
 
             return (
               <Card
@@ -506,11 +508,8 @@ export default function Avatars() {
                   <div className="min-w-0">
                     <h4 className="font-bold font-display truncate">{group.name}</h4>
                     <p className="text-xs text-muted-foreground">
-                      {group.num_looks} look{group.num_looks !== 1 ? "s" : ""}
+                      {totalLooks} look{totalLooks !== 1 ? "s" : ""}
                       {count > 0 && <span className="text-primary font-medium"> · {count} en rotación</span>}
-                      {overrideCount > 0 && (
-                        <span className="text-primary/70"> · <Mic className="w-2.5 h-2.5 inline -mt-px" /> {overrideCount} voz</span>
-                      )}
                     </p>
                   </div>
                   <Badge variant="secondary" className="shrink-0">Ver looks</Badge>
