@@ -86,7 +86,7 @@ export default function Avatars() {
   const selectedByGroup = new Map<string, number>()
   for (const l of allLooks ?? []) {
     if (selectedIds.has(l.id)) {
-      selectedByGroup.set(l.group_name, (selectedByGroup.get(l.group_name) ?? 0) + 1)
+      selectedByGroup.set(l.group_id, (selectedByGroup.get(l.group_id) ?? 0) + 1)
     }
   }
   const [voiceId, setVoiceId] = useState<string>("")
@@ -255,10 +255,10 @@ export default function Avatars() {
               ) : (
                 <div className="w-full h-full flex items-center justify-center text-muted-foreground"><ImageIcon className="w-10 h-10" /></div>
               )}
-              {(selectedByGroup.get(group.name) ?? 0) > 0 && (
+              {(selectedByGroup.get(group.id) ?? 0) > 0 && (
                 <Badge className="absolute top-2 right-2 gap-1 bg-primary text-primary-foreground shadow">
                   <CheckCircle2 className="w-3 h-3" />
-                  {selectedByGroup.get(group.name)} seleccionado{selectedByGroup.get(group.name)! !== 1 ? "s" : ""}
+                  {selectedByGroup.get(group.id)} seleccionado{selectedByGroup.get(group.id)! !== 1 ? "s" : ""}
                 </Badge>
               )}
             </div>
@@ -267,8 +267,8 @@ export default function Avatars() {
                 <h4 className="font-bold font-display truncate">{group.name}</h4>
                 <p className="text-xs text-muted-foreground">
                   {group.num_looks} look{group.num_looks !== 1 ? "s" : ""}
-                  {(selectedByGroup.get(group.name) ?? 0) > 0 && (
-                    <span className="text-primary font-medium"> · {selectedByGroup.get(group.name)} en rotación</span>
+                  {(selectedByGroup.get(group.id) ?? 0) > 0 && (
+                    <span className="text-primary font-medium"> · {selectedByGroup.get(group.id)} en rotación</span>
                   )}
                 </p>
               </div>

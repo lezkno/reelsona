@@ -81,7 +81,7 @@ router.get("/heygen/avatar-groups/:id/looks", async (req, res): Promise<void> =>
 });
 
 // Flat list of all looks, cached in memory (fetching all groups takes ~20 HeyGen calls)
-type FlatLook = { id: string; name: string; image_url: string | null; group_name: string };
+type FlatLook = { id: string; name: string; image_url: string | null; group_name: string; group_id: string };
 let looksCache: { data: FlatLook[]; at: number } | null = null;
 let looksFetch: Promise<FlatLook[]> | null = null;
 
@@ -96,9 +96,9 @@ async function fetchAllLooks(): Promise<FlatLook[]> {
     if (r.status !== "fulfilled") continue;
     for (const l of r.value.looks as any[]) {
       if (l.avatar_id) {
-        all.push({ id: l.avatar_id, name: l.avatar_name ?? "Look", image_url: l.preview_image_url ?? null, group_name: r.value.group.name });
+        all.push({ id: l.avatar_id, name: l.avatar_name ?? "Look", image_url: l.preview_image_url ?? null, group_name: r.value.group.name, group_id: r.value.group.id });
       } else if (r.value.group && l.id) {
-        all.push({ id: `tp:${l.id}`, name: l.name ?? "Look", image_url: l.image_url ?? null, group_name: r.value.group.name });
+        all.push({ id: `tp:${l.id}`, name: l.name ?? "Look", image_url: l.image_url ?? null, group_name: r.value.group.name, group_id: r.value.group.id });
       }
     }
   }

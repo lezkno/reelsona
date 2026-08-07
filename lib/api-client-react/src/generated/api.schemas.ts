@@ -123,6 +123,7 @@ export interface HeyGenFlatLook {
   /** @nullable */
   image_url: string | null;
   group_name: string;
+  group_id: string;
 }
 
 export interface HeyGenAvatar {

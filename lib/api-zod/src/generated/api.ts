@@ -212,7 +212,8 @@ export const GetHeyGenAllLooksResponseItem = zod.object({
   "id": zod.string(),
   "name": zod.string(),
   "image_url": zod.string().nullable(),
-  "group_name": zod.string()
+  "group_name": zod.string(),
+  "group_id": zod.string()
 })
 export const GetHeyGenAllLooksResponse = zod.array(GetHeyGenAllLooksResponseItem)
 
