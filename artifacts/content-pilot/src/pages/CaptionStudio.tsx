@@ -553,6 +553,22 @@ export default function CaptionStudio() {
                 </div>
 
                 <div className="space-y-2">
+                  <Label>
+                    Tamaño de letra: <span className="text-primary font-bold">{local.font_size ?? 88}px</span>
+                  </Label>
+                  <Slider
+                    min={60} max={220} step={5}
+                    value={[local.font_size ?? 88]}
+                    onValueChange={([v]) => set("font_size", v)}
+                    className="mt-3"
+                  />
+                  <div className="flex justify-between text-[10px] text-muted-foreground">
+                    <span>60 — compacto</span>
+                    <span>220 — máximo impacto</span>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
                   <Label>Palabras por línea: <span className="text-primary font-bold">{local.words_per_line ?? 3}</span></Label>
                   <Slider
                     min={1} max={6} step={1}
