@@ -11,17 +11,44 @@ import {
 import { eq, and, lte, inArray } from "drizzle-orm";
 import { logger } from "./logger";
 import { generateScript } from "./ai-scripts";
-import { generateVideo, getVideoStatus, listVoices } from "./heygen";
+import { generateVideo, getVideoStatus, listVoices, getAvatarDefaultVoiceId } from "./heygen";
 import { createReelContainer, checkContainerStatus, publishContainer, getPermalink } from "./instagram-api";
 
 /**
  * Ensure a preferred voice is configured. If missing, auto-pick a Spanish
  * voice from HeyGen and save it as the default so the pipeline never stalls.
  */
+/** Sentinel stored in preferred_voice_id meaning "use the avatar's own HeyGen default voice". */
+export const AVATAR_DEFAULT_VOICE = "avatar_default";
+
+/**
+ * Resolve the effective voice for a given avatar: if the user chose
+ * "avatar_default", use that avatar's own default voice from HeyGen
+ * (the one it sounds like inside HeyGen Studio); otherwise the preferred
+ * voice, auto-picking a Spanish one if nothing is configured.
+ */
+export async function resolveVoiceId(avatarId: string | null): Promise<string | null> {
+  const [avatarCfg] = await db.select().from(avatarConfigTable).limit(1);
+  const preferred = avatarCfg?.preferredVoiceId ?? null;
+  if (preferred === AVATAR_DEFAULT_VOICE) {
+    if (avatarId) {
+      try {
+        const def = await getAvatarDefaultVoiceId(avatarId);
+        if (def) return def;
+      } catch (err) {
+        logger.error({ err, avatarId }, "Failed to resolve avatar default voice; falling back");
+      }
+    }
+    return ensurePreferredVoiceId();
+  }
+  if (preferred) return preferred;
+  return ensurePreferredVoiceId();
+}
+
 export async function ensurePreferredVoiceId(): Promise<string | null> {
   const [avatarCfg] = await db.select().from(avatarConfigTable).limit(1);
   if (!avatarCfg) return null;
-  if (avatarCfg.preferredVoiceId) return avatarCfg.preferredVoiceId;
+  if (avatarCfg.preferredVoiceId && avatarCfg.preferredVoiceId !== AVATAR_DEFAULT_VOICE) return avatarCfg.preferredVoiceId;
 
   try {
     const voices = await listVoices();
@@ -145,7 +172,7 @@ export async function runAutomationCycle(targetItemId?: number): Promise<{
       avatarCfg.avatarUsageCount as Record<string, number>
     );
 
-    const voiceId = avatarCfg.preferredVoiceId ?? (await ensurePreferredVoiceId());
+    const voiceId = await resolveVoiceId(avatarId);
 
     await db
       .update(contentPlanItemsTable)
@@ -195,7 +222,7 @@ export async function runAutomationCycle(targetItemId?: number): Promise<{
     );
   }
   if (!contentItem.voiceId) {
-    contentItem.voiceId = avatarCfg.preferredVoiceId ?? (await ensurePreferredVoiceId());
+    contentItem.voiceId = await resolveVoiceId(contentItem.avatarId);
   }
   if (contentItem.avatarId && contentItem.voiceId) {
     await db

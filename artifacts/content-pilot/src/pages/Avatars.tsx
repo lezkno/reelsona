@@ -206,6 +206,7 @@ export default function Avatars() {
                       <SelectValue placeholder="Elegí una voz" />
                     </SelectTrigger>
                     <SelectContent className="max-h-72">
+                      <SelectItem value="avatar_default">Voz original del avatar (HeyGen)</SelectItem>
                       {voiceOptions.map((v) => (
                         <SelectItem key={v.voice_id} value={v.voice_id}>
                           {v.name}{v.gender ? ` · ${v.gender === "male" ? "masculina" : v.gender === "female" ? "femenina" : v.gender}` : ""}

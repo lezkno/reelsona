@@ -14,7 +14,7 @@ import {
   PublishVideoResponse,
 } from "@workspace/api-zod";
 import { generateVideo } from "../lib/heygen";
-import { publishVideoToInstagram, pickNextAvatar, ensurePreferredVoiceId } from "../lib/scheduler";
+import { publishVideoToInstagram, pickNextAvatar, resolveVoiceId } from "../lib/scheduler";
 
 const router = Router();
 
@@ -89,7 +89,7 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
       );
     }
     if (!item.voiceId) {
-      const voiceId = avatarCfg.preferredVoiceId ?? (await ensurePreferredVoiceId());
+      const voiceId = await resolveVoiceId(item.avatarId);
       if (!voiceId) {
         res.status(400).json({ error: "No se encontró ninguna voz disponible en HeyGen. Verificá tu cuenta de HeyGen." });
         return;

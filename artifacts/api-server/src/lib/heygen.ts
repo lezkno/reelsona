@@ -63,6 +63,34 @@ export async function listGroupLooks(groupId: string): Promise<HeyGenGroupLook[]
   return res.data?.data?.avatar_list ?? [];
 }
 
+// Map of look/avatar id (including tp: prefix) -> its group's default voice in HeyGen
+let defaultVoiceMap: { map: Map<string, string>; at: number } | null = null;
+
+export async function getAvatarDefaultVoiceId(avatarId: string): Promise<string | null> {
+  if (!defaultVoiceMap || Date.now() - defaultVoiceMap.at > 10 * 60 * 1000) {
+    const client = getClient();
+    const res = await client.get("/v2/avatar_group.list", { params: { include_public: false } });
+    const groups: any[] = res.data?.data?.avatar_group_list ?? [];
+    const map = new Map<string, string>();
+    const results = await Promise.allSettled(
+      groups.map(async (g) => {
+        if (!g.default_voice_id) return;
+        const looks = await listGroupLooks(g.id);
+        for (const l of looks as any[]) {
+          if (l.avatar_id) map.set(l.avatar_id, g.default_voice_id);
+          else if (l.id) map.set(`tp:${l.id}`, g.default_voice_id);
+        }
+      })
+    );
+    if (results.some((r) => r.status === "rejected") && defaultVoiceMap) {
+      // Partial refresh: keep the previous complete map
+    } else {
+      defaultVoiceMap = { map, at: Date.now() };
+    }
+  }
+  return defaultVoiceMap?.map.get(avatarId) ?? null;
+}
+
 export async function listVoices(): Promise<HeyGenVoice[]> {
   const client = getClient();
   const res = await client.get("/v2/voices");
