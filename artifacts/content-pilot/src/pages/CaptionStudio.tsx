@@ -176,9 +176,28 @@ function PresetCard({
 
 // Dimidium function-word list for preview (same logic as engine)
 const PREVIEW_FUNCTION_WORDS = new Set([
+  // English
   "they","the","and","or","to","a","an","in","on","at","for","of","with","by",
   "is","are","was","were","it","this","that","my","your","our","so","not","no",
+  // Spanish
+  "el","la","los","las","un","una","unos","unas","y","e","o","u","a","en","de",
+  "del","al","con","por","para","sin","sobre","entre","desde","hasta","que","se",
+  "le","les","lo","me","te","nos","su","sus","mi","tu","es","son","fue","era",
+  "esto","eso","este","esta","estos","estas","más","muy","ya","si","no","tus",
 ])
+
+// Dimidium demo blocks (each array = one SRT line; words appear one by one)
+const DIM_BLOCKS = [
+  ["Esto",    "para",  "el",    "scroll"],
+  ["aumenta", "el",    "watch", "time"],
+  ["y",       "mantiene"],
+  ["a",       "tus",   "viewers", "enganchados"],
+]
+
+// Flat list of states: (lineIdx, wordIdx within line)
+const DIM_STATES = DIM_BLOCKS.flatMap((words, li) =>
+  words.map((_, wi) => ({ li, wi }))
+)
 
 function CaptionPreview({ config }: { config: Partial<CaptionConfig> }) {
   const isMixedMode = config.highlight_mode === "mixed"
@@ -186,17 +205,12 @@ function CaptionPreview({ config }: { config: Partial<CaptionConfig> }) {
   const useAccent   = config.highlight_mode === "both" || config.highlight_mode === "color"
   const wordsPerLine = config.words_per_line ?? 3
 
-  // Full sentence split into chunks of wordsPerLine
+  // Highlight / Pop mode cycling
   const allWords = ["ESTO", "ES", "TU", "CAPTION", "DINÁMICO", "EN", "ACCIÓN", "HOY"]
   const [activeIdx, setActiveIdx] = useState(0)
-  // For Dimidium: cycle through stacked-line groups
-  const [dimLineIdx, setDimLineIdx] = useState(0)
-  const dimLines = [
-    ["They", "stop", "the", "scroll"],
-    ["boost", "watch", "time"],
-    ["viewers", "engaged"],
-    ["and", "keep", "growing"],
-  ]
+
+  // Dimidium: advance one word at a time, pause longer at line end
+  const [dimTick, setDimTick] = useState(0)
 
   useEffect(() => {
     const t = setInterval(() => setActiveIdx((a) => (a + 1) % allWords.length), 700)
@@ -205,9 +219,13 @@ function CaptionPreview({ config }: { config: Partial<CaptionConfig> }) {
 
   useEffect(() => {
     if (!isMixedMode) return
-    const t = setInterval(() => setDimLineIdx((i) => (i + 1) % dimLines.length), 1200)
-    return () => clearInterval(t)
-  }, [isMixedMode, dimLines.length])
+    const state   = DIM_STATES[dimTick]
+    const isLineEnd = state.wi === DIM_BLOCKS[state.li].length - 1
+    // Linger longer at end of each line before starting the next
+    const delay = isLineEnd ? 950 : 520
+    const t = setTimeout(() => setDimTick(i => (i + 1) % DIM_STATES.length), delay)
+    return () => clearTimeout(t)
+  }, [isMixedMode, dimTick])
 
   const outlineColor = config.outline_color ?? "#000000"
   const outlineShadow = `
@@ -223,38 +241,51 @@ function CaptionPreview({ config }: { config: Partial<CaptionConfig> }) {
   // Scale factor ~0.14, but cap at something readable
   const previewFontSize = Math.round(Math.min((config.font_size ?? 88) * 0.22, 32))
 
-  // ── Dimidium mode: stacked lines with mixed sizes ──────────────────────
+  // ── Dimidium mode: word-by-word reveal + line stacking ────────────────────
   if (isMixedMode) {
-    // Show last N lines stacked, newest at bottom. Cycle one new line at a time.
-    const visibleCount = Math.min(dimLineIdx + 1, 4)
-    const visibleLines = dimLines.slice(Math.max(0, dimLineIdx + 1 - 4), dimLineIdx + 1)
+    const { li: curLi, wi: curWi } = DIM_STATES[dimTick]
     const fontFam = `'${config.font_family ?? "Poppins"}', 'Poppins', sans-serif`
-    const largePx  = Math.round(previewFontSize * 1.1)
-    const smallPx  = Math.round(previewFontSize * 0.62)
+    const largePx = Math.round(previewFontSize * 1.15)
+    const smallPx = Math.round(previewFontSize * 0.62)
+    const accent  = config.active_word_color ?? "#FFE600"
+    const primary = config.primary_color    ?? "#FFFFFF"
+
+    // Build visible slots: slot 0 = current line in progress, slots 1-3 = previous complete
+    const slots: { words: string[]; isBuilding: boolean }[] = []
+    for (let slot = 0; slot < 4; slot++) {
+      const li = curLi - slot
+      if (li < 0) break
+      const allW = DIM_BLOCKS[li]
+      slots.push({
+        words: slot === 0 ? allW.slice(0, curWi + 1) : allW,
+        isBuilding: slot === 0,
+      })
+    }
+
+    // Render top→bottom (oldest slot last = bottom)
+    const renderSlots = [...slots].reverse()
 
     return (
       <div
-        className={`w-full aspect-[9/16] max-h-72 rounded-xl flex flex-col items-end justify-end pb-5 px-4`}
+        className="w-full aspect-[9/16] max-h-72 rounded-xl flex flex-col items-center justify-end pb-5 px-3"
         style={{ background: "linear-gradient(135deg, #1a1a2e, #16213e, #0f3460)" }}
       >
-        <div className="flex flex-col items-center gap-y-0.5 w-full">
-          {visibleLines.map((words, li) => (
-            <div key={li} className="flex items-baseline justify-center flex-wrap gap-x-1">
+        <div className="flex flex-col items-center gap-y-1 w-full">
+          {renderSlots.map(({ words, isBuilding }, idx) => (
+            <div key={`${curLi}-${idx}`} className="flex items-baseline justify-center flex-wrap gap-x-1.5">
               {words.map((w, wi) => {
                 const isFunc = PREVIEW_FUNCTION_WORDS.has(w.toLowerCase())
                 return (
                   <span
                     key={wi}
-                    className="transition-all duration-300"
                     style={{
                       fontFamily: fontFam,
                       fontWeight: 800,
                       fontSize: `${isFunc ? smallPx : largePx}px`,
-                      color: isFunc
-                        ? (config.primary_color ?? "#FFFFFF")
-                        : (config.active_word_color ?? "#FFE600"),
+                      color: isFunc ? primary : accent,
                       textShadow: outlineShadow,
-                      lineHeight: 1.15,
+                      lineHeight: 1.2,
+                      display: "inline-block",
                     }}
                   >
                     {w}
