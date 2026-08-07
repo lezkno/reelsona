@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label"
 import { format, isSameDay } from "date-fns"
 import { es } from "date-fns/locale"
 import { Wand2, Edit3, Trash2, Video, CheckCircle2, Clock, AlertTriangle, CalendarDays } from "lucide-react"
+import PipelineTimeline from "@/components/PipelineTimeline"
 import { useToast } from "@/hooks/use-toast"
 import { useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
@@ -151,6 +152,8 @@ export default function ContentPlan() {
           </DialogContent>
         </Dialog>
       </div>
+
+      <PipelineTimeline />
 
       <Tabs value={filter} onValueChange={setFilter} className="flex-1 flex flex-col min-h-0">
         <TabsList className="bg-muted p-1 mb-6 inline-flex shrink-0">
