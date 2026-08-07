@@ -11,6 +11,7 @@ import {
   Settings, 
   Zap,
   Sparkles,
+  X,
 } from "lucide-react"
 
 const NAV_ITEMS = [
@@ -25,18 +26,32 @@ const NAV_ITEMS = [
   { href: "/settings", label: "Configuración", icon: Settings },
 ]
 
-export function Sidebar() {
+interface SidebarProps {
+  onClose?: () => void
+}
+
+export function Sidebar({ onClose }: SidebarProps) {
   const [location] = useLocation()
 
   return (
     <aside className="w-64 shrink-0 bg-sidebar text-sidebar-foreground flex flex-col h-full border-r border-sidebar-border relative z-20">
       <div className="h-16 flex items-center px-6 border-b border-sidebar-border">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-1">
           <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground font-bold shadow-[0_0_15px_rgba(100,50,255,0.4)]">
             CP
           </div>
           <span className="font-display font-bold text-xl tracking-tight">ContentPilot</span>
         </div>
+        {/* Close button — mobile only */}
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            className="md:hidden p-1.5 rounded-md text-sidebar-foreground/50 hover:text-sidebar-foreground hover:bg-sidebar-accent/50 transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
       </div>
       
       <nav className="flex-1 overflow-y-auto py-6 px-3 flex flex-col gap-1">
@@ -47,6 +62,7 @@ export function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
+              onClick={onClose}
               className={cn(
                 "flex items-center gap-3 px-3 py-2.5 rounded-md font-medium text-sm transition-all duration-200 group relative",
                 isActive 

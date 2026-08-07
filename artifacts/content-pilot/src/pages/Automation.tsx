@@ -84,33 +84,33 @@ export default function Automation() {
       </div>
 
       <Card className={`overflow-hidden border-2 transition-colors duration-500 ${formData.enabled ? 'border-primary shadow-xl shadow-primary/10' : 'border-border'}`}>
-        <div className={`p-8 md:p-12 flex flex-col md:flex-row items-center justify-between gap-8 ${formData.enabled ? 'bg-primary/5' : 'bg-muted/30'}`}>
-          <div className="flex items-center gap-6">
-            <div className={`w-20 h-20 rounded-full flex items-center justify-center transition-colors duration-500 ${formData.enabled ? 'bg-primary text-primary-foreground shadow-[0_0_30px_rgba(100,50,255,0.4)]' : 'bg-muted-foreground/20 text-muted-foreground'}`}>
-              <Zap className="w-10 h-10" />
+        <div className={`p-5 md:p-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-5 ${formData.enabled ? 'bg-primary/5' : 'bg-muted/30'}`}>
+          <div className="flex items-center gap-4">
+            <div className={`w-14 h-14 md:w-16 md:h-16 shrink-0 rounded-full flex items-center justify-center transition-colors duration-500 ${formData.enabled ? 'bg-primary text-primary-foreground shadow-[0_0_30px_rgba(100,50,255,0.4)]' : 'bg-muted-foreground/20 text-muted-foreground'}`}>
+              <Zap className="w-7 h-7 md:w-8 md:h-8" />
             </div>
             <div>
-              <h2 className="text-3xl font-display font-bold mb-2">
+              <h2 className="text-xl md:text-3xl font-display font-bold mb-1">
                 {formData.enabled ? "Sistema Operativo" : "Sistema Pausado"}
               </h2>
-              <p className="text-muted-foreground max-w-md">
+              <p className="text-sm text-muted-foreground max-w-sm">
                 {formData.enabled 
-                  ? "ContentPilot está generando guiones, creando videos y publicando reels automáticamente según el calendario." 
+                  ? "ContentPilot está generando guiones, creando videos y publicando reels automáticamente." 
                   : "El sistema no ejecutará ninguna acción automática hasta que lo actives."}
               </p>
             </div>
           </div>
-          <div className="shrink-0 scale-150 origin-right">
+          <div className="shrink-0 self-center sm:self-auto">
             <Switch 
               checked={formData.enabled} 
               onCheckedChange={(v) => saveChange({ enabled: v })} 
-              className="data-[state=checked]:bg-primary"
+              className="data-[state=checked]:bg-primary scale-125"
             />
           </div>
         </div>
         
         {config?.last_run_at && (
-          <div className="bg-background border-t px-8 py-3 text-sm flex items-center justify-between">
+          <div className="bg-background border-t px-5 py-3 text-sm flex flex-wrap items-center justify-between gap-2">
             <span className="text-muted-foreground">Última ejecución: {new Date(config.last_run_at).toLocaleString()}</span>
             {config.last_run_status && (
               <span className={`font-medium ${config.last_run_status === 'success' ? 'text-green-600' : 'text-destructive'}`}>

@@ -169,30 +169,32 @@ export default function ContentPlan() {
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 h-full flex flex-col">
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 shrink-0">
-        <div>
-          <h1 className="text-4xl font-display font-bold tracking-tight">Plan de Contenido</h1>
-          <p className="text-muted-foreground mt-1 text-lg">Tu calendario de ideas a videos publicados.</p>
-        </div>
-        {/* View toggle */}
-        <div className="flex rounded-lg border overflow-hidden">
-          <button type="button" onClick={() => setViewMode("list")}
-            className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors border-r ${viewMode === "list" ? "bg-primary text-primary-foreground" : "hover:bg-muted text-muted-foreground"}`}>
-            <List className="w-4 h-4" /> Lista
-          </button>
-          <button type="button" onClick={() => setViewMode("calendar")}
-            className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors ${viewMode === "calendar" ? "bg-primary text-primary-foreground" : "hover:bg-muted text-muted-foreground"}`}>
-            <Calendar className="w-4 h-4" /> Calendario
-          </button>
-        </div>
+      <div className="flex flex-col gap-3 shrink-0">
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+          <div>
+            <h1 className="text-3xl md:text-4xl font-display font-bold tracking-tight">Plan de Contenido</h1>
+            <p className="text-muted-foreground mt-1">Tu calendario de ideas a videos publicados.</p>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* View toggle */}
+            <div className="flex rounded-lg border overflow-hidden">
+              <button type="button" onClick={() => setViewMode("list")}
+                className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors border-r ${viewMode === "list" ? "bg-primary text-primary-foreground" : "hover:bg-muted text-muted-foreground"}`}>
+                <List className="w-4 h-4" /> Lista
+              </button>
+              <button type="button" onClick={() => setViewMode("calendar")}
+                className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors ${viewMode === "calendar" ? "bg-primary text-primary-foreground" : "hover:bg-muted text-muted-foreground"}`}>
+                <Calendar className="w-4 h-4" /> Calendario
+              </button>
+            </div>
 
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger asChild>
-            <Button className="gap-2 shadow-lg shadow-primary/20 bg-gradient-to-r from-primary to-violet-600">
-              <Wand2 className="w-4 h-4" />
-              Generar Ideas
-            </Button>
-          </DialogTrigger>
+            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+            <DialogTrigger asChild>
+              <Button className="gap-2 shadow-lg shadow-primary/20 bg-gradient-to-r from-primary to-violet-600">
+                <Wand2 className="w-4 h-4" />
+                Generar Ideas
+              </Button>
+            </DialogTrigger>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
               <DialogTitle>Generar Plan de Contenido</DialogTitle>
@@ -224,8 +226,10 @@ export default function ContentPlan() {
               </Button>
             </DialogFooter>
           </DialogContent>
-        </Dialog>
-      </div>
+            </Dialog>
+          </div>{/* end button group */}
+        </div>{/* end header row */}
+      </div>{/* end header */}
 
       <PipelineTimeline />
 

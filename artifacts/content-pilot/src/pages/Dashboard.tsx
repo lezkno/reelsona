@@ -53,14 +53,14 @@ export default function Dashboard() {
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
-          <h1 className="text-4xl font-display font-bold tracking-tight">Dashboard</h1>
-          <p className="text-muted-foreground mt-1 text-lg">Resumen de tu máquina de contenido</p>
+          <h1 className="text-3xl md:text-4xl font-display font-bold tracking-tight">Dashboard</h1>
+          <p className="text-muted-foreground mt-1">Resumen de tu máquina de contenido</p>
         </div>
-        <div className="flex items-center gap-3">
-          <Button variant="outline" asChild>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button variant="outline" size="sm" asChild>
             <Link href="/content">Generar Script</Link>
           </Button>
-          <Button onClick={handleTrigger} disabled={triggerAutomation.isPending} className="gap-2 shadow-lg shadow-primary/20">
+          <Button size="sm" onClick={handleTrigger} disabled={triggerAutomation.isPending} className="gap-2 shadow-lg shadow-primary/20">
             <PlayCircle className="w-4 h-4" />
             {triggerAutomation.isPending ? "Ejecutando..." : "Ejecutar Ahora"}
           </Button>
@@ -88,31 +88,31 @@ export default function Dashboard() {
         <>
           {/* Status Banner */}
           <Card className="overflow-hidden border-none shadow-md bg-gradient-to-r from-sidebar to-sidebar-accent text-sidebar-foreground">
-            <div className="p-6 md:p-8 flex flex-col md:flex-row items-center justify-between gap-6">
-              <div className="flex items-center gap-5">
-                <div className="relative">
-                  <div className={`w-16 h-16 rounded-full flex items-center justify-center ${dashboard.automation_enabled ? 'bg-primary/20 text-primary' : 'bg-sidebar-foreground/10 text-sidebar-foreground/50'}`}>
-                    <Zap className="w-8 h-8" />
+            <div className="p-5 md:p-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div className="flex items-center gap-4">
+                <div className="relative shrink-0">
+                  <div className={`w-12 h-12 md:w-16 md:h-16 rounded-full flex items-center justify-center ${dashboard.automation_enabled ? 'bg-primary/20 text-primary' : 'bg-sidebar-foreground/10 text-sidebar-foreground/50'}`}>
+                    <Zap className="w-6 h-6 md:w-8 md:h-8" />
                   </div>
                   {dashboard.automation_enabled && (
-                    <div className="absolute top-0 right-0 w-4 h-4 rounded-full bg-green-500 border-2 border-sidebar" />
+                    <div className="absolute top-0 right-0 w-3 h-3 md:w-4 md:h-4 rounded-full bg-green-500 border-2 border-sidebar" />
                   )}
                 </div>
-                <div>
-                  <h2 className="text-2xl font-bold font-display text-white">
+                <div className="min-w-0">
+                  <h2 className="text-xl md:text-2xl font-bold font-display text-white">
                     {dashboard.automation_enabled ? "Automatización Activa" : "Automatización Pausada"}
                   </h2>
-                  <p className="text-sidebar-foreground/70">
+                  <p className="text-sm text-sidebar-foreground/70 line-clamp-2">
                     {dashboard.automation_enabled 
                       ? "Tu sistema está produciendo y publicando contenido."
                       : "Activa la automatización para que el contenido se genere solo."}
                   </p>
                 </div>
               </div>
-              <div className="bg-black/20 rounded-lg p-4 backdrop-blur-sm min-w-[200px]">
-                <p className="text-sm font-medium text-sidebar-foreground/60 mb-1">Próxima publicación</p>
-                <div className="text-white font-bold flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-primary" />
+              <div className="bg-black/20 rounded-lg p-3 md:p-4 backdrop-blur-sm">
+                <p className="text-xs md:text-sm font-medium text-sidebar-foreground/60 mb-1">Próxima publicación</p>
+                <div className="text-white font-bold text-sm flex items-center gap-2 flex-wrap">
+                  <Clock className="w-3.5 h-3.5 text-primary shrink-0" />
                   {dashboard.next_scheduled_at ? format(new Date(dashboard.next_scheduled_at), "PPp", { locale: es }) : "No programada"}
                 </div>
               </div>
@@ -120,7 +120,7 @@ export default function Dashboard() {
           </Card>
 
           {/* Stats Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
             <Card>
               <CardContent className="p-6">
                 <div className="flex items-center justify-between mb-4">
