@@ -34,6 +34,7 @@ export interface CaptionStyle {
   presetId: string;
   position: "top" | "center" | "bottom";  // legacy — yPosition takes priority
   yPosition: number;                       // 0–100, percent from top of video
+  marginX: number;                         // left (and symmetric right) margin in video pixels
   wordsPerLine: number;
   primaryColor: string;        // CSS hex (#RRGGBB)
   activeWordColor: string;     // CSS hex — active-word highlight
@@ -219,7 +220,8 @@ function buildASSHeader(
   // yPosition: 0=top edge, 100=bottom edge (percent from top of video)
   // Convert to ASS bottom-aligned marginV so text sits at that Y coordinate
   const yPos    = config.yPosition ?? (config.position === "top" ? 15 : config.position === "center" ? 50 : 75);
-  const alignment = 2; // always bottom-align; marginV controls height
+  const marginX = config.marginX ?? 60;
+  const alignment = 2;
   const marginV = Math.round(videoHeight * (1 - yPos / 100));
   const fontName = resolveFontName(config.fontFamily);
 
@@ -242,7 +244,7 @@ YCbCr Matrix: TV.709
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Caption,${fontName},${config.fontSize},${primaryColor},${activeColor},${outlineColor},${backColor},-1,0,0,0,100,100,${letterSpacing},0,${borderStyle},${outlineWidth},${shadowDepth},${alignment},60,60,${marginV},1
+Style: Caption,${fontName},${config.fontSize},${primaryColor},${activeColor},${outlineColor},${backColor},-1,0,0,0,100,100,${letterSpacing},0,${borderStyle},${outlineWidth},${shadowDepth},${alignment},${marginX},${marginX},${marginV},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`;
@@ -449,7 +451,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
   // Text is LEFT-aligned, starting from a fixed left margin — matching the
   // reference video where each new word extends the line to the right.
   const MAX_SLOTS   = 4;
-  const LEFT_X      = 60;                              // left margin (px)
+  const LEFT_X      = config.marginX ?? 60;            // left margin (px)
   const lsf         = config.lineSpacingFactor ?? 1.1; // user-configurable multiplier
   const lineSpacing = Math.round(largeSize * lsf);
   const yPos    = config.yPosition ?? (config.position === "bottom" ? 94.8 : config.position === "center" ? 50 : 15);

@@ -248,9 +248,11 @@ function PhoneFrame({ children }: { children: React.ReactNode }) {
 function CaptionPreview({
   config,
   onYPositionChange,
+  onXMarginChange,
 }: {
   config: Partial<CaptionConfig>
   onYPositionChange?: (y: number) => void
+  onXMarginChange?: (x: number) => void
 }) {
   const isMixedMode  = config.highlight_mode === "mixed"
   const isPopMode    = config.highlight_mode === "scale" || config.highlight_mode === "both"
@@ -259,9 +261,11 @@ function CaptionPreview({
   const lsf          = config.line_spacing_factor ?? 1.1
   const [isDragging, setIsDragging] = useState(false)
 
-  // y_position: 0–100 % from top of video. baseY_px is pixels from top in the preview.
-  const yPos    = config.y_position ?? 75
+  // y_position: 0–100% from top of video → baseY_px in preview pixels
+  const yPos     = config.y_position ?? 75
   const baseY_px = Math.round(PHONE_SCREEN_H * (yPos / 100))
+  // margin_x: left margin in real video pixels → preview pixels
+  const marginX_px = Math.max(4, Math.round((config.margin_x ?? 60) * PREVIEW_SCALE))
 
   // Highlight / Pop cycling
   const allWords = ["ESTO", "ES", "TU", "CAPTION", "DINÁMICO", "EN", "ACCIÓN", "HOY"]
@@ -310,7 +314,7 @@ function CaptionPreview({
         slots.push({ words: slot === 0 ? DIM_BLOCKS[li].slice(0, curWi + 1) : DIM_BLOCKS[li] })
       }
       return (
-        <div className="absolute left-0 right-0 px-3 flex flex-col items-start justify-end overflow-hidden" style={{ top: 0, height: baseY_px, gap: lineGap }}>
+        <div className="absolute left-0 right-0 flex flex-col items-start justify-end overflow-hidden" style={{ top: 0, height: baseY_px, gap: lineGap, paddingLeft: marginX_px, paddingRight: 8 }}>
           {[...slots].reverse().map(({ words }, idx) => (
             <div key={`${curLi}-${idx}`} className="flex items-baseline flex-wrap" style={{ gap: "4px" }}>
               {words.map((w, wi) => {
@@ -335,7 +339,7 @@ function CaptionPreview({
     if (isPopMode) {
       const word = allWords[activeIdx]
       return (
-        <div className="absolute left-0 right-0 flex items-end justify-center px-3" style={{ top: 0, height: baseY_px }}>
+        <div className="absolute left-0 right-0 flex items-end justify-center" style={{ top: 0, height: baseY_px, paddingLeft: marginX_px, paddingRight: marginX_px }}>
           <span className="transition-all duration-100" style={{
             fontFamily: fontFam, fontWeight: 700,
             fontSize: `${largePx}px`,
@@ -355,7 +359,7 @@ function CaptionPreview({
     const chunk        = allWords.slice(chunkStart, chunkStart + wordsPerLine)
     const activeInChunk = activeIdx - chunkStart
     return (
-      <div className="absolute left-0 right-0 flex items-end justify-center px-3" style={{ top: 0, height: baseY_px }}>
+      <div className="absolute left-0 right-0 flex items-end justify-center" style={{ top: 0, height: baseY_px, paddingLeft: marginX_px, paddingRight: marginX_px }}>
         <div className="flex flex-wrap justify-center items-center gap-x-1.5 gap-y-0.5">
           {chunk.map((word, i) => {
             const isActive = i === activeInChunk
@@ -480,53 +484,68 @@ function CaptionPreview({
         {/* ── DRAG OVERLAY — captures pointer events to move the caption ── */}
         <div
           className="absolute inset-0 z-40"
-          style={{ cursor: isDragging ? "grabbing" : "ns-resize" }}
+          style={{ cursor: isDragging ? "grabbing" : "move", touchAction: "none" }}
           onPointerDown={(e) => {
+            e.preventDefault()
             setIsDragging(true)
             e.currentTarget.setPointerCapture(e.pointerId)
           }}
           onPointerMove={(e) => {
             if (!isDragging) return
             const rect = e.currentTarget.getBoundingClientRect()
-            const pct  = Math.max(10, Math.min(97, ((e.clientY - rect.top) / rect.height) * 100))
-            onYPositionChange?.(Math.round(pct * 10) / 10)
+            // Y → y_position (%)
+            const pctY = Math.max(10, Math.min(97, ((e.clientY - rect.top) / rect.height) * 100))
+            onYPositionChange?.(Math.round(pctY * 10) / 10)
+            // X → margin_x (real video pixels)
+            const pxX = Math.max(0, Math.min(400, (e.clientX - rect.left) / PREVIEW_SCALE))
+            onXMarginChange?.(Math.round(pxX))
           }}
           onPointerUp={() => setIsDragging(false)}
           onPointerLeave={() => setIsDragging(false)}
         />
 
-        {/* Position line — shows where baseY sits */}
+        {/* Horizontal line — Y position */}
         <div
           className="absolute left-0 right-0 z-41 pointer-events-none transition-all duration-75"
           style={{
             top: baseY_px - 1,
             borderTop: isDragging
               ? "1.5px dashed rgba(255,255,255,0.85)"
-              : "1px dashed rgba(255,255,255,0.20)",
+              : "1px dashed rgba(255,255,255,0.18)",
           }}
         />
-        {/* Percentage badge while dragging */}
+        {/* Vertical line — X margin */}
+        <div
+          className="absolute top-0 bottom-0 z-41 pointer-events-none transition-all duration-75"
+          style={{
+            left: marginX_px - 1,
+            borderLeft: isDragging
+              ? "1.5px dashed rgba(255,255,255,0.85)"
+              : "1px dashed rgba(255,255,255,0.18)",
+          }}
+        />
+
+        {/* Badge while dragging — shows both values */}
         {isDragging && (
           <div
-            className="absolute left-2 z-42 pointer-events-none"
-            style={{ top: baseY_px - 20 }}
+            className="absolute z-42 pointer-events-none flex gap-1"
+            style={{ left: marginX_px + 4, top: baseY_px - 22 }}
           >
-            <span className="text-white text-[9px] font-medium bg-black/70 px-1.5 py-0.5 rounded-full">
-              {Math.round(yPos)}%
+            <span className="text-white text-[8px] font-medium bg-black/75 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+              ← {Math.round(config.margin_x ?? 60)}px
+            </span>
+            <span className="text-white text-[8px] font-medium bg-black/75 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+              ↕ {Math.round(yPos)}%
             </span>
           </div>
         )}
 
-        {/* Grip handle — always visible, shows the position line */}
+        {/* Crosshair grip at the intersection — always visible */}
         <div
-          className="absolute left-2 z-41 pointer-events-none transition-all duration-75"
-          style={{ top: baseY_px - 7 }}
+          className="absolute z-41 pointer-events-none"
+          style={{ left: marginX_px - 6, top: baseY_px - 6 }}
         >
-          <div className="flex flex-col gap-[2.5px]">
-            {[0,1,2].map(i => (
-              <div key={i} className="w-4 h-px rounded-full" style={{ background: "rgba(255,255,255,0.4)" }} />
-            ))}
-          </div>
+          <div className="w-3 h-3 rounded-full border border-white/50 bg-white/20" />
         </div>
 
       </div>
@@ -693,16 +712,32 @@ export default function CaptionStudio() {
             <Card>
               <CardContent className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-6">
 
-                <div className="space-y-2 flex items-start gap-2 p-3 rounded-lg bg-muted/40 col-span-full sm:col-span-1">
-                  <span className="text-base mt-0.5 shrink-0">↕</span>
+                <div className="space-y-2 sm:col-span-2 flex items-start gap-2 p-3 rounded-lg bg-muted/40">
+                  <span className="text-base mt-0.5 shrink-0">✥</span>
                   <div>
-                    <p className="text-xs font-medium mb-0.5">Posición vertical</p>
+                    <p className="text-xs font-medium mb-0.5">Posición libre</p>
                     <p className="text-xs text-muted-foreground leading-snug">
-                      Arrastrá el preview del celular para mover los captions.
+                      Arrastrá el preview del celular: <strong>arriba/abajo</strong> mueve la altura, <strong>izquierda/derecha</strong> ajusta el margen.
                     </p>
                     <p className="text-xs text-primary font-medium mt-1">
-                      {Math.round(local.y_position ?? 75)}% desde arriba
+                      ↕ {Math.round(local.y_position ?? 75)}% &nbsp;·&nbsp; ← {Math.round(local.margin_x ?? 60)}px
                     </p>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>
+                    Margen lateral: <span className="text-primary font-bold">{Math.round(local.margin_x ?? 60)}px</span>
+                  </Label>
+                  <Slider
+                    min={0} max={300} step={5}
+                    value={[local.margin_x ?? 60]}
+                    onValueChange={([v]) => set("margin_x", v)}
+                    className="mt-3"
+                  />
+                  <div className="flex justify-between text-[10px] text-muted-foreground">
+                    <span>0 — sin margen</span>
+                    <span>300 — centrado</span>
                   </div>
                 </div>
 
@@ -810,7 +845,11 @@ export default function CaptionStudio() {
         <div className="space-y-6">
           <div>
             <h2 className="text-xl font-display font-bold mb-4">Vista previa</h2>
-            <CaptionPreview config={local} onYPositionChange={(y) => set("y_position", y)} />
+            <CaptionPreview
+              config={local}
+              onYPositionChange={(y) => set("y_position", y)}
+              onXMarginChange={(x) => set("margin_x", x)}
+            />
             <p className="text-xs text-muted-foreground mt-2 text-center">
               Simula el efecto real — la palabra activa cambia cada 700ms
             </p>
