@@ -370,8 +370,8 @@ function buildDimidiumASS(
   videoHeight = 1920
 ): string {
   const fontName     = resolveFontName(config.fontFamily);
-  const largeSize    = config.fontSize;                      // e.g. 82
-  const smallSize    = Math.round(config.fontSize * 0.56);  // e.g. 46
+  const largeSize    = config.fontSize;                      // e.g. 130
+  const smallSize    = Math.round(config.fontSize * 0.68);  // e.g. 88 — less extreme ratio than 0.56
   const accentColor  = hexToAss(config.activeWordColor);    // yellow
   const primaryColor = hexToAss(config.primaryColor);       // white
   const outlineColor = hexToAss(config.outlineColor);
@@ -445,8 +445,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
   // reference video where each new word extends the line to the right.
   const MAX_SLOTS   = 4;
   const LEFT_X      = 60;                              // left margin (px)
-  const lineSpacing = Math.round(videoHeight * 0.085); // ~163 px at 1920
-  const baseY       = videoHeight - 80;
+  // Tight stacking: gap between lines is only ~10% of largeSize (≈13px at 130)
+  const lineSpacing = Math.round(largeSize * 1.1);
+  const baseY       = videoHeight - 100;
 
   // slotY[0] = bottom (newest line), slotY[3] = top (oldest visible)
   const slotY = Array.from({ length: MAX_SLOTS }, (_, s) => baseY - s * lineSpacing);
@@ -643,7 +644,7 @@ export const CAPTION_PRESETS: {
     outlineColor: "#000000",
     backgroundColor: null,
     fontFamily: "Poppins",
-    fontSize: 82,
+    fontSize: 130,
     activeWordScale: 1,
     highlightMode: "mixed",
     autoMovement: false,
