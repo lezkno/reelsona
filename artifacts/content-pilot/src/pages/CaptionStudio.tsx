@@ -190,13 +190,13 @@ const PREVIEW_FUNCTION_WORDS = new Set([
   "y","e","o","pero","sino","aunque","también","más","solo","muy",
 ])
 
-// Dimidium demo blocks — Spanish words that clearly show the size contrast:
-// content words (nouns/verbs) → large+yellow; function words → small+white
+// Dimidium demo blocks — short Spanish words so they don't wrap in the
+// narrow preview container (2-3 short words per visual line, like a real Reel).
 const DIM_BLOCKS = [
-  ["detienen",   "el",   "scroll"],
-  ["aumentan",   "el",   "watch",   "time"],
-  ["y",          "mantienen"],
-  ["enganchados", "tus", "viewers"],
+  ["así",  "se",  "viraliza"],
+  ["tu",   "marca"],
+  ["con",  "ia"],
+  ["hoy",  "mismo"],
 ]
 
 // Flat list of states: (lineIdx, wordIdx within line)
