@@ -204,17 +204,54 @@ const DIM_STATES = DIM_BLOCKS.flatMap((words, li) =>
   words.map((_, wi) => ({ li, wi }))
 )
 
-function CaptionPreview({ config }: { config: Partial<CaptionConfig> }) {
-  const isMixedMode = config.highlight_mode === "mixed"
-  const isPopMode   = config.highlight_mode === "scale" || config.highlight_mode === "both"
-  const useAccent   = config.highlight_mode === "both" || config.highlight_mode === "color"
-  const wordsPerLine = config.words_per_line ?? 3
+// ── Phone frame wrapper ───────────────────────────────────────────────────────
+// Outer: 270px, padding 10px each side → screen 250px wide → height 444px
+// Scale factor vs real 1920px video: 444/1920 = 0.23125
+const PHONE_SCREEN_H = 444   // px — video area height inside the mock
+const REAL_VIDEO_H   = 1920  // px — ASS PlayResY
+const PREVIEW_SCALE  = PHONE_SCREEN_H / REAL_VIDEO_H  // ≈ 0.231
 
-  // Highlight / Pop mode cycling
+function PhoneFrame({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="relative mx-auto select-none" style={{ width: 270 }}>
+      {/* Body */}
+      <div className="relative bg-zinc-800 rounded-[40px] border-2 border-zinc-600 shadow-2xl shadow-black/60 px-2.5 pt-3 pb-2">
+        {/* Camera pill */}
+        <div className="flex justify-center mb-2">
+          <div className="w-14 h-4 bg-zinc-900 rounded-full border border-zinc-700 flex items-center justify-center gap-1.5">
+            <div className="w-1.5 h-1.5 rounded-full bg-zinc-600" />
+            <div className="w-2.5 h-2.5 rounded-full bg-zinc-700 border border-zinc-600" />
+          </div>
+        </div>
+        {/* Volume buttons */}
+        <div className="absolute left-[-4px] top-[72px] w-[4px] h-6 bg-zinc-600 rounded-l-full" />
+        <div className="absolute left-[-4px] top-[106px] w-[4px] h-10 bg-zinc-600 rounded-l-full" />
+        <div className="absolute left-[-4px] top-[126px] w-[4px] h-10 bg-zinc-600 rounded-l-full" />
+        {/* Power button */}
+        <div className="absolute right-[-4px] top-[100px] w-[4px] h-14 bg-zinc-600 rounded-r-full" />
+        {/* Screen */}
+        <div className="rounded-[28px] overflow-hidden bg-black" style={{ aspectRatio: "9/16" }}>
+          {children}
+        </div>
+        {/* Home bar */}
+        <div className="flex justify-center mt-2 mb-0.5">
+          <div className="w-20 h-1 bg-zinc-600 rounded-full" />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function CaptionPreview({ config }: { config: Partial<CaptionConfig> }) {
+  const isMixedMode  = config.highlight_mode === "mixed"
+  const isPopMode    = config.highlight_mode === "scale" || config.highlight_mode === "both"
+  const useAccent    = config.highlight_mode === "both" || config.highlight_mode === "color"
+  const wordsPerLine = config.words_per_line ?? 3
+  const lsf          = config.line_spacing_factor ?? 1.1  // line spacing factor
+
+  // Highlight / Pop cycling
   const allWords = ["ESTO", "ES", "TU", "CAPTION", "DINÁMICO", "EN", "ACCIÓN", "HOY"]
   const [activeIdx, setActiveIdx] = useState(0)
-
-  // Dimidium: advance one word at a time, pause longer at line end
   const [dimTick, setDimTick] = useState(0)
 
   useEffect(() => {
@@ -224,160 +261,127 @@ function CaptionPreview({ config }: { config: Partial<CaptionConfig> }) {
 
   useEffect(() => {
     if (!isMixedMode) return
-    const state   = DIM_STATES[dimTick]
+    const state     = DIM_STATES[dimTick]
     const isLineEnd = state.wi === DIM_BLOCKS[state.li].length - 1
-    // Linger longer at end of each line before starting the next
-    const delay = isLineEnd ? 950 : 520
+    const delay     = isLineEnd ? 950 : 520
     const t = setTimeout(() => setDimTick(i => (i + 1) % DIM_STATES.length), delay)
     return () => clearTimeout(t)
   }, [isMixedMode, dimTick])
 
   const outlineColor = config.outline_color ?? "#000000"
-  const outlineShadow = `
-    -2px -2px 0 ${outlineColor}, 2px -2px 0 ${outlineColor},
-    -2px  2px 0 ${outlineColor}, 2px  2px 0 ${outlineColor},
-    -3px  0   0 ${outlineColor}, 3px  0   0 ${outlineColor},
-     0   -3px 0 ${outlineColor}, 0    3px 0 ${outlineColor}
-  `
-  const positionClass = { top: "justify-start pt-8", center: "justify-center", bottom: "justify-end pb-8" }[config.position ?? "bottom"]
+  const outlineShadow = [
+    `-1px -1px 0 ${outlineColor}`, `1px -1px 0 ${outlineColor}`,
+    `-1px  1px 0 ${outlineColor}`, `1px  1px 0 ${outlineColor}`,
+    `-2px  0   0 ${outlineColor}`, `2px  0   0 ${outlineColor}`,
+    ` 0  -2px  0 ${outlineColor}`, `0   2px  0 ${outlineColor}`,
+  ].join(", ")
 
-  // Font size: scale down from video size for the preview container
-  // The preview container is ~240px tall (aspect 9:16 on max-h-60), real video is 1920px
-  // Scale factor ~0.14, but cap at something readable
-  const previewFontSize = Math.round(Math.min((config.font_size ?? 88) * 0.22, 32))
+  const positionStyle: React.CSSProperties = {
+    top:    { paddingTop: "8%" }    as React.CSSProperties,
+    center: { paddingTop: "40%" }  as React.CSSProperties,
+    bottom: { paddingBottom: "8%" } as React.CSSProperties,
+  }[config.position ?? "bottom"] ?? { paddingBottom: "8%" }
 
-  // ── Dimidium mode: word-by-word reveal + line stacking ────────────────────
-  if (isMixedMode) {
-    const { li: curLi, wi: curWi } = DIM_STATES[dimTick]
-    const fontFam = `'${config.font_family ?? "Poppins"}', 'Poppins', sans-serif`
-    const largePx = Math.round(previewFontSize * 1.15)
-    const smallPx = Math.round(previewFontSize * 0.62)
-    const accent  = config.active_word_color ?? "#FFE600"
-    const primary = config.primary_color    ?? "#FFFFFF"
+  // Proportionally accurate font sizes: scaled 1:1 to real video dimensions
+  const rawSize  = config.font_size ?? 88
+  const largePx  = Math.max(8, Math.round(rawSize * PREVIEW_SCALE))
+  const smallPx  = Math.max(6, Math.round(rawSize * 0.68 * PREVIEW_SCALE))
+  // Gap between stacked lines (mirrors engine: lineSpacing = largeSize * lsf)
+  const lineGap  = Math.max(2, Math.round(largePx * (lsf - 1)))
+  const fontFam  = `'${config.font_family ?? "Oswald"}', sans-serif`
 
-    // Build visible slots: slot 0 = current line in progress, slots 1-3 = previous complete
-    const slots: { words: string[]; isBuilding: boolean }[] = []
-    for (let slot = 0; slot < 4; slot++) {
-      const li = curLi - slot
-      if (li < 0) break
-      const allW = DIM_BLOCKS[li]
-      slots.push({
-        words: slot === 0 ? allW.slice(0, curWi + 1) : allW,
-        isBuilding: slot === 0,
-      })
-    }
-
-    // Render top→bottom (oldest slot last = bottom)
-    const renderSlots = [...slots].reverse()
-
-    return (
-      <div
-        className="w-full aspect-[9/16] max-h-72 rounded-xl flex flex-col items-start justify-end pb-5 px-4"
-        style={{ background: "linear-gradient(135deg, #1a1a2e, #16213e, #0f3460)" }}
-      >
-        <div className="flex flex-col items-start gap-y-1 w-full">
-          {renderSlots.map(({ words, isBuilding }, idx) => (
-            <div key={`${curLi}-${idx}`} className="flex items-baseline justify-start flex-wrap gap-x-1.5">
+  const screenContent = (() => {
+    if (isMixedMode) {
+      const { li: curLi, wi: curWi } = DIM_STATES[dimTick]
+      const accent  = config.active_word_color ?? "#FFE600"
+      const primary = config.primary_color     ?? "#FFFFFF"
+      const slots: { words: string[]; }[] = []
+      for (let slot = 0; slot < 4; slot++) {
+        const li = curLi - slot
+        if (li < 0) break
+        slots.push({ words: slot === 0 ? DIM_BLOCKS[li].slice(0, curWi + 1) : DIM_BLOCKS[li] })
+      }
+      return (
+        <div className="absolute bottom-0 left-0 right-0 px-3 pb-3 flex flex-col items-start" style={{ gap: lineGap }}>
+          {[...slots].reverse().map(({ words }, idx) => (
+            <div key={`${curLi}-${idx}`} className="flex items-baseline flex-wrap" style={{ gap: "4px" }}>
               {words.map((w, wi) => {
                 const isFunc = PREVIEW_FUNCTION_WORDS.has(w.toLowerCase())
                 return (
-                  <span
-                    key={wi}
-                    style={{
-                      fontFamily: fontFam,
-                      fontWeight: 800,
-                      fontSize: `${isFunc ? smallPx : largePx}px`,
-                      color: isFunc ? primary : accent,
-                      textShadow: outlineShadow,
-                      lineHeight: 1.2,
-                      display: "inline-block",
-                    }}
-                  >
-                    {w}
-                  </span>
+                  <span key={wi} style={{
+                    fontFamily: `'${config.font_family ?? "Poppins"}', sans-serif`,
+                    fontWeight: 800,
+                    fontSize: `${isFunc ? smallPx : largePx}px`,
+                    color: isFunc ? primary : accent,
+                    textShadow: outlineShadow,
+                    lineHeight: 1.15,
+                  }}>{w}</span>
                 )
               })}
             </div>
           ))}
         </div>
-      </div>
-    )
-  }
+      )
+    }
 
-  if (isPopMode) {
-    // Show one word at a time, cycling through
-    const word = allWords[activeIdx]
+    if (isPopMode) {
+      const word = allWords[activeIdx]
+      return (
+        <div className="absolute inset-0 flex items-end justify-center" style={positionStyle}>
+          <span className="transition-all duration-100" style={{
+            fontFamily: fontFam, fontWeight: 700,
+            fontSize: `${largePx}px`,
+            color: useAccent ? (config.active_word_color ?? "#FFE600") : (config.primary_color ?? "#FFFFFF"),
+            textShadow: outlineShadow,
+            background: config.background_color ?? "transparent",
+            padding: config.background_color ? "1px 8px" : "0",
+            borderRadius: config.background_color ? "5px" : "0",
+            textTransform: "uppercase", letterSpacing: "0.04em", lineHeight: 1.2,
+          }}>{word}</span>
+        </div>
+      )
+    }
+
+    // Highlight line mode
+    const chunkStart   = Math.floor(activeIdx / wordsPerLine) * wordsPerLine
+    const chunk        = allWords.slice(chunkStart, chunkStart + wordsPerLine)
+    const activeInChunk = activeIdx - chunkStart
     return (
-      <div
-        className={`w-full aspect-[9/16] max-h-72 rounded-xl flex flex-col items-center ${positionClass} px-4`}
-        style={{ background: "linear-gradient(135deg, #1a1a2e, #16213e, #0f3460)" }}
-      >
-        <div className="flex items-center justify-center">
-          <span
-            className="transition-all duration-100 font-black"
-            style={{
-              fontFamily: `'${config.font_family ?? "Oswald"}', sans-serif`,
-              fontWeight: 700,
-              fontSize: `${previewFontSize}px`,
-              color: useAccent ? (config.active_word_color ?? "#FFE600") : (config.primary_color ?? "#FFFFFF"),
-              textShadow: outlineShadow,
-              background: config.background_color ?? "transparent",
-              padding: config.background_color ? "2px 10px" : "0",
-              borderRadius: config.background_color ? "6px" : "0",
-              textTransform: "uppercase",
-              letterSpacing: "0.04em",
-              lineHeight: 1.2,
-            }}
-          >
-            {word}
-          </span>
+      <div className="absolute inset-0 flex items-end justify-center" style={positionStyle}>
+        <div className="flex flex-wrap justify-center items-center gap-x-1.5 gap-y-0.5">
+          {chunk.map((word, i) => {
+            const isActive = i === activeInChunk
+            const isFaded  = i < activeInChunk
+            return (
+              <span key={`${chunkStart}-${i}`} className="transition-colors duration-150" style={{
+                fontFamily: fontFam, fontWeight: 700,
+                fontSize: `${largePx}px`,
+                color: isActive && useAccent
+                  ? (config.active_word_color ?? "#FFE600")
+                  : isFaded ? `${config.primary_color ?? "#FFFFFF"}88`
+                  : (config.primary_color ?? "#FFFFFF"),
+                textShadow: outlineShadow,
+                background: isActive && config.background_color ? config.background_color : "transparent",
+                padding: isActive && config.background_color ? "1px 6px" : "0",
+                borderRadius: "4px",
+                textTransform: "uppercase", letterSpacing: "0.04em", lineHeight: 1.2,
+              }}>{word}</span>
+            )
+          })}
         </div>
       </div>
     )
-  }
-
-  // Highlight line mode: show wordsPerLine words, cycle active word
-  const chunkStart = Math.floor(activeIdx / wordsPerLine) * wordsPerLine
-  const chunk = allWords.slice(chunkStart, chunkStart + wordsPerLine)
-  const activeInChunk = activeIdx - chunkStart
+  })()
 
   return (
-    <div
-      className={`w-full aspect-[9/16] max-h-72 rounded-xl flex flex-col items-center ${positionClass} px-4`}
-      style={{ background: "linear-gradient(135deg, #1a1a2e, #16213e, #0f3460)" }}
-    >
-      <div className="flex flex-wrap justify-center items-center gap-x-2 gap-y-1">
-        {chunk.map((word, i) => {
-          const isActive = i === activeInChunk
-          const isFaded = i < activeInChunk
-          return (
-            <span
-              key={`${chunkStart}-${i}`}
-              className="transition-colors duration-150 font-black"
-              style={{
-                fontFamily: `'${config.font_family ?? "Oswald"}', sans-serif`,
-                fontWeight: 700,
-                fontSize: `${Math.round(previewFontSize * 0.9)}px`,
-                color: isActive && useAccent
-                  ? (config.active_word_color ?? "#FFE600")
-                  : isFaded
-                    ? `${config.primary_color ?? "#FFFFFF"}88`
-                    : (config.primary_color ?? "#FFFFFF"),
-                textShadow: outlineShadow,
-                background: isActive && config.background_color ? config.background_color : "transparent",
-                padding: isActive && config.background_color ? "2px 8px" : "0",
-                borderRadius: "4px",
-                textTransform: "uppercase",
-                letterSpacing: "0.04em",
-                lineHeight: 1.2,
-              }}
-            >
-              {word}
-            </span>
-          )
-        })}
+    <PhoneFrame>
+      <div
+        className="w-full h-full relative"
+        style={{ background: "linear-gradient(to bottom, #1a1a2e 0%, #16213e 60%, #0f3460 100%)" }}
+      >
+        {screenContent}
       </div>
-    </div>
+    </PhoneFrame>
   )
 }
 
@@ -565,6 +569,24 @@ export default function CaptionStudio() {
                   <div className="flex justify-between text-[10px] text-muted-foreground">
                     <span>60 — compacto</span>
                     <span>220 — máximo impacto</span>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>
+                    Espacio entre líneas: <span className="text-primary font-bold">
+                      {{ 1.0: "Súper ajustado", 1.1: "Ajustado", 1.2: "Normal", 1.4: "Amplio", 1.7: "Muy amplio", 2.0: "Máximo" }[String(local.line_spacing_factor ?? 1.1)] ?? `${local.line_spacing_factor ?? 1.1}×`}
+                    </span>
+                  </Label>
+                  <Slider
+                    min={1.0} max={2.0} step={0.1}
+                    value={[local.line_spacing_factor ?? 1.1]}
+                    onValueChange={([v]) => set("line_spacing_factor", Math.round(v * 10) / 10)}
+                    className="mt-3"
+                  />
+                  <div className="flex justify-between text-[10px] text-muted-foreground">
+                    <span>1.0 — líneas pegadas</span>
+                    <span>2.0 — muy separadas</span>
                   </div>
                 </div>
 

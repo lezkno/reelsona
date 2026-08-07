@@ -709,6 +709,7 @@ export const GetCaptionConfigResponse = zod.object({
   "background_color": zod.string().nullish(),
   "font_family": zod.string(),
   "font_size": zod.number(),
+  "line_spacing_factor": zod.number(),
   "active_word_scale": zod.number(),
   "highlight_mode": zod.enum(['color', 'scale', 'both', 'mixed']),
   "auto_scale": zod.boolean(),
@@ -724,7 +725,7 @@ export const GetCaptionConfigResponse = zod.object({
 export const updateCaptionConfigBodyWordsPerLineMax = 8;
 
 export const updateCaptionConfigBodyFontSizeMin = 24;
-export const updateCaptionConfigBodyFontSizeMax = 120;
+export const updateCaptionConfigBodyFontSizeMax = 220;
 
 export const updateCaptionConfigBodyActiveWordScaleMax = 2;
 
@@ -740,6 +741,7 @@ export const UpdateCaptionConfigBody = zod.object({
   "background_color": zod.string().nullish(),
   "font_family": zod.string().optional(),
   "font_size": zod.number().min(updateCaptionConfigBodyFontSizeMin).max(updateCaptionConfigBodyFontSizeMax).optional(),
+  "line_spacing_factor": zod.number().min(1).max(3).optional(),
   "active_word_scale": zod.number().min(1).max(updateCaptionConfigBodyActiveWordScaleMax).optional(),
   "highlight_mode": zod.enum(['color', 'scale', 'both', 'mixed']).optional(),
   "auto_scale": zod.boolean().optional(),
@@ -757,6 +759,7 @@ export const UpdateCaptionConfigResponse = zod.object({
   "background_color": zod.string().nullish(),
   "font_family": zod.string(),
   "font_size": zod.number(),
+  "line_spacing_factor": zod.number(),
   "active_word_scale": zod.number(),
   "highlight_mode": zod.enum(['color', 'scale', 'both', 'mixed']),
   "auto_scale": zod.boolean(),

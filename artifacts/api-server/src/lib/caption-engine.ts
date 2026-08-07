@@ -40,6 +40,7 @@ export interface CaptionStyle {
   backgroundColor: string | null; // CSS rgba() or null
   fontFamily: string;
   fontSize: number;
+  lineSpacingFactor: number;   // multiplier: 1.0 = tightest, 2.0 = very spaced
   activeWordScale: number;     // unused in v3 (scale overrides cause ASS issues)
   highlightMode: "color" | "scale" | "both" | "mixed";
   autoScale: boolean;
@@ -445,8 +446,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
   // reference video where each new word extends the line to the right.
   const MAX_SLOTS   = 4;
   const LEFT_X      = 60;                              // left margin (px)
-  // Tight stacking: gap between lines is only ~10% of largeSize (≈13px at 130)
-  const lineSpacing = Math.round(largeSize * 1.1);
+  const lsf         = config.lineSpacingFactor ?? 1.1; // user-configurable multiplier
+  const lineSpacing = Math.round(largeSize * lsf);
   const baseY       = videoHeight - 100;
 
   // slotY[0] = bottom (newest line), slotY[3] = top (oldest visible)
