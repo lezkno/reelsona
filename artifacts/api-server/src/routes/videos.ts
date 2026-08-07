@@ -75,23 +75,28 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
     return;
   }
 
-  // If the item has no avatar/voice assigned, pick one from the avatar rotation
-  if (!item.avatarId || !item.voiceId) {
+  // Ensure avatar/voice are set AND that the stored avatarId is still in the active selection.
+  // If the user removed the previously assigned avatar, re-pick from the current list.
+  {
     const [avatarCfg] = await db.select().from(avatarConfigTable).limit(1);
     if (!avatarCfg?.selectedAvatarIds?.length) {
       res.status(400).json({ error: "No hay avatares configurados: seleccioná al menos uno en la página de Avatares" });
       return;
     }
-    if (!item.avatarId) {
+    const avatarStillValid =
+      item.avatarId && avatarCfg.selectedAvatarIds.includes(item.avatarId);
+    if (!avatarStillValid) {
       item.avatarId = pickNextAvatar(
         avatarCfg.selectedAvatarIds,
         avatarCfg.lastUsedAvatarId,
         avatarCfg.rotationStrategy,
         (avatarCfg.avatarUsageCount as Record<string, number>) ?? {}
       );
+      // Force voice re-resolution for the new avatar
+      item.voiceId = null;
     }
     if (!item.voiceId) {
-      const voiceId = await resolveVoiceId(item.avatarId);
+      const voiceId = await resolveVoiceId(item.avatarId!);
       if (!voiceId) {
         res.status(400).json({ error: "No se encontró ninguna voz disponible en HeyGen. Verificá tu cuenta de HeyGen." });
         return;
@@ -135,8 +140,8 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
   // Fire and forget video generation
   generateVideo({
     script: item.script,
-    avatar_id: item.avatarId,
-    voice_id: item.voiceId,
+    avatar_id: item.avatarId!,
+    voice_id: item.voiceId!,
     title: item.topic,
   })
     .then(async (heygenVideoId) => {

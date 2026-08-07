@@ -167,15 +167,24 @@ export async function runAutomationCycle(targetItemId?: number): Promise<{
       settings.videoDurationSeconds
     );
 
-    // Respect a manually chosen avatar/voice on the item; only fill from rotation if missing
-    const avatarId =
-      draft.avatarId ??
-      pickNextAvatar(
-        avatarCfg.selectedAvatarIds,
-        avatarCfg.lastUsedAvatarId,
-        avatarCfg.rotationStrategy,
-        avatarCfg.avatarUsageCount as Record<string, number>
+    // Use the stored avatarId only if it's still in the current selection.
+    // If the user removed it from their list, re-pick from the active selection.
+    const storedAvatarValid =
+      draft.avatarId && avatarCfg.selectedAvatarIds.includes(draft.avatarId);
+    const avatarId = storedAvatarValid
+      ? draft.avatarId!
+      : pickNextAvatar(
+          avatarCfg.selectedAvatarIds,
+          avatarCfg.lastUsedAvatarId,
+          avatarCfg.rotationStrategy,
+          avatarCfg.avatarUsageCount as Record<string, number>
+        );
+    if (!storedAvatarValid && draft.avatarId) {
+      logger.warn(
+        { removedAvatarId: draft.avatarId, newAvatarId: avatarId },
+        "Stored avatarId is no longer in the active selection — re-picking from current list"
       );
+    }
 
     const voiceId = draft.voiceId ?? (await resolveVoiceId(avatarId));
 
@@ -217,14 +226,25 @@ export async function runAutomationCycle(targetItemId?: number): Promise<{
     return { success: true, message: "Script ready, video generation disabled", contentItemId: contentItem.id };
   }
 
-  // Backfill missing avatar/voice so scripted items never get stuck
-  if (!contentItem.avatarId) {
+  // Backfill missing avatar/voice so scripted items never get stuck.
+  // Also replace stored avatarId if it's no longer in the active selection.
+  const currentAvatarValid =
+    contentItem.avatarId && avatarCfg.selectedAvatarIds.includes(contentItem.avatarId);
+  if (!currentAvatarValid) {
+    if (contentItem.avatarId) {
+      logger.warn(
+        { removedAvatarId: contentItem.avatarId },
+        "avatarId on scripted item is no longer in active selection — re-picking"
+      );
+    }
     contentItem.avatarId = pickNextAvatar(
       avatarCfg.selectedAvatarIds,
       avatarCfg.lastUsedAvatarId,
       avatarCfg.rotationStrategy,
       (avatarCfg.avatarUsageCount as Record<string, number>) ?? {}
     );
+    // Voice must be re-resolved for the new avatar
+    contentItem.voiceId = null;
   }
   if (!contentItem.voiceId) {
     contentItem.voiceId = await resolveVoiceId(contentItem.avatarId);
