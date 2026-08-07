@@ -199,6 +199,20 @@ export const ContentPlanItemStatus = {
   failed: 'failed',
 } as const;
 
+/**
+ * Caption Studio processing state for the associated video
+ * @nullable
+ */
+export type ContentPlanItemCaptionStatus = typeof ContentPlanItemCaptionStatus[keyof typeof ContentPlanItemCaptionStatus] | null;
+
+
+export const ContentPlanItemCaptionStatus = {
+  disabled: 'disabled',
+  processing: 'processing',
+  done: 'done',
+  failed: 'failed',
+} as const;
+
 export interface ContentPlanItem {
   id: number;
   topic: string;
@@ -221,6 +235,11 @@ export interface ContentPlanItem {
   status: ContentPlanItemStatus;
   /** @nullable */
   video_id?: number | null;
+  /**
+     * Caption Studio processing state for the associated video
+     * @nullable
+     */
+  caption_status?: ContentPlanItemCaptionStatus;
   created_at: string;
   updated_at: string;
 }

@@ -3,37 +3,74 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
-import { FileText, UserSquare2, Hash, Send, CheckCircle2, Clock, AlertTriangle, Loader2 } from "lucide-react"
+import { FileText, UserSquare2, Captions, Send, CheckCircle2, Clock, AlertTriangle, Loader2 } from "lucide-react"
 
 /**
- * Production pipeline (matches the automation engine):
- * 1. Guion + Caption  — AI writes hook, script, CTA, caption and hashtags (~1 min)
- * 2. Video con Avatar — HeyGen renders the video with the rotating avatar (~5-15 min)
- * 3. Publicar en IG   — the Reel is uploaded and published on Instagram (~2-5 min)
+ * Production pipeline:
+ * 1. Guion          — AI writes hook, script, CTA, caption and hashtags
+ * 2. Video con Avatar — HeyGen renders the video
+ * 3. Caption Studio  — FFmpeg burns styled captions (only when captionsEnabled)
+ * 4. Publicar en IG  — the Reel is uploaded and published
  */
 const STEPS = [
-  { key: "script", label: "Guion", desc: "La IA escribe el guion y el hook", eta: "~1 min", icon: FileText },
-  { key: "video", label: "Video con Avatar", desc: "HeyGen crea el video con tu avatar", eta: "~5-15 min", icon: UserSquare2 },
-  { key: "caption", label: "Caption y Hashtags", desc: "La IA prepara el caption y los # para IG", eta: "~1 min", icon: Hash },
-  { key: "publish", label: "Publicar en Instagram", desc: "Se sube y publica el Reel", eta: "~2-5 min", icon: Send },
+  { key: "script",  label: "Guion",           desc: "La IA escribe el guion y el hook",        eta: "~1 min",   icon: FileText    },
+  { key: "video",   label: "Video con Avatar", desc: "HeyGen crea el video con tu avatar",      eta: "~5-15 min", icon: UserSquare2 },
+  { key: "caption", label: "Caption Studio",   desc: "Se aplican captions animados al video",   eta: "~2-5 min",  icon: Captions    },
+  { key: "publish", label: "Publicar en IG",   desc: "Se sube y publica el Reel",               eta: "~2-5 min",  icon: Send        },
 ] as const
 
-// status → { currentStep (0-based, -1 = not started, 4 = all done), percent }
-function getProgress(item: ContentPlanItem): { step: number, percent: number } {
-  const hasCaption = Boolean(item.caption)
+/**
+ * Determine which step (0-based) is active and the overall % progress.
+ *
+ * caption_status values: null | "disabled" | "processing" | "done" | "failed"
+ *
+ * Step mapping:
+ *  step -1 → not started
+ *  step  0 → Guion in progress
+ *  step  1 → Video in progress
+ *  step  2 → Caption Studio in progress
+ *  step  3 → Publishing in progress
+ *  step  4 → all done
+ */
+function getProgress(item: ContentPlanItem): { step: number; percent: number } {
+  const cs = item.caption_status   // null | "disabled" | "processing" | "done" | "failed"
+
   switch (item.status) {
-    case "draft": return { step: -1, percent: 0 }
-    case "scripted": return { step: 1, percent: hasCaption ? 35 : 30 }
-    case "generating": return { step: 1, percent: 55 }
-    case "ready": return hasCaption ? { step: 3, percent: 90 } : { step: 2, percent: 75 }
-    case "published": return { step: 4, percent: 100 }
-    default: return { step: -1, percent: 0 }
+    case "draft":
+      return { step: -1, percent: 0 }
+
+    case "scripted":
+      return { step: 0, percent: item.caption ? 35 : 30 }
+
+    case "generating":
+      return { step: 1, percent: 55 }
+
+    case "ready": {
+      // Video is done. Now check caption_status:
+      if (cs === "processing") {
+        // Caption Studio actively running
+        return { step: 2, percent: 75 }
+      }
+      if (cs === "done" || cs === "failed" || cs === "disabled" || cs === null) {
+        // Caption step finished (or skipped) → publishing
+        return { step: 3, percent: 90 }
+      }
+      // Default: caption step in progress (unknown state)
+      return { step: 2, percent: 75 }
+    }
+
+    case "published":
+      return { step: 4, percent: 100 }
+
+    default:
+      return { step: -1, percent: 0 }
   }
 }
 
-function pickActiveItem(items: ContentPlanItem[]): { item: ContentPlanItem, mode: "processing" | "next" | "done" } | null {
-  const inProcess = items.find((i) => i.status === "generating")
-    ?? items.find((i) => i.status === "ready")
+function pickActiveItem(items: ContentPlanItem[]): { item: ContentPlanItem; mode: "processing" | "next" | "done" } | null {
+  const inProcess =
+    items.find((i) => i.status === "generating") ??
+    items.find((i) => i.status === "ready")
   if (inProcess) return { item: inProcess, mode: "processing" }
 
   const now = Date.now()
@@ -50,7 +87,7 @@ function pickActiveItem(items: ContentPlanItem[]): { item: ContentPlanItem, mode
 }
 
 export default function PipelineTimeline() {
-  const { data: items } = useGetContentPlan({ limit: 100 }, { query: { refetchInterval: 30000 } as any })
+  const { data: items } = useGetContentPlan({ limit: 100 }, { query: { refetchInterval: 15000 } as any })
 
   const active = items ? pickActiveItem(items) : null
   if (!active) return null
@@ -58,6 +95,16 @@ export default function PipelineTimeline() {
   const { item, mode } = active
   const { step, percent } = getProgress(item)
   const scheduled = item.scheduled_at ? new Date(item.scheduled_at) : null
+
+  // Caption Studio step is hidden only when explicitly disabled (captions turned off in automation).
+  // null = pending (will run), "processing" = active, "done"/"failed" = finished — all show the step.
+  const captionDisabled = item.caption_status === "disabled"
+  const visibleSteps = captionDisabled
+    ? STEPS.filter((s) => s.key !== "caption")
+    : STEPS
+
+  // Remap step index when caption step is hidden
+  const displayStep = captionDisabled && step >= 2 ? step - 1 : step
 
   return (
     <Card className="border-primary/20 bg-gradient-to-r from-primary/5 to-transparent shrink-0">
@@ -84,14 +131,31 @@ export default function PipelineTimeline() {
 
         <Progress value={percent} className="h-1.5 mb-4" />
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          {STEPS.map((s, i) => {
+        <div className={`grid gap-2 ${visibleSteps.length === 3 ? "grid-cols-3" : "grid-cols-2 sm:grid-cols-4"}`}>
+          {visibleSteps.map((s, i) => {
             const Icon = s.icon
-            const done = step > i
-            const current = step === i && mode !== "next" && item.status !== "draft" && item.status !== "failed"
-            const failed = item.status === "failed"
+            const done    = displayStep > i
+            const current = displayStep === i && mode !== "next" && item.status !== "draft" && item.status !== "failed"
+            const failed  = item.status === "failed"
+
+            // Caption Studio step: show extra detail on the status label
+            let statusLabel = done ? "Completado" : current ? "En proceso..." : s.eta
+            if (s.key === "caption" && current) {
+              statusLabel = "Procesando..."
+            }
+            if (s.key === "caption" && done && item.caption_status === "failed") {
+              statusLabel = "Omitido (error)"
+            }
+
             return (
-              <div key={s.key} className={`rounded-lg border p-3 transition-colors ${done ? "bg-primary/10 border-primary/30" : current ? "border-primary bg-background shadow-sm" : "bg-muted/30 border-transparent"}`}>
+              <div
+                key={s.key}
+                className={`rounded-lg border p-3 transition-colors ${
+                  done    ? "bg-primary/10 border-primary/30" :
+                  current ? "border-primary bg-background shadow-sm" :
+                            "bg-muted/30 border-transparent"
+                }`}
+              >
                 <div className="flex items-center gap-2 mb-1">
                   {failed && i === 0 ? (
                     <AlertTriangle className="w-4 h-4 text-destructive" />
@@ -107,7 +171,7 @@ export default function PipelineTimeline() {
                   </span>
                 </div>
                 <p className="text-[11px] text-muted-foreground leading-tight hidden sm:block">{s.desc}</p>
-                <p className="text-[10px] text-muted-foreground/70 mt-1">{done ? "Completado" : current ? "En proceso..." : s.eta}</p>
+                <p className="text-[10px] text-muted-foreground/70 mt-1">{statusLabel}</p>
               </div>
             )
           })}

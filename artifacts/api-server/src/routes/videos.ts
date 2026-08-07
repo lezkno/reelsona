@@ -121,7 +121,11 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
     return;
   }
 
-  // Create video row
+  // Load automation config (needed for captionsEnabled flag)
+  const [automationCfg] = await db.select().from(automationConfigTable).limit(1);
+
+  // Create video row — set captionStatus upfront so the pipeline UI knows
+  // whether Caption Studio will run even before HeyGen finishes
   const [videoRow] = await db
     .insert(videosTable)
     .values({
@@ -129,6 +133,7 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
       topic: item.topic,
       avatarId: item.avatarId,
       status: "generating",
+      captionStatus: automationCfg?.captionsEnabled ? null : "disabled",
     })
     .returning();
 
@@ -136,9 +141,6 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
     .update(contentPlanItemsTable)
     .set({ videoId: videoRow.id, updatedAt: new Date() })
     .where(eq(contentPlanItemsTable.id, item.id));
-
-  // Load automation config to pass captionsEnabled
-  const [automationCfg] = await db.select().from(automationConfigTable).limit(1);
 
   // Fire and forget video generation
   generateVideo({

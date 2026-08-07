@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { contentPlanItemsTable, settingsTable, automationConfigTable } from "@workspace/db";
-import { eq, and, sql, isNotNull, gte } from "drizzle-orm";
+import { contentPlanItemsTable, settingsTable, automationConfigTable, videosTable } from "@workspace/db";
+import { eq, and, sql, isNotNull, gte, inArray } from "drizzle-orm";
 import { computeUpcomingSlots } from "../lib/schedule";
 import {
   GetContentPlanQueryParams,
@@ -27,7 +27,10 @@ import { runAutomationCycle } from "../lib/scheduler";
 
 const router = Router();
 
-function mapItem(item: typeof contentPlanItemsTable.$inferSelect) {
+function mapItem(
+  item: typeof contentPlanItemsTable.$inferSelect,
+  captionStatus?: string | null
+) {
   return {
     id: item.id,
     topic: item.topic,
@@ -41,9 +44,20 @@ function mapItem(item: typeof contentPlanItemsTable.$inferSelect) {
     scheduled_at: item.scheduledAt?.toISOString() ?? null,
     status: item.status,
     video_id: item.videoId ?? null,
+    caption_status: captionStatus ?? null,
     created_at: item.createdAt.toISOString(),
     updated_at: item.updatedAt.toISOString(),
   };
+}
+
+/** Fetch captionStatus for a list of video IDs, returns a Map<videoId, captionStatus>. */
+async function fetchCaptionStatuses(videoIds: number[]): Promise<Map<number, string | null>> {
+  if (videoIds.length === 0) return new Map();
+  const rows = await db
+    .select({ id: videosTable.id, captionStatus: videosTable.captionStatus })
+    .from(videosTable)
+    .where(inArray(videosTable.id, videoIds));
+  return new Map(rows.map((r) => [r.id, r.captionStatus]));
 }
 
 router.get("/content/plan", async (req, res): Promise<void> => {
@@ -54,17 +68,46 @@ router.get("/content/plan", async (req, res): Promise<void> => {
   const conditions =
     status !== "all" ? [eq(contentPlanItemsTable.status, status)] : [];
 
-  const items = await db
-    .select()
-    .from(contentPlanItemsTable)
-    .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .orderBy(
-      sql`${contentPlanItemsTable.scheduledAt} ASC NULLS LAST`,
-      contentPlanItemsTable.createdAt
-    )
-    .limit(limit);
+  // Fetch items + automation config in parallel
+  const [items, [automation]] = await Promise.all([
+    db
+      .select()
+      .from(contentPlanItemsTable)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(
+        sql`${contentPlanItemsTable.scheduledAt} ASC NULLS LAST`,
+        contentPlanItemsTable.createdAt
+      )
+      .limit(limit),
+    db.select().from(automationConfigTable).limit(1),
+  ]);
 
-  res.json(GetContentPlanResponse.parse(items.map(mapItem)));
+  const captionsGloballyEnabled = automation?.captionsEnabled ?? false;
+
+  // Fetch captionStatus for items that have an associated video
+  const videoIds = items.map((i) => i.videoId).filter((v): v is number => v != null);
+  const captionMap = await fetchCaptionStatuses(videoIds);
+
+  res.json(
+    GetContentPlanResponse.parse(
+      items.map((i) => {
+        if (i.videoId == null) return mapItem(i, null);
+
+        let cs = captionMap.get(i.videoId) ?? null;
+
+        // Backfill: videos created before the captionStatus-aware fix have
+        // captionStatus = "disabled" by default. If captions are globally
+        // enabled and the item is still in-flight (generating/ready), treat
+        // it as null (pending) so the Caption Studio step appears in the UI.
+        const inFlight = i.status === "generating" || i.status === "ready";
+        if (captionsGloballyEnabled && cs === "disabled" && inFlight) {
+          cs = null;
+        }
+
+        return mapItem(i, cs);
+      })
+    )
+  );
 });
 
 router.post("/content/plan/generate", async (req, res): Promise<void> => {
@@ -127,7 +170,7 @@ router.post("/content/plan/generate", async (req, res): Promise<void> => {
     )
     .returning();
 
-  res.status(201).json(GenerateContentPlanResponse.parse(inserted.map(mapItem)));
+  res.status(201).json(GenerateContentPlanResponse.parse(inserted.map((i) => mapItem(i))));
 });
 
 router.post("/content", async (req, res): Promise<void> => {

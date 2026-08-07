@@ -25,6 +25,7 @@ export * from './captionPreset';
 export * from './captionPresetHighlightMode';
 export * from './contentPlanGenerateInput';
 export * from './contentPlanItem';
+export * from './contentPlanItemCaptionStatus';
 export * from './contentPlanItemCreateInput';
 export * from './contentPlanItemStatus';
 export * from './contentPlanItemUpdate';

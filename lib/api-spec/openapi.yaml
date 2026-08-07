@@ -940,6 +940,10 @@ components:
           enum: [draft, scripted, generating, ready, published, failed]
         video_id:
           type: ["number", "null"]
+        caption_status:
+          type: ["string", "null"]
+          enum: [disabled, processing, done, failed, null]
+          description: Caption Studio processing state for the associated video
         created_at:
           type: string
         updated_at:

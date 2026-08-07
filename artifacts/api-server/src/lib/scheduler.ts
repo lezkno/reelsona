@@ -279,6 +279,9 @@ export async function runAutomationCycle(targetItemId?: number): Promise<{
       topic: contentItem.topic,
       avatarId: contentItem.avatarId,
       status: "generating",
+      // null = caption pending (will be processed after HeyGen completes)
+      // "disabled" = captions are off, skip the step entirely
+      captionStatus: automation.captionsEnabled ? null : "disabled",
     })
     .returning();
 
