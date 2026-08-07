@@ -9,7 +9,7 @@ import {
   instagramAccountsTable,
   captionConfigTable,
 } from "@workspace/db";
-import { applyCaptions, type CaptionStyle } from "./caption-engine";
+import { applyCaptions, CAPTION_DIR, type CaptionStyle } from "./caption-engine";
 import { eq, and, lte, inArray } from "drizzle-orm";
 import { logger } from "./logger";
 import { generateScript } from "./ai-scripts";
@@ -496,12 +496,35 @@ export async function publishVideoToInstagram(videoId: number, videoUrl?: string
   const [video] = await db.select().from(videosTable).where(eq(videosTable.id, videoId));
   if (!video) throw new Error("Video not found");
 
-  // Use captioned URL if available (Caption Studio layer), fallback to original
+  // Use captioned URL if available (Caption Studio layer), fallback to original.
+  // Captioned files live in /tmp which is cleared on every server restart.
+  // Before passing the URL to Instagram, verify the file still exists on disk.
+  // If it was wiped, fall back to the raw HeyGen URL so the publish doesn't
+  // fail with a mysterious "Container processing failed" from Instagram.
   const rawUrl = videoUrl ?? video.videoUrl;
   if (!rawUrl) throw new Error("Video URL not available");
-  const url = video.captionedVideoUrl ?? rawUrl;
-  if (url !== rawUrl) {
-    logger.info({ videoId, captionedUrl: url.slice(0, 60) }, "[CaptionEngine] Publishing with captioned video");
+
+  let url = rawUrl;
+  if (video.captionedVideoUrl) {
+    // Extract filename from the stored URL and check disk
+    const filename = video.captionedVideoUrl.split("/").pop() ?? "";
+    const filePath = filename ? require("path").join(CAPTION_DIR, filename) : "";
+    const fileExists = filePath ? require("fs").existsSync(filePath) : false;
+
+    if (fileExists) {
+      url = video.captionedVideoUrl;
+      logger.info({ videoId, captionedUrl: url.slice(0, 60) }, "[Publish] Using captioned video");
+    } else {
+      logger.warn(
+        { videoId, captionedUrl: video.captionedVideoUrl.slice(0, 60) },
+        "[Publish] Captioned file not found on disk (server restart wiped /tmp) — falling back to HeyGen URL"
+      );
+      // Clear the stale captionedVideoUrl from DB so the UI reflects reality
+      await db
+        .update(videosTable)
+        .set({ captionedVideoUrl: null, captionStatus: "failed", updatedAt: new Date() })
+        .where(eq(videosTable.id, videoId));
+    }
   }
 
   const [igAccount] = await db.select().from(instagramAccountsTable).limit(1);
