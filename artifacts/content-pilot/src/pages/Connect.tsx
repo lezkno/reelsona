@@ -1,4 +1,4 @@
-import { useGetInstagramAccount, useGetInstagramAuthUrl, useDisconnectInstagram, useHandleInstagramCallback, getGetInstagramAccountQueryKey } from "@workspace/api-client-react"
+import { useGetInstagramAccount, useDisconnectInstagram, useHandleInstagramCallback, getGetInstagramAccountQueryKey } from "@workspace/api-client-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -8,9 +8,15 @@ import { useToast } from "@/hooks/use-toast"
 import { useEffect, useRef } from "react"
 import { useLocation } from "wouter"
 
+// The redirect_uri must be exactly the same in both:
+// 1. The OAuth URL sent to Meta  2. The code exchange call
+// We derive it from window.location so it always matches the real domain.
+function getRedirectUri() {
+  return window.location.origin + "/connect"
+}
+
 export default function Connect() {
   const { data: status, isLoading } = useGetInstagramAccount()
-  const { data: authUrl } = useGetInstagramAuthUrl()
   const disconnect = useDisconnectInstagram()
   const handleCallback = useHandleInstagramCallback()
   const queryClient = useQueryClient()
@@ -18,6 +24,7 @@ export default function Connect() {
   const [, setLocation] = useLocation()
   
   const handledCode = useRef<string | null>(null)
+  const redirectUri = getRedirectUri()
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -25,8 +32,6 @@ export default function Connect() {
     
     if (code && code !== handledCode.current) {
       handledCode.current = code
-      const redirectUri = window.location.origin + "/connect"
-      
       handleCallback.mutate({ data: { code, redirect_uri: redirectUri } }, {
         onSuccess: () => {
           toast({ title: "Cuenta Conectada", description: "Tu cuenta de Instagram se vinculó correctamente." })
@@ -39,7 +44,7 @@ export default function Connect() {
         }
       })
     }
-  }, [handleCallback, setLocation, queryClient, toast])
+  }, [handleCallback, setLocation, queryClient, toast, redirectUri])
 
   const handleDisconnect = () => {
     disconnect.mutate(undefined, {
@@ -53,10 +58,12 @@ export default function Connect() {
     })
   }
 
-  const handleConnect = () => {
-    if (authUrl?.url) {
-      window.open(authUrl.url, '_blank', 'noopener,noreferrer')
-    }
+  const handleConnect = async () => {
+    // Fetch auth URL passing our real redirect_uri as a query param
+    const res = await fetch(`/api/instagram/auth-url?redirect_uri=${encodeURIComponent(redirectUri)}`)
+    if (!res.ok) return
+    const { url } = await res.json() as { url: string }
+    window.open(url, '_blank', 'noopener,noreferrer')
   }
 
   if (isLoading) {

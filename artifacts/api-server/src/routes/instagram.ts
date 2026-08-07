@@ -24,12 +24,13 @@ import { analyzeAuditAndRecommend } from "../lib/ai-scripts";
 const router = Router();
 
 router.get("/instagram/auth-url", async (req, res): Promise<void> => {
-  // redirect_uri must point to the frontend /connect page so the useEffect
-  // there can pick up the ?code= param and complete the OAuth exchange.
-  // The host from the request header is the shared proxy domain (correct in both dev and prod).
-  const proto = req.get("x-forwarded-proto") ?? req.protocol;
-  const host = req.get("x-forwarded-host") ?? req.get("host");
-  const redirectUri = `${proto}://${host}/connect`;
+  // The frontend passes its own origin so the redirect_uri is always the real
+  // domain the user sees in their browser — not localhost or an internal host.
+  const redirectUri = req.query["redirect_uri"] as string | undefined;
+  if (!redirectUri) {
+    res.status(400).json({ error: "redirect_uri query param is required" });
+    return;
+  }
   const url = getAuthUrl(redirectUri);
   res.json(GetInstagramAuthUrlResponse.parse({ url }));
 });
