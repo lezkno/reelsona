@@ -212,6 +212,8 @@ export default function Videos() {
                 src={previewVideo.captioned_video_url ?? previewVideo.video_url ?? undefined}
                 poster={previewVideo.thumbnail_url ?? undefined}
                 controls
+                playsInline
+                preload="auto"
                 className="w-full max-h-[65vh] object-contain"
               />
             </div>

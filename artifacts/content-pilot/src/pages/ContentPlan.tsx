@@ -854,7 +854,8 @@ export default function ContentPlan() {
                     src={playUrl}
                     poster={previewItem.thumbnail_url ?? undefined}
                     controls
-                    autoPlay={false}
+                    playsInline
+                    preload="auto"
                     className="w-full max-h-[60vh] object-contain"
                   />
                 </div>
