@@ -24,7 +24,12 @@ import { analyzeAuditAndRecommend } from "../lib/ai-scripts";
 const router = Router();
 
 router.get("/instagram/auth-url", async (req, res): Promise<void> => {
-  const redirectUri = `${req.protocol}://${req.get("host")}/api/instagram/callback-redirect`;
+  // redirect_uri must point to the frontend /connect page so the useEffect
+  // there can pick up the ?code= param and complete the OAuth exchange.
+  // The host from the request header is the shared proxy domain (correct in both dev and prod).
+  const proto = req.get("x-forwarded-proto") ?? req.protocol;
+  const host = req.get("x-forwarded-host") ?? req.get("host");
+  const redirectUri = `${proto}://${host}/connect`;
   const url = getAuthUrl(redirectUri);
   res.json(GetInstagramAuthUrlResponse.parse({ url }));
 });

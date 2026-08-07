@@ -55,7 +55,7 @@ export default function Connect() {
 
   const handleConnect = () => {
     if (authUrl?.url) {
-      window.location.href = authUrl.url
+      window.open(authUrl.url, '_blank', 'noopener,noreferrer')
     }
   }
 
