@@ -9,7 +9,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { useQueryClient } from "@tanstack/react-query"
 import { useToast } from "@/hooks/use-toast"
 import { useState, useEffect } from "react"
-import { Users, Save, CheckCircle2, Image as ImageIcon } from "lucide-react"
+import { Users, Save, CheckCircle2, Image as ImageIcon, Play, Square } from "lucide-react"
+import { useRef } from "react"
 
 function LooksDialog({ group, selectedIds, onToggle, onClose }: {
   group: HeyGenAvatarGroup
@@ -81,6 +82,26 @@ export default function Avatars() {
   const [openGroup, setOpenGroup] = useState<HeyGenAvatarGroup | null>(null)
   const [voiceId, setVoiceId] = useState<string>("")
   const { data: voices } = useGetHeyGenVoices()
+  const [isPlaying, setIsPlaying] = useState(false)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+
+  const selectedVoice = (voices ?? []).find((v) => v.voice_id === voiceId)
+
+  const togglePreview = () => {
+    if (isPlaying) {
+      audioRef.current?.pause()
+      audioRef.current = null
+      setIsPlaying(false)
+      return
+    }
+    if (!selectedVoice?.preview_audio_url) return
+    const audio = new Audio(selectedVoice.preview_audio_url)
+    audioRef.current = audio
+    audio.onended = () => setIsPlaying(false)
+    audio.onerror = () => setIsPlaying(false)
+    audio.play()
+    setIsPlaying(true)
+  }
 
   const spanishVoices = (voices ?? []).filter((v) => {
     const lang = (v.language ?? "").toLowerCase()
@@ -171,19 +192,32 @@ export default function Avatars() {
               </div>
               <div>
                 <Label className="mb-2 block">Voz de los videos</Label>
-                <Select value={voiceId} onValueChange={setVoiceId}>
-                  <SelectTrigger className="bg-background">
-                    <SelectValue placeholder="Elegí una voz" />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-72">
-                    {voiceOptions.map((v) => (
-                      <SelectItem key={v.voice_id} value={v.voice_id}>
-                        {v.name}{v.gender ? ` · ${v.gender === "male" ? "masculina" : v.gender === "female" ? "femenina" : v.gender}` : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground mt-1">Todos los videos se narran con esta voz.</p>
+                <div className="flex gap-2">
+                  <Select value={voiceId} onValueChange={(v) => { audioRef.current?.pause(); audioRef.current = null; setIsPlaying(false); setVoiceId(v) }}>
+                    <SelectTrigger className="bg-background flex-1">
+                      <SelectValue placeholder="Elegí una voz" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-72">
+                      {voiceOptions.map((v) => (
+                        <SelectItem key={v.voice_id} value={v.voice_id}>
+                          {v.name}{v.gender ? ` · ${v.gender === "male" ? "masculina" : v.gender === "female" ? "femenina" : v.gender}` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="shrink-0"
+                    disabled={!selectedVoice?.preview_audio_url}
+                    onClick={togglePreview}
+                    title={selectedVoice?.preview_audio_url ? "Escuchar muestra" : "Esta voz no tiene muestra disponible"}
+                  >
+                    {isPlaying ? <Square className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">Todos los videos se narran con esta voz.{selectedVoice && !selectedVoice.preview_audio_url ? " Esta voz no tiene audio de muestra." : ""}</p>
               </div>
             </div>
           </div>
