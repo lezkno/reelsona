@@ -243,6 +243,29 @@ router.post("/content/:id/process", async (req, res): Promise<void> => {
   res.json(ProcessContentItemNowResponse.parse({ success: result.success, message: result.message }));
 });
 
+// Suggest a fresh AI topic for an existing content item (without generating the script).
+// Returns a single {topic} string so the user can accept/retry/cancel inline.
+router.post("/content/:id/suggest-topic", async (req, res): Promise<void> => {
+  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const id = Number(raw);
+  if (!id) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const [settings] = await db.select().from(settingsTable).limit(1);
+  const niche    = settings?.niche ?? "marketing digital";
+  const keywords = settings?.topicKeywords ?? [];
+  const tone     = settings?.tone ?? "casual";
+  const language = settings?.language ?? "es";
+
+  // Avoid repeating any existing topic
+  const existing = await db.select({ topic: contentPlanItemsTable.topic }).from(contentPlanItemsTable);
+  const existingTopics = existing.map((i) => i.topic);
+
+  const [generated] = await generateContentTopics(niche, keywords, tone, language, 1, 1, existingTopics);
+  if (!generated?.topic) { res.status(500).json({ error: "No se pudo generar el tema" }); return; }
+
+  res.json({ topic: generated.topic });
+});
+
 router.post("/content/script", async (req, res): Promise<void> => {
   const parsed = GenerateScriptBody.safeParse(req.body);
   if (!parsed.success) {

@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from "@/components/ui/label"
 import { format, isSameDay } from "date-fns"
 import { es } from "date-fns/locale"
-import { Wand2, Edit3, Trash2, Video, CheckCircle2, Clock, AlertTriangle, CalendarDays, Plus, Zap, Users, List, Calendar } from "lucide-react"
+import { Wand2, Edit3, Trash2, Video, CheckCircle2, Clock, AlertTriangle, CalendarDays, Plus, Zap, Users, List, Calendar, Sparkles, RefreshCw, X, Check } from "lucide-react"
 import PipelineTimeline from "@/components/PipelineTimeline"
 import CalendarView from "@/components/CalendarView"
 import { useToast } from "@/hooks/use-toast"
@@ -52,7 +52,33 @@ export default function ContentPlan() {
   const [days, setDays] = useState(7)
   const [postsPerDay, setPostsPerDay] = useState(1)
 
-  const { data: items, isLoading } = useGetContentPlan({ status: filter === "all" ? undefined : filter as any, limit: 100 })
+  // Always fetch everything — filtering is done client-side so tab counts are
+  // always accurate and switching tabs is instant (no extra network round-trips).
+  const { data: allItems, isLoading } = useGetContentPlan({ limit: 100 })
+
+  // Tab → which statuses to include
+  const TAB_STATUSES: Record<string, string[]> = {
+    all:        ["draft","scripted","generating","ready","published","failed"],
+    draft:      ["draft"],
+    scripted:   ["scripted"],
+    active:     ["generating","ready"],   // "En Producción"
+    published:  ["published"],
+    failed:     ["failed"],
+  }
+
+  const items = filter === "all"
+    ? allItems
+    : (allItems ?? []).filter(i => TAB_STATUSES[filter]?.includes(i.status))
+
+  // Count per logical tab (computed once, used for badges)
+  const counts = {
+    all:       (allItems ?? []).length,
+    draft:     (allItems ?? []).filter(i => i.status === "draft").length,
+    scripted:  (allItems ?? []).filter(i => i.status === "scripted").length,
+    active:    (allItems ?? []).filter(i => i.status === "generating" || i.status === "ready").length,
+    published: (allItems ?? []).filter(i => i.status === "published").length,
+    failed:    (allItems ?? []).filter(i => i.status === "failed").length,
+  }
   const generatePlan = useGenerateContentPlan()
   const deleteItem = useDeleteContentItem()
   const generateVideo = useGenerateVideo()
@@ -61,10 +87,40 @@ export default function ContentPlan() {
   const processNow = useProcessContentItemNow()
   const [processingId, setProcessingId] = useState<number | null>(null)
   const [editingTopic, setEditingTopic] = useState<{ id: number; value: string } | null>(null)
+  const [suggestingId, setSuggestingId] = useState<number | null>(null)
+  const [topicSuggestion, setTopicSuggestion] = useState<{ id: number; topic: string } | null>(null)
+
+  const handleSuggestTopic = async (item: ContentPlanItem) => {
+    setSuggestingId(item.id)
+    setTopicSuggestion(null)
+    try {
+      const base = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? ""
+      const res = await fetch(`${base}/api/content/${item.id}/suggest-topic`, { method: "POST" })
+      const data = await res.json()
+      if (data.topic) setTopicSuggestion({ id: item.id, topic: data.topic })
+      else toast({ title: "Sin sugerencia", description: data.error ?? "Intentá de nuevo.", variant: "destructive" })
+    } catch {
+      toast({ title: "Error", description: "No se pudo conectar con la IA.", variant: "destructive" })
+    } finally {
+      setSuggestingId(null)
+    }
+  }
+
+  const handleAcceptSuggestion = () => {
+    if (!topicSuggestion) return
+    updateItem.mutate({ id: topicSuggestion.id, data: { topic: topicSuggestion.topic } }, {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: getGetContentPlanQueryKey() })
+        toast({ title: "Tema actualizado", description: "El nuevo tema fue guardado." })
+      },
+      onError: () => toast({ title: "Error", description: "No se pudo guardar el tema.", variant: "destructive" }),
+    })
+    setTopicSuggestion(null)
+  }
 
   // Derived from real API data — true if ANY item is currently being produced.
   // Used to block all manual generate buttons so only one HeyGen job runs at a time.
-  const anyVideoInFlight = (items ?? []).some(
+  const anyVideoInFlight = (allItems ?? []).some(
     (i) => i.status === "generating" || i.status === "ready"
   )
   // Combined disable flag: in-flight from real data OR local pending request
@@ -268,12 +324,37 @@ export default function ContentPlan() {
         />
       ) : (
       <Tabs value={filter} onValueChange={setFilter} className="flex-1 flex flex-col min-h-0">
-        <TabsList className="bg-muted p-1 mb-6 inline-flex shrink-0">
-          <TabsTrigger value="all">Todos</TabsTrigger>
-          <TabsTrigger value="draft">Borradores</TabsTrigger>
-          <TabsTrigger value="scripted">Guiones Listos</TabsTrigger>
-          <TabsTrigger value="ready">Videos Listos</TabsTrigger>
-          <TabsTrigger value="published">Publicados</TabsTrigger>
+        <TabsList className="bg-muted p-1 mb-6 inline-flex shrink-0 flex-wrap gap-y-1">
+          {([ 
+            { value: "all",       label: "Todos" },
+            { value: "draft",     label: "Borradores" },
+            { value: "scripted",  label: "Guión listo" },
+            { value: "active",    label: "En producción" },
+            { value: "published", label: "Publicados" },
+            ...(counts.failed > 0 ? [{ value: "failed", label: "Con errores" }] : []),
+          ] as { value: string; label: string }[]).map(({ value, label }) => {
+            const n = counts[value as keyof typeof counts] ?? 0
+            const isEmpty = value !== "all" && n === 0
+            return (
+              <TabsTrigger
+                key={value}
+                value={value}
+                disabled={isEmpty}
+                className={isEmpty ? "opacity-35 cursor-not-allowed" : ""}
+              >
+                {label}
+                {n > 0 && (
+                  <span className={`ml-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center leading-none
+                    ${filter === value
+                      ? "bg-primary-foreground/20 text-primary-foreground"
+                      : "bg-foreground/10 text-foreground/70"
+                    }`}>
+                    {n}
+                  </span>
+                )}
+              </TabsTrigger>
+            )
+          })}
         </TabsList>
 
         <div className="flex-1 bg-card border rounded-xl shadow-sm overflow-hidden flex flex-col relative">
@@ -370,30 +451,84 @@ export default function ContentPlan() {
                                   </button>
                                 )
                               })()}
-                              {item.status === "draft" && editingTopic?.id === item.id ? (
-                                <input
-                                  autoFocus
-                                  className="flex-1 text-lg font-bold font-display leading-tight pt-1.5 bg-transparent border-b-2 border-primary outline-none w-full"
-                                  value={editingTopic.value}
-                                  onChange={(e) => setEditingTopic({ id: item.id, value: e.target.value })}
-                                  onBlur={() => handleSaveTopic(item.id, editingTopic.value)}
-                                  onKeyDown={(e) => {
-                                    if (e.key === "Enter") handleSaveTopic(item.id, editingTopic.value)
-                                    if (e.key === "Escape") setEditingTopic(null)
-                                  }}
-                                />
-                              ) : (
-                                <h4
-                                  className={`text-lg font-bold font-display leading-tight pt-1.5 ${item.status === "draft" ? "cursor-text hover:text-primary transition-colors" : ""}`}
-                                  title={item.status === "draft" ? "Clic para editar el título" : undefined}
-                                  onClick={() => item.status === "draft" && setEditingTopic({ id: item.id, value: item.topic })}
-                                >
-                                  {item.topic}
-                                  {item.status === "draft" && (
-                                    <Edit3 className="inline-block w-3.5 h-3.5 ml-1.5 opacity-0 group-hover:opacity-40 transition-opacity align-middle" />
-                                  )}
-                                </h4>
-                              )}
+                              <div className="flex-1 min-w-0">
+                                {item.status === "draft" && editingTopic?.id === item.id ? (
+                                  <input
+                                    autoFocus
+                                    className="text-lg font-bold font-display leading-tight pt-1.5 bg-transparent border-b-2 border-primary outline-none w-full"
+                                    value={editingTopic.value}
+                                    onChange={(e) => setEditingTopic({ id: item.id, value: e.target.value })}
+                                    onBlur={() => handleSaveTopic(item.id, editingTopic.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") handleSaveTopic(item.id, editingTopic.value)
+                                      if (e.key === "Escape") setEditingTopic(null)
+                                    }}
+                                  />
+                                ) : (
+                                  <div className="flex items-start gap-1.5">
+                                    <h4
+                                      className={`text-lg font-bold font-display leading-tight pt-1.5 flex-1 min-w-0 ${item.status === "draft" ? "cursor-text hover:text-primary transition-colors" : ""}`}
+                                      title={item.status === "draft" ? "Clic para editar el título" : undefined}
+                                      onClick={() => item.status === "draft" && setEditingTopic({ id: item.id, value: item.topic })}
+                                    >
+                                      {item.topic}
+                                      {item.status === "draft" && (
+                                        <Edit3 className="inline-block w-3.5 h-3.5 ml-1.5 opacity-0 group-hover:opacity-40 transition-opacity align-middle" />
+                                      )}
+                                    </h4>
+                                    {item.status === "draft" && (
+                                      <button
+                                        type="button"
+                                        title="Generar nuevo tema con IA"
+                                        disabled={suggestingId === item.id}
+                                        onClick={() => handleSuggestTopic(item)}
+                                        className="mt-1.5 shrink-0 p-1 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors disabled:opacity-40"
+                                      >
+                                        {suggestingId === item.id
+                                          ? <RefreshCw className="w-4 h-4 animate-spin" />
+                                          : <Sparkles className="w-4 h-4" />
+                                        }
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
+
+                                {/* Inline AI suggestion */}
+                                {topicSuggestion?.id === item.id && (
+                                  <div className="mt-2 rounded-lg border border-primary/30 bg-primary/5 p-2.5 flex flex-col gap-2">
+                                    <p className="text-xs text-muted-foreground font-medium flex items-center gap-1">
+                                      <Sparkles className="w-3 h-3 text-primary" /> Sugerencia de IA
+                                    </p>
+                                    <p className="text-sm font-semibold leading-snug">{topicSuggestion.topic}</p>
+                                    <div className="flex items-center gap-1.5">
+                                      <Button
+                                        size="sm"
+                                        className="h-7 gap-1 text-xs"
+                                        onClick={handleAcceptSuggestion}
+                                      >
+                                        <Check className="w-3 h-3" /> Usar este
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-7 gap-1 text-xs"
+                                        disabled={suggestingId === item.id}
+                                        onClick={() => handleSuggestTopic(item)}
+                                      >
+                                        <RefreshCw className="w-3 h-3" /> Otro
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        className="h-7 w-7 p-0"
+                                        onClick={() => setTopicSuggestion(null)}
+                                      >
+                                        <X className="w-3 h-3" />
+                                      </Button>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
                             </div>
                             {item.hook && (
                               <p className="text-sm text-muted-foreground line-clamp-2 italic border-l-2 border-primary/30 pl-3 py-0.5">

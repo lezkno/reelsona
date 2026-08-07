@@ -106,23 +106,48 @@ export async function generateContentTopics(
   const client = getClient();
   const total = days * postsPerDay;
 
+  // Derive content pillars from the niche string so the AI spreads topics
+  // evenly instead of fixating on a single keyword.
+  // E.g. "Marketing digital, automatizaciones, chatbot, IA" → 4 pillars
+  const rawPillars = niche
+    .split(/[,;|]/)
+    .map((p) => p.trim())
+    .filter((p) => p.length > 2);
+
+  // Also include extra keywords that aren't already covered by pillars
+  const extraKeywords = keywords.filter(
+    (k) => !rawPillars.some((p) => p.toLowerCase().includes(k.toLowerCase()))
+  );
+  const allPillars = [...rawPillars, ...extraKeywords];
+
+  const maxPerPillar = Math.ceil(total / Math.max(allPillars.length, 1));
+
   const prompt = `Eres un estratega de contenido para Instagram Reels especializado en crecimiento orgánico.
 
 Genera un plan de contenido con ${total} temas únicos para el siguiente nicho:
 - Nicho: ${niche}
-- Palabras clave principales: ${keywords.join(", ")}
 - Tono de comunicación: ${tone}
 - Idioma: ${language}
-- Temas que funcionaron bien antes (no repetir): ${topPerformingTopics.slice(0, 5).join(", ") || "N/A"}
+- Temas que ya existen (NO repetir ni parafrasear): ${topPerformingTopics.slice(0, 8).join(" | ") || "N/A"}
+
+PILARES DE CONTENIDO — distribuí los ${total} temas equitativamente entre todos estos pilares.
+Cada pilar puede tener como máximo ${maxPerPillar} temas. No pongas más de 2 temas seguidos del mismo pilar:
+${allPillars.map((p, i) => `  ${i + 1}. ${p}`).join("\n")}
+
+REGLA CRÍTICA DE VARIEDAD: Aunque un pilar sea "chatbot" o "automatizaciones", los temas dentro de él deben ser distintos entre sí — diferentes ángulos, problemas, audiencias, plataformas. Ejemplos de ángulos para variar:
+  - Para el usuario (el dueño del negocio): "cómo implementar X", "errores al configurar X"
+  - Para el cliente final: "por qué las empresas usan X", "qué esperar cuando X te atiende"
+  - Comparativas: "X vs Y — cuál conviene para tu negocio"
+  - Noticias/tendencias: "qué cambió en X en 2025", "la nueva función de X que cambia todo"
+  - Resultados: "cuánto ahorra una empresa con X", "caso real: empresa que implementó X"
 
 ${TOPIC_CATEGORIES}
 
 Reglas adicionales:
-- Cada tema debe ser específico y accionable — evitar títulos genéricos como "Tips de marketing"
-- Los temas TRENDING deben mencionar contexto actual: algoritmos 2025, IA generativa, cambios recientes en plataformas (Instagram, TikTok, LinkedIn, Shopify, etc.)
+- Cada tema debe ser específico — evitar títulos genéricos como "Tips de marketing"
+- Los temas TRENDING deben referenciar contexto actual: algoritmos 2025-2026, IA generativa, cambios en plataformas (Instagram, WhatsApp Business, Shopify, etc.)
 - Cada tema debe poder desarrollarse en un Reel de 45-75 segundos
-- No repetir temas de la lista "que funcionaron bien antes"
-- Los temas deben programarse a lo largo de ${days} días, máximo ${postsPerDay} por día
+- Los temas deben distribuirse a lo largo de ${days} días, máximo ${postsPerDay} por día
 
 Devuelve SOLO un JSON válido con esta estructura:
 {
@@ -130,6 +155,7 @@ Devuelve SOLO un JSON válido con esta estructura:
     {
       "topic": "Título del tema específico",
       "days_from_now": 0,
+      "pillar": "nombre del pilar",
       "category": "evergreen|trending|educacional|social_proof"
     }
   ]
