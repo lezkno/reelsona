@@ -61,7 +61,7 @@ export default function Audit() {
               <p className="font-medium text-muted-foreground">Tasa de Engagement</p>
             </div>
             <h3 className="text-4xl font-display font-bold text-primary">
-              {(audit.avg_engagement_rate * 100).toFixed(1)}%
+              {audit.avg_engagement_rate.toFixed(1)}%
             </h3>
           </CardContent>
         </Card>
