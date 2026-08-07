@@ -94,13 +94,21 @@ export default function Avatars() {
       setIsPlaying(false)
       return
     }
-    if (!selectedVoice?.preview_audio_url) return
+    if (!selectedVoice?.preview_audio_url) {
+      toast({ title: "Sin muestra", description: "Esta voz no tiene audio de muestra disponible.", variant: "destructive" })
+      return
+    }
     const audio = new Audio(selectedVoice.preview_audio_url)
     audioRef.current = audio
     audio.onended = () => setIsPlaying(false)
-    audio.onerror = () => setIsPlaying(false)
-    audio.play()
-    setIsPlaying(true)
+    audio.onerror = () => {
+      setIsPlaying(false)
+      toast({ title: "Error", description: "No se pudo reproducir la muestra de esta voz.", variant: "destructive" })
+    }
+    audio.play().then(() => setIsPlaying(true)).catch(() => {
+      setIsPlaying(false)
+      toast({ title: "Error", description: "No se pudo reproducir la muestra de esta voz.", variant: "destructive" })
+    })
   }
 
   const spanishVoices = (voices ?? []).filter((v) => {
