@@ -3,3 +3,4 @@
 - [HeyGen v3 migration](heygen-v3-migration.md) — v2 API deprecated (sunset Oct 2026); v3 uses flat payload with top-level `type: "avatar"` for all avatar types; no more `talking_photo` character type; engine and expressiveness fields control quality.
 - [Caption engine architecture](caption-engine-arch.md) — HeyGen v3 returns subtitle_url (SRT) when caption param is set; FFmpeg+libass burns styled ASS captions; captioned videos served at /api/captioned/:file from /tmp/contentpilot-captioned/.
 - [Avatar rotation bug](avatar-rotation-bug.md) — Stored avatarId on content items must be validated against current selectedAvatarIds before use; if removed from selection, re-pick via pickNextAvatar.
+- [Per-avatar voice resolution](per-avatar-voice-resolution.md) — voice_overrides map (avatarId→voiceId) in avatar_config; Radix Select needs non-empty sentinel "avatar_default" for the default option.

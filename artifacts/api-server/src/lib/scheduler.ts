@@ -18,57 +18,64 @@ import { generateScript } from "./ai-scripts";
 import { generateVideo, getVideoStatus, listVoices, getAvatarDefaultVoiceId } from "./heygen";
 import { createReelContainer, checkContainerStatus, publishContainer, getPermalink } from "./instagram-api";
 
-/**
- * Ensure a preferred voice is configured. If missing, auto-pick a Spanish
- * voice from HeyGen and save it as the default so the pipeline never stalls.
- */
-/** Sentinel stored in preferred_voice_id meaning "use the avatar's own HeyGen default voice". */
+/** Sentinel stored in preferred_voice_id meaning "use the avatar's own HeyGen default voice" (legacy, kept for backwards compat). */
 export const AVATAR_DEFAULT_VOICE = "avatar_default";
 
 /**
- * Resolve the effective voice for a given avatar: if the user chose
- * "avatar_default", use that avatar's own default voice from HeyGen
- * (the one it sounds like inside HeyGen Studio); otherwise the preferred
- * voice, auto-picking a Spanish one if nothing is configured.
+ * Resolve the effective voice for a given avatar.
+ *
+ * Resolution order:
+ * 1. Per-avatar override from voiceOverrides map (avatarId → voiceId), if set
+ * 2. HeyGen's own default voice for this avatar's group (getAvatarDefaultVoiceId)
+ * 3. null — caller must handle missing voice explicitly; no auto-pick
  */
 export async function resolveVoiceId(avatarId: string | null): Promise<string | null> {
   const [avatarCfg] = await db.select().from(avatarConfigTable).limit(1);
-  const preferred = avatarCfg?.preferredVoiceId ?? null;
-  if (preferred === AVATAR_DEFAULT_VOICE) {
-    if (avatarId) {
-      try {
-        const def = await getAvatarDefaultVoiceId(avatarId);
-        if (def) return def;
-      } catch (err) {
-        logger.error({ err, avatarId }, "Failed to resolve avatar default voice; falling back");
-      }
+
+  // 1. Check per-avatar override first
+  if (avatarId) {
+    const overrides = (avatarCfg?.voiceOverrides ?? {}) as Record<string, string>;
+    const override = overrides[avatarId];
+    if (override && override !== AVATAR_DEFAULT_VOICE) {
+      logger.debug({ avatarId, voiceId: override }, "Using per-avatar voice override");
+      return override;
     }
-    return ensurePreferredVoiceId();
   }
-  if (preferred) return preferred;
-  return ensurePreferredVoiceId();
+
+  // 2. Use HeyGen's own default voice for this avatar
+  if (avatarId) {
+    try {
+      const def = await getAvatarDefaultVoiceId(avatarId);
+      if (def) {
+        logger.debug({ avatarId, voiceId: def }, "Using HeyGen default voice for avatar");
+        return def;
+      }
+    } catch (err) {
+      logger.error({ err, avatarId }, "Failed to resolve HeyGen default voice for avatar");
+    }
+  }
+
+  // 3. Legacy fallback: if preferred_voice_id is set to a specific voice (not sentinel), use it
+  const preferred = avatarCfg?.preferredVoiceId ?? null;
+  if (preferred && preferred !== AVATAR_DEFAULT_VOICE) {
+    logger.debug({ avatarId, voiceId: preferred }, "Using legacy preferred_voice_id as fallback");
+    return preferred;
+  }
+
+  // No voice found — return null so the caller can surface an actionable error
+  logger.warn({ avatarId }, "No voice resolved for avatar — no override, no HeyGen default, no legacy preferred");
+  return null;
 }
 
+/**
+ * @deprecated No longer used. Kept to avoid breaking any external callers.
+ * Voice resolution now uses per-avatar overrides and HeyGen defaults, not auto-pick.
+ */
 export async function ensurePreferredVoiceId(): Promise<string | null> {
   const [avatarCfg] = await db.select().from(avatarConfigTable).limit(1);
   if (!avatarCfg) return null;
   if (avatarCfg.preferredVoiceId && avatarCfg.preferredVoiceId !== AVATAR_DEFAULT_VOICE) return avatarCfg.preferredVoiceId;
-
-  try {
-    const voices = await listVoices();
-    const spanish = voices.find((v) => (v.language ?? "").toLowerCase().includes("spanish") || (v.language ?? "").toLowerCase().startsWith("es"));
-    const chosen = spanish ?? voices[0];
-    if (!chosen) return null;
-    await db
-      .update(avatarConfigTable)
-      .set({ preferredVoiceId: chosen.voice_id, updatedAt: new Date() })
-      .where(eq(avatarConfigTable.id, avatarCfg.id));
-    logger.info({ voiceId: chosen.voice_id, name: chosen.name, language: chosen.language }, "Auto-selected default voice");
-    return chosen.voice_id;
-  } catch (err) {
-    logger.error({ err }, "Failed to auto-select voice");
-    return null;
-  }
+  return null;
 }
 
 export function pickNextAvatar(

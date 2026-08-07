@@ -226,6 +226,7 @@ export const GetHeyGenAllLooksResponse = zod.array(GetHeyGenAllLooksResponseItem
 export const GetAvatarConfigResponse = zod.object({
   "selected_avatar_ids": zod.array(zod.string()),
   "preferred_voice_id": zod.string().nullish(),
+  "voice_overrides": zod.record(zod.string(), zod.string()).nullish(),
   "rotation_strategy": zod.enum(['sequential', 'random', 'performance']),
   "last_used_avatar_id": zod.string().nullish()
 })
@@ -237,12 +238,14 @@ export const GetAvatarConfigResponse = zod.object({
 export const UpdateAvatarConfigBody = zod.object({
   "selected_avatar_ids": zod.array(zod.string()),
   "preferred_voice_id": zod.string().nullish(),
+  "voice_overrides": zod.record(zod.string(), zod.string()).nullish(),
   "rotation_strategy": zod.enum(['sequential', 'random', 'performance'])
 })
 
 export const UpdateAvatarConfigResponse = zod.object({
   "selected_avatar_ids": zod.array(zod.string()),
   "preferred_voice_id": zod.string().nullish(),
+  "voice_overrides": zod.record(zod.string(), zod.string()).nullish(),
   "rotation_strategy": zod.enum(['sequential', 'random', 'performance']),
   "last_used_avatar_id": zod.string().nullish()
 })

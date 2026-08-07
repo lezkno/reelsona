@@ -133,6 +133,7 @@ router.get("/heygen/avatar-config", async (req, res): Promise<void> => {
     GetAvatarConfigResponse.parse({
       selected_avatar_ids: config.selectedAvatarIds ?? [],
       preferred_voice_id: config.preferredVoiceId ?? null,
+      voice_overrides: (config.voiceOverrides as Record<string, string>) ?? {},
       rotation_strategy: config.rotationStrategy ?? "sequential",
       last_used_avatar_id: config.lastUsedAvatarId ?? null,
     })
@@ -154,6 +155,7 @@ router.put("/heygen/avatar-config", async (req, res): Promise<void> => {
       .set({
         selectedAvatarIds: parsed.data.selected_avatar_ids,
         preferredVoiceId: parsed.data.preferred_voice_id ?? null,
+        voiceOverrides: parsed.data.voice_overrides ?? {},
         rotationStrategy: parsed.data.rotation_strategy,
         updatedAt: new Date(),
       })
@@ -165,6 +167,7 @@ router.put("/heygen/avatar-config", async (req, res): Promise<void> => {
       .values({
         selectedAvatarIds: parsed.data.selected_avatar_ids,
         preferredVoiceId: parsed.data.preferred_voice_id ?? null,
+        voiceOverrides: parsed.data.voice_overrides ?? {},
         rotationStrategy: parsed.data.rotation_strategy,
       })
       .returning();
@@ -174,6 +177,7 @@ router.put("/heygen/avatar-config", async (req, res): Promise<void> => {
     UpdateAvatarConfigResponse.parse({
       selected_avatar_ids: config.selectedAvatarIds ?? [],
       preferred_voice_id: config.preferredVoiceId ?? null,
+      voice_overrides: (config.voiceOverrides as Record<string, string>) ?? {},
       rotation_strategy: config.rotationStrategy,
       last_used_avatar_id: config.lastUsedAvatarId ?? null,
     })

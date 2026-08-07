@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { useQueryClient } from "@tanstack/react-query"
 import { useToast } from "@/hooks/use-toast"
 import { useState, useEffect } from "react"
-import { Users, Save, CheckCircle2, Image as ImageIcon, Play, Square, EyeOff, Eye, X, Plus, ExternalLink, Video, Camera, AlertTriangle } from "lucide-react"
+import { Users, Save, CheckCircle2, Image as ImageIcon, Play, Square, EyeOff, Eye, X, Plus, ExternalLink, Video, Camera, AlertTriangle, Mic } from "lucide-react"
 import { useRef } from "react"
 
 const HIDDEN_KEY = "contentpilot_hidden_avatar_groups"
@@ -125,6 +125,105 @@ function LooksDialog({ group, selectedIds, onToggle, onClose }: {
   )
 }
 
+/** Sentinel value meaning "use HeyGen's own default voice for this avatar" */
+const LOOK_DEFAULT_VOICE_SENTINEL = "avatar_default"
+
+/** Per-look voice row shown in the voice assignment panel */
+function LookVoiceRow({
+  look,
+  voiceOverride,
+  voiceOptions,
+  onChangeVoice,
+}: {
+  look: { id: string; name: string; image_url: string | null; group_name: string }
+  voiceOverride: string | undefined
+  voiceOptions: { voice_id: string; name: string; gender: string | null; preview_audio_url: string | null; is_cloned: boolean }[]
+  onChangeVoice: (lookId: string, voiceId: string) => void
+}) {
+  const [isPlaying, setIsPlaying] = useState(false)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+
+  // No override (or sentinel) → show as "HeyGen default" in the selector
+  const selectValue = voiceOverride && voiceOverride !== LOOK_DEFAULT_VOICE_SENTINEL
+    ? voiceOverride
+    : LOOK_DEFAULT_VOICE_SENTINEL
+  const selectedVoice = voiceOptions.find((v) => v.voice_id === selectValue)
+
+  const togglePreview = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (isPlaying) {
+      audioRef.current?.pause()
+      audioRef.current = null
+      setIsPlaying(false)
+      return
+    }
+    if (!selectedVoice?.preview_audio_url) return
+    const audio = new Audio(selectedVoice.preview_audio_url)
+    audioRef.current = audio
+    audio.onended = () => setIsPlaying(false)
+    audio.onerror = () => setIsPlaying(false)
+    audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false))
+  }
+
+  return (
+    <div className="flex items-center gap-3 py-2.5 px-3 rounded-lg bg-muted/40 border border-border/50">
+      {/* Look thumbnail */}
+      <div className="w-10 h-10 rounded-md overflow-hidden bg-muted shrink-0">
+        {look.image_url ? (
+          <img src={look.image_url} alt={look.name} className="w-full h-full object-cover" loading="lazy" />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+            <ImageIcon className="w-4 h-4" />
+          </div>
+        )}
+      </div>
+
+      {/* Look info */}
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium truncate">{look.name}</p>
+        <p className="text-xs text-muted-foreground truncate">{look.group_name}</p>
+      </div>
+
+      {/* Voice selector */}
+      <div className="flex items-center gap-1.5 shrink-0">
+        <Select
+          value={selectValue}
+          onValueChange={(v) => {
+            if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; setIsPlaying(false) }
+            onChangeVoice(look.id, v)
+          }}
+        >
+          <SelectTrigger className="h-8 text-xs w-[180px] bg-background">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="max-h-64">
+            <SelectItem value={LOOK_DEFAULT_VOICE_SENTINEL}>
+              <span className="text-xs font-medium text-primary">Predeterminada de HeyGen</span>
+            </SelectItem>
+            {voiceOptions.map((v) => (
+              <SelectItem key={v.voice_id} value={v.voice_id}>
+                {v.name}{v.gender ? ` · ${v.gender === "male" ? "masc." : v.gender === "female" ? "fem." : v.gender}` : ""}
+                {v.is_cloned ? " · clonada" : ""}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 shrink-0"
+          disabled={!selectedVoice?.preview_audio_url}
+          onClick={togglePreview}
+          title={selectedVoice?.preview_audio_url ? "Escuchar muestra" : "Sin muestra de audio"}
+        >
+          {isPlaying ? <Square className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 export default function Avatars() {
   const { data: groups, isLoading: isLoadingGroups } = useGetHeyGenAvatarGroups()
   const { data: config, isLoading: isLoadingConfig } = useGetAvatarConfig()
@@ -137,7 +236,11 @@ export default function Avatars() {
   const [openGroup, setOpenGroup] = useState<HeyGenAvatarGroup | null>(null)
   const [hiddenGroups, setHiddenGroups] = useState<Set<string>>(loadHidden)
   const [onlyInUse, setOnlyInUse] = useState(false)
+  /** Per-look voice overrides: lookId → voiceId. Empty string means "use HeyGen default". */
+  const [voiceOverrides, setVoiceOverrides] = useState<Record<string, string>>({})
+
   const { data: allLooks } = useGetHeyGenAllLooks()
+  const { data: voices } = useGetHeyGenVoices()
 
   const hideGroup = (id: string) => {
     const next = new Set(hiddenGroups).add(id)
@@ -153,51 +256,20 @@ export default function Avatars() {
       selectedByGroup.set(l.group_id, (selectedByGroup.get(l.group_id) ?? 0) + 1)
     }
   }
-  const [voiceId, setVoiceId] = useState<string>("")
-  const { data: voices } = useGetHeyGenVoices()
-  const [isPlaying, setIsPlaying] = useState(false)
-  const audioRef = useRef<HTMLAudioElement | null>(null)
 
-  const selectedVoice = (voices ?? []).find((v) => v.voice_id === voiceId)
-
-  const togglePreview = () => {
-    if (isPlaying) {
-      audioRef.current?.pause()
-      audioRef.current = null
-      setIsPlaying(false)
-      return
-    }
-    if (!selectedVoice?.preview_audio_url) {
-      toast({ title: "Sin muestra", description: "Esta voz no tiene audio de muestra disponible.", variant: "destructive" })
-      return
-    }
-    const audio = new Audio(selectedVoice.preview_audio_url)
-    audioRef.current = audio
-    audio.onended = () => setIsPlaying(false)
-    audio.onerror = () => {
-      setIsPlaying(false)
-      toast({ title: "Error", description: "No se pudo reproducir la muestra de esta voz.", variant: "destructive" })
-    }
-    audio.play().then(() => setIsPlaying(true)).catch(() => {
-      setIsPlaying(false)
-      toast({ title: "Error", description: "No se pudo reproducir la muestra de esta voz.", variant: "destructive" })
+  // Filtered voice options: Spanish/cloned voices only, with gender normalised to string | null
+  const spanishVoices = (voices ?? [])
+    .filter((v) => {
+      const lang = (v.language ?? "").toLowerCase()
+      return lang.includes("spanish") || lang.startsWith("es") || v.is_cloned
     })
-  }
-
-  const spanishVoices = (voices ?? []).filter((v) => {
-    const lang = (v.language ?? "").toLowerCase()
-    return lang.includes("spanish") || lang.startsWith("es") || v.is_cloned
-  })
-  // Ensure the currently saved voice is listed even if it's not Spanish
-  const voiceOptions = voiceId && !spanishVoices.some((v) => v.voice_id === voiceId)
-    ? [...spanishVoices, ...(voices ?? []).filter((v) => v.voice_id === voiceId)]
-    : spanishVoices
+    .map((v) => ({ ...v, gender: v.gender ?? null, preview_audio_url: v.preview_audio_url ?? null }))
 
   useEffect(() => {
     if (config) {
       setSelectedIds(new Set(config.selected_avatar_ids))
       setStrategy(config.rotation_strategy)
-      setVoiceId(config.preferred_voice_id ?? "")
+      setVoiceOverrides((config.voice_overrides as Record<string, string>) ?? {})
     }
   }, [config])
 
@@ -208,17 +280,38 @@ export default function Avatars() {
     setSelectedIds(newSet)
   }
 
+  const handleVoiceChange = (lookId: string, voiceId: string) => {
+    setVoiceOverrides((prev) => {
+      const next = { ...prev }
+      if (voiceId === LOOK_DEFAULT_VOICE_SENTINEL) {
+        delete next[lookId] // sentinel → remove override, use HeyGen default
+      } else {
+        next[lookId] = voiceId
+      }
+      return next
+    })
+  }
+
   const handleSave = () => {
     if (selectedIds.size === 0) {
       toast({ title: "Atención", description: "Debes seleccionar al menos un look.", variant: "destructive" })
       return
     }
 
+    // Only persist overrides for selected looks with a real voice ID (not sentinel)
+    const cleanedOverrides: Record<string, string> = {}
+    for (const [lookId, voiceId] of Object.entries(voiceOverrides)) {
+      if (selectedIds.has(lookId) && voiceId && voiceId !== LOOK_DEFAULT_VOICE_SENTINEL) {
+        cleanedOverrides[lookId] = voiceId
+      }
+    }
+
     updateConfig.mutate({
       data: {
         selected_avatar_ids: Array.from(selectedIds),
         rotation_strategy: strategy,
-        preferred_voice_id: voiceId || null
+        preferred_voice_id: null,
+        voice_overrides: cleanedOverrides,
       }
     }, {
       onSuccess: () => {
@@ -231,6 +324,9 @@ export default function Avatars() {
   if (isLoadingGroups || isLoadingConfig) {
     return <div className="p-8"><Skeleton className="h-96 w-full rounded-xl" /></div>
   }
+
+  // Selected looks with their info (for voice assignment panel)
+  const selectedLooks = (allLooks ?? []).filter((l) => selectedIds.has(l.id))
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -256,7 +352,7 @@ export default function Avatars() {
 
       <Card className="bg-muted/30 border-dashed">
         <CardContent className="p-6">
-          <div className="flex flex-col sm:flex-row gap-6 items-start sm:items-center">
+          <div className="flex flex-col sm:flex-row gap-6 items-start">
             <div className="w-16 h-16 bg-primary/10 text-primary rounded-xl flex items-center justify-center shrink-0">
               <Users className="w-8 h-8" />
             </div>
@@ -266,58 +362,55 @@ export default function Avatars() {
                 ContentPilot puede rotar entre los looks seleccionados automáticamente para darle variedad a tu feed.
               </p>
             </div>
-            <div className="w-full sm:w-64 shrink-0 space-y-4">
-              <div>
-                <Label className="mb-2 block">Método de rotación</Label>
-                <Select value={strategy} onValueChange={(v) => setStrategy(v as AvatarConfigRotationStrategy)}>
-                  <SelectTrigger className="bg-background">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={AvatarConfigRotationStrategy.sequential}>Secuencial (1, 2, 3, 1...)</SelectItem>
-                    <SelectItem value={AvatarConfigRotationStrategy.random}>Aleatorio</SelectItem>
-                    <SelectItem value={AvatarConfigRotationStrategy.performance}>Por Rendimiento (IA)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label className="mb-2 block">Voz de los videos</Label>
-                <div className="flex gap-2">
-                  <Select value={voiceId} onValueChange={(v) => { audioRef.current?.pause(); audioRef.current = null; setIsPlaying(false); setVoiceId(v) }}>
-                    <SelectTrigger className="bg-background flex-1">
-                      <SelectValue placeholder="Elegí una voz" />
-                    </SelectTrigger>
-                    <SelectContent className="max-h-72">
-                      <SelectItem value="avatar_default">Voz original del avatar (HeyGen)</SelectItem>
-                      {voiceOptions.map((v) => (
-                        <SelectItem key={v.voice_id} value={v.voice_id}>
-                          {v.name}{v.gender ? ` · ${v.gender === "male" ? "masculina" : v.gender === "female" ? "femenina" : v.gender}` : ""}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    className="shrink-0"
-                    disabled={!selectedVoice?.preview_audio_url}
-                    onClick={togglePreview}
-                    title={selectedVoice?.preview_audio_url ? "Escuchar muestra" : "Esta voz no tiene muestra disponible"}
-                  >
-                    {isPlaying ? <Square className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-                  </Button>
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">Todos los videos se narran con esta voz.{selectedVoice && !selectedVoice.preview_audio_url ? " Esta voz no tiene audio de muestra." : ""}</p>
-              </div>
+            <div className="w-full sm:w-64 shrink-0">
+              <Label className="mb-2 block">Método de rotación</Label>
+              <Select value={strategy} onValueChange={(v) => setStrategy(v as AvatarConfigRotationStrategy)}>
+                <SelectTrigger className="bg-background">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={AvatarConfigRotationStrategy.sequential}>Secuencial (1, 2, 3, 1...)</SelectItem>
+                  <SelectItem value={AvatarConfigRotationStrategy.random}>Aleatorio</SelectItem>
+                  <SelectItem value={AvatarConfigRotationStrategy.performance}>Por Rendimiento (IA)</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
         </CardContent>
       </Card>
 
+      {/* Per-look voice assignment panel — only shown when looks are selected */}
+      {selectedLooks.length > 0 && (
+        <Card className="border-primary/20">
+          <CardContent className="p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 bg-primary/10 text-primary rounded-lg flex items-center justify-center shrink-0">
+                <Mic className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold font-display">Voz por look</h3>
+                <p className="text-muted-foreground text-sm">
+                  Cada look usa la voz predeterminada de HeyGen para ese avatar. Podés sobrescribirla individualmente.
+                </p>
+              </div>
+            </div>
+            <div className="space-y-2">
+              {selectedLooks.map((look) => (
+                <LookVoiceRow
+                  key={look.id}
+                  look={look}
+                  voiceOverride={voiceOverrides[look.id]}
+                  voiceOptions={spanishVoices}
+                  onChangeVoice={handleVoiceChange}
+                />
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Warning: talking photos in selection */}
       {(() => {
-        const selectedLooks = (allLooks ?? []).filter(l => selectedIds.has(l.id))
         const tpCount = selectedLooks.filter(l => l.is_talking_photo).length
         const avCount = selectedLooks.filter(l => !l.is_talking_photo).length
         if (tpCount === 0 || selectedLooks.length === 0) return null

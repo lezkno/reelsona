@@ -11,5 +11,7 @@ export interface AvatarConfigInput {
   selected_avatar_ids: string[];
   /** @nullable */
   preferred_voice_id?: string | null;
+  /** Per-avatar voice overrides — avatarId → voiceId. Missing key means use HeyGen default voice. @nullable */
+  voice_overrides?: Record<string, string> | null;
   rotation_strategy: AvatarConfigInputRotationStrategy;
 }

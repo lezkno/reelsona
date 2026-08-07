@@ -891,6 +891,12 @@ components:
             type: string
         preferred_voice_id:
           type: ["string", "null"]
+        voice_overrides:
+          type: object
+          additionalProperties:
+            type: string
+          description: Per-avatar voice overrides — avatarId → voiceId. Missing key means use HeyGen default voice.
+          nullable: true
         rotation_strategy:
           type: string
           enum: [sequential, random, performance]
@@ -907,6 +913,12 @@ components:
             type: string
         preferred_voice_id:
           type: ["string", "null"]
+        voice_overrides:
+          type: object
+          additionalProperties:
+            type: string
+          description: Per-avatar voice overrides — avatarId → voiceId. Missing key means use HeyGen default voice.
+          nullable: true
         rotation_strategy:
           type: string
           enum: [sequential, random, performance]
