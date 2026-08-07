@@ -288,6 +288,7 @@ export async function runAutomationCycle(targetItemId?: number): Promise<{
       avatar_id: contentItem.avatarId,
       voice_id: contentItem.voiceId,
       title: contentItem.topic,
+      captionsEnabled: automation.captionsEnabled ?? false,
     });
 
     await db
@@ -385,7 +386,10 @@ export async function pollAndPublishVideos(): Promise<void> {
                 subtleRotation: captionCfg.subtleRotation,
               };
 
-              const captionResult = await applyCaptions(status.video_url, script, style);
+              const captionResult = await applyCaptions(status.video_url, script, style, {
+                subtitleUrl: status.subtitle_url,
+                videoDurationSeconds: status.duration ?? undefined,
+              });
 
               if (captionResult.url) {
                 await db.update(videosTable)

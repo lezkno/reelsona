@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { videosTable, contentPlanItemsTable, avatarConfigTable } from "@workspace/db";
+import { videosTable, contentPlanItemsTable, avatarConfigTable, automationConfigTable } from "@workspace/db";
 import { eq, desc, and } from "drizzle-orm";
 import {
   GetVideosQueryParams,
@@ -137,12 +137,16 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
     .set({ videoId: videoRow.id, updatedAt: new Date() })
     .where(eq(contentPlanItemsTable.id, item.id));
 
+  // Load automation config to pass captionsEnabled
+  const [automationCfg] = await db.select().from(automationConfigTable).limit(1);
+
   // Fire and forget video generation
   generateVideo({
     script: item.script,
     avatar_id: item.avatarId!,
     voice_id: item.voiceId!,
     title: item.topic,
+    captionsEnabled: automationCfg?.captionsEnabled ?? false,
   })
     .then(async (heygenVideoId) => {
       await db.update(videosTable).set({ heygenVideoId, updatedAt: new Date() }).where(eq(videosTable.id, videoRow.id));

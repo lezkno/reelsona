@@ -105,6 +105,8 @@ export interface GenerateVideoParams {
   title?: string;
   width?: number;
   height?: number;
+  /** When true, instructs HeyGen to burn captions into the rendered video. */
+  captionsEnabled?: boolean;
 }
 
 export interface VideoStatus {
@@ -114,6 +116,8 @@ export interface VideoStatus {
   thumbnail_url?: string | null;
   duration?: number | null;
   error?: string | null;
+  /** SRT subtitle file URL returned by HeyGen when caption was requested. */
+  subtitle_url?: string | null;
 }
 
 /**
@@ -171,6 +175,14 @@ export async function generateVideo(params: GenerateVideoParams): Promise<string
     payload["engine"] = { type: "avatar_v" };
   }
 
+  if (params.captionsEnabled) {
+    // Request a sidecar SRT file from HeyGen (NO style = captions are NOT burned
+    // in by HeyGen — we download the SRT and burn styled captions ourselves via
+    // Caption Studio + FFmpeg).
+    payload["caption"] = { file_format: "srt" };
+    logger.info("[HeyGen v3] Captions requested — HeyGen will return subtitle_url in status");
+  }
+
   const res = await client.post("/v3/videos", payload);
   const videoId: string = res.data?.data?.id ?? res.data?.data?.video_id;
   if (!videoId) {
@@ -199,6 +211,7 @@ export async function getVideoStatus(videoId: string): Promise<VideoStatus> {
     thumbnail_url: data?.thumbnail_url ?? null,
     duration: data?.duration ?? null,
     error: data?.error?.message ?? data?.error ?? null,
+    subtitle_url: data?.subtitle_url ?? null,
   };
 }
 

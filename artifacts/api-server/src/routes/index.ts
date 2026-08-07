@@ -8,6 +8,7 @@ import videosRouter from "./videos";
 import automationRouter from "./automation";
 import settingsRouter from "./settings";
 import captionsRouter from "./captions";
+import captionedRouter from "./captioned";
 
 const router = Router();
 
@@ -20,5 +21,6 @@ router.use(videosRouter);
 router.use(automationRouter);
 router.use(settingsRouter);
 router.use(captionsRouter);
+router.use(captionedRouter);
 
 export default router;
