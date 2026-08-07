@@ -2122,6 +2122,58 @@ export const usePublishVideo = <TError = ErrorType<void>,
       return useMutation(getPublishVideoMutationOptions(options));
     }
 
+export const getScheduleVideoUrl = (id: number) => `/api/videos/${id}/schedule`
+
+/**
+ * @summary Schedule a ready video for future Instagram publication
+ */
+export const scheduleVideo = async (
+  id: number,
+  scheduleInput: { scheduled_publish_at?: string | null },
+  options?: Parameters<typeof customFetch>[1]
+): Promise<Video> => {
+  return customFetch<Video>(getScheduleVideoUrl(id), {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(scheduleInput),
+  });
+};
+
+export const useScheduleVideo = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof scheduleVideo>>,
+      TError,
+      { id: number; data: { scheduled_publish_at?: string | null } },
+      TContext
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  }
+): UseMutationResult<
+  Awaited<ReturnType<typeof scheduleVideo>>,
+  TError,
+  { id: number; data: { scheduled_publish_at?: string | null } },
+  TContext
+> => {
+  const mutationKey = ['scheduleVideo'];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof scheduleVideo>>,
+    { id: number; data: { scheduled_publish_at?: string | null } }
+  > = (props) => {
+    const { id, data } = props ?? {};
+    return scheduleVideo(id, data, requestOptions);
+  };
+
+  return useMutation({ mutationFn, ...mutationOptions });
+};
+
 export const getGetAutomationUrl = () => {
 
 

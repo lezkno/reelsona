@@ -12,6 +12,9 @@ import {
   PublishVideoParams,
   PublishVideoBody,
   PublishVideoResponse,
+  ScheduleVideoParams,
+  ScheduleVideoBody,
+  ScheduleVideoResponse,
 } from "@workspace/api-zod";
 import { generateVideo } from "../lib/heygen";
 import { publishVideoToInstagram, pickNextAvatar, resolveVoiceId } from "../lib/scheduler";
@@ -37,6 +40,7 @@ function mapVideo(v: typeof videosTable.$inferSelect) {
     created_at: v.createdAt.toISOString(),
     updated_at: v.updatedAt.toISOString(),
     published_at: v.publishedAt?.toISOString() ?? null,
+    scheduled_publish_at: v.scheduledPublishAt?.toISOString() ?? null,
   };
 }
 
@@ -231,6 +235,30 @@ router.post("/videos/:id/publish", async (req, res): Promise<void> => {
 
   const [updated] = await db.select().from(videosTable).where(eq(videosTable.id, video.id)).limit(1);
   res.json(PublishVideoResponse.parse(mapVideo(updated ?? video)));
+});
+
+router.patch("/videos/:id/schedule", async (req, res): Promise<void> => {
+  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const paramsParsed = ScheduleVideoParams.safeParse({ id: Number(raw) });
+  if (!paramsParsed.success) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const bodyParsed = ScheduleVideoBody.safeParse(req.body ?? {});
+  if (!bodyParsed.success) { res.status(400).json({ error: "Invalid body" }); return; }
+
+  const [video] = await db.select().from(videosTable).where(eq(videosTable.id, paramsParsed.data.id)).limit(1);
+  if (!video) { res.status(404).json({ error: "Video not found" }); return; }
+  if (video.status !== "ready") { res.status(400).json({ error: "Video is not ready" }); return; }
+
+  const scheduledAt = bodyParsed.data.scheduled_publish_at
+    ? new Date(bodyParsed.data.scheduled_publish_at)
+    : null;
+
+  await db.update(videosTable)
+    .set({ scheduledPublishAt: scheduledAt, updatedAt: new Date() })
+    .where(eq(videosTable.id, video.id));
+
+  const [updated] = await db.select().from(videosTable).where(eq(videosTable.id, video.id)).limit(1);
+  res.json(ScheduleVideoResponse.parse(mapVideo(updated ?? video)));
 });
 
 export default router;

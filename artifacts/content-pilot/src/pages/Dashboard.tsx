@@ -1,38 +1,84 @@
-import { useGetDashboard, useTriggerAutomation, getGetDashboardQueryKey } from "@workspace/api-client-react"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { useGetDashboard, useTriggerAutomation, useGetVideos, usePublishVideo, useScheduleVideo, getGetDashboardQueryKey, getGetVideosQueryKey } from "@workspace/api-client-react"
+import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Zap, Play, PlayCircle, BarChart, Calendar, Video, Clock } from "lucide-react"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
+import { Zap, Play, PlayCircle, BarChart, Calendar, Video, Clock, Instagram, CalendarClock, Send, ExternalLink } from "lucide-react"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
 import { Link } from "wouter"
 import { useQueryClient } from "@tanstack/react-query"
 import { useToast } from "@/hooks/use-toast"
+import { useState } from "react"
 
 export default function Dashboard() {
   const { data: dashboard, isLoading } = useGetDashboard()
+  const { data: allVideos } = useGetVideos({ status: 'ready' })
   const triggerAutomation = useTriggerAutomation()
+  const publishVideo = usePublishVideo()
+  const scheduleVideo = useScheduleVideo()
   const queryClient = useQueryClient()
   const { toast } = useToast()
+
+  const [scheduleDialog, setScheduleDialog] = useState<{ videoId: number; topic: string } | null>(null)
+  const [scheduleDatetime, setScheduleDatetime] = useState("")
+
+  const readyVideos = allVideos ?? []
+
+  // Minimum datetime = now + 5 min (rounded to nearest minute)
+  const minDatetime = () => {
+    const d = new Date(Date.now() + 5 * 60 * 1000)
+    d.setSeconds(0, 0)
+    return d.toISOString().slice(0, 16)
+  }
 
   const handleTrigger = () => {
     triggerAutomation.mutate(undefined, {
       onSuccess: (result) => {
-        toast({
-          title: "Automatización activada",
-          description: result.message,
-        })
+        toast({ title: "Automatización activada", description: result.message })
         queryClient.invalidateQueries({ queryKey: getGetDashboardQueryKey() })
       },
-      onError: (err) => {
-        toast({
-          title: "Error",
-          description: "No se pudo activar la automatización",
-          variant: "destructive"
-        })
+      onError: () => {
+        toast({ title: "Error", description: "No se pudo activar la automatización", variant: "destructive" })
       }
     })
+  }
+
+  const handlePublishNow = (id: number) => {
+    publishVideo.mutate({ id, data: {} }, {
+      onSuccess: () => {
+        toast({ title: "¡Publicado!", description: "El video fue enviado a Instagram." })
+        queryClient.invalidateQueries({ queryKey: getGetVideosQueryKey() })
+        queryClient.invalidateQueries({ queryKey: getGetDashboardQueryKey() })
+      },
+      onError: () => {
+        toast({ title: "Error al publicar", description: "Verificá la conexión con Instagram.", variant: "destructive" })
+      }
+    })
+  }
+
+  const handleScheduleConfirm = () => {
+    if (!scheduleDialog || !scheduleDatetime) return
+    scheduleVideo.mutate(
+      { id: scheduleDialog.videoId, data: { scheduled_publish_at: new Date(scheduleDatetime).toISOString() } },
+      {
+        onSuccess: () => {
+          toast({
+            title: "Publicación programada",
+            description: `Se publicará el ${format(new Date(scheduleDatetime), "PPp", { locale: es })}.`,
+          })
+          queryClient.invalidateQueries({ queryKey: getGetVideosQueryKey() })
+          setScheduleDialog(null)
+          setScheduleDatetime("")
+        },
+        onError: () => {
+          toast({ title: "Error", description: "No se pudo programar la publicación.", variant: "destructive" })
+        }
+      }
+    )
   }
 
   if (isLoading) {
@@ -103,7 +149,7 @@ export default function Dashboard() {
                     {dashboard.automation_enabled ? "Automatización Activa" : "Automatización Pausada"}
                   </h2>
                   <p className="text-sm text-sidebar-foreground/70 line-clamp-2">
-                    {dashboard.automation_enabled 
+                    {dashboard.automation_enabled
                       ? "Tu sistema está produciendo y publicando contenido."
                       : "Activa la automatización para que el contenido se genere solo."}
                   </p>
@@ -177,8 +223,140 @@ export default function Dashboard() {
               </CardContent>
             </Card>
           </div>
+
+          {/* ── Listos para publicar ─────────────────────────────────────────────── */}
+          {readyVideos.length > 0 && (
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h2 className="text-xl font-display font-bold flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse inline-block" />
+                    Listos para publicar
+                  </h2>
+                  <p className="text-sm text-muted-foreground mt-0.5">
+                    {readyVideos.length} video{readyVideos.length !== 1 ? "s" : ""} esperando — publicalos ahora o programalos para más tarde.
+                  </p>
+                </div>
+                <Button variant="outline" size="sm" asChild>
+                  <Link href="/videos">Ver todos</Link>
+                </Button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {readyVideos.map((video) => (
+                  <Card key={video.id} className="overflow-hidden flex flex-col border-emerald-500/20 hover:border-emerald-500/40 transition-colors">
+                    {/* Thumbnail */}
+                    <div className="aspect-[9/16] max-h-56 bg-muted relative overflow-hidden">
+                      {video.thumbnail_url ? (
+                        <img src={video.thumbnail_url} alt="Thumbnail" className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center bg-muted text-muted-foreground">
+                          <Video className="w-10 h-10 opacity-30" />
+                        </div>
+                      )}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+                      <Badge className="absolute top-2 left-2 bg-emerald-500 hover:bg-emerald-500 text-white text-[10px]">
+                        Listo
+                      </Badge>
+                      {video.scheduled_publish_at && (
+                        <div className="absolute bottom-2 left-2 right-2">
+                          <div className="bg-black/70 text-white text-[10px] rounded px-2 py-1 flex items-center gap-1">
+                            <CalendarClock className="w-3 h-3 shrink-0 text-primary" />
+                            {format(new Date(video.scheduled_publish_at), "d MMM, HH:mm", { locale: es })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Info + actions */}
+                    <CardContent className="p-3 flex flex-col gap-2 flex-1">
+                      <p className="text-sm font-semibold line-clamp-2 leading-tight flex-1" title={video.topic ?? ""}>
+                        {video.topic ?? `Video #${video.id}`}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground">
+                        Creado {format(new Date(video.created_at), "d MMM", { locale: es })}
+                        {video.duration_seconds ? ` · 0:${String(video.duration_seconds).padStart(2, "0")}` : ""}
+                      </p>
+
+                      {/* Publish now */}
+                      <Button
+                        size="sm"
+                        className="w-full h-8 text-xs gap-1.5 bg-gradient-to-r from-[#833ab4] via-[#fd1d1d] to-[#fcb045] hover:opacity-90 border-0 text-white"
+                        disabled={publishVideo.isPending}
+                        onClick={() => handlePublishNow(video.id)}
+                      >
+                        <Instagram className="w-3.5 h-3.5" />
+                        Publicar ahora
+                      </Button>
+
+                      {/* Schedule or update schedule */}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="w-full h-8 text-xs gap-1.5"
+                        onClick={() => {
+                          setScheduleDialog({ videoId: video.id, topic: video.topic ?? `Video #${video.id}` })
+                          setScheduleDatetime(
+                            video.scheduled_publish_at
+                              ? new Date(video.scheduled_publish_at).toISOString().slice(0, 16)
+                              : ""
+                          )
+                        }}
+                      >
+                        <CalendarClock className="w-3.5 h-3.5" />
+                        {video.scheduled_publish_at ? "Cambiar horario" : "Programar"}
+                      </Button>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
         </>
       )}
+
+      {/* ── Schedule dialog ────────────────────────────────────────────────────── */}
+      <Dialog open={!!scheduleDialog} onOpenChange={(o) => { if (!o) { setScheduleDialog(null); setScheduleDatetime("") } }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CalendarClock className="w-5 h-5 text-primary" />
+              Programar publicación
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-sm text-muted-foreground line-clamp-2">{scheduleDialog?.topic}</p>
+            <div className="space-y-2">
+              <Label htmlFor="pub-datetime">Fecha y hora de publicación</Label>
+              <Input
+                id="pub-datetime"
+                type="datetime-local"
+                value={scheduleDatetime}
+                min={minDatetime()}
+                onChange={(e) => setScheduleDatetime(e.target.value)}
+                className="text-sm"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                El video se publicará automáticamente en el horario elegido.
+              </p>
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" size="sm" onClick={() => { setScheduleDialog(null); setScheduleDatetime("") }}>
+              Cancelar
+            </Button>
+            <Button
+              size="sm"
+              disabled={!scheduleDatetime || scheduleVideo.isPending}
+              onClick={handleScheduleConfirm}
+              className="gap-1.5"
+            >
+              <Send className="w-3.5 h-3.5" />
+              {scheduleVideo.isPending ? "Guardando..." : "Confirmar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

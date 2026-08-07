@@ -327,6 +327,30 @@ export async function pollAndPublishVideos(): Promise<void> {
   // This handles the case where the server restarted after captions were applied
   // but before publishing, leaving videos stuck in "ready" state.
   const [automation] = await db.select().from(automationConfigTable).limit(1);
+  // ── Publish videos whose scheduled_publish_at has passed ─────────────────
+  const now = new Date();
+  const scheduledDue = await db
+    .select()
+    .from(videosTable)
+    .where(
+      and(
+        eq(videosTable.status, "ready"),
+        // scheduledPublishAt IS NOT NULL and <= now  (drizzle: lte from drizzle-orm)
+        inArray(videosTable.captionStatus as any, ["done", "failed", "disabled"])
+      )
+    );
+  for (const video of scheduledDue) {
+    if (!video.scheduledPublishAt) continue;
+    if (video.scheduledPublishAt > now) continue;
+    try {
+      logger.info({ videoId: video.id, scheduledAt: video.scheduledPublishAt }, "[Scheduler] Publishing scheduled video");
+      await publishVideoToInstagram(video.id);
+    } catch (err) {
+      logger.error({ videoId: video.id, err }, "[Scheduler] Failed to publish scheduled video");
+    }
+  }
+
+  // ── Auto-publish all ready videos when automation + auto_publish are on ──
   if (automation?.enabled && automation?.autoPublish) {
     const readyVideos = await db
       .select()
@@ -339,6 +363,7 @@ export async function pollAndPublishVideos(): Promise<void> {
       );
 
     for (const video of readyVideos) {
+      if (video.scheduledPublishAt) continue; // handled above (or not yet due)
       try {
         logger.info({ videoId: video.id }, "[Scheduler] Publishing stalled ready video");
         await publishVideoToInstagram(video.id);

@@ -482,7 +482,8 @@ export const GetVideosResponseItem = zod.object({
   "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish(),
   "created_at": zod.string(),
   "updated_at": zod.string(),
-  "published_at": zod.string().nullish()
+  "published_at": zod.string().nullish(),
+  "scheduled_publish_at": zod.string().nullish()
 })
 export const GetVideosResponse = zod.array(GetVideosResponseItem)
 
@@ -511,7 +512,8 @@ export const GenerateVideoResponse = zod.object({
   "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish(),
   "created_at": zod.string(),
   "updated_at": zod.string(),
-  "published_at": zod.string().nullish()
+  "published_at": zod.string().nullish(),
+  "scheduled_publish_at": zod.string().nullish()
 })
 
 
@@ -539,7 +541,8 @@ export const GetVideoResponse = zod.object({
   "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish(),
   "created_at": zod.string(),
   "updated_at": zod.string(),
-  "published_at": zod.string().nullish()
+  "published_at": zod.string().nullish(),
+  "scheduled_publish_at": zod.string().nullish()
 })
 
 
@@ -572,7 +575,40 @@ export const PublishVideoResponse = zod.object({
   "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish(),
   "created_at": zod.string(),
   "updated_at": zod.string(),
-  "published_at": zod.string().nullish()
+  "published_at": zod.string().nullish(),
+  "scheduled_publish_at": zod.string().nullish()
+})
+
+/**
+ * @summary Schedule a ready video for future Instagram publication
+ */
+export const ScheduleVideoParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const ScheduleVideoBody = zod.object({
+  "scheduled_publish_at": zod.string().nullish()
+})
+
+export const ScheduleVideoResponse = zod.object({
+  "id": zod.number(),
+  "content_plan_id": zod.number().nullish(),
+  "heygen_video_id": zod.string().nullish(),
+  "topic": zod.string().nullish(),
+  "avatar_id": zod.string().nullish(),
+  "status": zod.enum(['pending', 'generating', 'ready', 'published', 'failed']),
+  "video_url": zod.string().nullish(),
+  "thumbnail_url": zod.string().nullish(),
+  "ig_media_id": zod.string().nullish(),
+  "ig_permalink": zod.string().nullish(),
+  "error_message": zod.string().nullish(),
+  "duration_seconds": zod.number().nullish(),
+  "captioned_video_url": zod.string().nullish(),
+  "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish(),
+  "created_at": zod.string(),
+  "updated_at": zod.string(),
+  "published_at": zod.string().nullish(),
+  "scheduled_publish_at": zod.string().nullish()
 })
 
 
