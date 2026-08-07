@@ -11,8 +11,34 @@ import {
 import { eq, and, lte, inArray } from "drizzle-orm";
 import { logger } from "./logger";
 import { generateScript } from "./ai-scripts";
-import { generateVideo, getVideoStatus } from "./heygen";
+import { generateVideo, getVideoStatus, listVoices } from "./heygen";
 import { createReelContainer, checkContainerStatus, publishContainer, getPermalink } from "./instagram-api";
+
+/**
+ * Ensure a preferred voice is configured. If missing, auto-pick a Spanish
+ * voice from HeyGen and save it as the default so the pipeline never stalls.
+ */
+export async function ensurePreferredVoiceId(): Promise<string | null> {
+  const [avatarCfg] = await db.select().from(avatarConfigTable).limit(1);
+  if (!avatarCfg) return null;
+  if (avatarCfg.preferredVoiceId) return avatarCfg.preferredVoiceId;
+
+  try {
+    const voices = await listVoices();
+    const spanish = voices.find((v) => (v.language ?? "").toLowerCase().includes("spanish") || (v.language ?? "").toLowerCase().startsWith("es"));
+    const chosen = spanish ?? voices[0];
+    if (!chosen) return null;
+    await db
+      .update(avatarConfigTable)
+      .set({ preferredVoiceId: chosen.voice_id, updatedAt: new Date() })
+      .where(eq(avatarConfigTable.id, avatarCfg.id));
+    logger.info({ voiceId: chosen.voice_id, name: chosen.name, language: chosen.language }, "Auto-selected default voice");
+    return chosen.voice_id;
+  } catch (err) {
+    logger.error({ err }, "Failed to auto-select voice");
+    return null;
+  }
+}
 
 export function pickNextAvatar(
   selectedIds: string[],
@@ -119,6 +145,8 @@ export async function runAutomationCycle(targetItemId?: number): Promise<{
       avatarCfg.avatarUsageCount as Record<string, number>
     );
 
+    const voiceId = avatarCfg.preferredVoiceId ?? (await ensurePreferredVoiceId());
+
     await db
       .update(contentPlanItemsTable)
       .set({
@@ -128,13 +156,13 @@ export async function runAutomationCycle(targetItemId?: number): Promise<{
         caption: scriptResult.caption,
         hashtags: scriptResult.hashtags,
         avatarId,
-        voiceId: avatarCfg.preferredVoiceId,
+        voiceId,
         status: "scripted",
         updatedAt: new Date(),
       })
       .where(eq(contentPlanItemsTable.id, draft.id));
 
-    contentItem = { ...draft, status: "scripted", avatarId, voiceId: avatarCfg.preferredVoiceId };
+    contentItem = { ...draft, status: "scripted", avatarId, voiceId };
     logger.info({ itemId: draft.id }, "Script generated for draft item");
   }
 

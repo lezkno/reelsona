@@ -14,7 +14,7 @@ import {
   PublishVideoResponse,
 } from "@workspace/api-zod";
 import { generateVideo } from "../lib/heygen";
-import { publishVideoToInstagram, pickNextAvatar } from "../lib/scheduler";
+import { publishVideoToInstagram, pickNextAvatar, ensurePreferredVoiceId } from "../lib/scheduler";
 
 const router = Router();
 
@@ -89,11 +89,12 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
       );
     }
     if (!item.voiceId) {
-      if (!avatarCfg.preferredVoiceId) {
-        res.status(400).json({ error: "No hay voz configurada: elegí tu voz en la página de Avatares" });
+      const voiceId = avatarCfg.preferredVoiceId ?? (await ensurePreferredVoiceId());
+      if (!voiceId) {
+        res.status(400).json({ error: "No se encontró ninguna voz disponible en HeyGen. Verificá tu cuenta de HeyGen." });
         return;
       }
-      item.voiceId = avatarCfg.preferredVoiceId;
+      item.voiceId = voiceId;
     }
     await db
       .update(contentPlanItemsTable)
