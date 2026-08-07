@@ -8,7 +8,10 @@ import { Switch } from "@/components/ui/switch"
 import { Slider } from "@/components/ui/slider"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
-import { CheckCircle2, Wand2, AlertCircle, Sparkles, Loader2 } from "lucide-react"
+import { CheckCircle2, Wand2, AlertCircle, Sparkles, Loader2,
+  Heart, MessageCircle, Send, Bookmark, MoreHorizontal,
+  Music2, Home, Search, Plus, User, ChevronLeft, Clapperboard,
+} from "lucide-react"
 import type { CaptionConfig, CaptionPreset } from "@workspace/api-client-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { getGetCaptionConfigQueryKey } from "@workspace/api-client-react"
@@ -373,13 +376,103 @@ function CaptionPreview({ config }: { config: Partial<CaptionConfig> }) {
     )
   })()
 
+  // ── Instagram Reel UI overlay ────────────────────────────────────────────────
   return (
     <PhoneFrame>
-      <div
-        className="w-full h-full relative"
-        style={{ background: "linear-gradient(to bottom, #1a1a2e 0%, #16213e 60%, #0f3460 100%)" }}
-      >
-        {screenContent}
+      <div className="w-full h-full relative overflow-hidden select-none"
+        style={{ background: "linear-gradient(160deg, #1a1a2e 0%, #16213e 55%, #0f3460 100%)" }}>
+
+        {/* Subtle avatar silhouette in background (simulates avatar video) */}
+        <div className="absolute inset-0 flex items-center justify-center opacity-10">
+          <div className="w-24 h-32 rounded-full bg-white/30" style={{ borderRadius: "50% 50% 45% 45%" }} />
+        </div>
+
+        {/* Bottom gradient for readability */}
+        <div className="absolute bottom-0 left-0 right-0 h-44 pointer-events-none"
+          style={{ background: "linear-gradient(to top, rgba(0,0,0,0.75) 0%, transparent 100%)" }} />
+        {/* Top gradient */}
+        <div className="absolute top-0 left-0 right-0 h-16 pointer-events-none"
+          style={{ background: "linear-gradient(to bottom, rgba(0,0,0,0.5) 0%, transparent 100%)" }} />
+
+        {/* Captions — at proportional position (same z-index as video content) */}
+        <div className="absolute inset-0 z-10">
+          {screenContent}
+        </div>
+
+        {/* ── TOP BAR ─────────────────────────────────────────────────────── */}
+        <div className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-3 pt-2 pb-1">
+          <ChevronLeft size={18} className="text-white drop-shadow" />
+          <span className="text-white text-[11px] font-semibold tracking-wide drop-shadow">Reels</span>
+          <Clapperboard size={16} className="text-white drop-shadow" />
+        </div>
+
+        {/* ── RIGHT ACTIONS ────────────────────────────────────────────────── */}
+        <div className="absolute right-2 z-20 flex flex-col items-center gap-3.5"
+          style={{ bottom: 52 }}>
+          {/* Profile avatar with follow */}
+          <div className="relative mb-1">
+            <div className="w-8 h-8 rounded-full border-2 border-white"
+              style={{ background: "linear-gradient(135deg, #833ab4, #fd1d1d, #fcb045)" }} />
+            <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 rounded-full bg-[#0095f6] border border-black flex items-center justify-center">
+              <Plus size={9} className="text-white" strokeWidth={3} />
+            </div>
+          </div>
+          {/* Heart */}
+          <div className="flex flex-col items-center gap-0.5 mt-1">
+            <Heart size={22} className="text-white drop-shadow fill-white" />
+            <span className="text-white text-[9px] font-medium drop-shadow">47.2K</span>
+          </div>
+          {/* Comment */}
+          <div className="flex flex-col items-center gap-0.5">
+            <MessageCircle size={22} className="text-white drop-shadow" />
+            <span className="text-white text-[9px] font-medium drop-shadow">1.8K</span>
+          </div>
+          {/* Share */}
+          <div className="flex flex-col items-center gap-0.5">
+            <Send size={20} className="text-white drop-shadow" />
+            <span className="text-white text-[9px] font-medium drop-shadow">Enviar</span>
+          </div>
+          {/* Bookmark */}
+          <Bookmark size={20} className="text-white drop-shadow" />
+          {/* More */}
+          <MoreHorizontal size={20} className="text-white drop-shadow" />
+        </div>
+
+        {/* ── BOTTOM USER INFO ─────────────────────────────────────────────── */}
+        <div className="absolute left-2 right-14 z-20" style={{ bottom: 50 }}>
+          {/* Username row */}
+          <div className="flex items-center gap-1.5 mb-1">
+            <div className="w-6 h-6 rounded-full border border-white/80"
+              style={{ background: "linear-gradient(135deg, #833ab4, #fd1d1d, #fcb045)" }} />
+            <span className="text-white text-[10px] font-bold drop-shadow">tu_cuenta</span>
+            <span className="text-white text-[8px] border border-white/70 rounded px-1 py-px leading-tight drop-shadow">
+              Seguir
+            </span>
+          </div>
+          {/* Caption/description */}
+          <p className="text-white text-[8.5px] leading-tight line-clamp-2 drop-shadow opacity-90">
+            ✨ Así funciona la automatización con IA para hacer crecer tu marca
+          </p>
+          {/* Music */}
+          <div className="flex items-center gap-1 mt-1">
+            <Music2 size={8} className="text-white drop-shadow" />
+            <span className="text-white text-[7.5px] opacity-80 drop-shadow">Audio original · tu_cuenta</span>
+          </div>
+        </div>
+
+        {/* ── BOTTOM NAV BAR ──────────────────────────────────────────────── */}
+        <div className="absolute bottom-0 left-0 right-0 z-20 flex items-center justify-around bg-black/90"
+          style={{ height: 44, borderTop: "0.5px solid rgba(255,255,255,0.15)" }}>
+          <Home size={20} className="text-white/70" />
+          <Search size={20} className="text-white/70" />
+          <div className="w-8 h-6 rounded-md border-2 border-white/80 flex items-center justify-center">
+            <Plus size={13} className="text-white" strokeWidth={2.5} />
+          </div>
+          {/* Reels icon — active */}
+          <Clapperboard size={20} className="text-white" />
+          <User size={20} className="text-white/70" />
+        </div>
+
       </div>
     </PhoneFrame>
   )
