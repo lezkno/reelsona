@@ -1,45 +1,73 @@
-# [Project name]
+# ContentPilot
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+Máquina de generación de contenido automático para Instagram Reels usando avatares de HeyGen. Conecta tu cuenta de Instagram, audita el rendimiento del contenido, genera guiones con IA, crea videos con avatares HeyGen y publica Reels en piloto automático.
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
-- `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- `pnpm --filter @workspace/content-pilot run dev` — frontend (port auto-assigned)
+- `pnpm --filter @workspace/api-server run dev` — API server (port 8080 en dev)
+- `pnpm run typecheck` — typecheck completo de todos los paquetes
+- `pnpm run build` — typecheck + build
+- `pnpm --filter @workspace/api-spec run codegen` — regenerar hooks y Zod schemas desde OpenAPI
+- `pnpm --filter @workspace/db run push` — aplicar cambios de schema a la DB (solo dev)
 
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
+- Frontend: React 19 + Vite + Tailwind + shadcn/ui + Wouter + TanStack Query
 - API: Express 5
 - DB: PostgreSQL + Drizzle ORM
-- Validation: Zod (`zod/v4`), `drizzle-zod`
-- API codegen: Orval (from OpenAPI spec)
-- Build: esbuild (CJS bundle)
+- Validación: Zod (v3), `drizzle-zod`
+- API codegen: Orval (desde spec OpenAPI)
+- IA (scripts): OpenAI via Replit AI Integrations (sin API key propia)
+- Video: HeyGen API v2
+- Social: Instagram Graph API (con Facebook/Instagram Login)
+- Scheduler: node-cron (automatización)
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `lib/api-spec/openapi.yaml` — spec OpenAPI (fuente de verdad de contratos)
+- `lib/db/src/schema/` — tablas Drizzle (instagram_accounts, settings, avatar_config, content_plan_items, videos, automation_config)
+- `artifacts/api-server/src/lib/heygen.ts` — cliente HeyGen API
+- `artifacts/api-server/src/lib/instagram-api.ts` — cliente Instagram Graph API
+- `artifacts/api-server/src/lib/ai-scripts.ts` — generación de guiones con OpenAI
+- `artifacts/api-server/src/lib/scheduler.ts` — motor de automatización (node-cron)
+- `artifacts/content-pilot/src/` — frontend React (dashboard, connect, audit, content, avatars, videos, automation, settings)
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- **OpenAPI-first**: Toda la interfaz API se define en `openapi.yaml` y se genera via Orval. No se escriben tipos a mano.
+- **Scheduler en backend**: node-cron corre dentro del proceso Express. Cada 5 minutos: poll de videos HeyGen. Cada hora: verifica si corresponde publicar según horario configurado.
+- **Pipeline completo**: draft → scripted → generating → ready → published. Cada transición se registra en DB.
+- **Rotación de avatares**: La lógica de rotación (sequential / random / performance) vive en `scheduler.ts::pickNextAvatar`.
+- **IA via Replit proxy**: Se usa `AI_INTEGRATIONS_OPENAI_BASE_URL` + `AI_INTEGRATIONS_OPENAI_API_KEY` (auto-provisioned), sin necesidad de API key propia.
+- **type: integer → number en OpenAPI**: Orval genera `zod.int()` para `integer` que no existe en Zod v3. Todos los enteros usan `type: number` en el spec.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+- **Dashboard**: estado de automatización, stats de videos y publicaciones, próxima publicación programada
+- **Conectar Instagram**: OAuth flow con Meta, vista de cuenta conectada con métricas
+- **Auditoría**: top posts por engagement, análisis IA de qué funciona, temas recomendados, mejores horarios
+- **Plan de Contenido**: lista de items por estado, generación automática de temas con IA, editor de guión
+- **Avatares**: selección de avatares HeyGen, voz clonada, estrategia de rotación
+- **Videos**: cola de videos en proceso/listos/publicados, publicación manual o automática
+- **Automatización**: toggle maestro, días y horarios de publicación, sub-toggles de auto-generar/auto-publicar
+- **Configuración**: nicho, keywords, tono, idioma, duración del video
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+- Idioma: Español (UI completamente en español)
+- Nicho configurable desde la app
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- Para publicar Reels, el video HeyGen debe estar en una URL pública. HeyGen devuelve la URL directa.
+- El callback de Instagram OAuth requiere que la `redirect_uri` esté registrada exactamente en el Meta App dashboard.
+- Para que los insights de posts funcionen, la cuenta debe ser Business o Creator (no personal).
+- `type: integer` en OpenAPI → usar `type: number` siempre (Zod v3 no tiene `zod.int()`).
+- El scheduler corre cada 5min para poll de videos y cada hora para ciclos de automatización.
 
 ## Pointers
 
-- See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details
+- Ver `pnpm-workspace` skill para estructura del monorepo
+- Ver `lib/api-spec/openapi.yaml` para contratos completos

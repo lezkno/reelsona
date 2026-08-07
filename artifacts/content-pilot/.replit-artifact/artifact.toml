@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "ContentPilot"
+description = "Dashboard de automatización de contenido para Instagram. Conecta tu cuenta de IG, audita el rendimiento, genera guiones con IA, crea videos con avatares de HeyGen y publica Reels automáticamente en piloto automático."
+version = "1.0.0"
+id = "artifacts/content-pilot"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 20355
+
+[services.development]
+run = "pnpm --filter @workspace/content-pilot run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/content-pilot", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/content-pilot/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "20355"
+BASE_PATH = "/"

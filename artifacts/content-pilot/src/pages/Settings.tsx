@@ -1,0 +1,207 @@
+import { useGetSettings, useUpdateSettings, getGetSettingsQueryKey, SettingsTone, type SettingsInput } from "@workspace/api-client-react"
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
+import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
+import { Slider } from "@/components/ui/slider"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Skeleton } from "@/components/ui/skeleton"
+import { useQueryClient } from "@tanstack/react-query"
+import { useToast } from "@/hooks/use-toast"
+import { useEffect, useRef, useState } from "react"
+import { Save, Check } from "lucide-react"
+
+export default function Settings() {
+  const { data: settings, isLoading } = useGetSettings()
+  const updateSettings = useUpdateSettings()
+  const queryClient = useQueryClient()
+  const { toast } = useToast()
+
+  const [formData, setFormData] = useState<SettingsInput | null>(null)
+  
+  useEffect(() => {
+    if (settings && !formData) {
+      setFormData(settings)
+    }
+  }, [settings, formData])
+
+  const handleChange = (key: keyof SettingsInput, value: any) => {
+    if (!formData) return
+    setFormData((prev: SettingsInput | null) => prev ? { ...prev, [key]: value } : null)
+  }
+
+  const handleKeywordsChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value
+    handleChange('topic_keywords', val.split(',').map(k => k.trim()).filter(Boolean))
+  }
+
+  const handleSave = () => {
+    if (!formData) return
+    
+    updateSettings.mutate({ data: formData }, {
+      onSuccess: () => {
+        toast({
+          title: "Configuración guardada",
+          description: "Tus preferencias han sido actualizadas.",
+        })
+        queryClient.invalidateQueries({ queryKey: getGetSettingsQueryKey() })
+      },
+      onError: () => {
+        toast({
+          title: "Error",
+          description: "No se pudieron guardar los cambios.",
+          variant: "destructive"
+        })
+      }
+    })
+  }
+
+  if (isLoading || !formData) {
+    return (
+      <div className="space-y-6 max-w-3xl">
+        <h1 className="text-4xl font-display font-bold">Configuración</h1>
+        <Card>
+          <CardHeader>
+            <Skeleton className="h-8 w-1/3" />
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-20 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-8 max-w-3xl animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <div>
+        <h1 className="text-4xl font-display font-bold tracking-tight">Configuración del Nicho</h1>
+        <p className="text-muted-foreground mt-1 text-lg">Define la identidad de tu marca para que la IA genere guiones perfectos.</p>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Identidad y Tono</CardTitle>
+          <CardDescription>Estos datos se usan en cada prompt de generación.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="space-y-2">
+            <Label>Tu Nicho Principal</Label>
+            <Input 
+              value={formData.niche || ''} 
+              onChange={e => handleChange('niche', e.target.value)}
+              placeholder="Ej: Finanzas Personales, Fitness para Emprendedores..."
+            />
+          </div>
+          
+          <div className="space-y-2">
+            <Label>Descripción Detallada</Label>
+            <Textarea 
+              value={formData.niche_description || ''} 
+              onChange={e => handleChange('niche_description', e.target.value)}
+              placeholder="Describe a quién le hablas, qué problemas resuelves y tu propuesta de valor única..."
+              className="min-h-[120px]"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label>Palabras Clave (separadas por coma)</Label>
+            <Input 
+              value={formData.topic_keywords?.join(', ') || ''} 
+              onChange={handleKeywordsChange}
+              placeholder="ahorro, inversión, bolsa, libertad financiera..."
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Tono de Voz</Label>
+              <Select 
+                value={formData.tone || SettingsTone.professional} 
+                onValueChange={(v) => handleChange('tone', v as SettingsTone)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={SettingsTone.professional}>Profesional & Autoritario</SelectItem>
+                  <SelectItem value={SettingsTone.casual}>Casual & Cercano</SelectItem>
+                  <SelectItem value={SettingsTone.educational}>Educativo & Didáctico</SelectItem>
+                  <SelectItem value={SettingsTone.entertaining}>Entretenido & Dinámico</SelectItem>
+                  <SelectItem value={SettingsTone.inspirational}>Inspiracional & Motivador</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Idioma de los Guiones</Label>
+              <Input 
+                value={formData.language || 'es-ES'} 
+                onChange={e => handleChange('language', e.target.value)}
+                placeholder="es-ES, en-US, etc."
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Ajustes de Video (HeyGen)</CardTitle>
+          <CardDescription>Preferencias para la generación de avatares.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <Label>Duración del Video (Segundos)</Label>
+              <span className="font-bold text-primary">{formData.video_duration_seconds}s</span>
+            </div>
+            <Slider 
+              value={[formData.video_duration_seconds || 45]} 
+              min={15} 
+              max={90} 
+              step={5}
+              onValueChange={([v]) => handleChange('video_duration_seconds', v)}
+            />
+            <p className="text-xs text-muted-foreground">La IA ajustará el largo del guion para que se lea en este tiempo aprox.</p>
+          </div>
+
+          <div className="flex items-center justify-between p-4 bg-muted/40 rounded-lg border">
+            <div className="space-y-0.5">
+              <Label>Subtítulos Integrados</Label>
+              <p className="text-sm text-muted-foreground">HeyGen quemará los subtítulos en el video.</p>
+            </div>
+            <Switch 
+              checked={formData.include_captions} 
+              onCheckedChange={v => handleChange('include_captions', v)} 
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label>Texto de Marca de Agua (Opcional)</Label>
+            <Input 
+              value={formData.watermark_text || ''} 
+              onChange={e => handleChange('watermark_text', e.target.value)}
+              placeholder="@tuusuario"
+            />
+          </div>
+        </CardContent>
+        <CardFooter className="flex justify-end pt-6 border-t bg-muted/20">
+          <Button onClick={handleSave} disabled={updateSettings.isPending} className="px-8 gap-2">
+            {updateSettings.isPending ? (
+              "Guardando..."
+            ) : (
+              <>
+                <Save className="w-4 h-4" />
+                Guardar Configuración
+              </>
+            )}
+          </Button>
+        </CardFooter>
+      </Card>
+    </div>
+  )
+}

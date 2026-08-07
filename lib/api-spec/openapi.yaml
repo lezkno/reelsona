@@ -3,20 +3,34 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: ContentPilot API — automated Instagram Reels content machine using HeyGen avatars
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: dashboard
+    description: Dashboard summary
+  - name: instagram
+    description: Instagram account integration
+  - name: heygen
+    description: HeyGen avatar and voice management
+  - name: content
+    description: AI-powered content planning and script generation
+  - name: videos
+    description: Video generation and publishing
+  - name: automation
+    description: Automation engine configuration
+  - name: settings
+    description: App settings and niche configuration
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +38,466 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /dashboard:
+    get:
+      operationId: getDashboard
+      tags: [dashboard]
+      summary: Get dashboard summary
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+
+  /instagram/auth-url:
+    get:
+      operationId: getInstagramAuthUrl
+      tags: [instagram]
+      summary: Get Instagram OAuth URL
+      responses:
+        "200":
+          description: OAuth URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthUrl"
+
+  /instagram/callback:
+    post:
+      operationId: handleInstagramCallback
+      tags: [instagram]
+      summary: Handle Instagram OAuth callback
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OAuthCallbackInput"
+      responses:
+        "200":
+          description: Connected successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstagramAccount"
+        "400":
+          description: Invalid code
+
+  /instagram/account:
+    get:
+      operationId: getInstagramAccount
+      tags: [instagram]
+      summary: Get connected Instagram account info
+      responses:
+        "200":
+          description: Account info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstagramAccountStatus"
+
+  /instagram/disconnect:
+    delete:
+      operationId: disconnectInstagram
+      tags: [instagram]
+      summary: Disconnect Instagram account
+      responses:
+        "200":
+          description: Disconnected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /instagram/audit:
+    get:
+      operationId: getInstagramAudit
+      tags: [instagram]
+      summary: Audit account — top content, insights, recommendations
+      responses:
+        "200":
+          description: Audit result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditResult"
+        "400":
+          description: No account connected
+
+  /instagram/posts:
+    get:
+      operationId: getInstagramPosts
+      tags: [instagram]
+      summary: Get recent Instagram posts with metrics
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: number
+            default: 20
+      responses:
+        "200":
+          description: List of posts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/InstagramPost"
+
+  /heygen/avatars:
+    get:
+      operationId: getHeyGenAvatars
+      tags: [heygen]
+      summary: List available HeyGen avatars
+      responses:
+        "200":
+          description: Avatar list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/HeyGenAvatar"
+
+  /heygen/voices:
+    get:
+      operationId: getHeyGenVoices
+      tags: [heygen]
+      summary: List available HeyGen voices (including cloned)
+      responses:
+        "200":
+          description: Voice list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/HeyGenVoice"
+
+  /heygen/avatar-config:
+    get:
+      operationId: getAvatarConfig
+      tags: [heygen]
+      summary: Get avatar rotation config
+      responses:
+        "200":
+          description: Avatar config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AvatarConfig"
+    put:
+      operationId: updateAvatarConfig
+      tags: [heygen]
+      summary: Update avatar rotation config
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AvatarConfigInput"
+      responses:
+        "200":
+          description: Updated config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AvatarConfig"
+
+  /content/plan:
+    get:
+      operationId: getContentPlan
+      tags: [content]
+      summary: Get content plan items
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [draft, scripted, generating, ready, published, failed, all]
+            default: all
+        - name: limit
+          in: query
+          schema:
+            type: number
+            default: 30
+      responses:
+        "200":
+          description: Content plan items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ContentPlanItem"
+
+  /content/plan/generate:
+    post:
+      operationId: generateContentPlan
+      tags: [content]
+      summary: AI-generate a content plan for the next N days
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContentPlanGenerateInput"
+      responses:
+        "201":
+          description: Generated plan
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ContentPlanItem"
+
+  /content/script:
+    post:
+      operationId: generateScript
+      tags: [content]
+      summary: AI-generate a script for a given topic
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScriptInput"
+      responses:
+        "200":
+          description: Generated script
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScriptResult"
+
+  /content/{id}:
+    get:
+      operationId: getContentItem
+      tags: [content]
+      summary: Get a content plan item by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: number
+      responses:
+        "200":
+          description: Content item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentPlanItem"
+        "404":
+          description: Not found
+    patch:
+      operationId: updateContentItem
+      tags: [content]
+      summary: Update a content plan item (script, avatar, voice, scheduled time)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: number
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContentPlanItemUpdate"
+      responses:
+        "200":
+          description: Updated item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentPlanItem"
+    delete:
+      operationId: deleteContentItem
+      tags: [content]
+      summary: Delete a content plan item
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: number
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /videos:
+    get:
+      operationId: getVideos
+      tags: [videos]
+      summary: List all videos with their generation and publishing status
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, generating, ready, published, failed, all]
+            default: all
+      responses:
+        "200":
+          description: Video list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Video"
+
+  /videos/generate:
+    post:
+      operationId: generateVideo
+      tags: [videos]
+      summary: Trigger HeyGen video generation for a content plan item
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VideoGenerateInput"
+      responses:
+        "202":
+          description: Generation started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Video"
+
+  /videos/{id}:
+    get:
+      operationId: getVideo
+      tags: [videos]
+      summary: Get video status and details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: number
+      responses:
+        "200":
+          description: Video
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Video"
+        "404":
+          description: Not found
+
+  /videos/{id}/publish:
+    post:
+      operationId: publishVideo
+      tags: [videos]
+      summary: Publish a ready video to Instagram as a Reel
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: number
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishInput"
+      responses:
+        "200":
+          description: Published
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Video"
+        "400":
+          description: Video not ready or account not connected
+
+  /automation:
+    get:
+      operationId: getAutomation
+      tags: [automation]
+      summary: Get automation engine config and status
+      responses:
+        "200":
+          description: Automation config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutomationConfig"
+    put:
+      operationId: updateAutomation
+      tags: [automation]
+      summary: Enable/disable automation and configure schedule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AutomationConfigInput"
+      responses:
+        "200":
+          description: Updated config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutomationConfig"
+
+  /automation/trigger:
+    post:
+      operationId: triggerAutomation
+      tags: [automation]
+      summary: Manually trigger one automation cycle (generate + publish)
+      responses:
+        "202":
+          description: Automation cycle triggered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutomationRunResult"
+
+  /settings:
+    get:
+      operationId: getSettings
+      tags: [settings]
+      summary: Get all settings
+      responses:
+        "200":
+          description: Settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+    put:
+      operationId: updateSettings
+      tags: [settings]
+      summary: Update settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SettingsInput"
+      responses:
+        "200":
+          description: Updated settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+
 components:
   schemas:
     HealthStatus:
@@ -31,6 +505,493 @@ components:
       properties:
         status:
           type: string
-      required:
-        - status
+      required: [status]
 
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+      required: [success]
+
+    AuthUrl:
+      type: object
+      properties:
+        url:
+          type: string
+      required: [url]
+
+    OAuthCallbackInput:
+      type: object
+      properties:
+        code:
+          type: string
+        redirect_uri:
+          type: string
+      required: [code, redirect_uri]
+
+    DashboardSummary:
+      type: object
+      properties:
+        account_connected:
+          type: boolean
+        instagram_username:
+          type: ["string", "null"]
+        instagram_followers:
+          type: ["number", "null"]
+        automation_enabled:
+          type: boolean
+        next_scheduled_at:
+          type: ["string", "null"]
+        videos_generated_total:
+          type: number
+        videos_published_total:
+          type: number
+        videos_generating_now:
+          type: number
+        content_items_ready:
+          type: number
+        avatar_count:
+          type: number
+        last_published_at:
+          type: ["string", "null"]
+      required:
+        - account_connected
+        - automation_enabled
+        - videos_generated_total
+        - videos_published_total
+        - videos_generating_now
+        - content_items_ready
+        - avatar_count
+
+    InstagramAccount:
+      type: object
+      properties:
+        id:
+          type: string
+        username:
+          type: string
+        name:
+          type: ["string", "null"]
+        profile_picture_url:
+          type: ["string", "null"]
+        followers_count:
+          type: number
+        media_count:
+          type: number
+        connected_at:
+          type: string
+      required: [id, username, followers_count, media_count, connected_at]
+
+    InstagramAccountStatus:
+      type: object
+      properties:
+        connected:
+          type: boolean
+        account:
+          $ref: "#/components/schemas/InstagramAccount"
+      required: [connected]
+
+    InstagramPost:
+      type: object
+      properties:
+        id:
+          type: string
+        media_type:
+          type: string
+          enum: [IMAGE, VIDEO, CAROUSEL_ALBUM, REELS]
+        thumbnail_url:
+          type: ["string", "null"]
+        permalink:
+          type: ["string", "null"]
+        caption:
+          type: ["string", "null"]
+        like_count:
+          type: number
+        comments_count:
+          type: number
+        reach:
+          type: ["number", "null"]
+        impressions:
+          type: ["number", "null"]
+        plays:
+          type: ["number", "null"]
+        engagement_rate:
+          type: ["number", "null"]
+        timestamp:
+          type: string
+      required: [id, media_type, like_count, comments_count, timestamp]
+
+    AuditResult:
+      type: object
+      properties:
+        account:
+          $ref: "#/components/schemas/InstagramAccount"
+        top_posts:
+          type: array
+          items:
+            $ref: "#/components/schemas/InstagramPost"
+        avg_engagement_rate:
+          type: number
+        avg_reach:
+          type: number
+        best_posting_times:
+          type: array
+          items:
+            type: string
+        recommended_topics:
+          type: array
+          items:
+            type: string
+        content_insights:
+          type: string
+        generated_at:
+          type: string
+      required:
+        - account
+        - top_posts
+        - avg_engagement_rate
+        - avg_reach
+        - best_posting_times
+        - recommended_topics
+        - content_insights
+        - generated_at
+
+    HeyGenAvatar:
+      type: object
+      properties:
+        avatar_id:
+          type: string
+        avatar_name:
+          type: string
+        preview_image_url:
+          type: ["string", "null"]
+        preview_video_url:
+          type: ["string", "null"]
+        gender:
+          type: ["string", "null"]
+        is_active:
+          type: boolean
+      required: [avatar_id, avatar_name, is_active]
+
+    HeyGenVoice:
+      type: object
+      properties:
+        voice_id:
+          type: string
+        name:
+          type: string
+        language:
+          type: string
+        gender:
+          type: ["string", "null"]
+        preview_audio_url:
+          type: ["string", "null"]
+        is_cloned:
+          type: boolean
+      required: [voice_id, name, language, is_cloned]
+
+    AvatarConfig:
+      type: object
+      properties:
+        selected_avatar_ids:
+          type: array
+          items:
+            type: string
+        preferred_voice_id:
+          type: ["string", "null"]
+        rotation_strategy:
+          type: string
+          enum: [sequential, random, performance]
+        last_used_avatar_id:
+          type: ["string", "null"]
+      required: [selected_avatar_ids, rotation_strategy]
+
+    AvatarConfigInput:
+      type: object
+      properties:
+        selected_avatar_ids:
+          type: array
+          items:
+            type: string
+        preferred_voice_id:
+          type: ["string", "null"]
+        rotation_strategy:
+          type: string
+          enum: [sequential, random, performance]
+      required: [selected_avatar_ids, rotation_strategy]
+
+    ContentPlanItem:
+      type: object
+      properties:
+        id:
+          type: number
+        topic:
+          type: string
+        hook:
+          type: ["string", "null"]
+        script:
+          type: ["string", "null"]
+        cta:
+          type: ["string", "null"]
+        avatar_id:
+          type: ["string", "null"]
+        voice_id:
+          type: ["string", "null"]
+        caption:
+          type: ["string", "null"]
+        hashtags:
+          type: ["string", "null"]
+        scheduled_at:
+          type: ["string", "null"]
+        status:
+          type: string
+          enum: [draft, scripted, generating, ready, published, failed]
+        video_id:
+          type: ["number", "null"]
+        created_at:
+          type: string
+        updated_at:
+          type: string
+      required: [id, topic, status, created_at, updated_at]
+
+    ContentPlanItemUpdate:
+      type: object
+      properties:
+        topic:
+          type: string
+        hook:
+          type: ["string", "null"]
+        script:
+          type: ["string", "null"]
+        cta:
+          type: ["string", "null"]
+        avatar_id:
+          type: ["string", "null"]
+        voice_id:
+          type: ["string", "null"]
+        caption:
+          type: ["string", "null"]
+        hashtags:
+          type: ["string", "null"]
+        scheduled_at:
+          type: ["string", "null"]
+
+    ContentPlanGenerateInput:
+      type: object
+      properties:
+        days:
+          type: number
+          minimum: 1
+          maximum: 30
+        posts_per_day:
+          type: number
+          minimum: 1
+          maximum: 3
+      required: [days]
+
+    ScriptInput:
+      type: object
+      properties:
+        topic:
+          type: string
+        duration_seconds:
+          type: number
+          default: 60
+      required: [topic]
+
+    ScriptResult:
+      type: object
+      properties:
+        topic:
+          type: string
+        hook:
+          type: string
+        script:
+          type: string
+        cta:
+          type: string
+        caption:
+          type: string
+        hashtags:
+          type: string
+        estimated_duration_seconds:
+          type: number
+      required: [topic, hook, script, cta, caption, hashtags, estimated_duration_seconds]
+
+    Video:
+      type: object
+      properties:
+        id:
+          type: number
+        content_plan_id:
+          type: ["number", "null"]
+        heygen_video_id:
+          type: ["string", "null"]
+        topic:
+          type: ["string", "null"]
+        avatar_id:
+          type: ["string", "null"]
+        status:
+          type: string
+          enum: [pending, generating, ready, published, failed]
+        video_url:
+          type: ["string", "null"]
+        thumbnail_url:
+          type: ["string", "null"]
+        ig_media_id:
+          type: ["string", "null"]
+        ig_permalink:
+          type: ["string", "null"]
+        error_message:
+          type: ["string", "null"]
+        duration_seconds:
+          type: ["number", "null"]
+        created_at:
+          type: string
+        updated_at:
+          type: string
+        published_at:
+          type: ["string", "null"]
+      required: [id, status, created_at, updated_at]
+
+    VideoGenerateInput:
+      type: object
+      properties:
+        content_plan_id:
+          type: number
+      required: [content_plan_id]
+
+    PublishInput:
+      type: object
+      properties:
+        caption:
+          type: ["string", "null"]
+        hashtags:
+          type: ["string", "null"]
+
+    AutomationConfig:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        posting_times:
+          type: array
+          items:
+            type: string
+        days_of_week:
+          type: array
+          items:
+            type: number
+        timezone:
+          type: string
+        auto_generate_script:
+          type: boolean
+        auto_generate_video:
+          type: boolean
+        auto_publish:
+          type: boolean
+        last_run_at:
+          type: ["string", "null"]
+        next_run_at:
+          type: ["string", "null"]
+        last_run_status:
+          type: ["string", "null"]
+      required:
+        - enabled
+        - posting_times
+        - days_of_week
+        - timezone
+        - auto_generate_script
+        - auto_generate_video
+        - auto_publish
+
+    AutomationConfigInput:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        posting_times:
+          type: array
+          items:
+            type: string
+        days_of_week:
+          type: array
+          items:
+            type: number
+        timezone:
+          type: string
+        auto_generate_script:
+          type: boolean
+        auto_generate_video:
+          type: boolean
+        auto_publish:
+          type: boolean
+
+    AutomationRunResult:
+      type: object
+      properties:
+        triggered:
+          type: boolean
+        message:
+          type: string
+        content_item_id:
+          type: ["number", "null"]
+        video_id:
+          type: ["number", "null"]
+      required: [triggered, message]
+
+    Settings:
+      type: object
+      properties:
+        niche:
+          type: string
+        niche_description:
+          type: ["string", "null"]
+        topic_keywords:
+          type: array
+          items:
+            type: string
+        tone:
+          type: string
+          enum: [professional, casual, educational, entertaining, inspirational]
+        language:
+          type: string
+        video_duration_seconds:
+          type: number
+        include_captions:
+          type: boolean
+        watermark_text:
+          type: ["string", "null"]
+      required:
+        - niche
+        - topic_keywords
+        - tone
+        - language
+        - video_duration_seconds
+        - include_captions
+
+    SettingsInput:
+      type: object
+      properties:
+        niche:
+          type: string
+        niche_description:
+          type: ["string", "null"]
+        topic_keywords:
+          type: array
+          items:
+            type: string
+        tone:
+          type: string
+          enum: [professional, casual, educational, entertaining, inspirational]
+        language:
+          type: string
+        video_duration_seconds:
+          type: number
+        include_captions:
+          type: boolean
+        watermark_text:
+          type: ["string", "null"]
