@@ -423,12 +423,17 @@ let cycleRunning = false;
 export function startScheduler(): void {
   if (cronJob) return;
 
-  // Every 5 minutes: poll video statuses
-  cron.schedule("*/5 * * * *", async () => {
+  // Every minute: poll video statuses so finished HeyGen videos are detected quickly
+  let pollRunning = false;
+  cron.schedule("* * * * *", async () => {
+    if (pollRunning) return;
+    pollRunning = true;
     try {
       await pollAndPublishVideos();
     } catch (err) {
       logger.error({ err }, "Error in video polling cycle");
+    } finally {
+      pollRunning = false;
     }
   });
 
