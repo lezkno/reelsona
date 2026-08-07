@@ -75,8 +75,8 @@ function PresetCard({
     letterSpacing: "0.04em",
   })
 
-  // Dimidium: function words small+white, content words large+yellow
-  const FUNCTION_WORDS_PREVIEW = new Set(["they","the","and","or","to","a","in"])
+  // Mirrors engine FUNCTION_WORDS — only pronouns, conjunctions, qualifiers
+  const FUNCTION_WORDS_PREVIEW = PREVIEW_FUNCTION_WORDS
   const dimLineStyle = (word: string, large: boolean): React.CSSProperties => ({
     fontFamily: `'${preset.font_family}', 'Poppins', sans-serif`,
     fontWeight: 800,
@@ -108,10 +108,10 @@ function PresetCard({
         style={{ background: "linear-gradient(to bottom, #1a1a2e 0%, #16213e 60%, #0f3460 100%)" }}
       >
         {isMixedMode ? (
-          /* Dimidium mode: stacked lines with mixed sizes */
-          <div className="flex flex-col items-center gap-y-0.5 w-full">
+          /* Dimidium mode: stacked lines, LEFT-aligned */
+          <div className="flex flex-col items-start gap-y-0.5 w-full px-2">
             {dimLines.map((words, li) => (
-              <div key={li} className="flex items-baseline justify-center gap-x-1 flex-wrap">
+              <div key={li} className="flex items-baseline justify-start gap-x-1 flex-wrap">
                 {words.map((w, wi) => {
                   const isFunc = FUNCTION_WORDS_PREVIEW.has(w.toLowerCase())
                   return (
@@ -175,23 +175,28 @@ function PresetCard({
 // ─── Live Preview ─────────────────────────────────────────────────────────────
 
 // Dimidium function-word list for preview (same logic as engine)
+// Mirrors the engine FUNCTION_WORDS — only the most common unstressed words.
+// Everything else (nouns, verbs, adjectives) is large + accent color.
 const PREVIEW_FUNCTION_WORDS = new Set([
-  // English
-  "they","the","and","or","to","a","an","in","on","at","for","of","with","by",
-  "is","are","was","were","it","this","that","my","your","our","so","not","no",
-  // Spanish
-  "el","la","los","las","un","una","unos","unas","y","e","o","u","a","en","de",
-  "del","al","con","por","para","sin","sobre","entre","desde","hasta","que","se",
-  "le","les","lo","me","te","nos","su","sus","mi","tu","es","son","fue","era",
-  "esto","eso","este","esta","estos","estas","más","muy","ya","si","no","tus",
+  // English pronouns
+  "i","me","my","you","your","he","him","his","she","her","it","its",
+  "we","us","our","they","them","their",
+  // Conjunctions / qualifiers
+  "and","but","or","so","yet","nor","that","which","who",
+  "more","most","very","just","also","too","even","only",
+  // Spanish pronouns
+  "yo","me","mi","tú","te","él","ella","nosotros","ellos","se","nos",
+  // Spanish conjunctions / qualifiers
+  "y","e","o","pero","sino","aunque","también","más","solo","muy",
 ])
 
-// Dimidium demo blocks (each array = one SRT line; words appear one by one)
+// Dimidium demo blocks — Spanish words that clearly show the size contrast:
+// content words (nouns/verbs) → large+yellow; function words → small+white
 const DIM_BLOCKS = [
-  ["Esto",    "para",  "el",    "scroll"],
-  ["aumenta", "el",    "watch", "time"],
-  ["y",       "mantiene"],
-  ["a",       "tus",   "viewers", "enganchados"],
+  ["detienen",   "el",   "scroll"],
+  ["aumentan",   "el",   "watch",   "time"],
+  ["y",          "mantienen"],
+  ["enganchados", "tus", "viewers"],
 ]
 
 // Flat list of states: (lineIdx, wordIdx within line)
@@ -267,12 +272,12 @@ function CaptionPreview({ config }: { config: Partial<CaptionConfig> }) {
 
     return (
       <div
-        className="w-full aspect-[9/16] max-h-72 rounded-xl flex flex-col items-center justify-end pb-5 px-3"
+        className="w-full aspect-[9/16] max-h-72 rounded-xl flex flex-col items-start justify-end pb-5 px-4"
         style={{ background: "linear-gradient(135deg, #1a1a2e, #16213e, #0f3460)" }}
       >
-        <div className="flex flex-col items-center gap-y-1 w-full">
+        <div className="flex flex-col items-start gap-y-1 w-full">
           {renderSlots.map(({ words, isBuilding }, idx) => (
-            <div key={`${curLi}-${idx}`} className="flex items-baseline justify-center flex-wrap gap-x-1.5">
+            <div key={`${curLi}-${idx}`} className="flex items-baseline justify-start flex-wrap gap-x-1.5">
               {words.map((w, wi) => {
                 const isFunc = PREVIEW_FUNCTION_WORDS.has(w.toLowerCase())
                 return (

@@ -338,19 +338,24 @@ function buildPopASS(
 //  - Lines stack vertically: newest at bottom, older lines push upward
 //  - Window of MAX_VISIBLE_LINES lines visible simultaneously
 
+// Only the most common UNSTRESSED function words get small+white treatment.
+// Content words (nouns, verbs, adjectives, adverbs) stay large+accent — even
+// "the", "a", "in" can appear large in Dimidium when they carry prosodic weight.
+// Keep this list SHORT: the fewer words here, the more yellow/large the output,
+// which matches the Dimidium reference style.
 const FUNCTION_WORDS = new Set([
-  "the","a","an","and","but","or","in","on","at","to","for","of","with","by",
-  "they","you","we","i","it","this","that","is","are","was","were","be","been",
-  "have","has","had","do","does","did","will","would","could","should","may",
-  "might","can","my","your","our","their","its","his","her","not","no","so",
-  "as","if","then","than","more","most","just","about","up","out","from","into",
-  "over","under","after","before","also","very","really","too","now","here",
-  "there","when","what","who","how","why","where","which","these","those","am",
-  "were","being","get","got","go","went","come","came","see","saw","know","knew",
-  "think","say","said","want","use","find","give","tell","work","call","feel",
-  "try","ask","need","seem","turn","start","show","hear","play","run","move",
-  "live","believe","hold","bring","happen","write","sit","stand","lose","pay",
-  "meet","include","continue","set","learn","change","lead","understand","watch",
+  // Personal pronouns
+  "i","me","my","you","your","he","him","his","she","her","it","its",
+  "we","us","our","they","them","their",
+  // Conjunctions
+  "and","but","or","so","yet","nor",
+  // Relative / question words (unstressed)
+  "that","which","who",
+  // Common qualifiers that are typically unstressed
+  "more","most","very","just","also","too","even","only",
+  // Spanish equivalents
+  "yo","me","mi","tú","te","él","ella","nosotros","ellos","se","nos",
+  "y","e","o","pero","sino","aunque","también","más","solo","muy",
 ]);
 
 function isEmphasisWord(raw: string): boolean {
@@ -436,8 +441,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
   }
 
   // ─── Vertical layout ────────────────────────────────────────────────────────
+  // Text is LEFT-aligned, starting from a fixed left margin — matching the
+  // reference video where each new word extends the line to the right.
   const MAX_SLOTS   = 4;
-  const CENTER_X    = Math.round(videoWidth / 2);
+  const LEFT_X      = 60;                              // left margin (px)
   const lineSpacing = Math.round(videoHeight * 0.085); // ~163 px at 1920
   const baseY       = videoHeight - 80;
 
@@ -453,8 +460,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
   //   slot 2: block before that, complete text
   //   slot 3: block before that, complete text
   //
-  // This creates the exact word-by-word reveal + line-stacking push-up seen in the
-  // reference Dimidium video.
+  // \an1 = bottom-left alignment so text grows rightward from LEFT_X.
 
   const dialogues: string[] = [];
 
@@ -485,7 +491,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
             : lineText(lines[lineIdx], lines[lineIdx].words.length - 1); // complete
 
         dialogues.push(
-          `Dialogue: 0,${msToAssTime(stateStart)},${msToAssTime(stateEnd)},Caption,,0,0,0,,{\\an2\\pos(${CENTER_X},${slotY[slot]})}${text}`
+          `Dialogue: 0,${msToAssTime(stateStart)},${msToAssTime(stateEnd)},Caption,,0,0,0,,{\\an1\\pos(${LEFT_X},${slotY[slot]})}${text}`
         );
       }
     }
