@@ -1,0 +1,1 @@
+- [Instagram OAuth setup gotchas](instagram-oauth-setup.md) — "Invalid redirect_uri" can mean wrong Instagram App ID; redirect_uri must match in 3 places; open OAuth in new tab from Replit iframe.
