@@ -231,7 +231,13 @@ router.post("/videos/:id/publish", async (req, res): Promise<void> => {
     await db.update(contentPlanItemsTable).set({ caption, updatedAt: new Date() }).where(eq(contentPlanItemsTable.id, video.contentPlanId));
   }
 
-  await publishVideoToInstagram(video.id);
+  try {
+    await publishVideoToInstagram(video.id);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(502).json({ error: msg });
+    return;
+  }
 
   const [updated] = await db.select().from(videosTable).where(eq(videosTable.id, video.id)).limit(1);
   res.json(PublishVideoResponse.parse(mapVideo(updated ?? video)));

@@ -98,30 +98,52 @@ export async function getMediaInsights(accessToken: string, mediaId: string, med
   }
 }
 
+/** Extract a human-readable message from an Instagram Graph API axios error */
+function igError(err: unknown, fallback: string): Error {
+  if (axios.isAxiosError(err)) {
+    const data = err.response?.data;
+    // Instagram wraps errors as { error: { message, code, type } }
+    const igMsg: string | undefined = data?.error?.message;
+    if (igMsg) return new Error(`Instagram: ${igMsg}`);
+    // Fallback: raw status
+    const status = err.response?.status;
+    if (status) return new Error(`${fallback} (HTTP ${status})`);
+  }
+  return err instanceof Error ? err : new Error(String(err));
+}
+
 export async function createReelContainer(
   accessToken: string,
   userId: string,
   videoUrl: string,
   caption: string
 ): Promise<string> {
-  const res = await axios.post(`${IG_GRAPH_BASE}/${userId}/media`, null, {
-    params: {
-      media_type: "REELS",
-      video_url: videoUrl,
-      caption,
-      access_token: accessToken,
-    },
-  });
-  const creationId: string = res.data?.id;
-  if (!creationId) throw new Error("Failed to create media container");
-  return creationId;
+  try {
+    const res = await axios.post(`${IG_GRAPH_BASE}/${userId}/media`, null, {
+      params: {
+        media_type: "REELS",
+        video_url: videoUrl,
+        caption,
+        access_token: accessToken,
+      },
+    });
+    const creationId: string = res.data?.id;
+    if (!creationId) throw new Error("Failed to create media container");
+    return creationId;
+  } catch (err) {
+    throw igError(err, "Error al crear el contenedor de video en Instagram");
+  }
 }
 
 export async function checkContainerStatus(accessToken: string, containerId: string): Promise<string> {
-  const res = await axios.get(`${IG_GRAPH_BASE}/${containerId}`, {
-    params: { fields: "status_code,status", access_token: accessToken },
-  });
-  return res.data?.status_code ?? "IN_PROGRESS";
+  try {
+    const res = await axios.get(`${IG_GRAPH_BASE}/${containerId}`, {
+      params: { fields: "status_code,status", access_token: accessToken },
+    });
+    return res.data?.status_code ?? "IN_PROGRESS";
+  } catch (err) {
+    throw igError(err, "Error al verificar el estado del contenedor");
+  }
 }
 
 export async function publishContainer(
@@ -129,12 +151,16 @@ export async function publishContainer(
   userId: string,
   creationId: string
 ): Promise<string> {
-  const res = await axios.post(`${IG_GRAPH_BASE}/${userId}/media_publish`, null, {
-    params: { creation_id: creationId, access_token: accessToken },
-  });
-  const mediaId: string = res.data?.id;
-  if (!mediaId) throw new Error("Failed to publish container");
-  return mediaId;
+  try {
+    const res = await axios.post(`${IG_GRAPH_BASE}/${userId}/media_publish`, null, {
+      params: { creation_id: creationId, access_token: accessToken },
+    });
+    const mediaId: string = res.data?.id;
+    if (!mediaId) throw new Error("Failed to publish container");
+    return mediaId;
+  } catch (err) {
+    throw igError(err, "Error al publicar en Instagram");
+  }
 }
 
 export async function getPermalink(accessToken: string, mediaId: string): Promise<string | null> {

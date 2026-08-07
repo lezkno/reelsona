@@ -242,8 +242,12 @@ export default function ContentPlan() {
           queryClient.invalidateQueries({ queryKey: getGetContentPlanQueryKey() })
           toast({ title: "¡Publicado!", description: "El video fue enviado a Instagram." })
         },
-        onError: () => {
-          toast({ title: "Error al publicar", description: "Verificá la conexión con Instagram.", variant: "destructive" })
+        onError: (err: any) => {
+          const detail: string =
+            err?.response?.data?.error ||
+            err?.message ||
+            "Verificá la conexión con Instagram."
+          toast({ title: "Error al publicar", description: detail, variant: "destructive" })
         },
         onSettled: () => setPublishingVideoId(null),
       }
