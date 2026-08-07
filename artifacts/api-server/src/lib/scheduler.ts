@@ -1,4 +1,6 @@
 import cron from "node-cron";
+import nodePath from "path";
+import nodeFs from "fs";
 import { db } from "@workspace/db";
 import {
   automationConfigTable,
@@ -506,24 +508,33 @@ export async function publishVideoToInstagram(videoId: number, videoUrl?: string
 
   let url = rawUrl;
   if (video.captionedVideoUrl) {
-    // Extract filename from the stored URL and check disk
-    const filename = video.captionedVideoUrl.split("/").pop() ?? "";
-    const filePath = filename ? require("path").join(CAPTION_DIR, filename) : "";
-    const fileExists = filePath ? require("fs").existsSync(filePath) : false;
+    const captionedUrl = video.captionedVideoUrl;
 
-    if (fileExists) {
-      url = video.captionedVideoUrl;
-      logger.info({ videoId, captionedUrl: url.slice(0, 60) }, "[Publish] Using captioned video");
+    if (captionedUrl.startsWith("https://storage.googleapis.com/")) {
+      // Stored in Object Storage — permanently available, use directly.
+      url = captionedUrl;
+      logger.info({ videoId, captionedUrl: url.slice(0, 80) }, "[Publish] Using captioned video from Object Storage");
     } else {
-      logger.warn(
-        { videoId, captionedUrl: video.captionedVideoUrl.slice(0, 60) },
-        "[Publish] Captioned file not found on disk (server restart wiped /tmp) — falling back to HeyGen URL"
-      );
-      // Clear the stale captionedVideoUrl from DB so the UI reflects reality
-      await db
-        .update(videosTable)
-        .set({ captionedVideoUrl: null, captionStatus: "failed", updatedAt: new Date() })
-        .where(eq(videosTable.id, videoId));
+      // Legacy: URL pointed to the dev server's /tmp directory.
+      // Verify the file still exists on disk before using it.
+      const filename = captionedUrl.split("/").pop() ?? "";
+      const filePath = filename ? nodePath.join(CAPTION_DIR, filename) : "";
+      const fileExists = filePath ? nodeFs.existsSync(filePath) : false;
+
+      if (fileExists) {
+        url = captionedUrl;
+        logger.info({ videoId, captionedUrl: url.slice(0, 60) }, "[Publish] Using captioned video from disk (legacy)");
+      } else {
+        logger.warn(
+          { videoId, captionedUrl: captionedUrl.slice(0, 60) },
+          "[Publish] Legacy captioned file not found on disk (server restart wiped /tmp) — falling back to HeyGen URL"
+        );
+        // Clear the stale captionedVideoUrl from DB so the UI reflects reality
+        await db
+          .update(videosTable)
+          .set({ captionedVideoUrl: null, captionStatus: "failed", updatedAt: new Date() })
+          .where(eq(videosTable.id, videoId));
+      }
     }
   }
 

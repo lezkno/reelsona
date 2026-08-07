@@ -10,7 +10,7 @@
  *       "highlight" — show N words, highlight the active word in accent color
  *       "pop"       — one word at a time, large, centered
  *  5. Burn the ASS into the video with FFmpeg (libass) using the bundled fonts
- *  6. Serve the captioned video at /api/captioned/:file
+ *  6. Upload the captioned video to Replit Object Storage (GCS) for permanent persistence
  */
 
 import { execFile } from "child_process";
@@ -20,6 +20,7 @@ import { createWriteStream } from "fs";
 import path from "path";
 import axios from "axios";
 import { logger } from "./logger";
+import { objectStorageClient } from "./objectStorage";
 
 const execFileAsync = promisify(execFile);
 
@@ -646,13 +647,27 @@ export async function applyCaptions(
       fs.unlink(assPath).catch(() => {}),
     ]);
 
-    // 6. Build public URL
-    const filename  = path.basename(outputPath);
-    const devDomain = process.env.REPLIT_DEV_DOMAIN;
-    const baseUrl   = devDomain ? `https://${devDomain}/api` : `http://localhost:8080`;
-    const publicUrl = `${baseUrl}/captioned/${filename}`;
+    // 6. Upload to Object Storage for permanent persistence
+    const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
+    if (!bucketId) {
+      throw new Error("DEFAULT_OBJECT_STORAGE_BUCKET_ID not set — Object Storage not provisioned");
+    }
 
-    logger.info({ publicUrl }, "[CaptionEngine] Captioned video ready");
+    const filename       = path.basename(outputPath);
+    const gcsObjectName  = `captioned-videos/${filename}`;
+    const bucket         = objectStorageClient.bucket(bucketId);
+    const gcsFile        = bucket.file(gcsObjectName);
+
+    logger.info({ gcsObjectName }, "[CaptionEngine] Uploading captioned video to Object Storage...");
+    const fileBuffer = await fs.readFile(outputPath);
+    await gcsFile.save(fileBuffer, { contentType: "video/mp4" });
+    await gcsFile.makePublic();
+
+    // Clean up the local output file now that it's in GCS
+    await fs.unlink(outputPath).catch(() => {});
+
+    const publicUrl = `https://storage.googleapis.com/${bucketId}/${gcsObjectName}`;
+    logger.info({ publicUrl }, "[CaptionEngine] Captioned video persisted to Object Storage");
     return { url: publicUrl };
   } catch (err) {
     logger.error({ err }, "[CaptionEngine] Failed");
