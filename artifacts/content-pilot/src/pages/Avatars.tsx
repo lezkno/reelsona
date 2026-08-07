@@ -230,6 +230,11 @@ export default function Avatars() {
   const [onlyInUse, setOnlyInUse] = useState(false)
   const [voiceOverrides, setVoiceOverrides] = useState<Record<string, string>>({})
 
+  // Track whether we've initialized local state from the server config.
+  // Without this, React Query background refetches (e.g. on window focus) would
+  // overwrite any unsaved changes the user made in the dialog.
+  const configInitialized = useRef(false)
+
   const { data: allLooks } = useGetHeyGenAllLooks()
   const { data: voices } = useGetHeyGenVoices()
 
@@ -261,13 +266,28 @@ export default function Avatars() {
       is_cloned: v.is_cloned ?? false,
     }))
 
+  // Initialize local state once from the server — never on background refetches.
+  // After a successful save we update state manually (see handleSave onSuccess).
   useEffect(() => {
-    if (config) {
+    if (config && !configInitialized.current) {
+      configInitialized.current = true
       setSelectedIds(new Set(config.selected_avatar_ids))
       setStrategy(config.rotation_strategy)
       setVoiceOverrides((config.voice_overrides as Record<string, string>) ?? {})
     }
   }, [config])
+
+  // Once allLooks finishes loading, drop any selectedIds that don't exist in HeyGen
+  // anymore (deleted looks, failed groups, etc.). This keeps all counts consistent.
+  useEffect(() => {
+    if (!allLooks || !configInitialized.current) return
+    const knownIds = new Set(allLooks.map((l) => l.id))
+    setSelectedIds((prev) => {
+      const cleaned = new Set([...prev].filter((id) => knownIds.has(id)))
+      if (cleaned.size === prev.size) return prev  // nothing changed — avoid re-render
+      return cleaned
+    })
+  }, [allLooks])
 
   const toggleLook = (id: string) => {
     const newSet = new Set(selectedIds)
@@ -302,17 +322,26 @@ export default function Avatars() {
       }
     }
 
-    updateConfig.mutate({
-      data: {
-        selected_avatar_ids: Array.from(selectedIds),
-        rotation_strategy: strategy,
-        preferred_voice_id: null,
-        voice_overrides: cleanedOverrides,
-      }
-    }, {
+    const savePayload = {
+      selected_avatar_ids: Array.from(selectedIds),
+      rotation_strategy: strategy,
+      preferred_voice_id: null as string | null,
+      voice_overrides: cleanedOverrides,
+    }
+
+    updateConfig.mutate({ data: savePayload }, {
       onSuccess: () => {
         toast({ title: "Guardado", description: "Configuración de avatares actualizada." })
+        // Update local state directly from what we just saved so the UI stays
+        // consistent without a round-trip refetch that could wipe pending changes.
+        setSelectedIds(new Set(savePayload.selected_avatar_ids))
+        setVoiceOverrides(savePayload.voice_overrides)
+        setStrategy(savePayload.rotation_strategy as AvatarConfigRotationStrategy)
+        // Invalidate so other parts of the app (e.g. scheduler) see fresh data.
         queryClient.invalidateQueries({ queryKey: getGetAvatarConfigQueryKey() })
+      },
+      onError: () => {
+        toast({ title: "Error", description: "No se pudo guardar la configuración.", variant: "destructive" })
       }
     })
   }
