@@ -148,9 +148,9 @@ export default function PipelineTimeline() {
             if (s.key === "caption" && done && item.caption_status === "failed") {
               statusLabel = "Omitido (error)"
             }
-            // Publish step: only show "En proceso..." if auto-publish is actually active
-            if (s.key === "publish" && current && !willAutoPublish) {
-              statusLabel = "Publicar manualmente"
+            // Publish step: never show generic "En proceso..." — the video is just waiting
+            if (s.key === "publish" && current) {
+              statusLabel = willAutoPublish ? "En cola para publicar" : "Publicar manualmente"
             }
 
             return (
