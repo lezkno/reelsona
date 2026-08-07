@@ -116,59 +116,81 @@ export interface VideoStatus {
   error?: string | null;
 }
 
+/**
+ * Generate a video via HeyGen API v3.
+ *
+ * v3 unifies all avatar types under a single "avatar" type — no more
+ * talking_photo vs avatar split at the API level. The look ID is passed
+ * directly as avatar_id (strip the "tp:" prefix we use internally to
+ * track photo-avatar looks).
+ *
+ * Engine selection:
+ *   - Video avatars (no tp: prefix, e.g. Yasser Lezcano looks): Avatar V engine
+ *     → best possible lipsync, trained from recorded video footage.
+ *   - Photo avatars (tp: prefix, digital twins / photo-based looks): Avatar IV
+ *     engine (default) + expressiveness: "high" → most natural result for
+ *     photo-based avatars without requiring video matting.
+ */
 export async function generateVideo(params: GenerateVideoParams): Promise<string> {
   const client = getClient();
-  const isTalkingPhoto = params.avatar_id.startsWith("tp:");
-  const character = isTalkingPhoto
-    ? {
-        type: "talking_photo",
-        talking_photo_id: params.avatar_id.slice(3),
-      }
-    : {
-        type: "avatar",
-        avatar_id: params.avatar_id,
-        avatar_style: "normal",
-      };
+  const isPhotoAvatar = params.avatar_id.startsWith("tp:");
+
+  // Strip our internal "tp:" marker — HeyGen v3 just wants the raw look ID
+  const rawAvatarId = isPhotoAvatar ? params.avatar_id.slice(3) : params.avatar_id;
 
   // Log clearly what type of avatar is being used
   logger.info(
     {
-      avatarType: isTalkingPhoto ? "talking_photo" : "avatar_v",
-      avatarId: params.avatar_id,
+      avatarType: isPhotoAvatar ? "photo_avatar" : "video_avatar",
+      engine: isPhotoAvatar ? "avatar_iv (default)" : "avatar_v",
+      avatarId: rawAvatarId,
       voiceId: params.voice_id,
       scriptLength: params.script.length,
     },
-    isTalkingPhoto
-      ? "HeyGen: submitting as TALKING PHOTO (AI lipsync on photo). For best lipsync use Avatar V (non-tp: looks from Yasser Lezcano group)."
-      : "HeyGen: submitting as AVATAR V (custom video avatar, full lipsync)."
+    isPhotoAvatar
+      ? "[HeyGen v3] Photo avatar (digital twin / instant avatar) — engine: avatar_iv, expressiveness: high"
+      : "[HeyGen v3] Video avatar (Avatar V) — engine: avatar_v, full motion lipsync"
   );
 
-  const payload = {
-    video_inputs: [
-      {
-        character,
-        voice: {
-          type: "text",
-          input_text: params.script,
-          voice_id: params.voice_id,
-        },
-      },
-    ],
-    dimension: { width: params.width ?? 1080, height: params.height ?? 1920 },
+  // v3 flat payload — no more video_inputs array, no more dimension
+  const payload: Record<string, unknown> = {
+    type: "avatar",
+    avatar_id: rawAvatarId,
+    script: params.script,
+    voice_id: params.voice_id,
+    aspect_ratio: "9:16",     // vertical / Reels format
     title: params.title ?? "ContentPilot Video",
-    test: false,
   };
 
-  const res = await client.post("/v2/video/generate", payload);
-  const videoId: string = res.data?.data?.video_id;
-  if (!videoId) throw new Error("HeyGen did not return a video_id");
-  logger.info({ videoId, avatarType: isTalkingPhoto ? "talking_photo" : "avatar_v" }, "HeyGen video generation started");
+  if (isPhotoAvatar) {
+    // Photo avatars: use default engine (avatar_iv) + high expressiveness for
+    // the most natural lipsync and facial expression quality
+    payload["expressiveness"] = "high";
+  } else {
+    // Video avatars: explicitly request Avatar V for the highest quality lipsync
+    payload["engine"] = { type: "avatar_v" };
+  }
+
+  const res = await client.post("/v3/videos", payload);
+  const videoId: string = res.data?.data?.id ?? res.data?.data?.video_id;
+  if (!videoId) {
+    logger.error({ response: res.data }, "HeyGen v3 did not return a video id");
+    throw new Error("HeyGen did not return a video_id");
+  }
+  logger.info(
+    { videoId, avatarType: isPhotoAvatar ? "photo_avatar" : "video_avatar" },
+    "[HeyGen v3] Video generation started"
+  );
   return videoId;
 }
 
+/**
+ * Poll video status via HeyGen API v3 (GET /v3/videos/{video_id}).
+ * Replaces the deprecated v1 video_status.get endpoint.
+ */
 export async function getVideoStatus(videoId: string): Promise<VideoStatus> {
   const client = getClient();
-  const res = await client.get("/v1/video_status.get", { params: { video_id: videoId } });
+  const res = await client.get(`/v3/videos/${videoId}`);
   const data = res.data?.data;
   return {
     video_id: videoId,
@@ -176,13 +198,13 @@ export async function getVideoStatus(videoId: string): Promise<VideoStatus> {
     video_url: data?.video_url ?? null,
     thumbnail_url: data?.thumbnail_url ?? null,
     duration: data?.duration ?? null,
-    error: data?.error ?? null,
+    error: data?.error?.message ?? data?.error ?? null,
   };
 }
 
 function mapStatus(s: string): VideoStatus["status"] {
   if (s === "completed") return "completed";
   if (s === "failed") return "failed";
-  if (s === "processing" || s === "pending") return s;
+  if (s === "processing") return "processing";
   return "pending";
 }
