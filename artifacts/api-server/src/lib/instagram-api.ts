@@ -68,7 +68,8 @@ export async function getAccountInfo(accessToken: string) {
 export async function getMediaList(accessToken: string, userId: string, limit = 20) {
   const res = await axios.get(`${IG_GRAPH_BASE}/${userId}/media`, {
     params: {
-      fields: "id,media_type,thumbnail_url,permalink,caption,like_count,comments_count,timestamp",
+      // thumbnail_url only exists for videos; media_url is the image itself for IMAGE/CAROUSEL_ALBUM
+      fields: "id,media_type,media_url,thumbnail_url,permalink,caption,like_count,comments_count,timestamp",
       limit,
       access_token: accessToken,
     },

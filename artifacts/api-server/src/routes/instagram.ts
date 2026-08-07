@@ -155,7 +155,7 @@ router.get("/instagram/audit", async (req, res): Promise<void> => {
   const media = await getMediaList(account.accessToken, account.igUserId, 20);
 
   const postsWithInsights = await Promise.all(
-    media.map(async (m: { id: string; media_type: string; thumbnail_url?: string; permalink?: string; caption?: string; like_count: number; comments_count: number; timestamp: string }) => {
+    media.map(async (m: { id: string; media_type: string; media_url?: string; thumbnail_url?: string; permalink?: string; caption?: string; like_count: number; comments_count: number; timestamp: string }) => {
       const insights = await getMediaInsights(account.accessToken, m.id, m.media_type);
       const reach = insights.reach ?? 0;
       const engagements = (m.like_count ?? 0) + (m.comments_count ?? 0) + (insights.saved ?? 0);
@@ -163,7 +163,7 @@ router.get("/instagram/audit", async (req, res): Promise<void> => {
       return {
         id: m.id,
         media_type: m.media_type,
-        thumbnail_url: m.thumbnail_url ?? null,
+        thumbnail_url: m.thumbnail_url ?? m.media_url ?? null,
         permalink: m.permalink ?? null,
         caption: m.caption ?? null,
         like_count: m.like_count ?? 0,
@@ -228,10 +228,10 @@ router.get("/instagram/posts", async (req, res): Promise<void> => {
   const limit = queryParsed.success ? (queryParsed.data.limit ?? 20) : 20;
 
   const media = await getMediaList(account.accessToken, account.igUserId, limit);
-  const posts = media.map((m: { id: string; media_type: string; thumbnail_url?: string; permalink?: string; caption?: string; like_count: number; comments_count: number; timestamp: string }) => ({
+  const posts = media.map((m: { id: string; media_type: string; media_url?: string; thumbnail_url?: string; permalink?: string; caption?: string; like_count: number; comments_count: number; timestamp: string }) => ({
     id: m.id,
     media_type: m.media_type,
-    thumbnail_url: m.thumbnail_url ?? null,
+    thumbnail_url: m.thumbnail_url ?? m.media_url ?? null,
     permalink: m.permalink ?? null,
     caption: m.caption ?? null,
     like_count: m.like_count ?? 0,
