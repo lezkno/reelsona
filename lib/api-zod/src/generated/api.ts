@@ -269,6 +269,50 @@ export const GenerateContentPlanResponse = zod.array(GenerateContentPlanResponse
 
 
 /**
+ * @summary Manually add a content plan item (optionally scheduled for a specific date/time)
+ */
+export const createContentItemBodyTopicMin = 3;
+
+
+
+export const CreateContentItemBody = zod.object({
+  "topic": zod.string().min(createContentItemBodyTopicMin).optional(),
+  "scheduled_at": zod.string().nullish(),
+  "auto_topic": zod.boolean().optional().describe('If true and topic is empty, the AI generates the topic')
+})
+
+export const CreateContentItemResponse = zod.object({
+  "id": zod.number(),
+  "topic": zod.string(),
+  "hook": zod.string().nullish(),
+  "script": zod.string().nullish(),
+  "cta": zod.string().nullish(),
+  "avatar_id": zod.string().nullish(),
+  "voice_id": zod.string().nullish(),
+  "caption": zod.string().nullish(),
+  "hashtags": zod.string().nullish(),
+  "scheduled_at": zod.string().nullish(),
+  "status": zod.enum(['draft', 'scripted', 'generating', 'ready', 'published', 'failed']),
+  "video_id": zod.number().nullish(),
+  "created_at": zod.string(),
+  "updated_at": zod.string()
+})
+
+
+/**
+ * @summary Run the full production pipeline for an item immediately (script, video, caption, publish)
+ */
+export const ProcessContentItemNowParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const ProcessContentItemNowResponse = zod.object({
+  "success": zod.boolean(),
+  "message": zod.string()
+})
+
+
+/**
  * @summary AI-generate a script for a given topic
  */
 export const generateScriptBodyDurationSecondsDefault = 60;

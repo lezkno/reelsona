@@ -7,6 +7,10 @@ import {
   GetContentPlanQueryParams,
   GetContentPlanResponse,
   GenerateContentPlanBody,
+  CreateContentItemBody,
+  CreateContentItemResponse,
+  ProcessContentItemNowParams,
+  ProcessContentItemNowResponse,
   GenerateContentPlanResponse,
   GenerateScriptBody,
   GenerateScriptResponse,
@@ -19,6 +23,7 @@ import {
   DeleteContentItemResponse,
 } from "@workspace/api-zod";
 import { generateScript, generateContentTopics } from "../lib/ai-scripts";
+import { runAutomationCycle } from "../lib/scheduler";
 
 const router = Router();
 
@@ -123,6 +128,76 @@ router.post("/content/plan/generate", async (req, res): Promise<void> => {
     .returning();
 
   res.status(201).json(GenerateContentPlanResponse.parse(inserted.map(mapItem)));
+});
+
+router.post("/content", async (req, res): Promise<void> => {
+  const parsed = CreateContentItemBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  let topic = parsed.data.topic?.trim() ?? "";
+
+  // If no topic given, ask the AI for one
+  if (!topic) {
+    const [settings] = await db.select().from(settingsTable).limit(1);
+    const niche = settings?.niche ?? "marketing digital";
+    const keywords = settings?.topicKeywords ?? [];
+    const tone = settings?.tone ?? "casual";
+    const language = settings?.language ?? "es";
+    const existingItems = await db.select({ topic: contentPlanItemsTable.topic }).from(contentPlanItemsTable).limit(20);
+    const generated = await generateContentTopics(niche, keywords, tone, language, 1, 1, existingItems.map((i) => i.topic));
+    if (!generated[0]?.topic) {
+      res.status(500).json({ error: "No se pudo generar el tema" });
+      return;
+    }
+    topic = generated[0].topic;
+  }
+
+  const [inserted] = await db
+    .insert(contentPlanItemsTable)
+    .values({
+      topic,
+      scheduledAt: parsed.data.scheduled_at ? new Date(parsed.data.scheduled_at) : null,
+      status: "draft",
+    })
+    .returning();
+
+  res.status(201).json(CreateContentItemResponse.parse(mapItem(inserted)));
+});
+
+router.post("/content/:id/process", async (req, res): Promise<void> => {
+  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const paramsParsed = ProcessContentItemNowParams.safeParse({ id: Number(raw) });
+  if (!paramsParsed.success) {
+    res.status(400).json({ error: "Invalid id" });
+    return;
+  }
+
+  const [item] = await db
+    .select()
+    .from(contentPlanItemsTable)
+    .where(eq(contentPlanItemsTable.id, paramsParsed.data.id))
+    .limit(1);
+
+  if (!item) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  if (item.status !== "draft" && item.status !== "scripted") {
+    res.status(400).json({ error: `El video ya está en proceso (estado: ${item.status})` });
+    return;
+  }
+
+  // Bring the item forward to now, then kick off the full pipeline
+  await db
+    .update(contentPlanItemsTable)
+    .set({ scheduledAt: new Date(), updatedAt: new Date() })
+    .where(eq(contentPlanItemsTable.id, item.id));
+
+  const result = await runAutomationCycle(item.id);
+  res.json(ProcessContentItemNowResponse.parse({ success: result.success, message: result.message }));
 });
 
 router.post("/content/script", async (req, res): Promise<void> => {

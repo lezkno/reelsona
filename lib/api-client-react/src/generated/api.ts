@@ -29,6 +29,7 @@ import type {
   AvatarConfigInput,
   ContentPlanGenerateInput,
   ContentPlanItem,
+  ContentPlanItemCreateInput,
   ContentPlanItemUpdate,
   DashboardSummary,
   GetContentPlanParams,
@@ -41,6 +42,7 @@ import type {
   InstagramAccountStatus,
   InstagramPost,
   OAuthCallbackInput,
+  ProcessContentItemNow200,
   PublishInput,
   ScriptInput,
   ScriptResult,
@@ -1144,6 +1146,148 @@ export const useGenerateContentPlan = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getGenerateContentPlanMutationOptions(options));
+    }
+
+export const getCreateContentItemUrl = () => {
+
+
+
+
+  return `/api/content`
+}
+
+/**
+ * @summary Manually add a content plan item (optionally scheduled for a specific date/time)
+ */
+export const createContentItem = async (contentPlanItemCreateInput: ContentPlanItemCreateInput, options?: Parameters<typeof customFetch>[1]): Promise<ContentPlanItem> => {
+
+  return customFetch<ContentPlanItem>(getCreateContentItemUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(contentPlanItemCreateInput)
+  }
+);}
+
+
+
+
+
+export const getCreateContentItemMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createContentItem>>, TError,{data: BodyType<ContentPlanItemCreateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createContentItem>>, TError,{data: BodyType<ContentPlanItemCreateInput>}, TContext> => {
+
+const mutationKey = ['createContentItem'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createContentItem>>, {data: BodyType<ContentPlanItemCreateInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createContentItem(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateContentItemMutationResult = NonNullable<Awaited<ReturnType<typeof createContentItem>>>
+    export type CreateContentItemMutationBody = BodyType<ContentPlanItemCreateInput>
+    export type CreateContentItemMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Manually add a content plan item (optionally scheduled for a specific date/time)
+ */
+export const useCreateContentItem = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createContentItem>>, TError,{data: BodyType<ContentPlanItemCreateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createContentItem>>,
+        TError,
+        {data: BodyType<ContentPlanItemCreateInput>},
+        TContext
+      > => {
+      return useMutation(getCreateContentItemMutationOptions(options));
+    }
+
+export const getProcessContentItemNowUrl = (id: number,) => {
+
+
+
+
+  return `/api/content/${id}/process`
+}
+
+/**
+ * @summary Run the full production pipeline for an item immediately (script, video, caption, publish)
+ */
+export const processContentItemNow = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<ProcessContentItemNow200> => {
+
+  return customFetch<ProcessContentItemNow200>(getProcessContentItemNowUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getProcessContentItemNowMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof processContentItemNow>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof processContentItemNow>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['processContentItemNow'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof processContentItemNow>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  processContentItemNow(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ProcessContentItemNowMutationResult = NonNullable<Awaited<ReturnType<typeof processContentItemNow>>>
+
+    export type ProcessContentItemNowMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Run the full production pipeline for an item immediately (script, video, caption, publish)
+ */
+export const useProcessContentItemNow = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof processContentItemNow>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof processContentItemNow>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getProcessContentItemNowMutationOptions(options));
     }
 
 export const getGenerateScriptUrl = () => {

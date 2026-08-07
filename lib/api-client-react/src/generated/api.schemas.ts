@@ -229,6 +229,14 @@ export interface ContentPlanGenerateInput {
   posts_per_day?: number;
 }
 
+export interface ContentPlanItemCreateInput {
+  /** @minLength 3 */
+  topic?: string;
+  scheduled_at?: string | null;
+  /** If true and topic is empty, the AI generates the topic */
+  auto_topic?: boolean;
+}
+
 export interface ScriptInput {
   topic: string;
   duration_seconds?: number;
@@ -399,6 +407,11 @@ export const GetContentPlanStatus = {
   failed: 'failed',
   all: 'all',
 } as const;
+
+export type ProcessContentItemNow200 = {
+  success: boolean;
+  message: string;
+};
 
 export type GetVideosParams = {
 status?: GetVideosStatus;

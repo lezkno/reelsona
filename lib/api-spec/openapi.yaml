@@ -256,6 +256,50 @@ paths:
                 items:
                   $ref: "#/components/schemas/ContentPlanItem"
 
+  /content:
+    post:
+      operationId: createContentItem
+      tags: [content]
+      summary: Manually add a content plan item (optionally scheduled for a specific date/time)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContentPlanItemCreateInput"
+      responses:
+        "201":
+          description: Created item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentPlanItem"
+
+  /content/{id}/process:
+    post:
+      operationId: processContentItemNow
+      tags: [content]
+      summary: Run the full production pipeline for an item immediately (script, video, caption, publish)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: number
+      responses:
+        "200":
+          description: Pipeline started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                required: [success, message]
+
   /content/script:
     post:
       operationId: generateScript
@@ -791,6 +835,20 @@ components:
           minimum: 1
           maximum: 3
       required: [days]
+
+    ContentPlanItemCreateInput:
+      type: object
+      properties:
+        topic:
+          type: string
+          minLength: 3
+        scheduled_at:
+          type: string
+          nullable: true
+        auto_topic:
+          type: boolean
+          description: If true and topic is empty, the AI generates the topic
+      required: []
 
     ScriptInput:
       type: object

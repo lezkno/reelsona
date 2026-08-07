@@ -36,17 +36,20 @@ function pickNextAvatar(
   return pool[Math.floor(Math.random() * pool.length)];
 }
 
-export async function runAutomationCycle(): Promise<{
+export async function runAutomationCycle(targetItemId?: number): Promise<{
   success: boolean;
   message: string;
   contentItemId?: number;
   videoId?: number;
 }> {
-  logger.info("Starting automation cycle");
+  logger.info({ targetItemId }, "Starting automation cycle");
 
-  // Load automation config
+  // Load automation config (a manual "create now" run ignores the enabled flag)
   const [automation] = await db.select().from(automationConfigTable).limit(1);
-  if (!automation?.enabled) {
+  if (!automation) {
+    return { success: false, message: "Automation not configured" };
+  }
+  if (!automation.enabled && targetItemId === undefined) {
     return { success: false, message: "Automation disabled" };
   }
 
@@ -73,18 +76,26 @@ export async function runAutomationCycle(): Promise<{
   const readyItems = await db
     .select()
     .from(contentPlanItemsTable)
-    .where(and(eq(contentPlanItemsTable.status, "scripted"), lte(contentPlanItemsTable.scheduledAt, now)))
+    .where(
+      targetItemId !== undefined
+        ? and(eq(contentPlanItemsTable.id, targetItemId), eq(contentPlanItemsTable.status, "scripted"))
+        : and(eq(contentPlanItemsTable.status, "scripted"), lte(contentPlanItemsTable.scheduledAt, now))
+    )
     .orderBy(contentPlanItemsTable.scheduledAt)
     .limit(1);
 
   let contentItem = readyItems[0];
 
   // If no scripted item, generate one from the next due draft
-  if (!contentItem && automation.autoGenerateScript) {
+  if (!contentItem && (automation.autoGenerateScript || targetItemId !== undefined)) {
     const draftItems = await db
       .select()
       .from(contentPlanItemsTable)
-      .where(and(eq(contentPlanItemsTable.status, "draft"), lte(contentPlanItemsTable.scheduledAt, now)))
+      .where(
+        targetItemId !== undefined
+          ? and(eq(contentPlanItemsTable.id, targetItemId), eq(contentPlanItemsTable.status, "draft"))
+          : and(eq(contentPlanItemsTable.status, "draft"), lte(contentPlanItemsTable.scheduledAt, now))
+      )
       .orderBy(contentPlanItemsTable.scheduledAt)
       .limit(1);
 
@@ -131,8 +142,8 @@ export async function runAutomationCycle(): Promise<{
     return { success: false, message: "No content item ready for processing" };
   }
 
-  // Generate video
-  if (!automation.autoGenerateVideo) {
+  // Generate video (a manual run always continues to video generation)
+  if (!automation.autoGenerateVideo && targetItemId === undefined) {
     return { success: true, message: "Script ready, video generation disabled", contentItemId: contentItem.id };
   }
 
