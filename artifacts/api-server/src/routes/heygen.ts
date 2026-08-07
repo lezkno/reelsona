@@ -7,6 +7,7 @@ import {
   GetHeyGenVoicesResponse,
   GetHeyGenAvatarGroupsResponse,
   GetHeyGenGroupLooksResponse,
+  GetHeyGenAllLooksResponse,
   GetAvatarConfigResponse,
   UpdateAvatarConfigBody,
   UpdateAvatarConfigResponse,
@@ -77,6 +78,50 @@ router.get("/heygen/avatar-groups/:id/looks", async (req, res): Promise<void> =>
     })
     .filter((l): l is { id: string; name: string; image_url: string | null } => l !== null);
   res.json(GetHeyGenGroupLooksResponse.parse(mapped));
+});
+
+// Flat list of all looks, cached in memory (fetching all groups takes ~20 HeyGen calls)
+type FlatLook = { id: string; name: string; image_url: string | null; group_name: string };
+let looksCache: { data: FlatLook[]; at: number } | null = null;
+let looksFetch: Promise<FlatLook[]> | null = null;
+
+async function fetchAllLooks(): Promise<FlatLook[]> {
+  const groups = await listAvatarGroups();
+  const all: FlatLook[] = [];
+  const results = await Promise.allSettled(
+    groups.map(async (g) => ({ group: g, looks: await listGroupLooks(g.id) }))
+  );
+  const anyFailed = results.some((r) => r.status === "rejected");
+  for (const r of results) {
+    if (r.status !== "fulfilled") continue;
+    for (const l of r.value.looks as any[]) {
+      if (l.avatar_id) {
+        all.push({ id: l.avatar_id, name: l.avatar_name ?? "Look", image_url: l.preview_image_url ?? null, group_name: r.value.group.name });
+      } else if (r.value.group && l.id) {
+        all.push({ id: `tp:${l.id}`, name: l.name ?? "Look", image_url: l.image_url ?? null, group_name: r.value.group.name });
+      }
+    }
+  }
+  if (anyFailed) {
+    // Partial result: prefer the last complete cache (even if stale), and don't cache the partial one
+    if (looksCache) return looksCache.data;
+    return all;
+  }
+  looksCache = { data: all, at: Date.now() };
+  return all;
+}
+
+router.get("/heygen/looks", async (req, res): Promise<void> => {
+  if (looksCache && Date.now() - looksCache.at < 5 * 60 * 1000) {
+    res.json(GetHeyGenAllLooksResponse.parse(looksCache.data));
+    return;
+  }
+  // Single-flight: coalesce concurrent refreshes (each one is ~20 HeyGen calls)
+  if (!looksFetch) {
+    looksFetch = fetchAllLooks().finally(() => { looksFetch = null; });
+  }
+  const all = await looksFetch;
+  res.json(GetHeyGenAllLooksResponse.parse(all));
 });
 
 router.get("/heygen/avatar-config", async (req, res): Promise<void> => {

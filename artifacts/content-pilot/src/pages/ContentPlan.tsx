@@ -1,4 +1,4 @@
-import { useGetContentPlan, useGenerateContentPlan, useDeleteContentItem, useGenerateVideo, useUpdateContentItem, useCreateContentItem, useProcessContentItemNow, getGetContentPlanQueryKey, type ContentPlanItem } from "@workspace/api-client-react"
+import { useGetContentPlan, useGenerateContentPlan, useDeleteContentItem, useGenerateVideo, useUpdateContentItem, useCreateContentItem, useProcessContentItemNow, useGetHeyGenAllLooks, getGetContentPlanQueryKey, type ContentPlanItem } from "@workspace/api-client-react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from "@/components/ui/label"
 import { format, isSameDay } from "date-fns"
 import { es } from "date-fns/locale"
-import { Wand2, Edit3, Trash2, Video, CheckCircle2, Clock, AlertTriangle, CalendarDays, Plus, Zap } from "lucide-react"
+import { Wand2, Edit3, Trash2, Video, CheckCircle2, Clock, AlertTriangle, CalendarDays, Plus, Zap, Users } from "lucide-react"
 import PipelineTimeline from "@/components/PipelineTimeline"
 import { useToast } from "@/hooks/use-toast"
 import { useQueryClient } from "@tanstack/react-query"
@@ -81,6 +81,22 @@ export default function ContentPlan() {
   const [addDay, setAddDay] = useState<Date | null>(null)
   const [addTopic, setAddTopic] = useState("")
   const [addTime, setAddTime] = useState("12:00")
+
+  // Avatar thumbnail + picker
+  const { data: allLooks } = useGetHeyGenAllLooks()
+  const lookById = new Map((allLooks ?? []).map((l) => [l.id, l]))
+  const [avatarPickerItem, setAvatarPickerItem] = useState<ContentPlanItem | null>(null)
+
+  const handlePickAvatar = (itemId: number, avatarId: string) => {
+    updateItem.mutate({ id: itemId, data: { avatar_id: avatarId } }, {
+      onSuccess: () => {
+        setAvatarPickerItem(null)
+        toast({ title: "Avatar actualizado", description: "Este video usará el look elegido." })
+        queryClient.invalidateQueries({ queryKey: getGetContentPlanQueryKey() })
+      },
+      onError: () => toast({ title: "Error", description: "No se pudo cambiar el avatar.", variant: "destructive" })
+    })
+  }
 
   const { toast } = useToast()
   const queryClient = useQueryClient()
@@ -283,7 +299,27 @@ export default function ContentPlan() {
                           </div>
 
                           <div className="flex-1">
-                            <h4 className="text-lg font-bold font-display leading-tight mb-2">{item.topic}</h4>
+                            <div className="flex items-start gap-3 mb-2">
+                              {(() => {
+                                const look = item.avatar_id ? lookById.get(item.avatar_id) : null
+                                const canChange = item.status === "draft" || item.status === "scripted"
+                                return (
+                                  <button
+                                    type="button"
+                                    title={look ? `Avatar: ${look.name}${canChange ? " · clic para cambiar" : ""}` : canChange ? "Elegir avatar para este video" : "Avatar en rotación"}
+                                    onClick={() => canChange && setAvatarPickerItem(item)}
+                                    className={`shrink-0 w-11 h-11 rounded-full overflow-hidden border-2 ${canChange ? "border-primary/40 hover:border-primary cursor-pointer" : "border-muted cursor-default"} bg-muted flex items-center justify-center`}
+                                  >
+                                    {look?.image_url ? (
+                                      <img src={look.image_url} alt={look.name} className="w-full h-full object-cover" loading="lazy" />
+                                    ) : (
+                                      <Users className="w-5 h-5 text-muted-foreground" />
+                                    )}
+                                  </button>
+                                )
+                              })()}
+                              <h4 className="text-lg font-bold font-display leading-tight pt-1.5">{item.topic}</h4>
+                            </div>
                             {item.hook && (
                               <p className="text-sm text-muted-foreground line-clamp-2 italic border-l-2 border-primary/30 pl-3 py-0.5">
                                 "{item.hook}"
@@ -311,6 +347,47 @@ export default function ContentPlan() {
           )}
         </div>
       </Tabs>
+
+      <Dialog open={avatarPickerItem !== null} onOpenChange={(open) => !open && setAvatarPickerItem(null)}>
+        <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Elegir avatar para este video</DialogTitle>
+            <DialogDescription>
+              {avatarPickerItem?.topic}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
+            {(allLooks ?? []).map((look) => {
+              const isCurrent = avatarPickerItem?.avatar_id === look.id
+              return (
+                <button
+                  key={look.id}
+                  type="button"
+                  disabled={updateItem.isPending}
+                  onClick={() => avatarPickerItem && handlePickAvatar(avatarPickerItem.id, look.id)}
+                  className={`relative rounded-lg overflow-hidden border-2 text-left transition-all ${isCurrent ? "border-primary ring-2 ring-primary/30" : "border-transparent hover:border-primary/40"}`}
+                >
+                  <div className="aspect-[3/4] bg-muted">
+                    {look.image_url ? (
+                      <img src={look.image_url} alt={look.name} className="w-full h-full object-cover" loading="lazy" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-muted-foreground"><Users className="w-6 h-6" /></div>
+                    )}
+                  </div>
+                  {isCurrent && (
+                    <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-primary text-primary-foreground flex items-center justify-center">
+                      <CheckCircle2 className="w-4 h-4" />
+                    </div>
+                  )}
+                  <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/70 to-transparent px-1.5 py-1">
+                    <p className="text-white text-[10px] font-medium truncate">{look.group_name}</p>
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={addDay !== null} onOpenChange={(open) => !open && setAddDay(null)}>
         <DialogContent className="sm:max-w-md">

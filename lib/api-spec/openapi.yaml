@@ -214,6 +214,21 @@ paths:
                 items:
                   $ref: "#/components/schemas/HeyGenGroupLook"
 
+  /heygen/looks:
+    get:
+      operationId: getHeyGenAllLooks
+      tags: [heygen]
+      summary: Flat list of all looks across the user's avatar groups (for thumbnails and pickers)
+      responses:
+        "200":
+          description: All looks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/HeyGenFlatLook"
+
   /heygen/avatar-config:
     get:
       operationId: getAvatarConfig
@@ -764,6 +779,19 @@ components:
         image_url:
           type: ["string", "null"]
       required: [id, name, image_url]
+
+    HeyGenFlatLook:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        image_url:
+          type: ["string", "null"]
+        group_name:
+          type: string
+      required: [id, name, image_url, group_name]
 
     HeyGenAvatar:
       type: object

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { videosTable, contentPlanItemsTable, avatarConfigTable } from "@workspace/db";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and } from "drizzle-orm";
 import {
   GetVideosQueryParams,
   GetVideosResponse,
@@ -102,6 +102,18 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
       .where(eq(contentPlanItemsTable.id, item.id));
   }
 
+  // Atomically claim the item (scripted -> generating) so concurrent requests
+  // or a scheduler tick can't both submit a HeyGen generation for it.
+  const claimed = await db
+    .update(contentPlanItemsTable)
+    .set({ status: "generating", updatedAt: new Date() })
+    .where(and(eq(contentPlanItemsTable.id, item.id), eq(contentPlanItemsTable.status, "scripted")))
+    .returning({ id: contentPlanItemsTable.id });
+  if (claimed.length === 0) {
+    res.status(409).json({ error: "Este video ya se está generando" });
+    return;
+  }
+
   // Create video row
   const [videoRow] = await db
     .insert(videosTable)
@@ -115,7 +127,7 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
 
   await db
     .update(contentPlanItemsTable)
-    .set({ status: "generating", videoId: videoRow.id, updatedAt: new Date() })
+    .set({ videoId: videoRow.id, updatedAt: new Date() })
     .where(eq(contentPlanItemsTable.id, item.id));
 
   // Fire and forget video generation

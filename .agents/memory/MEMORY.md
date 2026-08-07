@@ -1,1 +1,2 @@
 - [Instagram OAuth setup gotchas](instagram-oauth-setup.md) — "Invalid redirect_uri" can mean wrong Instagram App ID; redirect_uri must match in 3 places; open OAuth in new tab from Replit iframe.
+- [HeyGen API quirks](heygen-api-quirks.md) — voices use `preview_audio` (not `_url`); group looks mix two field shapes; dump a raw response before writing schemas.

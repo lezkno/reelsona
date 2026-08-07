@@ -117,6 +117,14 @@ export interface HeyGenGroupLook {
   image_url: string | null;
 }
 
+export interface HeyGenFlatLook {
+  id: string;
+  name: string;
+  /** @nullable */
+  image_url: string | null;
+  group_name: string;
+}
+
 export interface HeyGenAvatar {
   avatar_id: string;
   avatar_name: string;

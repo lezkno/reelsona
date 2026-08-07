@@ -29,6 +29,7 @@ export * from './getVideosStatus';
 export * from './healthStatus';
 export * from './heyGenAvatar';
 export * from './heyGenAvatarGroup';
+export * from './heyGenFlatLook';
 export * from './heyGenGroupLook';
 export * from './heyGenVoice';
 export * from './instagramAccount';

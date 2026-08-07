@@ -206,6 +206,18 @@ export const GetHeyGenGroupLooksResponse = zod.array(GetHeyGenGroupLooksResponse
 
 
 /**
+ * @summary Flat list of all looks across the user's avatar groups (for thumbnails and pickers)
+ */
+export const GetHeyGenAllLooksResponseItem = zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "image_url": zod.string().nullable(),
+  "group_name": zod.string()
+})
+export const GetHeyGenAllLooksResponse = zod.array(GetHeyGenAllLooksResponseItem)
+
+
+/**
  * @summary Get avatar rotation config
  */
 export const GetAvatarConfigResponse = zod.object({

@@ -38,6 +38,7 @@ import type {
   HealthStatus,
   HeyGenAvatar,
   HeyGenAvatarGroup,
+  HeyGenFlatLook,
   HeyGenGroupLook,
   HeyGenVoice,
   InstagramAccount,
@@ -989,6 +990,83 @@ export function useGetHeyGenGroupLooks<TData = Awaited<ReturnType<typeof getHeyG
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetHeyGenGroupLooksQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetHeyGenAllLooksUrl = () => {
+
+
+
+
+  return `/api/heygen/looks`
+}
+
+/**
+ * @summary Flat list of all looks across the user's avatar groups (for thumbnails and pickers)
+ */
+export const getHeyGenAllLooks = async ( options?: Parameters<typeof customFetch>[1]): Promise<HeyGenFlatLook[]> => {
+
+  return customFetch<HeyGenFlatLook[]>(getGetHeyGenAllLooksUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetHeyGenAllLooksQueryKey = () => {
+    return [
+    `/api/heygen/looks`
+    ] as const;
+    }
+
+
+export const getGetHeyGenAllLooksQueryOptions = <TData = Awaited<ReturnType<typeof getHeyGenAllLooks>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHeyGenAllLooks>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetHeyGenAllLooksQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getHeyGenAllLooks>>> = ({ signal }) => getHeyGenAllLooks({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getHeyGenAllLooks>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetHeyGenAllLooksQueryResult = NonNullable<Awaited<ReturnType<typeof getHeyGenAllLooks>>>
+export type GetHeyGenAllLooksQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Flat list of all looks across the user's avatar groups (for thumbnails and pickers)
+ */
+
+export function useGetHeyGenAllLooks<TData = Awaited<ReturnType<typeof getHeyGenAllLooks>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHeyGenAllLooks>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetHeyGenAllLooksQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

@@ -162,7 +162,17 @@ export async function runAutomationCycle(targetItemId?: number): Promise<{
       })
       .where(eq(contentPlanItemsTable.id, draft.id));
 
-    contentItem = { ...draft, status: "scripted", avatarId, voiceId };
+    contentItem = {
+      ...draft,
+      status: "scripted",
+      avatarId,
+      voiceId,
+      hook: scriptResult.hook,
+      script: scriptResult.script,
+      cta: scriptResult.cta,
+      caption: scriptResult.caption,
+      hashtags: scriptResult.hashtags,
+    };
     logger.info({ itemId: draft.id }, "Script generated for draft item");
   }
 
@@ -199,10 +209,16 @@ export async function runAutomationCycle(targetItemId?: number): Promise<{
     return { success: false, message: "Content item missing avatar, voice, or script" };
   }
 
-  await db
+  // Atomically claim the item (scripted -> generating) so concurrent manual
+  // runs / scheduler ticks can't both submit a HeyGen generation for it.
+  const claimed = await db
     .update(contentPlanItemsTable)
     .set({ status: "generating", updatedAt: new Date() })
-    .where(eq(contentPlanItemsTable.id, contentItem.id));
+    .where(and(eq(contentPlanItemsTable.id, contentItem.id), eq(contentPlanItemsTable.status, "scripted")))
+    .returning({ id: contentPlanItemsTable.id });
+  if (claimed.length === 0) {
+    return { success: false, message: "Content item is already being processed" };
+  }
 
   const [videoRow] = await db
     .insert(videosTable)
