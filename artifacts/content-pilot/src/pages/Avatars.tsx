@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { useQueryClient } from "@tanstack/react-query"
 import { useToast } from "@/hooks/use-toast"
 import { useState, useEffect } from "react"
-import { Users, Save, CheckCircle2, Image as ImageIcon, Play, Square, EyeOff, Eye, X } from "lucide-react"
+import { Users, Save, CheckCircle2, Image as ImageIcon, Play, Square, EyeOff, Eye, X, Plus, ExternalLink } from "lucide-react"
 import { useRef } from "react"
 
 const HIDDEN_KEY = "contentpilot_hidden_avatar_groups"
@@ -188,6 +188,15 @@ export default function Avatars() {
           <h1 className="text-4xl font-display font-bold tracking-tight">Avatares HeyGen</h1>
           <p className="text-muted-foreground mt-1 text-lg">Hacé clic en un avatar para elegir sus looks. Los looks seleccionados rotan en tus videos.</p>
         </div>
+        <Button
+          variant="outline"
+          className="gap-2"
+          onClick={() => window.open("https://app.heygen.com/avatars", "_blank")}
+        >
+          <Plus className="w-4 h-4" />
+          Crear avatar
+          <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" />
+        </Button>
         <Button onClick={handleSave} disabled={updateConfig.isPending} className="gap-2 px-8 shadow-lg shadow-primary/20">
           <Save className="w-4 h-4" />
           Guardar Selección ({selectedIds.size})
