@@ -616,6 +616,19 @@ export const ScheduleVideoResponse = zod.object({
 
 
 /**
+ * @summary Delete a video and detach it from its content plan item
+ */
+export const DeleteVideoParams = zod.object({
+  "id": zod.number()
+})
+
+export const DeleteVideoResponse = zod.object({
+  "success": zod.boolean(),
+  "message": zod.string()
+})
+
+
+/**
  * @summary Get automation engine config and status
  */
 export const GetAutomationResponse = zod.object({

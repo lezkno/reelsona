@@ -1,4 +1,4 @@
-import { useGetVideos, usePublishVideo, useScheduleVideo, getGetVideosQueryKey } from "@workspace/api-client-react"
+import { useGetVideos, usePublishVideo, useScheduleVideo, useDeleteVideo, getGetVideosQueryKey } from "@workspace/api-client-react"
 import type { Video } from "@workspace/api-client-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -7,38 +7,68 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
-import { ExternalLink, Play, Clock, AlertTriangle, CheckCircle2, Instagram, CalendarClock, Send } from "lucide-react"
+import { ExternalLink, Play, Clock, AlertTriangle, CheckCircle2, Instagram, CalendarClock, Send, Trash2, CheckSquare, Square, X } from "lucide-react"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
 import { useToast } from "@/hooks/use-toast"
 import { useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
+import { getGetContentPlanQueryKey } from "@workspace/api-client-react"
 
 export default function Videos() {
   const { data: videos, isLoading } = useGetVideos({ status: 'all' })
   const publishVideo = usePublishVideo()
   const scheduleVideo = useScheduleVideo()
+  const deleteVideo = useDeleteVideo()
   const { toast } = useToast()
   const queryClient = useQueryClient()
 
   const [scheduleDialog, setScheduleDialog] = useState<{ videoId: number; topic: string; current?: string } | null>(null)
   const [scheduleDatetime, setScheduleDatetime] = useState("")
   const [previewVideo, setPreviewVideo] = useState<Video | null>(null)
+  const [previewFallback, setPreviewFallback] = useState(false)
 
-  const minDatetime = () => {
-    const d = new Date(Date.now() + 5 * 60 * 1000)
-    d.setSeconds(0, 0)
-    return d.toISOString().slice(0, 16)
+  // ── Delete state ──────────────────────────────────────────────────────────
+  const [selectMode, setSelectMode] = useState(false)
+  const [selected, setSelected] = useState<Set<number>>(new Set())
+  const [confirmDelete, setConfirmDelete] = useState<{ ids: number[]; label: string } | null>(null)
+
+  const toggleSelect = (id: number) =>
+    setSelected(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+
+  const exitSelectMode = () => { setSelectMode(false); setSelected(new Set()) }
+
+  const handleDeleteConfirmed = () => {
+    if (!confirmDelete) return
+    const ids = confirmDelete.ids
+    Promise.all(ids.map(id => deleteVideo.mutateAsync({ id }))).then(() => {
+      queryClient.invalidateQueries({ queryKey: getGetVideosQueryKey() })
+      queryClient.invalidateQueries({ queryKey: getGetContentPlanQueryKey() })
+      toast({ title: ids.length === 1 ? "Video eliminado" : `${ids.length} videos eliminados` })
+      setConfirmDelete(null)
+      exitSelectMode()
+    }).catch(() => {
+      toast({ title: "Error al eliminar", variant: "destructive" })
+      setConfirmDelete(null)
+    })
   }
 
+  const askDelete = (ids: number[], label: string) => setConfirmDelete({ ids, label })
+
+  // ── Publish / schedule ────────────────────────────────────────────────────
   const handlePublish = (id: number) => {
     publishVideo.mutate({ id, data: {} }, {
       onSuccess: () => {
         toast({ title: "Publicando", description: "El video se está publicando en Instagram." })
         queryClient.invalidateQueries({ queryKey: getGetVideosQueryKey() })
       },
-      onError: () => {
-        toast({ title: "Error", description: "No se pudo publicar el video.", variant: "destructive" })
+      onError: (err: any) => {
+        const detail = err?.response?.data?.error || err?.message || "No se pudo publicar el video."
+        toast({ title: "Error", description: detail, variant: "destructive" })
       }
     })
   }
@@ -49,19 +79,20 @@ export default function Videos() {
       { id: scheduleDialog.videoId, data: { scheduled_publish_at: new Date(scheduleDatetime).toISOString() } },
       {
         onSuccess: () => {
-          toast({
-            title: "Publicación programada",
-            description: `Se publicará el ${format(new Date(scheduleDatetime), "PPp", { locale: es })}.`,
-          })
+          toast({ title: "Publicación programada", description: `Se publicará el ${format(new Date(scheduleDatetime), "PPp", { locale: es })}.` })
           queryClient.invalidateQueries({ queryKey: getGetVideosQueryKey() })
           setScheduleDialog(null)
           setScheduleDatetime("")
         },
-        onError: () => {
-          toast({ title: "Error", description: "No se pudo programar la publicación.", variant: "destructive" })
-        }
+        onError: () => toast({ title: "Error", description: "No se pudo programar la publicación.", variant: "destructive" })
       }
     )
+  }
+
+  const minDatetime = () => {
+    const d = new Date(Date.now() + 5 * 60 * 1000)
+    d.setSeconds(0, 0)
+    return d.toISOString().slice(0, 16)
   }
 
   if (isLoading) {
@@ -76,10 +107,54 @@ export default function Videos() {
   }
 
   return (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div>
-        <h1 className="text-4xl font-display font-bold tracking-tight">Librería de Videos</h1>
-        <p className="text-muted-foreground mt-1 text-lg">Todos los Reels generados por HeyGen.</p>
+    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-4xl font-display font-bold tracking-tight">Librería de Videos</h1>
+          <p className="text-muted-foreground mt-1 text-lg">Todos los Reels generados por HeyGen.</p>
+        </div>
+
+        {videos && videos.length > 0 && (
+          <div className="flex gap-2 pt-1 shrink-0">
+            {selectMode ? (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={() =>
+                    selected.size === videos.length
+                      ? setSelected(new Set())
+                      : setSelected(new Set(videos.map(v => v.id)))
+                  }
+                >
+                  {selected.size === videos.length
+                    ? <><CheckSquare className="w-4 h-4" /> Deselec. todo</>
+                    : <><Square className="w-4 h-4" /> Selec. todo</>
+                  }
+                </Button>
+                {selected.size > 0 && (
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    className="gap-1.5"
+                    onClick={() => askDelete([...selected], `${selected.size} video${selected.size > 1 ? "s" : ""}`)}
+                  >
+                    <Trash2 className="w-4 h-4" /> Eliminar ({selected.size})
+                  </Button>
+                )}
+                <Button variant="ghost" size="sm" onClick={exitSelectMode}>
+                  <X className="w-4 h-4" />
+                </Button>
+              </>
+            ) : (
+              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setSelectMode(true)}>
+                <CheckSquare className="w-4 h-4" /> Seleccionar
+              </Button>
+            )}
+          </div>
+        )}
       </div>
 
       {!videos || videos.length === 0 ? (
@@ -90,107 +165,132 @@ export default function Videos() {
         </Card>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-          {videos.map((video) => (
-            <Card key={video.id} className="overflow-hidden group flex flex-col">
-              <div className="aspect-[9/16] bg-muted relative">
-                {video.thumbnail_url ? (
-                  <img src={video.thumbnail_url} alt="Thumbnail" className="w-full h-full object-cover" />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center bg-secondary/10 text-secondary">
-                    {video.status === 'generating' ? (
-                      <div className="flex flex-col items-center gap-2">
-                        <div className="w-8 h-8 rounded-full border-2 border-secondary border-t-transparent animate-spin" />
-                        <span className="text-xs font-bold uppercase tracking-wider">Renderizando</span>
+          {videos.map((video) => {
+            const isSelected = selected.has(video.id)
+            const hasPlayable = !!(video.captioned_video_url || video.video_url)
+
+            return (
+              <Card
+                key={video.id}
+                className={`overflow-hidden group flex flex-col transition-all ${selectMode && isSelected ? "ring-2 ring-destructive" : selectMode ? "ring-1 ring-border" : ""}`}
+              >
+                <div
+                  className="aspect-[9/16] bg-muted relative"
+                  onClick={() => selectMode && toggleSelect(video.id)}
+                >
+                  {video.thumbnail_url ? (
+                    <img src={video.thumbnail_url} alt="Thumbnail" className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-secondary/10 text-secondary">
+                      {video.status === 'generating' ? (
+                        <div className="flex flex-col items-center gap-2">
+                          <div className="w-8 h-8 rounded-full border-2 border-secondary border-t-transparent animate-spin" />
+                          <span className="text-xs font-bold uppercase tracking-wider">Renderizando</span>
+                        </div>
+                      ) : (
+                        <Play className="w-12 h-12 opacity-50" />
+                      )}
+                    </div>
+                  )}
+
+                  {/* Select checkbox overlay */}
+                  {selectMode && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                      <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center ${isSelected ? "bg-destructive border-destructive" : "bg-white/20 border-white"}`}>
+                        {isSelected && <CheckSquare className="w-5 h-5 text-white" />}
                       </div>
-                    ) : (
-                      <Play className="w-12 h-12 opacity-50" />
-                    )}
-                  </div>
-                )}
-
-                {/* Play overlay — visible on hover when video is available */}
-                {(video.captioned_video_url || video.video_url) && (
-                  <button
-                    onClick={() => setPreviewVideo(video)}
-                    className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/40 transition-colors"
-                    aria-label="Reproducir video"
-                  >
-                    <div className="w-14 h-14 rounded-full bg-white/90 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-lg">
-                      <Play className="w-6 h-6 text-black fill-black ml-0.5" />
                     </div>
-                  </button>
-                )}
+                  )}
 
-                <div className="absolute top-3 left-3">
-                  {video.status === 'generating' && <Badge variant="warning" className="shadow-lg"><Clock className="w-3 h-3 mr-1"/> Generando</Badge>}
-                  {video.status === 'ready' && <Badge variant="success" className="shadow-lg"><CheckCircle2 className="w-3 h-3 mr-1"/> Listo</Badge>}
-                  {video.status === 'published' && <Badge className="shadow-lg bg-blue-500 hover:bg-blue-600"><ExternalLink className="w-3 h-3 mr-1"/> Publicado</Badge>}
-                  {video.status === 'failed' && <Badge variant="destructive" className="shadow-lg"><AlertTriangle className="w-3 h-3 mr-1"/> Error</Badge>}
-                </div>
+                  {/* Play overlay (only in normal mode) */}
+                  {!selectMode && hasPlayable && (
+                    <button
+                      onClick={() => { setPreviewVideo(video); setPreviewFallback(false) }}
+                      className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/40 transition-colors"
+                      aria-label="Reproducir video"
+                    >
+                      <div className="w-14 h-14 rounded-full bg-white/90 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-lg">
+                        <Play className="w-6 h-6 text-black fill-black ml-0.5" />
+                      </div>
+                    </button>
+                  )}
 
-                {/* Scheduled indicator */}
-                {video.status === 'ready' && video.scheduled_publish_at && (
-                  <div className="absolute bottom-3 left-2 right-2">
-                    <div className="bg-black/70 text-white text-[10px] rounded px-2 py-1 flex items-center gap-1">
-                      <CalendarClock className="w-3 h-3 shrink-0 text-primary" />
-                      {format(new Date(video.scheduled_publish_at), "d MMM, HH:mm", { locale: es })}
+                  <div className="absolute top-3 left-3">
+                    {video.status === 'generating' && <Badge variant="warning" className="shadow-lg"><Clock className="w-3 h-3 mr-1"/> Generando</Badge>}
+                    {video.status === 'ready' && <Badge variant="success" className="shadow-lg"><CheckCircle2 className="w-3 h-3 mr-1"/> Listo</Badge>}
+                    {video.status === 'published' && <Badge className="shadow-lg bg-blue-500 hover:bg-blue-600"><ExternalLink className="w-3 h-3 mr-1"/> Publicado</Badge>}
+                    {video.status === 'failed' && <Badge variant="destructive" className="shadow-lg"><AlertTriangle className="w-3 h-3 mr-1"/> Error</Badge>}
+                  </div>
+
+                  {/* Delete button (normal mode, appears on hover) */}
+                  {!selectMode && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); askDelete([video.id], video.topic ?? `Video #${video.id}`) }}
+                      className="absolute top-3 right-3 w-7 h-7 rounded-full bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive"
+                      aria-label="Eliminar video"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+
+                  {video.status === 'ready' && video.scheduled_publish_at && (
+                    <div className="absolute bottom-3 left-2 right-2">
+                      <div className="bg-black/70 text-white text-[10px] rounded px-2 py-1 flex items-center gap-1">
+                        <CalendarClock className="w-3 h-3 shrink-0 text-primary" />
+                        {format(new Date(video.scheduled_publish_at), "d MMM, HH:mm", { locale: es })}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )}
 
-                {video.duration_seconds && !video.scheduled_publish_at && (
-                  <div className="absolute bottom-3 right-3 bg-black/60 backdrop-blur-sm text-white text-xs font-medium px-2 py-1 rounded">
-                    0:{video.duration_seconds.toString().padStart(2, '0')}
-                  </div>
-                )}
-              </div>
-
-              <CardContent className="p-4 flex-1 flex flex-col">
-                <h4 className="font-bold font-display line-clamp-2 text-sm mb-2 flex-1" title={video.topic || 'Video'}>
-                  {video.topic || `Video #${video.id}`}
-                </h4>
-
-                {video.status === 'ready' && (
-                  <div className="flex flex-col gap-1.5 mb-3">
-                    <Button
-                      size="sm"
-                      className="w-full bg-gradient-to-r from-[#833ab4] via-[#fd1d1d] to-[#fcb045] hover:opacity-90 border-0 text-white gap-1.5 text-xs"
-                      onClick={() => handlePublish(video.id)}
-                      disabled={publishVideo.isPending}
-                    >
-                      <Instagram className="w-3.5 h-3.5" />
-                      Publicar ahora
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="w-full text-xs gap-1.5"
-                      onClick={() => {
-                        setScheduleDialog({ videoId: video.id, topic: video.topic ?? `Video #${video.id}`, current: video.scheduled_publish_at ?? undefined })
-                        setScheduleDatetime(
-                          video.scheduled_publish_at
-                            ? new Date(video.scheduled_publish_at).toISOString().slice(0, 16)
-                            : ""
-                        )
-                      }}
-                    >
-                      <CalendarClock className="w-3.5 h-3.5" />
-                      {video.scheduled_publish_at ? "Cambiar horario" : "Programar"}
-                    </Button>
-                  </div>
-                )}
-
-                <div className="text-xs text-muted-foreground mt-auto pt-2 border-t flex justify-between items-center">
-                  <span>{format(new Date(video.created_at), "dd MMM", { locale: es })}</span>
-                  {video.ig_permalink && (
-                    <a href={video.ig_permalink} target="_blank" rel="noreferrer" className="text-primary hover:underline flex items-center gap-1">
-                      Ver en IG <ExternalLink className="w-3 h-3" />
-                    </a>
+                  {video.duration_seconds && !video.scheduled_publish_at && (
+                    <div className="absolute bottom-3 right-3 bg-black/60 backdrop-blur-sm text-white text-xs font-medium px-2 py-1 rounded">
+                      0:{video.duration_seconds.toString().padStart(2, '0')}
+                    </div>
                   )}
                 </div>
-              </CardContent>
-            </Card>
-          ))}
+
+                <CardContent className="p-4 flex-1 flex flex-col">
+                  <h4 className="font-bold font-display line-clamp-2 text-sm mb-2 flex-1" title={video.topic || 'Video'}>
+                    {video.topic || `Video #${video.id}`}
+                  </h4>
+
+                  {!selectMode && video.status === 'ready' && (
+                    <div className="flex flex-col gap-1.5 mb-3">
+                      <Button
+                        size="sm"
+                        className="w-full bg-gradient-to-r from-[#833ab4] via-[#fd1d1d] to-[#fcb045] hover:opacity-90 border-0 text-white gap-1.5 text-xs"
+                        onClick={() => handlePublish(video.id)}
+                        disabled={publishVideo.isPending}
+                      >
+                        <Instagram className="w-3.5 h-3.5" /> Publicar ahora
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="w-full text-xs gap-1.5"
+                        onClick={() => {
+                          setScheduleDialog({ videoId: video.id, topic: video.topic ?? `Video #${video.id}`, current: video.scheduled_publish_at ?? undefined })
+                          setScheduleDatetime(video.scheduled_publish_at ? new Date(video.scheduled_publish_at).toISOString().slice(0, 16) : "")
+                        }}
+                      >
+                        <CalendarClock className="w-3.5 h-3.5" />
+                        {video.scheduled_publish_at ? "Cambiar horario" : "Programar"}
+                      </Button>
+                    </div>
+                  )}
+
+                  <div className="text-xs text-muted-foreground mt-auto pt-2 border-t flex justify-between items-center">
+                    <span>{format(new Date(video.created_at), "dd MMM", { locale: es })}</span>
+                    {video.ig_permalink && (
+                      <a href={video.ig_permalink} target="_blank" rel="noreferrer" className="text-primary hover:underline flex items-center gap-1">
+                        Ver en IG <ExternalLink className="w-3 h-3" />
+                      </a>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            )
+          })}
         </div>
       )}
 
@@ -208,12 +308,21 @@ export default function Videos() {
           {previewVideo && (
             <div className="bg-black">
               <video
-                key={previewVideo.id}
-                src={previewVideo.captioned_video_url ?? previewVideo.video_url ?? undefined}
+                key={`${previewVideo.id}-${previewFallback}`}
+                src={
+                  previewFallback || !previewVideo.captioned_video_url
+                    ? previewVideo.video_url ?? undefined
+                    : previewVideo.captioned_video_url
+                }
                 poster={previewVideo.thumbnail_url ?? undefined}
                 controls
                 playsInline
                 preload="auto"
+                onError={() => {
+                  if (!previewFallback && previewVideo.captioned_video_url && previewVideo.video_url) {
+                    setPreviewFallback(true)
+                  }
+                }}
                 className="w-full max-h-[65vh] object-contain"
               />
             </div>
@@ -221,13 +330,42 @@ export default function Videos() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Schedule dialog ─────────────────────────────────────────────────────── */}
+      {/* ── Confirm delete dialog ────────────────────────────────────────────── */}
+      <Dialog open={!!confirmDelete} onOpenChange={(o) => { if (!o) setConfirmDelete(null) }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <Trash2 className="w-5 h-5" /> Eliminar video{confirmDelete && confirmDelete.ids.length > 1 ? "s" : ""}
+            </DialogTitle>
+            <DialogDescription>
+              {confirmDelete && confirmDelete.ids.length === 1
+                ? <>¿Eliminar <span className="font-medium">"{confirmDelete.label}"</span>? Esta acción no se puede deshacer. Si el video está vinculado a un ítem del plan de contenidos, el ítem volverá al estado "Guión listo".</>
+                : <>¿Eliminar {confirmDelete?.ids.length} videos seleccionados? Esta acción no se puede deshacer.</>
+              }
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" size="sm" onClick={() => setConfirmDelete(null)}>Cancelar</Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={deleteVideo.isPending}
+              onClick={handleDeleteConfirmed}
+              className="gap-1.5"
+            >
+              <Trash2 className="w-4 h-4" />
+              {deleteVideo.isPending ? "Eliminando..." : "Eliminar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Schedule dialog ─────────────────────────────────────────────────── */}
       <Dialog open={!!scheduleDialog} onOpenChange={(o) => { if (!o) { setScheduleDialog(null); setScheduleDatetime("") } }}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <CalendarClock className="w-5 h-5 text-primary" />
-              Programar publicación
+              <CalendarClock className="w-5 h-5 text-primary" /> Programar publicación
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
@@ -242,21 +380,12 @@ export default function Videos() {
                 onChange={(e) => setScheduleDatetime(e.target.value)}
                 className="text-sm"
               />
-              <p className="text-[11px] text-muted-foreground">
-                El video se publicará automáticamente en el horario elegido.
-              </p>
+              <p className="text-[11px] text-muted-foreground">El video se publicará automáticamente en el horario elegido.</p>
             </div>
           </div>
           <DialogFooter className="gap-2">
-            <Button variant="outline" size="sm" onClick={() => { setScheduleDialog(null); setScheduleDatetime("") }}>
-              Cancelar
-            </Button>
-            <Button
-              size="sm"
-              disabled={!scheduleDatetime || scheduleVideo.isPending}
-              onClick={handleScheduleConfirm}
-              className="gap-1.5"
-            >
+            <Button variant="outline" size="sm" onClick={() => { setScheduleDialog(null); setScheduleDatetime("") }}>Cancelar</Button>
+            <Button size="sm" disabled={!scheduleDatetime || scheduleVideo.isPending} onClick={handleScheduleConfirm} className="gap-1.5">
               <Send className="w-3.5 h-3.5" />
               {scheduleVideo.isPending ? "Guardando..." : "Confirmar"}
             </Button>

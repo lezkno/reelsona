@@ -21,6 +21,26 @@ import { publishVideoToInstagram, pickNextAvatar, resolveVoiceId } from "../lib/
 
 const router = Router();
 
+import fs from "fs";
+import path from "path";
+import { CAPTION_DIR } from "../lib/caption-engine";
+
+/**
+ * Resolve the captionedVideoUrl to return, filtering out stale /tmp-based URLs.
+ * Pre-Object-Storage entries point to /api/captioned/<file> on this server;
+ * those files are wiped on every restart. If the file is gone, return null so
+ * the frontend doesn't try to load a dead URL and show a broken player.
+ * Object Storage URLs (anything that does NOT contain "/api/captioned/") are
+ * always returned as-is.
+ */
+function resolveCaptionedUrl(raw: string | null): string | null {
+  if (!raw) return null;
+  if (!raw.includes("/api/captioned/")) return raw; // Object Storage or external — always valid
+  const filename = raw.split("/api/captioned/").pop() ?? "";
+  const filePath = path.join(CAPTION_DIR, filename);
+  return fs.existsSync(filePath) ? raw : null;
+}
+
 function mapVideo(v: typeof videosTable.$inferSelect) {
   return {
     id: v.id,
@@ -35,7 +55,7 @@ function mapVideo(v: typeof videosTable.$inferSelect) {
     ig_permalink: v.igPermalink ?? null,
     error_message: v.errorMessage ?? null,
     duration_seconds: v.durationSeconds ?? null,
-    captioned_video_url: v.captionedVideoUrl ?? null,
+    captioned_video_url: resolveCaptionedUrl(v.captionedVideoUrl ?? null),
     caption_status: v.captionStatus ?? null,
     created_at: v.createdAt.toISOString(),
     updated_at: v.updatedAt.toISOString(),
@@ -241,6 +261,26 @@ router.post("/videos/:id/publish", async (req, res): Promise<void> => {
 
   const [updated] = await db.select().from(videosTable).where(eq(videosTable.id, video.id)).limit(1);
   res.json(PublishVideoResponse.parse(mapVideo(updated ?? video)));
+});
+
+router.delete("/videos/:id", async (req, res): Promise<void> => {
+  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const id = Number(raw);
+  if (!id || isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const [video] = await db.select().from(videosTable).where(eq(videosTable.id, id)).limit(1);
+  if (!video) { res.status(404).json({ error: "Video not found" }); return; }
+
+  // Detach from content plan item first (nullify videoId so the item stays)
+  if (video.contentPlanId) {
+    await db
+      .update(contentPlanItemsTable)
+      .set({ videoId: null, status: "scripted", updatedAt: new Date() })
+      .where(eq(contentPlanItemsTable.id, video.contentPlanId));
+  }
+
+  await db.delete(videosTable).where(eq(videosTable.id, id));
+  res.json({ success: true, message: "Deleted" });
 });
 
 router.patch("/videos/:id/schedule", async (req, res): Promise<void> => {

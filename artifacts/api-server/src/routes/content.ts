@@ -1,4 +1,7 @@
 import { Router } from "express";
+import fs from "fs";
+import path from "path";
+import { CAPTION_DIR } from "../lib/caption-engine";
 import { db } from "@workspace/db";
 import { contentPlanItemsTable, settingsTable, automationConfigTable, videosTable } from "@workspace/db";
 import { eq, and, sql, isNotNull, gte, inArray } from "drizzle-orm";
@@ -61,6 +64,15 @@ function mapItem(
   };
 }
 
+/** Same stale-URL filter used in videos.ts mapVideo */
+function resolveCaptionedUrl(raw: string | null): string | null {
+  if (!raw) return null;
+  if (!raw.includes("/api/captioned/")) return raw;
+  const filename = raw.split("/api/captioned/").pop() ?? "";
+  const filePath = path.join(CAPTION_DIR, filename);
+  return fs.existsSync(filePath) ? raw : null;
+}
+
 /** Fetch video info for a list of video IDs — caption status, URLs, thumbnail. */
 async function fetchVideoInfos(videoIds: number[]): Promise<Map<number, VideoInfo>> {
   if (videoIds.length === 0) return new Map();
@@ -80,7 +92,7 @@ async function fetchVideoInfos(videoIds: number[]): Promise<Map<number, VideoInf
       {
         captionStatus: r.captionStatus,
         videoUrl: r.videoUrl,
-        captionedVideoUrl: r.captionedVideoUrl,
+        captionedVideoUrl: resolveCaptionedUrl(r.captionedVideoUrl),
         thumbnailUrl: r.thumbnailUrl,
       },
     ])
@@ -417,7 +429,19 @@ router.delete("/content/:id", async (req, res): Promise<void> => {
     return;
   }
 
+  // If the item has an associated video, delete it too
+  const [item] = await db
+    .select({ videoId: contentPlanItemsTable.videoId })
+    .from(contentPlanItemsTable)
+    .where(eq(contentPlanItemsTable.id, paramsParsed.data.id))
+    .limit(1);
+
   await db.delete(contentPlanItemsTable).where(eq(contentPlanItemsTable.id, paramsParsed.data.id));
+
+  if (item?.videoId) {
+    await db.delete(videosTable).where(eq(videosTable.id, item.videoId));
+  }
+
   res.json(DeleteContentItemResponse.parse({ success: true, message: "Deleted" }));
 });
 

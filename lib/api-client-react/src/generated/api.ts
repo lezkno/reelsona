@@ -2174,6 +2174,52 @@ export const useScheduleVideo = <TError = ErrorType<void>, TContext = unknown>(
   return useMutation({ mutationFn, ...mutationOptions });
 };
 
+export const getDeleteVideoUrl = (id: number) => `/api/videos/${id}`
+
+/**
+ * @summary Delete a video and detach it from its content plan item
+ */
+export const deleteVideo = async (
+  id: number,
+  options?: Parameters<typeof customFetch>[1]
+): Promise<{ success: boolean; message: string }> => {
+  return customFetch<{ success: boolean; message: string }>(getDeleteVideoUrl(id), {
+    ...options,
+    method: 'DELETE',
+  });
+};
+
+export const useDeleteVideo = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof deleteVideo>>,
+      TError,
+      { id: number },
+      TContext
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  }
+): UseMutationResult<
+  Awaited<ReturnType<typeof deleteVideo>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ['deleteVideo'];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteVideo>>,
+    { id: number }
+  > = ({ id }) => deleteVideo(id, requestOptions);
+
+  return useMutation({ mutationFn, ...mutationOptions });
+};
+
 export const getGetAutomationUrl = () => {
 
 

@@ -851,11 +851,20 @@ export default function ContentPlan() {
               <>
                 <div className="bg-black">
                   <video
+                    key={previewItem.id}
                     src={playUrl}
                     poster={previewItem.thumbnail_url ?? undefined}
                     controls
                     playsInline
                     preload="auto"
+                    onError={(e) => {
+                      // If captioned URL is broken, fall back to raw HeyGen URL
+                      const el = e.currentTarget
+                      if (previewItem.video_url && el.src !== previewItem.video_url) {
+                        el.src = previewItem.video_url
+                        el.load()
+                      }
+                    }}
                     className="w-full max-h-[60vh] object-contain"
                   />
                 </div>
