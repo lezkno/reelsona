@@ -1,4 +1,4 @@
-import { useGetHeyGenAvatarGroups, useGetHeyGenGroupLooks, useGetHeyGenVoices, useGetAvatarConfig, useUpdateAvatarConfig, getGetAvatarConfigQueryKey, AvatarConfigRotationStrategy, type HeyGenAvatarGroup } from "@workspace/api-client-react"
+import { useGetHeyGenAvatarGroups, useGetHeyGenGroupLooks, useGetHeyGenVoices, useGetHeyGenAllLooks, useGetAvatarConfig, useUpdateAvatarConfig, getGetAvatarConfigQueryKey, AvatarConfigRotationStrategy, type HeyGenAvatarGroup } from "@workspace/api-client-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -80,6 +80,15 @@ export default function Avatars() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [strategy, setStrategy] = useState<AvatarConfigRotationStrategy>(AvatarConfigRotationStrategy.sequential)
   const [openGroup, setOpenGroup] = useState<HeyGenAvatarGroup | null>(null)
+  const { data: allLooks } = useGetHeyGenAllLooks()
+
+  // Number of selected looks per avatar group
+  const selectedByGroup = new Map<string, number>()
+  for (const l of allLooks ?? []) {
+    if (selectedIds.has(l.id)) {
+      selectedByGroup.set(l.group_name, (selectedByGroup.get(l.group_name) ?? 0) + 1)
+    }
+  }
   const [voiceId, setVoiceId] = useState<string>("")
   const { data: voices } = useGetHeyGenVoices()
   const [isPlaying, setIsPlaying] = useState(false)
@@ -246,11 +255,22 @@ export default function Avatars() {
               ) : (
                 <div className="w-full h-full flex items-center justify-center text-muted-foreground"><ImageIcon className="w-10 h-10" /></div>
               )}
+              {(selectedByGroup.get(group.name) ?? 0) > 0 && (
+                <Badge className="absolute top-2 right-2 gap-1 bg-primary text-primary-foreground shadow">
+                  <CheckCircle2 className="w-3 h-3" />
+                  {selectedByGroup.get(group.name)} seleccionado{selectedByGroup.get(group.name)! !== 1 ? "s" : ""}
+                </Badge>
+              )}
             </div>
             <CardContent className="p-4 flex items-center justify-between gap-2">
               <div className="min-w-0">
                 <h4 className="font-bold font-display truncate">{group.name}</h4>
-                <p className="text-xs text-muted-foreground">{group.num_looks} look{group.num_looks !== 1 ? "s" : ""}</p>
+                <p className="text-xs text-muted-foreground">
+                  {group.num_looks} look{group.num_looks !== 1 ? "s" : ""}
+                  {(selectedByGroup.get(group.name) ?? 0) > 0 && (
+                    <span className="text-primary font-medium"> · {selectedByGroup.get(group.name)} en rotación</span>
+                  )}
+                </p>
               </div>
               <Badge variant="secondary" className="shrink-0">Ver looks</Badge>
             </CardContent>
