@@ -201,15 +201,17 @@ export async function generateVideo(params: GenerateVideoParams): Promise<string
   };
 
   if (supportsAvatarV) {
-    // Avatar V: highest fidelity for both video avatars and eligible digital_twin looks.
-    // Supports motion_prompt for natural-language body/gesture control.
-    const enginePayload: Record<string, unknown> = { type: "avatar_v" };
-    if (params.motionPrompt) enginePayload["motion_prompt"] = params.motionPrompt;
-    payload["engine"] = enginePayload;
+    // Avatar V: highest-fidelity lipsync + cross-reference animation.
+    // Supported avatar types: digital_twin only (NOT Photo Avatar).
+    // Supports motion_prompt; does NOT support expressiveness.
+    payload["engine"] = { type: "avatar_v" };
+    if (params.motionPrompt) payload["motion_prompt"] = params.motionPrompt;
   } else {
-    // Avatar IV (default): best option for non-eligible photo looks.
-    // expressiveness: high gives the most natural facial expression quality.
+    // Avatar IV (default): broad coverage — digital_twin, Photo Avatar, Studio Avatar.
+    // expressiveness: high gives the most natural result for photo-based looks.
+    // Also supports motion_prompt (natural-language body/gesture control).
     payload["expressiveness"] = "high";
+    if (params.motionPrompt) payload["motion_prompt"] = params.motionPrompt;
   }
 
   if (params.captionsEnabled) {
