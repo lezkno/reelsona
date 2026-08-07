@@ -14,7 +14,7 @@ import { generateScript } from "./ai-scripts";
 import { generateVideo, getVideoStatus } from "./heygen";
 import { createReelContainer, checkContainerStatus, publishContainer, getPermalink } from "./instagram-api";
 
-function pickNextAvatar(
+export function pickNextAvatar(
   selectedIds: string[],
   lastUsed: string | null,
   strategy: string,

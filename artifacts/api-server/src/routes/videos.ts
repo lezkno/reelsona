@@ -14,7 +14,7 @@ import {
   PublishVideoResponse,
 } from "@workspace/api-zod";
 import { generateVideo } from "../lib/heygen";
-import { publishVideoToInstagram } from "../lib/scheduler";
+import { publishVideoToInstagram, pickNextAvatar } from "../lib/scheduler";
 
 const router = Router();
 
@@ -68,9 +68,37 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
     return;
   }
 
-  if (!item.script || !item.avatarId || !item.voiceId) {
-    res.status(400).json({ error: "Content item needs script, avatar, and voice before generating video" });
+  if (!item.script) {
+    res.status(400).json({ error: "El video necesita un guion antes de generar el video" });
     return;
+  }
+
+  // If the item has no avatar/voice assigned, pick one from the avatar rotation
+  if (!item.avatarId || !item.voiceId) {
+    const [avatarCfg] = await db.select().from(avatarConfigTable).limit(1);
+    if (!avatarCfg?.selectedAvatarIds?.length) {
+      res.status(400).json({ error: "No hay avatares configurados: seleccioná al menos uno en la página de Avatares" });
+      return;
+    }
+    if (!item.avatarId) {
+      item.avatarId = pickNextAvatar(
+        avatarCfg.selectedAvatarIds,
+        avatarCfg.lastUsedAvatarId,
+        avatarCfg.rotationStrategy,
+        (avatarCfg.avatarUsageCount as Record<string, number>) ?? {}
+      );
+    }
+    if (!item.voiceId) {
+      if (!avatarCfg.preferredVoiceId) {
+        res.status(400).json({ error: "No hay voz configurada: elegí tu voz en la página de Avatares" });
+        return;
+      }
+      item.voiceId = avatarCfg.preferredVoiceId;
+    }
+    await db
+      .update(contentPlanItemsTable)
+      .set({ avatarId: item.avatarId, voiceId: item.voiceId, updatedAt: new Date() })
+      .where(eq(contentPlanItemsTable.id, item.id));
   }
 
   // Create video row
