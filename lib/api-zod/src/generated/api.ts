@@ -200,7 +200,8 @@ export const GetHeyGenGroupLooksParams = zod.object({
 export const GetHeyGenGroupLooksResponseItem = zod.object({
   "id": zod.string(),
   "name": zod.string(),
-  "image_url": zod.string().nullable()
+  "image_url": zod.string().nullable(),
+  "is_talking_photo": zod.boolean().describe('true = talking photo (AI lipsync on a photo); false = Avatar V (video avatar, best lipsync)')
 })
 export const GetHeyGenGroupLooksResponse = zod.array(GetHeyGenGroupLooksResponseItem)
 
@@ -213,7 +214,8 @@ export const GetHeyGenAllLooksResponseItem = zod.object({
   "name": zod.string(),
   "image_url": zod.string().nullable(),
   "group_name": zod.string(),
-  "group_id": zod.string()
+  "group_id": zod.string(),
+  "is_talking_photo": zod.boolean().describe('true = talking photo (AI lipsync on a photo); false = Avatar V (video avatar, best lipsync)')
 })
 export const GetHeyGenAllLooksResponse = zod.array(GetHeyGenAllLooksResponseItem)
 

@@ -11,4 +11,6 @@ export interface HeyGenGroupLook {
   name: string;
   /** @nullable */
   image_url: string | null;
+  /** true = talking photo (AI lipsync on a photo); false = Avatar V (video avatar, best lipsync) */
+  is_talking_photo: boolean;
 }

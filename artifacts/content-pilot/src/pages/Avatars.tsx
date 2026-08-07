@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { useQueryClient } from "@tanstack/react-query"
 import { useToast } from "@/hooks/use-toast"
 import { useState, useEffect } from "react"
-import { Users, Save, CheckCircle2, Image as ImageIcon, Play, Square, EyeOff, Eye, X, Plus, ExternalLink } from "lucide-react"
+import { Users, Save, CheckCircle2, Image as ImageIcon, Play, Square, EyeOff, Eye, X, Plus, ExternalLink, Video, Camera, AlertTriangle } from "lucide-react"
 import { useRef } from "react"
 
 const HIDDEN_KEY = "contentpilot_hidden_avatar_groups"
@@ -54,6 +54,11 @@ function LooksDialog({ group, selectedIds, onToggle, onClose }: {
                     ) : (
                       <div className="w-full h-full flex items-center justify-center text-muted-foreground"><ImageIcon className="w-8 h-8" /></div>
                     )}
+                  </div>
+                  {/* Avatar type badge */}
+                  <div className={`absolute top-2 left-2 flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold shadow-sm ${look.is_talking_photo ? "bg-orange-500/90 text-white" : "bg-green-600/90 text-white"}`}>
+                    {look.is_talking_photo ? <Camera className="w-2.5 h-2.5" /> : <Video className="w-2.5 h-2.5" />}
+                    {look.is_talking_photo ? "Foto" : "Avatar V"}
                   </div>
                   <div className={`absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center ${isSelected ? "bg-primary text-primary-foreground" : "bg-black/30 text-white/60 border border-white/30"}`}>
                     {isSelected && <CheckCircle2 className="w-5 h-5" />}
@@ -263,6 +268,29 @@ export default function Avatars() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Warning: talking photos in selection */}
+      {(() => {
+        const selectedLooks = (allLooks ?? []).filter(l => selectedIds.has(l.id))
+        const tpCount = selectedLooks.filter(l => l.is_talking_photo).length
+        const avCount = selectedLooks.filter(l => !l.is_talking_photo).length
+        if (tpCount === 0 || selectedLooks.length === 0) return null
+        return (
+          <div className="flex items-start gap-3 p-4 rounded-lg border border-orange-500/30 bg-orange-500/5">
+            <AlertTriangle className="w-5 h-5 text-orange-500 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold text-orange-600 dark:text-orange-400 text-sm">
+                {tpCount} look{tpCount !== 1 ? "s" : ""} de tipo "Foto" en tu rotación
+              </p>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                Los looks tipo <strong>Foto</strong> usan lipsync de IA sobre una imagen estática — el resultado puede verse poco natural.
+                Los looks <strong>Avatar V</strong> ({avCount} seleccionado{avCount !== 1 ? "s" : ""}) usan el avatar de video real y tienen el mejor lipsync.
+                Si el lipsync no te convence, desseleccioná los looks tipo Foto y usá solo los Avatar V (los de tu grupo "Yasser Lezcano").
+              </p>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Filter bar */}
       <div className="flex items-center gap-3 flex-wrap">

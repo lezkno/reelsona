@@ -69,19 +69,19 @@ router.get("/heygen/avatar-groups/:id/looks", async (req, res): Promise<void> =>
   const mapped = looks
     .map((l: any) => {
       if (l.avatar_id) {
-        return { id: l.avatar_id, name: l.avatar_name ?? "Look", image_url: l.preview_image_url ?? null };
+        return { id: l.avatar_id, name: l.avatar_name ?? "Look", image_url: l.preview_image_url ?? null, is_talking_photo: false };
       }
       if (l.id) {
-        return { id: `tp:${l.id}`, name: l.name ?? "Look", image_url: l.image_url ?? null };
+        return { id: `tp:${l.id}`, name: l.name ?? "Look", image_url: l.image_url ?? null, is_talking_photo: true };
       }
       return null;
     })
-    .filter((l): l is { id: string; name: string; image_url: string | null } => l !== null);
+    .filter((l): l is { id: string; name: string; image_url: string | null; is_talking_photo: boolean } => l !== null);
   res.json(GetHeyGenGroupLooksResponse.parse(mapped));
 });
 
 // Flat list of all looks, cached in memory (fetching all groups takes ~20 HeyGen calls)
-type FlatLook = { id: string; name: string; image_url: string | null; group_name: string; group_id: string };
+type FlatLook = { id: string; name: string; image_url: string | null; group_name: string; group_id: string; is_talking_photo: boolean };
 let looksCache: { data: FlatLook[]; at: number } | null = null;
 let looksFetch: Promise<FlatLook[]> | null = null;
 
@@ -96,9 +96,9 @@ async function fetchAllLooks(): Promise<FlatLook[]> {
     if (r.status !== "fulfilled") continue;
     for (const l of r.value.looks as any[]) {
       if (l.avatar_id) {
-        all.push({ id: l.avatar_id, name: l.avatar_name ?? "Look", image_url: l.preview_image_url ?? null, group_name: r.value.group.name, group_id: r.value.group.id });
+        all.push({ id: l.avatar_id, name: l.avatar_name ?? "Look", image_url: l.preview_image_url ?? null, group_name: r.value.group.name, group_id: r.value.group.id, is_talking_photo: false });
       } else if (r.value.group && l.id) {
-        all.push({ id: `tp:${l.id}`, name: l.name ?? "Look", image_url: l.image_url ?? null, group_name: r.value.group.name, group_id: r.value.group.id });
+        all.push({ id: `tp:${l.id}`, name: l.name ?? "Look", image_url: l.image_url ?? null, group_name: r.value.group.name, group_id: r.value.group.id, is_talking_photo: true });
       }
     }
   }

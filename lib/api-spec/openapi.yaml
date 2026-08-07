@@ -825,7 +825,10 @@ components:
           type: string
         image_url:
           type: ["string", "null"]
-      required: [id, name, image_url]
+        is_talking_photo:
+          type: boolean
+          description: true = talking photo (AI lipsync on a photo); false = Avatar V (video avatar, best lipsync)
+      required: [id, name, image_url, is_talking_photo]
 
     HeyGenFlatLook:
       type: object
@@ -840,7 +843,10 @@ components:
           type: string
         group_id:
           type: string
-      required: [id, name, image_url, group_name, group_id]
+        is_talking_photo:
+          type: boolean
+          description: true = talking photo (AI lipsync on a photo); false = Avatar V (video avatar, best lipsync)
+      required: [id, name, image_url, group_name, group_id, is_talking_photo]
 
     HeyGenAvatar:
       type: object

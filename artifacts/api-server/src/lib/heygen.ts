@@ -118,19 +118,35 @@ export interface VideoStatus {
 
 export async function generateVideo(params: GenerateVideoParams): Promise<string> {
   const client = getClient();
+  const isTalkingPhoto = params.avatar_id.startsWith("tp:");
+  const character = isTalkingPhoto
+    ? {
+        type: "talking_photo",
+        talking_photo_id: params.avatar_id.slice(3),
+      }
+    : {
+        type: "avatar",
+        avatar_id: params.avatar_id,
+        avatar_style: "normal",
+      };
+
+  // Log clearly what type of avatar is being used
+  logger.info(
+    {
+      avatarType: isTalkingPhoto ? "talking_photo" : "avatar_v",
+      avatarId: params.avatar_id,
+      voiceId: params.voice_id,
+      scriptLength: params.script.length,
+    },
+    isTalkingPhoto
+      ? "HeyGen: submitting as TALKING PHOTO (AI lipsync on photo). For best lipsync use Avatar V (non-tp: looks from Yasser Lezcano group)."
+      : "HeyGen: submitting as AVATAR V (custom video avatar, full lipsync)."
+  );
+
   const payload = {
     video_inputs: [
       {
-        character: params.avatar_id.startsWith("tp:")
-          ? {
-              type: "talking_photo",
-              talking_photo_id: params.avatar_id.slice(3),
-            }
-          : {
-              type: "avatar",
-              avatar_id: params.avatar_id,
-              avatar_style: "normal",
-            },
+        character,
         voice: {
           type: "text",
           input_text: params.script,
@@ -146,7 +162,7 @@ export async function generateVideo(params: GenerateVideoParams): Promise<string
   const res = await client.post("/v2/video/generate", payload);
   const videoId: string = res.data?.data?.video_id;
   if (!videoId) throw new Error("HeyGen did not return a video_id");
-  logger.info({ videoId }, "HeyGen video generation started");
+  logger.info({ videoId, avatarType: isTalkingPhoto ? "talking_photo" : "avatar_v" }, "HeyGen video generation started");
   return videoId;
 }
 

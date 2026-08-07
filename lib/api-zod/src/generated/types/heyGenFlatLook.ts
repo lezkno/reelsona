@@ -13,4 +13,6 @@ export interface HeyGenFlatLook {
   image_url: string | null;
   group_name: string;
   group_id: string;
+  /** true = talking photo (AI lipsync on a photo); false = Avatar V (video avatar, best lipsync) */
+  is_talking_photo: boolean;
 }
