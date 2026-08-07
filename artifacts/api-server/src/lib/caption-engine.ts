@@ -41,7 +41,7 @@ export interface CaptionStyle {
   fontFamily: string;
   fontSize: number;
   activeWordScale: number;     // unused in v3 (scale overrides cause ASS issues)
-  highlightMode: "color" | "scale" | "both";
+  highlightMode: "color" | "scale" | "both" | "mixed";
   autoScale: boolean;
   autoMovement: boolean;
   subtleRotation: boolean;
@@ -196,6 +196,7 @@ function resolveFontName(fontFamily: string): string {
   const map: Record<string, string> = {
     Oswald: "Oswald",
     Bangers: "Bangers",
+    Poppins: "Poppins ExtraBold",
     "DejaVu Sans": "DejaVu Sans",
     "DejaVu Serif": "DejaVu Serif",
     Montserrat: "DejaVu Sans",
@@ -327,6 +328,134 @@ function buildPopASS(
   return `${header}\n${dialogues.join("\n")}`;
 }
 
+// ─── Rendering mode: DIMIDIUM (mixed sizes + line stacking) ──────────────────
+//
+// Inspired by the "Dimidium" caption app style seen in reference video.
+// Rules:
+//  - Content words (nouns, verbs, adjectives) → large font + accent color
+//  - Function words (the, and, they, to, …)  → small font + primary color
+//  - Natural casing preserved (NO uppercase)
+//  - Lines stack vertically: newest at bottom, older lines push upward
+//  - Window of MAX_VISIBLE_LINES lines visible simultaneously
+
+const FUNCTION_WORDS = new Set([
+  "the","a","an","and","but","or","in","on","at","to","for","of","with","by",
+  "they","you","we","i","it","this","that","is","are","was","were","be","been",
+  "have","has","had","do","does","did","will","would","could","should","may",
+  "might","can","my","your","our","their","its","his","her","not","no","so",
+  "as","if","then","than","more","most","just","about","up","out","from","into",
+  "over","under","after","before","also","very","really","too","now","here",
+  "there","when","what","who","how","why","where","which","these","those","am",
+  "were","being","get","got","go","went","come","came","see","saw","know","knew",
+  "think","say","said","want","use","find","give","tell","work","call","feel",
+  "try","ask","need","seem","turn","start","show","hear","play","run","move",
+  "live","believe","hold","bring","happen","write","sit","stand","lose","pay",
+  "meet","include","continue","set","learn","change","lead","understand","watch",
+]);
+
+function isEmphasisWord(raw: string): boolean {
+  const clean = raw.toLowerCase().replace(/[.,!?;:'"()«»]+/g, "");
+  return clean.length > 0 && !FUNCTION_WORDS.has(clean);
+}
+
+function buildDimidiumASS(
+  wordTimings: WordTiming[],
+  config: CaptionStyle,
+  videoWidth = 1080,
+  videoHeight = 1920
+): string {
+  const fontName     = resolveFontName(config.fontFamily);
+  const largeSize    = config.fontSize;                       // e.g. 80
+  const smallSize    = Math.round(config.fontSize * 0.56);   // e.g. 45
+  const accentColor  = hexToAss(config.activeWordColor);     // yellow
+  const primaryColor = hexToAss(config.primaryColor);        // white
+  const outlineColor = hexToAss(config.outlineColor);
+
+  // Thick outline for large text; thinner for small
+  const outlineW = 4;
+  const shadowD  = 2;
+
+  const header = `[Script Info]
+ScriptType: v4.00+
+PlayResX: ${videoWidth}
+PlayResY: ${videoHeight}
+ScaledBorderAndShadow: yes
+WrapStyle: 0
+YCbCr Matrix: TV.709
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Caption,${fontName},${largeSize},${primaryColor},${accentColor},${outlineColor},&H00000000,-1,0,0,0,100,100,0.3,0,1,${outlineW},${shadowD},2,60,60,0,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`;
+
+  // Group word timings into display lines
+  const wordsPerLine = Math.max(2, config.wordsPerLine);
+  interface DisplayLine { words: WordTiming[]; start: number; end: number; text: string }
+  const lines: DisplayLine[] = [];
+
+  for (let i = 0; i < wordTimings.length; i += wordsPerLine) {
+    const chunk = wordTimings.slice(i, i + wordsPerLine);
+    if (!chunk.length) continue;
+
+    // Build mixed-size ASS text — preserve original casing
+    const textParts = chunk.map((w) => {
+      if (isEmphasisWord(w.text)) {
+        // Large + accent color + slightly bolder spacing
+        return `{\\fs${largeSize}\\c${accentColor}}${w.text}`;
+      } else {
+        // Small + primary color
+        return `{\\fs${smallSize}\\c${primaryColor}}${w.text}`;
+      }
+    });
+
+    lines.push({
+      words: chunk,
+      start: chunk[0].start,
+      end:   chunk[chunk.length - 1].end,
+      text:  textParts.join(" "),
+    });
+  }
+
+  if (!lines.length) return `${header}\n`;
+
+  // Vertical stacking: lines stack bottom → top
+  // Each line is visible for MAX_VISIBLE_LINES "slots" then disappears
+  const MAX_VISIBLE_LINES = 4;
+  const CENTER_X    = Math.round(videoWidth / 2);
+  const lineSpacing = Math.round(videoHeight * 0.088); // ~169px at 1920
+  const baseY       = videoHeight - 70;               // bottom anchor
+
+  // slotY[0] = bottom (newest), slotY[3] = top (oldest visible)
+  const slotY = Array.from({ length: MAX_VISIBLE_LINES }, (_, s) => baseY - s * lineSpacing);
+
+  const dialogues: string[] = [];
+
+  for (let li = 0; li < lines.length; li++) {
+    const line = lines[li];
+
+    for (let slot = 0; slot < MAX_VISIBLE_LINES; slot++) {
+      // This line occupies slot `slot` when line `li + slot` is the current newest line.
+      const newestIdx = li + slot;
+      if (newestIdx >= lines.length) break; // no more lines → this slot never appears
+
+      const slotStart = lines[newestIdx].start;
+      const slotEnd   = newestIdx + 1 < lines.length
+        ? lines[newestIdx + 1].start
+        : lines[lines.length - 1].end + 800; // linger 800ms after last word
+
+      const yPos = slotY[slot]; // bottom when slot=0, rises as slot increases
+
+      dialogues.push(
+        `Dialogue: 0,${msToAssTime(slotStart)},${msToAssTime(slotEnd)},Caption,,0,0,0,,{\\an2\\pos(${CENTER_X},${yPos})}${line.text}`
+      );
+    }
+  }
+
+  return `${header}\n${dialogues.join("\n")}`;
+}
+
 // ─── Main ASS builder dispatcher ─────────────────────────────────────────────
 
 function buildASS(
@@ -337,9 +466,9 @@ function buildASS(
 ): string {
   const wordTimings = extractWordTimings(blocks);
 
-  // "color" → highlight line (show N words, highlight active)
-  // "scale" or "both" → pop (one word at a time)
-  if (config.highlightMode === "color") {
+  if (config.highlightMode === "mixed") {
+    return buildDimidiumASS(wordTimings, config, videoWidth, videoHeight);
+  } else if (config.highlightMode === "color") {
     return buildHighlightLineASS(wordTimings, config, videoWidth, videoHeight);
   } else {
     return buildPopASS(wordTimings, config, videoWidth, videoHeight);
@@ -458,10 +587,25 @@ export const CAPTION_PRESETS: {
   fontFamily: string;
   fontSize: number;
   activeWordScale: number;
-  highlightMode: "color" | "scale" | "both";
+  highlightMode: "color" | "scale" | "both" | "mixed";
   autoMovement: boolean;
   subtleRotation: boolean;
 }[] = [
+  {
+    id: "dimidium",
+    name: "Dimidium",
+    description: "Tamaños mixtos: palabras clave grandes en amarillo, funcionales pequeñas en blanco. Líneas se apilan desde abajo.",
+    primaryColor: "#FFFFFF",
+    activeWordColor: "#FFE600",
+    outlineColor: "#000000",
+    backgroundColor: null,
+    fontFamily: "Poppins",
+    fontSize: 82,
+    activeWordScale: 1,
+    highlightMode: "mixed",
+    autoMovement: false,
+    subtleRotation: false,
+  },
   {
     id: "viral",
     name: "Viral (Highlight)",

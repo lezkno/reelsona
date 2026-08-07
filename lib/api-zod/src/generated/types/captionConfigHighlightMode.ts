@@ -13,4 +13,5 @@ export const CaptionConfigHighlightMode = {
   color: 'color',
   scale: 'scale',
   both: 'both',
+  mixed: 'mixed',
 } as const;

@@ -460,6 +460,7 @@ export const CaptionPresetHighlightMode = {
   color: 'color',
   scale: 'scale',
   both: 'both',
+  mixed: 'mixed',
 } as const;
 
 export interface CaptionPreset {
@@ -495,6 +496,7 @@ export const CaptionConfigHighlightMode = {
   color: 'color',
   scale: 'scale',
   both: 'both',
+  mixed: 'mixed',
 } as const;
 
 export interface CaptionConfig {
@@ -532,6 +534,7 @@ export const CaptionConfigInputHighlightMode = {
   color: 'color',
   scale: 'scale',
   both: 'both',
+  mixed: 'mixed',
 } as const;
 
 export interface CaptionConfigInput {

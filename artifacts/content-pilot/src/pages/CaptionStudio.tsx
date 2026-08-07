@@ -16,16 +16,17 @@ import { getGetCaptionConfigQueryKey } from "@workspace/api-client-react"
 // Load Oswald & Bangers from Google Fonts for preview rendering
 const link = document.createElement("link")
 link.rel = "stylesheet"
-link.href = "https://fonts.googleapis.com/css2?family=Bangers&family=Oswald:wght@400;700&display=swap"
+link.href = "https://fonts.googleapis.com/css2?family=Bangers&family=Oswald:wght@400;700&family=Poppins:wght@400;800&display=swap"
 document.head.appendChild(link)
 
 const POSITION_LABELS: Record<string, string> = { top: "Arriba", center: "Centro", bottom: "Abajo" }
 const HIGHLIGHT_LABELS: Record<string, string> = {
+  mixed: "Dimidium (tamaños mixtos, líneas apiladas)",
   color: "Highlight Line (3 palabras, activa en color)",
   scale: "Pop (1 palabra a la vez, grande)",
   both: "Pop + Color (1 palabra en color de acento)",
 }
-const FONT_OPTIONS = ["Oswald", "Bangers", "DejaVu Sans", "Montserrat", "Inter", "Arial"]
+const FONT_OPTIONS = ["Poppins", "Oswald", "Bangers", "DejaVu Sans", "Montserrat", "Inter", "Arial"]
 
 // ─── Preset Card ─────────────────────────────────────────────────────────────
 
@@ -40,10 +41,10 @@ function PresetCard({
   saving: boolean
   onClick: () => void
 }) {
-  const isPopMode = preset.highlight_mode === "scale" || preset.highlight_mode === "both"
-  const useAccent = preset.highlight_mode === "both" || preset.highlight_mode === "color"
+  const isMixedMode = preset.highlight_mode === "mixed"
+  const isPopMode   = preset.highlight_mode === "scale" || preset.highlight_mode === "both"
+  const useAccent   = preset.highlight_mode === "both" || preset.highlight_mode === "color"
 
-  // Text shadow that simulates ASS outline (no WebkitTextStroke to avoid browser quirks)
   const outlineColor = preset.outline_color ?? "#000000"
   const outlineShadow = `
     -2px -2px 0 ${outlineColor},
@@ -74,6 +75,23 @@ function PresetCard({
     letterSpacing: "0.04em",
   })
 
+  // Dimidium: function words small+white, content words large+yellow
+  const FUNCTION_WORDS_PREVIEW = new Set(["they","the","and","or","to","a","in"])
+  const dimLineStyle = (word: string, large: boolean): React.CSSProperties => ({
+    fontFamily: `'${preset.font_family}', 'Poppins', sans-serif`,
+    fontWeight: 800,
+    fontSize: large ? "clamp(15px, 5.5cqw, 26px)" : "clamp(9px, 3.2cqw, 15px)",
+    color: large ? preset.active_word_color : preset.primary_color,
+    textShadow: outlineShadow,
+    display: "inline-block",
+    lineHeight: 1.2,
+  })
+  const dimLines = [
+    ["They", "stop", "the", "scroll"],
+    ["boost", "watch", "time"],
+    ["viewers", "engaged"],
+  ]
+
   return (
     <button
       type="button"
@@ -86,10 +104,26 @@ function PresetCard({
     >
       {/* Visual preview panel */}
       <div
-        className="aspect-[9/16] flex flex-col items-center justify-end pb-6 px-3 select-none"
+        className="aspect-[9/16] flex flex-col items-center justify-end pb-5 px-3 select-none gap-y-1"
         style={{ background: "linear-gradient(to bottom, #1a1a2e 0%, #16213e 60%, #0f3460 100%)" }}
       >
-        {isPopMode ? (
+        {isMixedMode ? (
+          /* Dimidium mode: stacked lines with mixed sizes */
+          <div className="flex flex-col items-center gap-y-0.5 w-full">
+            {dimLines.map((words, li) => (
+              <div key={li} className="flex items-baseline justify-center gap-x-1 flex-wrap">
+                {words.map((w, wi) => {
+                  const isFunc = FUNCTION_WORDS_PREVIEW.has(w.toLowerCase())
+                  return (
+                    <span key={wi} style={dimLineStyle(w, !isFunc)}>
+                      {w}
+                    </span>
+                  )
+                })}
+              </div>
+            ))}
+          </div>
+        ) : isPopMode ? (
           /* Pop mode: one big word centered */
           <div className="flex items-center justify-center w-full">
             <span style={{ ...wordStyle(true), fontSize: "clamp(22px, 7cqw, 36px)" }}>
@@ -124,10 +158,10 @@ function PresetCard({
         <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{preset.description}</p>
         <div className="flex gap-1 mt-2 flex-wrap">
           <Badge
-            variant={isPopMode ? "default" : "secondary"}
+            variant={isMixedMode ? "default" : isPopMode ? "default" : "secondary"}
             className="text-[9px] py-0 px-1.5"
           >
-            {isPopMode ? "⚡ Pop" : "✦ Highlight"}
+            {isMixedMode ? "◈ Dimidium" : isPopMode ? "⚡ Pop" : "✦ Highlight"}
           </Badge>
           <Badge variant="outline" className="text-[9px] py-0 px-1.5" style={{ fontFamily: preset.font_family }}>
             {preset.font_family}
@@ -140,19 +174,40 @@ function PresetCard({
 
 // ─── Live Preview ─────────────────────────────────────────────────────────────
 
+// Dimidium function-word list for preview (same logic as engine)
+const PREVIEW_FUNCTION_WORDS = new Set([
+  "they","the","and","or","to","a","an","in","on","at","for","of","with","by",
+  "is","are","was","were","it","this","that","my","your","our","so","not","no",
+])
+
 function CaptionPreview({ config }: { config: Partial<CaptionConfig> }) {
-  const isPopMode = config.highlight_mode === "scale" || config.highlight_mode === "both"
-  const useAccent = config.highlight_mode === "both" || config.highlight_mode === "color"
+  const isMixedMode = config.highlight_mode === "mixed"
+  const isPopMode   = config.highlight_mode === "scale" || config.highlight_mode === "both"
+  const useAccent   = config.highlight_mode === "both" || config.highlight_mode === "color"
   const wordsPerLine = config.words_per_line ?? 3
 
   // Full sentence split into chunks of wordsPerLine
   const allWords = ["ESTO", "ES", "TU", "CAPTION", "DINÁMICO", "EN", "ACCIÓN", "HOY"]
   const [activeIdx, setActiveIdx] = useState(0)
+  // For Dimidium: cycle through stacked-line groups
+  const [dimLineIdx, setDimLineIdx] = useState(0)
+  const dimLines = [
+    ["They", "stop", "the", "scroll"],
+    ["boost", "watch", "time"],
+    ["viewers", "engaged"],
+    ["and", "keep", "growing"],
+  ]
 
   useEffect(() => {
     const t = setInterval(() => setActiveIdx((a) => (a + 1) % allWords.length), 700)
     return () => clearInterval(t)
   }, [allWords.length])
+
+  useEffect(() => {
+    if (!isMixedMode) return
+    const t = setInterval(() => setDimLineIdx((i) => (i + 1) % dimLines.length), 1200)
+    return () => clearInterval(t)
+  }, [isMixedMode, dimLines.length])
 
   const outlineColor = config.outline_color ?? "#000000"
   const outlineShadow = `
@@ -167,6 +222,51 @@ function CaptionPreview({ config }: { config: Partial<CaptionConfig> }) {
   // The preview container is ~240px tall (aspect 9:16 on max-h-60), real video is 1920px
   // Scale factor ~0.14, but cap at something readable
   const previewFontSize = Math.round(Math.min((config.font_size ?? 88) * 0.22, 32))
+
+  // ── Dimidium mode: stacked lines with mixed sizes ──────────────────────
+  if (isMixedMode) {
+    // Show last N lines stacked, newest at bottom. Cycle one new line at a time.
+    const visibleCount = Math.min(dimLineIdx + 1, 4)
+    const visibleLines = dimLines.slice(Math.max(0, dimLineIdx + 1 - 4), dimLineIdx + 1)
+    const fontFam = `'${config.font_family ?? "Poppins"}', 'Poppins', sans-serif`
+    const largePx  = Math.round(previewFontSize * 1.1)
+    const smallPx  = Math.round(previewFontSize * 0.62)
+
+    return (
+      <div
+        className={`w-full aspect-[9/16] max-h-72 rounded-xl flex flex-col items-end justify-end pb-5 px-4`}
+        style={{ background: "linear-gradient(135deg, #1a1a2e, #16213e, #0f3460)" }}
+      >
+        <div className="flex flex-col items-center gap-y-0.5 w-full">
+          {visibleLines.map((words, li) => (
+            <div key={li} className="flex items-baseline justify-center flex-wrap gap-x-1">
+              {words.map((w, wi) => {
+                const isFunc = PREVIEW_FUNCTION_WORDS.has(w.toLowerCase())
+                return (
+                  <span
+                    key={wi}
+                    className="transition-all duration-300"
+                    style={{
+                      fontFamily: fontFam,
+                      fontWeight: 800,
+                      fontSize: `${isFunc ? smallPx : largePx}px`,
+                      color: isFunc
+                        ? (config.primary_color ?? "#FFFFFF")
+                        : (config.active_word_color ?? "#FFE600"),
+                      textShadow: outlineShadow,
+                      lineHeight: 1.15,
+                    }}
+                  >
+                    {w}
+                  </span>
+                )
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
 
   if (isPopMode) {
     // Show one word at a time, cycling through

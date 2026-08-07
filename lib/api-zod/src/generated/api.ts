@@ -689,7 +689,7 @@ export const GetCaptionPresetsResponseItem = zod.object({
   "font_family": zod.string(),
   "font_size": zod.number(),
   "active_word_scale": zod.number(),
-  "highlight_mode": zod.enum(['color', 'scale', 'both']),
+  "highlight_mode": zod.enum(['color', 'scale', 'both', 'mixed']),
   "auto_movement": zod.boolean(),
   "subtle_rotation": zod.boolean()
 })
@@ -710,7 +710,7 @@ export const GetCaptionConfigResponse = zod.object({
   "font_family": zod.string(),
   "font_size": zod.number(),
   "active_word_scale": zod.number(),
-  "highlight_mode": zod.enum(['color', 'scale', 'both']),
+  "highlight_mode": zod.enum(['color', 'scale', 'both', 'mixed']),
   "auto_scale": zod.boolean(),
   "auto_movement": zod.boolean(),
   "subtle_rotation": zod.boolean(),
@@ -741,7 +741,7 @@ export const UpdateCaptionConfigBody = zod.object({
   "font_family": zod.string().optional(),
   "font_size": zod.number().min(updateCaptionConfigBodyFontSizeMin).max(updateCaptionConfigBodyFontSizeMax).optional(),
   "active_word_scale": zod.number().min(1).max(updateCaptionConfigBodyActiveWordScaleMax).optional(),
-  "highlight_mode": zod.enum(['color', 'scale', 'both']).optional(),
+  "highlight_mode": zod.enum(['color', 'scale', 'both', 'mixed']).optional(),
   "auto_scale": zod.boolean().optional(),
   "auto_movement": zod.boolean().optional(),
   "subtle_rotation": zod.boolean().optional()
@@ -758,7 +758,7 @@ export const UpdateCaptionConfigResponse = zod.object({
   "font_family": zod.string(),
   "font_size": zod.number(),
   "active_word_scale": zod.number(),
-  "highlight_mode": zod.enum(['color', 'scale', 'both']),
+  "highlight_mode": zod.enum(['color', 'scale', 'both', 'mixed']),
   "auto_scale": zod.boolean(),
   "auto_movement": zod.boolean(),
   "subtle_rotation": zod.boolean(),

@@ -13,4 +13,5 @@ export const CaptionPresetHighlightMode = {
   color: 'color',
   scale: 'scale',
   both: 'both',
+  mixed: 'mixed',
 } as const;

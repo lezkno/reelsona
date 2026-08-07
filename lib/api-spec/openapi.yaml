@@ -1238,7 +1238,7 @@ components:
           type: number
         highlight_mode:
           type: string
-          enum: [color, scale, both]
+          enum: [color, scale, both, mixed]
         auto_movement:
           type: boolean
         subtle_rotation:
@@ -1271,7 +1271,7 @@ components:
           type: number
         highlight_mode:
           type: string
-          enum: [color, scale, both]
+          enum: [color, scale, both, mixed]
         auto_scale:
           type: boolean
         auto_movement:
@@ -1328,7 +1328,7 @@ components:
           maximum: 2.0
         highlight_mode:
           type: string
-          enum: [color, scale, both]
+          enum: [color, scale, both, mixed]
         auto_scale:
           type: boolean
         auto_movement:
