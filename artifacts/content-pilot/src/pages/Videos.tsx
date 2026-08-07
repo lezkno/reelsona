@@ -306,7 +306,7 @@ export default function Videos() {
             </DialogDescription>
           </DialogHeader>
           {previewVideo && (
-            <div className="bg-black">
+            <div className="w-full aspect-[9/16] overflow-hidden bg-black">
               <video
                 key={`${previewVideo.id}-${previewFallback}`}
                 src={
@@ -323,7 +323,7 @@ export default function Videos() {
                     setPreviewFallback(true)
                   }
                 }}
-                className="w-full max-h-[65vh] object-contain"
+                className="w-full h-full object-cover"
               />
             </div>
           )}

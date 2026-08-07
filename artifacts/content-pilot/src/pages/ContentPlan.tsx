@@ -849,7 +849,7 @@ export default function ContentPlan() {
             if (!playUrl) return <div className="px-4 pb-4 text-sm text-muted-foreground">URL no disponible.</div>
             return (
               <>
-                <div className="bg-black">
+                <div className="w-full aspect-[9/16] overflow-hidden bg-black">
                   <video
                     key={previewItem.id}
                     src={playUrl}
@@ -858,14 +858,13 @@ export default function ContentPlan() {
                     playsInline
                     preload="auto"
                     onError={(e) => {
-                      // If captioned URL is broken, fall back to raw HeyGen URL
                       const el = e.currentTarget
                       if (previewItem.video_url && el.src !== previewItem.video_url) {
                         el.src = previewItem.video_url
                         el.load()
                       }
                     }}
-                    className="w-full max-h-[60vh] object-contain"
+                    className="w-full h-full object-cover"
                   />
                 </div>
                 <div className="px-4 py-3 flex gap-2">
