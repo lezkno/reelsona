@@ -98,6 +98,29 @@ export async function listVoices(): Promise<HeyGenVoice[]> {
   return voices;
 }
 
+// Cache look engine eligibility for 30 minutes to avoid hammering the API
+const lookEngineCache = new Map<string, { engines: string[]; at: number }>();
+
+/**
+ * Fetch the engines a specific look supports.
+ * Returns ["avatar_iv"] as a safe fallback on error.
+ */
+export async function getLookSupportedEngines(lookId: string): Promise<string[]> {
+  const cached = lookEngineCache.get(lookId);
+  if (cached && Date.now() - cached.at < 30 * 60 * 1000) return cached.engines;
+
+  try {
+    const client = getClient();
+    const res = await client.get(`/v3/avatars/looks/${lookId}`);
+    const engines: string[] = res.data?.data?.supported_api_engines ?? ["avatar_iv"];
+    lookEngineCache.set(lookId, { engines, at: Date.now() });
+    return engines;
+  } catch (err) {
+    logger.warn({ err, lookId }, "[HeyGen] Could not fetch look engines — defaulting to avatar_iv");
+    return ["avatar_iv"];
+  }
+}
+
 export interface GenerateVideoParams {
   script: string;
   avatar_id: string;
@@ -107,6 +130,11 @@ export interface GenerateVideoParams {
   height?: number;
   /** When true, instructs HeyGen to burn captions into the rendered video. */
   captionsEnabled?: boolean;
+  /**
+   * Natural-language prompt for Avatar V body motion / hand gestures.
+   * Only sent when Avatar V is used.
+   */
+  motionPrompt?: string;
 }
 
 export interface VideoStatus {
@@ -137,42 +165,51 @@ export interface VideoStatus {
  */
 export async function generateVideo(params: GenerateVideoParams): Promise<string> {
   const client = getClient();
-  const isPhotoAvatar = params.avatar_id.startsWith("tp:");
 
   // Strip our internal "tp:" marker — HeyGen v3 just wants the raw look ID
+  const isPhotoAvatar = params.avatar_id.startsWith("tp:");
   const rawAvatarId = isPhotoAvatar ? params.avatar_id.slice(3) : params.avatar_id;
 
-  // Log clearly what type of avatar is being used
+  // Dynamically check which engines this look supports.
+  // Avatar V is available for both video avatars AND eligible digital_twin (photo) looks —
+  // the tp: heuristic alone is not enough; we must check supported_api_engines per look.
+  const supportedEngines = await getLookSupportedEngines(rawAvatarId);
+  const supportsAvatarV = supportedEngines.includes("avatar_v");
+
   logger.info(
     {
-      avatarType: isPhotoAvatar ? "photo_avatar" : "video_avatar",
-      engine: isPhotoAvatar ? "avatar_iv (default)" : "avatar_v",
       avatarId: rawAvatarId,
+      isPhotoAvatar,
+      supportedEngines,
+      engineChosen: supportsAvatarV ? "avatar_v" : "avatar_iv",
       voiceId: params.voice_id,
       scriptLength: params.script.length,
     },
-    isPhotoAvatar
-      ? "[HeyGen v3] Photo avatar (digital twin / instant avatar) — engine: avatar_iv, expressiveness: high"
-      : "[HeyGen v3] Video avatar (Avatar V) — engine: avatar_v, full motion lipsync"
+    supportsAvatarV
+      ? "[HeyGen v3] Avatar V eligible — using engine: avatar_v (highest fidelity lipsync + motion)"
+      : "[HeyGen v3] Avatar IV — engine: avatar_iv, expressiveness: high"
   );
 
-  // v3 flat payload — no more video_inputs array, no more dimension
+  // v3 flat payload
   const payload: Record<string, unknown> = {
     type: "avatar",
     avatar_id: rawAvatarId,
     script: params.script,
     voice_id: params.voice_id,
-    aspect_ratio: "9:16",     // vertical / Reels format
+    aspect_ratio: "9:16",
     title: params.title ?? "ContentPilot Video",
   };
 
-  if (isPhotoAvatar) {
-    // Photo avatars: use default engine (avatar_iv) + high expressiveness for
-    // the most natural lipsync and facial expression quality
-    payload["expressiveness"] = "high";
+  if (supportsAvatarV) {
+    // Avatar V: highest fidelity for both video avatars and eligible digital_twin looks.
+    // Supports motion_prompt for natural-language body/gesture control.
+    const enginePayload: Record<string, unknown> = { type: "avatar_v" };
+    if (params.motionPrompt) enginePayload["motion_prompt"] = params.motionPrompt;
+    payload["engine"] = enginePayload;
   } else {
-    // Video avatars: explicitly request Avatar V for the highest quality lipsync
-    payload["engine"] = { type: "avatar_v" };
+    // Avatar IV (default): best option for non-eligible photo looks.
+    // expressiveness: high gives the most natural facial expression quality.
+    payload["expressiveness"] = "high";
   }
 
   if (params.captionsEnabled) {
