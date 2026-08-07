@@ -61,6 +61,14 @@ export default function ContentPlan() {
   const processNow = useProcessContentItemNow()
   const [processingId, setProcessingId] = useState<number | null>(null)
 
+  // Derived from real API data — true if ANY item is currently being produced.
+  // Used to block all manual generate buttons so only one HeyGen job runs at a time.
+  const anyVideoInFlight = (items ?? []).some(
+    (i) => i.status === "generating" || i.status === "ready"
+  )
+  // Combined disable flag: in-flight from real data OR local pending request
+  const generateBlocked = anyVideoInFlight || processingId !== null
+
   const handleProcessNow = (id: number) => {
     setProcessingId(id)
     processNow.mutate({ id }, {
@@ -76,6 +84,19 @@ export default function ContentPlan() {
         toast({ title: "Error", description: err?.data?.error ?? "No se pudo iniciar la producción.", variant: "destructive" })
       },
       onSettled: () => setProcessingId(null),
+    })
+  }
+
+  const handleGenerateVideo = (id: number) => {
+    generateVideo.mutate({ data: { content_plan_id: id } }, {
+      onSuccess: () => {
+        toast({ title: "Video Generándose", description: "HeyGen está creando el video. Esto puede tardar unos minutos." })
+        queryClient.invalidateQueries({ queryKey: getGetContentPlanQueryKey() })
+      },
+      onError: (err: any) => {
+        const msg = err?.data?.error ?? "No se pudo iniciar la generación del video."
+        toast({ title: "Error", description: msg, variant: "destructive" })
+      },
     })
   }
 
@@ -125,17 +146,6 @@ export default function ContentPlan() {
     })
   }
 
-  const handleGenerateVideo = (id: number) => {
-    generateVideo.mutate({ data: { content_plan_id: id } }, {
-      onSuccess: () => {
-        toast({ title: "Video Generándose", description: "HeyGen está creando el video. Esto puede tardar unos minutos." })
-        queryClient.invalidateQueries({ queryKey: getGetContentPlanQueryKey() })
-      },
-      onError: () => {
-        toast({ title: "Error", description: "No se pudo iniciar la generación del video.", variant: "destructive" })
-      }
-    })
-  }
 
   const handleReschedule = (id: number, value: string) => {
     if (!value) return
@@ -313,7 +323,7 @@ export default function ContentPlan() {
                                     variant="outline"
                                     size="sm"
                                     className="w-full h-7 gap-1 text-xs border-primary/30 text-primary hover:bg-primary hover:text-primary-foreground"
-                                    disabled={processingId !== null}
+                                    disabled={generateBlocked}
                                     onClick={() => handleProcessNow(item.id)}
                                   >
                                     <Zap className="w-3 h-3" />
@@ -360,7 +370,7 @@ export default function ContentPlan() {
 
                           <div className="flex items-center gap-2 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                             {item.status === 'scripted' && (
-                              <Button size="sm" className="gap-1" onClick={() => handleGenerateVideo(item.id)} disabled={generateVideo.isPending}>
+                              <Button size="sm" className="gap-1" onClick={() => handleGenerateVideo(item.id)} disabled={generateBlocked || generateVideo.isPending}>
                                 <Video className="w-3.5 h-3.5" /> Generar Video
                               </Button>
                             )}

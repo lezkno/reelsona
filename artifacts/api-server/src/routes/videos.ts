@@ -75,6 +75,20 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
     return;
   }
 
+  // Prevent launching a second HeyGen job while one is already running.
+  // Parallel generations waste credits and can conflict on avatar rotation.
+  const [alreadyGenerating] = await db
+    .select({ id: videosTable.id, topic: videosTable.topic })
+    .from(videosTable)
+    .where(eq(videosTable.status, "generating"))
+    .limit(1);
+  if (alreadyGenerating) {
+    res.status(409).json({
+      error: `Ya hay un video en proceso: "${alreadyGenerating.topic}". Esperá a que termine antes de crear otro.`,
+    });
+    return;
+  }
+
   // Ensure avatar/voice are set AND that the stored avatarId is still in the active selection.
   // If the user removed the previously assigned avatar, re-pick from the current list.
   {
