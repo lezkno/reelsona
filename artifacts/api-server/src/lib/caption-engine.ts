@@ -583,12 +583,50 @@ export async function applyCaptions(
     const assContent = buildASS(blocks, config);
     await fs.writeFile(assPath, assContent, "utf-8");
 
-    // 4. Burn with FFmpeg — pass fontsdir so libass finds our bundled fonts
+    // 4. Detect source rotation via ffprobe so we can correct it in the output.
+    //    HeyGen sometimes delivers landscape-encoded frames with a rotate tag
+    //    (e.g. rotate=90). FFmpeg strips that tag when re-encoding, so the
+    //    browser sees the raw sideways frames. We apply a transpose filter to
+    //    compensate before burning the ASS subtitles.
+    let rotationFilter = "";
+    try {
+      const { stdout: probeOut } = await execFileAsync("ffprobe", [
+        "-v", "error",
+        "-select_streams", "v:0",
+        "-show_entries", "stream_tags=rotate:stream_side_data=rotation",
+        "-of", "json",
+        videoPath,
+      ]);
+      const probeJson = JSON.parse(probeOut);
+      const streams: any[] = probeJson.streams ?? [];
+      const stream = streams[0] ?? {};
+      // rotation can live in tags.rotate or in side_data_list[].rotation
+      const tagRotate = parseInt(stream.tags?.rotate ?? "0", 10);
+      const sideRotate = stream.side_data_list
+        ? parseInt(stream.side_data_list[0]?.rotation ?? "0", 10)
+        : 0;
+      const deg = tagRotate || -sideRotate; // side_data rotation is negated
+      if (deg === 90 || deg === -270) {
+        rotationFilter = "transpose=1,";   // 90° CW
+      } else if (deg === 270 || deg === -90) {
+        rotationFilter = "transpose=2,";   // 90° CCW
+      } else if (deg === 180 || deg === -180) {
+        rotationFilter = "transpose=2,transpose=2,"; // 180°
+      }
+      if (rotationFilter) {
+        logger.info({ deg }, "[CaptionEngine] Applying rotation correction");
+      }
+    } catch (e) {
+      logger.warn({ err: e }, "[CaptionEngine] ffprobe rotation detection failed — skipping");
+    }
+
+    // 5. Burn with FFmpeg — pass fontsdir so libass finds our bundled fonts
     logger.info("[CaptionEngine] Running FFmpeg (ass filter)...");
 
-    const assFilter = `ass='${assPath}':fontsdir='${FONTS_DIR}'`;
+    const assFilter = `${rotationFilter}ass='${assPath}':fontsdir='${FONTS_DIR}'`;
 
     const { stderr } = await execFileAsync("ffmpeg", [
+      "-noautorotate",          // read raw frames without auto-rotating; we handle it via transpose
       "-i", videoPath,
       "-vf", assFilter,
       "-c:a", "copy",
