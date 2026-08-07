@@ -150,17 +150,15 @@ function LooksDialog({
               const isLandscape = landscapeIds.has(look.id)
 
               return (
-                <div key={look.id} className="flex flex-col">
+                // Once detected as landscape, hide the card entirely — only vertical looks shown
+                <div key={look.id} className={`flex flex-col ${isLandscape ? "hidden" : ""}`}>
                   <button
                     type="button"
-                    onClick={() => !isLandscape && onToggle(look.id)}
-                    disabled={isLandscape}
+                    onClick={() => onToggle(look.id)}
                     className={`relative rounded-lg overflow-hidden border-2 text-left transition-all
-                      ${isLandscape
-                        ? "border-orange-400/60 cursor-not-allowed opacity-75"
-                        : isSelected
-                          ? "border-primary ring-2 ring-primary/30"
-                          : "border-transparent hover:border-primary/40"
+                      ${isSelected
+                        ? "border-primary ring-2 ring-primary/30"
+                        : "border-transparent hover:border-primary/40"
                       }`}
                   >
                     <div className="aspect-[3/4] bg-muted">
@@ -179,30 +177,16 @@ function LooksDialog({
                       )}
                     </div>
 
-                    {/* Landscape block */}
-                    {isLandscape && (
-                      <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/50 gap-2 px-3">
-                        <AlertTriangle className="w-7 h-7 text-orange-400 shrink-0" />
-                        <p className="text-white text-[11px] font-bold text-center leading-tight">
-                          Horizontal<br /><span className="font-normal opacity-80">No compatible con Reels</span>
-                        </p>
-                      </div>
-                    )}
-
                     {/* Avatar type badge */}
-                    {!isLandscape && (
-                      <div className={`absolute top-2 left-2 flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold shadow-sm ${look.is_talking_photo ? "bg-orange-500/90 text-white" : "bg-green-600/90 text-white"}`}>
-                        {look.is_talking_photo ? <Camera className="w-2.5 h-2.5" /> : <Video className="w-2.5 h-2.5" />}
-                        {look.is_talking_photo ? "Foto" : "Avatar V"}
-                      </div>
-                    )}
+                    <div className={`absolute top-2 left-2 flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold shadow-sm ${look.is_talking_photo ? "bg-orange-500/90 text-white" : "bg-green-600/90 text-white"}`}>
+                      {look.is_talking_photo ? <Camera className="w-2.5 h-2.5" /> : <Video className="w-2.5 h-2.5" />}
+                      {look.is_talking_photo ? "Foto" : "Avatar V"}
+                    </div>
 
                     {/* Selection checkmark */}
-                    {!isLandscape && (
-                      <div className={`absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center transition-colors ${isSelected ? "bg-primary text-primary-foreground" : "bg-black/30 text-white/60 border border-white/30"}`}>
-                        {isSelected && <CheckCircle2 className="w-5 h-5" />}
-                      </div>
-                    )}
+                    <div className={`absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center transition-colors ${isSelected ? "bg-primary text-primary-foreground" : "bg-black/30 text-white/60 border border-white/30"}`}>
+                      {isSelected && <CheckCircle2 className="w-5 h-5" />}
+                    </div>
 
                     <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/70 to-transparent px-2 py-1.5">
                       <p className="text-white text-xs font-medium truncate">{look.name}</p>
@@ -210,7 +194,7 @@ function LooksDialog({
                   </button>
 
                   {/* Voice selector — only shown when look is selected */}
-                  {isSelected && !isLandscape && (
+                  {isSelected && (
                     <LookVoiceInline
                       lookId={look.id}
                       voiceOverride={voiceOverrides[look.id]}
