@@ -134,6 +134,24 @@ router.post("/content/plan/generate", async (req, res): Promise<void> => {
     .from(contentPlanItemsTable)
     .where(and(isNotNull(contentPlanItemsTable.scheduledAt), gte(contentPlanItemsTable.scheduledAt, now)));
 
+  // Start scheduling from the day AFTER the last already-planned item so new
+  // content never lands in the same week as existing content.
+  const occupiedDates = futureScheduled.map((r) => r.scheduledAt!).filter(Boolean);
+  const lastScheduled = occupiedDates.length > 0
+    ? new Date(Math.max(...occupiedDates.map((d) => d.getTime())))
+    : null;
+
+  // Move cursor to start-of-day (midnight UTC) the day after the last item.
+  // If nothing is scheduled yet, start from now as before.
+  const fromDate = lastScheduled
+    ? new Date(Date.UTC(
+        lastScheduled.getUTCFullYear(),
+        lastScheduled.getUTCMonth(),
+        lastScheduled.getUTCDate() + 1,  // next calendar day
+        0, 0, 0, 0
+      ))
+    : now;
+
   const postsPerDay = parsed.data.posts_per_day ?? 1;
   const slots = computeUpcomingSlots({
     daysOfWeek: automation?.daysOfWeek ?? [1, 2, 3, 4, 5],
@@ -141,7 +159,8 @@ router.post("/content/plan/generate", async (req, res): Promise<void> => {
     timezone: automation?.timezone ?? "America/Buenos_Aires",
     scheduledDays: parsed.data.days,
     postsPerDay,
-    occupied: futureScheduled.map((r) => r.scheduledAt!).filter(Boolean),
+    occupied: occupiedDates,
+    from: fromDate,
   });
 
   if (slots.length === 0) {
