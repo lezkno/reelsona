@@ -8,7 +8,7 @@ import {
   videosTable,
   instagramAccountsTable,
 } from "@workspace/db";
-import { eq, and, lte } from "drizzle-orm";
+import { eq, and, lte, inArray } from "drizzle-orm";
 import { logger } from "./logger";
 import { generateScript } from "./ai-scripts";
 import { generateVideo, getVideoStatus } from "./heygen";
@@ -74,16 +74,18 @@ export async function runAutomationCycle(): Promise<{
     .select()
     .from(contentPlanItemsTable)
     .where(and(eq(contentPlanItemsTable.status, "scripted"), lte(contentPlanItemsTable.scheduledAt, now)))
+    .orderBy(contentPlanItemsTable.scheduledAt)
     .limit(1);
 
   let contentItem = readyItems[0];
 
-  // If no scripted item, generate one
+  // If no scripted item, generate one from the next due draft
   if (!contentItem && automation.autoGenerateScript) {
     const draftItems = await db
       .select()
       .from(contentPlanItemsTable)
-      .where(eq(contentPlanItemsTable.status, "draft"))
+      .where(and(eq(contentPlanItemsTable.status, "draft"), lte(contentPlanItemsTable.scheduledAt, now)))
+      .orderBy(contentPlanItemsTable.scheduledAt)
       .limit(1);
 
     const draft = draftItems[0];
@@ -287,6 +289,7 @@ export async function publishVideoToInstagram(videoId: number, videoUrl?: string
 }
 
 let cronJob: ReturnType<typeof cron.schedule> | null = null;
+let cycleRunning = false;
 
 export function startScheduler(): void {
   if (cronJob) return;
@@ -300,35 +303,49 @@ export function startScheduler(): void {
     }
   });
 
-  // Every hour: check if we should trigger automation cycle based on schedule
-  cron.schedule("0 * * * *", async () => {
+  // Every 5 minutes: process any content item whose scheduled time has arrived.
+  // The content plan items are the single source of truth for when to publish
+  // (they were assigned slots from the configured days/times when generated,
+  // and the user can reschedule them freely).
+  cron.schedule("*/5 * * * *", async () => {
+    if (cycleRunning) {
+      logger.warn("Skipping automation tick: previous cycle still running");
+      return;
+    }
+    cycleRunning = true;
     try {
       const [automation] = await db.select().from(automationConfigTable).limit(1);
       if (!automation?.enabled) return;
 
       const now = new Date();
-      const dayOfWeek = now.getDay();
-      const currentTime = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+      const dueItems = await db
+        .select({ id: contentPlanItemsTable.id })
+        .from(contentPlanItemsTable)
+        .where(
+          and(
+            inArray(contentPlanItemsTable.status, ["draft", "scripted"]),
+            lte(contentPlanItemsTable.scheduledAt, now)
+          )
+        )
+        .limit(1);
 
-      const shouldRun =
-        automation.daysOfWeek?.includes(dayOfWeek) &&
-        automation.postingTimes?.some((t) => t === currentTime);
+      if (dueItems.length === 0) return;
 
-      if (shouldRun) {
-        logger.info("Scheduled automation cycle triggered");
-        const result = await runAutomationCycle();
+      logger.info({ itemId: dueItems[0].id }, "Scheduled automation cycle triggered");
+      const result = await runAutomationCycle();
 
-        await db
-          .update(automationConfigTable)
-          .set({
-            lastRunAt: now,
-            lastRunStatus: result.success ? "success" : `failed: ${result.message}`,
-            updatedAt: now,
-          })
-          .where(eq(automationConfigTable.id, automation.id));
-      }
+      await db
+        .update(automationConfigTable)
+        .set({
+          lastRunAt: now,
+          lastRunStatus: result.success ? "success" : `failed: ${result.message}`,
+          updatedAt: now,
+        })
+        .where(eq(automationConfigTable.id, automation.id));
     } catch (err) {
       logger.error({ err }, "Error in scheduled automation cycle");
+    } finally {
+      cycleRunning = false;
     }
   });
 

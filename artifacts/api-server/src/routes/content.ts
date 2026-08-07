@@ -1,7 +1,8 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { contentPlanItemsTable, settingsTable } from "@workspace/db";
-import { eq, desc, and } from "drizzle-orm";
+import { contentPlanItemsTable, settingsTable, automationConfigTable } from "@workspace/db";
+import { eq, and, sql, isNotNull, gte } from "drizzle-orm";
+import { computeUpcomingSlots } from "../lib/schedule";
 import {
   GetContentPlanQueryParams,
   GetContentPlanResponse,
@@ -52,7 +53,10 @@ router.get("/content/plan", async (req, res): Promise<void> => {
     .select()
     .from(contentPlanItemsTable)
     .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .orderBy(desc(contentPlanItemsTable.createdAt))
+    .orderBy(
+      sql`${contentPlanItemsTable.scheduledAt} ASC NULLS LAST`,
+      contentPlanItemsTable.createdAt
+    )
     .limit(limit);
 
   res.json(GetContentPlanResponse.parse(items.map(mapItem)));
@@ -74,22 +78,45 @@ router.post("/content/plan/generate", async (req, res): Promise<void> => {
   const existingItems = await db.select({ topic: contentPlanItemsTable.topic }).from(contentPlanItemsTable).limit(20);
   const existingTopics = existingItems.map((i) => i.topic);
 
+  // Compute publishing slots from the automation schedule (days of week + times)
+  const [automation] = await db.select().from(automationConfigTable).limit(1);
+  const now = new Date();
+  const futureScheduled = await db
+    .select({ scheduledAt: contentPlanItemsTable.scheduledAt })
+    .from(contentPlanItemsTable)
+    .where(and(isNotNull(contentPlanItemsTable.scheduledAt), gte(contentPlanItemsTable.scheduledAt, now)));
+
+  const postsPerDay = parsed.data.posts_per_day ?? 1;
+  const slots = computeUpcomingSlots({
+    daysOfWeek: automation?.daysOfWeek ?? [1, 2, 3, 4, 5],
+    postingTimes: automation?.postingTimes ?? ["09:00"],
+    timezone: automation?.timezone ?? "America/Buenos_Aires",
+    scheduledDays: parsed.data.days,
+    postsPerDay,
+    occupied: futureScheduled.map((r) => r.scheduledAt!).filter(Boolean),
+  });
+
+  if (slots.length === 0) {
+    res.status(400).json({ error: "No hay horarios disponibles: revisá los días y horas en Automatización" });
+    return;
+  }
+
   const topics = await generateContentTopics(
     niche,
     keywords,
     tone,
     language,
     parsed.data.days,
-    parsed.data.posts_per_day ?? 1,
+    postsPerDay,
     existingTopics
   );
 
   const inserted = await db
     .insert(contentPlanItemsTable)
     .values(
-      topics.map((t) => ({
+      topics.slice(0, slots.length).map((t, i) => ({
         topic: t.topic,
-        scheduledAt: t.scheduled_at ? new Date(t.scheduled_at) : null,
+        scheduledAt: slots[i],
         status: "draft",
       }))
     )

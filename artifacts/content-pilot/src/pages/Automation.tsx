@@ -63,11 +63,12 @@ export default function Automation() {
     saveChange({ posting_times: formData.posting_times.filter((t: string) => t !== time) })
   }
 
+  const [newTime, setNewTime] = useState("12:00")
+
   const addTime = () => {
-    if (!formData?.posting_times) return
-    // Simplification for demo: add a default time
-    if (!formData.posting_times.includes("12:00")) {
-      saveChange({ posting_times: [...formData.posting_times, "12:00"].sort() })
+    if (!formData?.posting_times || !newTime) return
+    if (!formData.posting_times.includes(newTime)) {
+      saveChange({ posting_times: [...formData.posting_times, newTime].sort() })
     }
   }
 
@@ -159,9 +160,20 @@ export default function Automation() {
                   </div>
                 ))}
               </div>
-              <Button variant="outline" size="sm" onClick={addTime} className="w-full border-dashed">
-                <Plus className="w-4 h-4 mr-2" /> Añadir Horario
-              </Button>
+              <div className="flex gap-2">
+                <input
+                  type="time"
+                  value={newTime}
+                  onChange={(e) => setNewTime(e.target.value)}
+                  className="flex-1 h-9 rounded-md border bg-background px-3 text-sm"
+                />
+                <Button variant="outline" size="sm" onClick={addTime} className="border-dashed">
+                  <Plus className="w-4 h-4 mr-2" /> Añadir
+                </Button>
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-2">
+                Cada horario es un video por día: añadí más horarios para publicar varios videos al día.
+              </p>
             </CardContent>
           </Card>
 
