@@ -28,6 +28,8 @@ export * from './getVideosParams';
 export * from './getVideosStatus';
 export * from './healthStatus';
 export * from './heyGenAvatar';
+export * from './heyGenAvatarGroup';
+export * from './heyGenGroupLook';
 export * from './heyGenVoice';
 export * from './instagramAccount';
 export * from './instagramAccountStatus';

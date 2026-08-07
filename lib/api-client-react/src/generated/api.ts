@@ -37,6 +37,8 @@ import type {
   GetVideosParams,
   HealthStatus,
   HeyGenAvatar,
+  HeyGenAvatarGroup,
+  HeyGenGroupLook,
   HeyGenVoice,
   InstagramAccount,
   InstagramAccountStatus,
@@ -833,6 +835,160 @@ export function useGetHeyGenVoices<TData = Awaited<ReturnType<typeof getHeyGenVo
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetHeyGenVoicesQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetHeyGenAvatarGroupsUrl = () => {
+
+
+
+
+  return `/api/heygen/avatar-groups`
+}
+
+/**
+ * @summary List the user's own avatar groups (each group is a person with multiple looks)
+ */
+export const getHeyGenAvatarGroups = async ( options?: Parameters<typeof customFetch>[1]): Promise<HeyGenAvatarGroup[]> => {
+
+  return customFetch<HeyGenAvatarGroup[]>(getGetHeyGenAvatarGroupsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetHeyGenAvatarGroupsQueryKey = () => {
+    return [
+    `/api/heygen/avatar-groups`
+    ] as const;
+    }
+
+
+export const getGetHeyGenAvatarGroupsQueryOptions = <TData = Awaited<ReturnType<typeof getHeyGenAvatarGroups>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHeyGenAvatarGroups>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetHeyGenAvatarGroupsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getHeyGenAvatarGroups>>> = ({ signal }) => getHeyGenAvatarGroups({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getHeyGenAvatarGroups>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetHeyGenAvatarGroupsQueryResult = NonNullable<Awaited<ReturnType<typeof getHeyGenAvatarGroups>>>
+export type GetHeyGenAvatarGroupsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List the user's own avatar groups (each group is a person with multiple looks)
+ */
+
+export function useGetHeyGenAvatarGroups<TData = Awaited<ReturnType<typeof getHeyGenAvatarGroups>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHeyGenAvatarGroups>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetHeyGenAvatarGroupsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetHeyGenGroupLooksUrl = (id: string,) => {
+
+
+
+
+  return `/api/heygen/avatar-groups/${id}/looks`
+}
+
+/**
+ * @summary List the looks of an avatar group (ids are ready to use as avatar ids)
+ */
+export const getHeyGenGroupLooks = async (id: string, options?: Parameters<typeof customFetch>[1]): Promise<HeyGenGroupLook[]> => {
+
+  return customFetch<HeyGenGroupLook[]>(getGetHeyGenGroupLooksUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetHeyGenGroupLooksQueryKey = (id: string,) => {
+    return [
+    `/api/heygen/avatar-groups/${id}/looks`
+    ] as const;
+    }
+
+
+export const getGetHeyGenGroupLooksQueryOptions = <TData = Awaited<ReturnType<typeof getHeyGenGroupLooks>>, TError = ErrorType<unknown>>(id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHeyGenGroupLooks>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetHeyGenGroupLooksQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getHeyGenGroupLooks>>> = ({ signal }) => getHeyGenGroupLooks(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getHeyGenGroupLooks>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetHeyGenGroupLooksQueryResult = NonNullable<Awaited<ReturnType<typeof getHeyGenGroupLooks>>>
+export type GetHeyGenGroupLooksQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List the looks of an avatar group (ids are ready to use as avatar ids)
+ */
+
+export function useGetHeyGenGroupLooks<TData = Awaited<ReturnType<typeof getHeyGenGroupLooks>>, TError = ErrorType<unknown>>(
+ id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHeyGenGroupLooks>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetHeyGenGroupLooksQueryOptions(id,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

@@ -5,11 +5,13 @@ import { eq } from "drizzle-orm";
 import {
   GetHeyGenAvatarsResponse,
   GetHeyGenVoicesResponse,
+  GetHeyGenAvatarGroupsResponse,
+  GetHeyGenGroupLooksResponse,
   GetAvatarConfigResponse,
   UpdateAvatarConfigBody,
   UpdateAvatarConfigResponse,
 } from "@workspace/api-zod";
-import { listAvatars, listVoices } from "../lib/heygen";
+import { listAvatars, listVoices, listAvatarGroups, listGroupLooks } from "../lib/heygen";
 
 const router = Router();
 
@@ -37,6 +39,44 @@ router.get("/heygen/voices", async (req, res): Promise<void> => {
     is_cloned: v.is_clone ?? false,
   }));
   res.json(GetHeyGenVoicesResponse.parse(mapped));
+});
+
+router.get("/heygen/avatar-groups", async (req, res): Promise<void> => {
+  const groups = await listAvatarGroups();
+  const mapped = groups.map((g) => ({
+    id: g.id,
+    name: g.name,
+    group_type: g.group_type,
+    num_looks: g.num_looks,
+    preview_image_url: g.preview_image ?? null,
+  }));
+  res.json(GetHeyGenAvatarGroupsResponse.parse(mapped));
+});
+
+router.get("/heygen/avatar-groups/:id/looks", async (req, res): Promise<void> => {
+  const groupId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const groups = await listAvatarGroups();
+  const group = groups.find((g) => g.id === groupId);
+  if (!group) {
+    res.status(404).json({ error: "Avatar no encontrado" });
+    return;
+  }
+  const looks = await listGroupLooks(groupId);
+  // Looks come in two shapes: video avatars ({avatar_id, avatar_name, preview_image_url})
+  // and talking photos ({id, name, image_url}). Prefix talking photos with "tp:" so
+  // video generation uses the right character type.
+  const mapped = looks
+    .map((l: any) => {
+      if (l.avatar_id) {
+        return { id: l.avatar_id, name: l.avatar_name ?? "Look", image_url: l.preview_image_url ?? null };
+      }
+      if (l.id) {
+        return { id: `tp:${l.id}`, name: l.name ?? "Look", image_url: l.image_url ?? null };
+      }
+      return null;
+    })
+    .filter((l): l is { id: string; name: string; image_url: string | null } => l !== null);
+  res.json(GetHeyGenGroupLooksResponse.parse(mapped));
 });
 
 router.get("/heygen/avatar-config", async (req, res): Promise<void> => {

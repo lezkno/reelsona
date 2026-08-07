@@ -178,6 +178,34 @@ export const GetHeyGenVoicesResponse = zod.array(GetHeyGenVoicesResponseItem)
 
 
 /**
+ * @summary List the user's own avatar groups (each group is a person with multiple looks)
+ */
+export const GetHeyGenAvatarGroupsResponseItem = zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "group_type": zod.string(),
+  "num_looks": zod.number(),
+  "preview_image_url": zod.string().nullable()
+})
+export const GetHeyGenAvatarGroupsResponse = zod.array(GetHeyGenAvatarGroupsResponseItem)
+
+
+/**
+ * @summary List the looks of an avatar group (ids are ready to use as avatar ids)
+ */
+export const GetHeyGenGroupLooksParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const GetHeyGenGroupLooksResponseItem = zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "image_url": zod.string().nullable()
+})
+export const GetHeyGenGroupLooksResponse = zod.array(GetHeyGenGroupLooksResponseItem)
+
+
+/**
  * @summary Get avatar rotation config
  */
 export const GetAvatarConfigResponse = zod.object({

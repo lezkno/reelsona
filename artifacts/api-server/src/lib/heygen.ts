@@ -36,6 +36,33 @@ export async function listAvatars(): Promise<HeyGenAvatar[]> {
   return avatars;
 }
 
+export interface HeyGenAvatarGroup {
+  id: string;
+  name: string;
+  group_type: string;
+  num_looks: number;
+  preview_image: string | null;
+}
+
+export interface HeyGenGroupLook {
+  id: string;
+  name: string;
+  image_url: string | null;
+  motion_preview_url?: string | null;
+}
+
+export async function listAvatarGroups(): Promise<HeyGenAvatarGroup[]> {
+  const client = getClient();
+  const res = await client.get("/v2/avatar_group.list", { params: { include_public: false } });
+  return res.data?.data?.avatar_group_list ?? [];
+}
+
+export async function listGroupLooks(groupId: string): Promise<HeyGenGroupLook[]> {
+  const client = getClient();
+  const res = await client.get(`/v2/avatar_group/${groupId}/avatars`);
+  return res.data?.data?.avatar_list ?? [];
+}
+
 export async function listVoices(): Promise<HeyGenVoice[]> {
   const client = getClient();
   const res = await client.get("/v2/voices");
@@ -66,11 +93,16 @@ export async function generateVideo(params: GenerateVideoParams): Promise<string
   const payload = {
     video_inputs: [
       {
-        character: {
-          type: "avatar",
-          avatar_id: params.avatar_id,
-          avatar_style: "normal",
-        },
+        character: params.avatar_id.startsWith("tp:")
+          ? {
+              type: "talking_photo",
+              talking_photo_id: params.avatar_id.slice(3),
+            }
+          : {
+              type: "avatar",
+              avatar_id: params.avatar_id,
+              avatar_style: "normal",
+            },
         voice: {
           type: "text",
           input_text: params.script,

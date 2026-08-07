@@ -178,6 +178,42 @@ paths:
                 items:
                   $ref: "#/components/schemas/HeyGenVoice"
 
+  /heygen/avatar-groups:
+    get:
+      operationId: getHeyGenAvatarGroups
+      tags: [heygen]
+      summary: List the user's own avatar groups (each group is a person with multiple looks)
+      responses:
+        "200":
+          description: Avatar groups
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/HeyGenAvatarGroup"
+
+  /heygen/avatar-groups/{id}/looks:
+    get:
+      operationId: getHeyGenGroupLooks
+      tags: [heygen]
+      summary: List the looks of an avatar group (ids are ready to use as avatar ids)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Looks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/HeyGenGroupLook"
+
   /heygen/avatar-config:
     get:
       operationId: getAvatarConfig
@@ -702,6 +738,32 @@ components:
         - recommended_topics
         - content_insights
         - generated_at
+
+    HeyGenAvatarGroup:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        group_type:
+          type: string
+        num_looks:
+          type: number
+        preview_image_url:
+          type: ["string", "null"]
+      required: [id, name, group_type, num_looks, preview_image_url]
+
+    HeyGenGroupLook:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        image_url:
+          type: ["string", "null"]
+      required: [id, name, image_url]
 
     HeyGenAvatar:
       type: object

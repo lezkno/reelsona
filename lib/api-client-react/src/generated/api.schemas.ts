@@ -101,6 +101,22 @@ export interface AuditResult {
   generated_at: string;
 }
 
+export interface HeyGenAvatarGroup {
+  id: string;
+  name: string;
+  group_type: string;
+  num_looks: number;
+  /** @nullable */
+  preview_image_url: string | null;
+}
+
+export interface HeyGenGroupLook {
+  id: string;
+  name: string;
+  /** @nullable */
+  image_url: string | null;
+}
+
 export interface HeyGenAvatar {
   avatar_id: string;
   avatar_name: string;
