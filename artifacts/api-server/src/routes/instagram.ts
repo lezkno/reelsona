@@ -158,7 +158,7 @@ router.get("/instagram/audit", async (req, res): Promise<void> => {
     media.map(async (m: { id: string; media_type: string; thumbnail_url?: string; permalink?: string; caption?: string; like_count: number; comments_count: number; timestamp: string }) => {
       const insights = await getMediaInsights(account.accessToken, m.id, m.media_type);
       const reach = insights.reach ?? 0;
-      const engagements = (m.like_count ?? 0) + (m.comments_count ?? 0) + (insights.saves ?? 0);
+      const engagements = (m.like_count ?? 0) + (m.comments_count ?? 0) + (insights.saved ?? 0);
       const engagementRate = reach > 0 ? (engagements / reach) * 100 : 0;
       return {
         id: m.id,
@@ -169,8 +169,8 @@ router.get("/instagram/audit", async (req, res): Promise<void> => {
         like_count: m.like_count ?? 0,
         comments_count: m.comments_count ?? 0,
         reach: reach || null,
-        impressions: insights.impressions ?? null,
-        plays: insights.plays ?? null,
+        impressions: insights.views ?? null,
+        plays: insights.views ?? null,
         engagement_rate: engagementRate || null,
         timestamp: m.timestamp,
       };

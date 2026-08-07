@@ -77,10 +77,12 @@ export async function getMediaList(accessToken: string, userId: string, limit = 
 }
 
 export async function getMediaInsights(accessToken: string, mediaId: string, mediaType: string) {
+  // Note: "plays" and (for reels) "impressions" were removed from the IG API.
+  // "views" replaces plays; "saved" counts saves.
   const metrics =
     mediaType === "VIDEO" || mediaType === "REELS"
-      ? "reach,impressions,plays,likes,comments"
-      : "reach,impressions,likes,comments";
+      ? "reach,views,likes,comments,saved"
+      : "reach,views,likes,comments,saved";
   try {
     const res = await axios.get(`${IG_GRAPH_BASE}/${mediaId}/insights`, {
       params: { metric: metrics, access_token: accessToken },
