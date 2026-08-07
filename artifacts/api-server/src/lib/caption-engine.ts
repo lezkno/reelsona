@@ -359,19 +359,17 @@ function isEmphasisWord(raw: string): boolean {
 }
 
 function buildDimidiumASS(
-  wordTimings: WordTiming[],
+  blocks: SRTBlock[],
   config: CaptionStyle,
   videoWidth = 1080,
   videoHeight = 1920
 ): string {
   const fontName     = resolveFontName(config.fontFamily);
-  const largeSize    = config.fontSize;                       // e.g. 80
-  const smallSize    = Math.round(config.fontSize * 0.56);   // e.g. 45
-  const accentColor  = hexToAss(config.activeWordColor);     // yellow
-  const primaryColor = hexToAss(config.primaryColor);        // white
+  const largeSize    = config.fontSize;                      // e.g. 82
+  const smallSize    = Math.round(config.fontSize * 0.56);  // e.g. 46
+  const accentColor  = hexToAss(config.activeWordColor);    // yellow
+  const primaryColor = hexToAss(config.primaryColor);       // white
   const outlineColor = hexToAss(config.outlineColor);
-
-  // Thick outline for large text; thinner for small
   const outlineW = 4;
   const shadowD  = 2;
 
@@ -390,66 +388,106 @@ Style: Caption,${fontName},${largeSize},${primaryColor},${accentColor},${outline
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`;
 
-  // Group word timings into display lines
-  const wordsPerLine = Math.max(2, config.wordsPerLine);
-  interface DisplayLine { words: WordTiming[]; start: number; end: number; text: string }
-  const lines: DisplayLine[] = [];
+  // ─── Per-block word structures ──────────────────────────────────────────────
+  // Each SRT block becomes ONE display line.
+  // Words within a block are extracted with proportional timing so they
+  // appear one by one as they're spoken.
 
-  for (let i = 0; i < wordTimings.length; i += wordsPerLine) {
-    const chunk = wordTimings.slice(i, i + wordsPerLine);
-    if (!chunk.length) continue;
-
-    // Build mixed-size ASS text — preserve original casing
-    const textParts = chunk.map((w) => {
-      if (isEmphasisWord(w.text)) {
-        // Large + accent color + slightly bolder spacing
-        return `{\\fs${largeSize}\\c${accentColor}}${w.text}`;
-      } else {
-        // Small + primary color
-        return `{\\fs${smallSize}\\c${primaryColor}}${w.text}`;
-      }
-    });
-
-    lines.push({
-      words: chunk,
-      start: chunk[0].start,
-      end:   chunk[chunk.length - 1].end,
-      text:  textParts.join(" "),
-    });
+  interface DimWord {
+    text: string;
+    start: number;
+    end: number;
+    isEmphasis: boolean;
   }
+  interface DimLine { words: DimWord[] }
+
+  const lines: DimLine[] = blocks
+    .map((block) => {
+      const words = block.text.split(/\s+/).filter(Boolean);
+      if (!words.length) return null;
+      const blockDuration = block.end - block.start;
+      const totalChars = words.reduce((s, w) => s + w.length, 0) || 1;
+      let cursor = block.start;
+      const dimWords: DimWord[] = words.map((w, i) => {
+        const dur = Math.round((w.length / totalChars) * blockDuration);
+        const end = i === words.length - 1 ? block.end : cursor + dur;
+        const dw: DimWord = { text: w, start: cursor, end, isEmphasis: isEmphasisWord(w) };
+        cursor = end;
+        return dw;
+      });
+      return { words: dimWords };
+    })
+    .filter((l): l is DimLine => l !== null);
 
   if (!lines.length) return `${header}\n`;
 
-  // Vertical stacking: lines stack bottom → top
-  // Each line is visible for MAX_VISIBLE_LINES "slots" then disappears
-  const MAX_VISIBLE_LINES = 4;
-  const CENTER_X    = Math.round(videoWidth / 2);
-  const lineSpacing = Math.round(videoHeight * 0.088); // ~169px at 1920
-  const baseY       = videoHeight - 70;               // bottom anchor
+  // ─── Helpers ────────────────────────────────────────────────────────────────
 
-  // slotY[0] = bottom (newest), slotY[3] = top (oldest visible)
-  const slotY = Array.from({ length: MAX_VISIBLE_LINES }, (_, s) => baseY - s * lineSpacing);
+  /** Build ASS inline text for a line, including words [0 .. upToPos] */
+  function lineText(line: DimLine, upToPos: number): string {
+    return line.words
+      .slice(0, upToPos + 1)
+      .map((w) =>
+        w.isEmphasis
+          ? `{\\fs${largeSize}\\c${accentColor}}${w.text}`
+          : `{\\fs${smallSize}\\c${primaryColor}}${w.text}`
+      )
+      .join(" ");
+  }
+
+  // ─── Vertical layout ────────────────────────────────────────────────────────
+  const MAX_SLOTS   = 4;
+  const CENTER_X    = Math.round(videoWidth / 2);
+  const lineSpacing = Math.round(videoHeight * 0.085); // ~163 px at 1920
+  const baseY       = videoHeight - 80;
+
+  // slotY[0] = bottom (newest line), slotY[3] = top (oldest visible)
+  const slotY = Array.from({ length: MAX_SLOTS }, (_, s) => baseY - s * lineSpacing);
+
+  // ─── Dialogue generation ────────────────────────────────────────────────────
+  //
+  // For each "state" — the interval between word i appearing and word i+1 appearing —
+  // we emit up to MAX_SLOTS Dialogue entries:
+  //   slot 0: current block in progress, text built up to word wi
+  //   slot 1: previous block, complete text
+  //   slot 2: block before that, complete text
+  //   slot 3: block before that, complete text
+  //
+  // This creates the exact word-by-word reveal + line-stacking push-up seen in the
+  // reference Dimidium video.
 
   const dialogues: string[] = [];
 
   for (let li = 0; li < lines.length; li++) {
     const line = lines[li];
 
-    for (let slot = 0; slot < MAX_VISIBLE_LINES; slot++) {
-      // This line occupies slot `slot` when line `li + slot` is the current newest line.
-      const newestIdx = li + slot;
-      if (newestIdx >= lines.length) break; // no more lines → this slot never appears
+    for (let wi = 0; wi < line.words.length; wi++) {
+      const word = line.words[wi];
 
-      const slotStart = lines[newestIdx].start;
-      const slotEnd   = newestIdx + 1 < lines.length
-        ? lines[newestIdx + 1].start
-        : lines[lines.length - 1].end + 800; // linger 800ms after last word
+      // End of this state = start of next word (or next block's first word, or end)
+      const nextWord =
+        wi + 1 < line.words.length
+          ? line.words[wi + 1]
+          : li + 1 < lines.length
+            ? lines[li + 1].words[0]
+            : null;
 
-      const yPos = slotY[slot]; // bottom when slot=0, rises as slot increases
+      const stateStart = word.start;
+      const stateEnd   = nextWord ? nextWord.start : word.end + 800;
 
-      dialogues.push(
-        `Dialogue: 0,${msToAssTime(slotStart)},${msToAssTime(slotEnd)},Caption,,0,0,0,,{\\an2\\pos(${CENTER_X},${yPos})}${line.text}`
-      );
+      for (let slot = 0; slot < MAX_SLOTS; slot++) {
+        const lineIdx = li - slot;
+        if (lineIdx < 0) break;
+
+        const text =
+          slot === 0
+            ? lineText(lines[lineIdx], wi)                              // in progress
+            : lineText(lines[lineIdx], lines[lineIdx].words.length - 1); // complete
+
+        dialogues.push(
+          `Dialogue: 0,${msToAssTime(stateStart)},${msToAssTime(stateEnd)},Caption,,0,0,0,,{\\an2\\pos(${CENTER_X},${slotY[slot]})}${text}`
+        );
+      }
     }
   }
 
@@ -467,7 +505,7 @@ function buildASS(
   const wordTimings = extractWordTimings(blocks);
 
   if (config.highlightMode === "mixed") {
-    return buildDimidiumASS(wordTimings, config, videoWidth, videoHeight);
+    return buildDimidiumASS(blocks, config, videoWidth, videoHeight);
   } else if (config.highlightMode === "color") {
     return buildHighlightLineASS(wordTimings, config, videoWidth, videoHeight);
   } else {
