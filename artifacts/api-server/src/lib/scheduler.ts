@@ -165,14 +165,17 @@ export async function runAutomationCycle(targetItemId?: number): Promise<{
       settings.videoDurationSeconds
     );
 
-    const avatarId = pickNextAvatar(
-      avatarCfg.selectedAvatarIds,
-      avatarCfg.lastUsedAvatarId,
-      avatarCfg.rotationStrategy,
-      avatarCfg.avatarUsageCount as Record<string, number>
-    );
+    // Respect a manually chosen avatar/voice on the item; only fill from rotation if missing
+    const avatarId =
+      draft.avatarId ??
+      pickNextAvatar(
+        avatarCfg.selectedAvatarIds,
+        avatarCfg.lastUsedAvatarId,
+        avatarCfg.rotationStrategy,
+        avatarCfg.avatarUsageCount as Record<string, number>
+      );
 
-    const voiceId = await resolveVoiceId(avatarId);
+    const voiceId = draft.voiceId ?? (await resolveVoiceId(avatarId));
 
     await db
       .update(contentPlanItemsTable)
