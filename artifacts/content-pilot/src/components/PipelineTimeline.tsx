@@ -3,7 +3,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
-import { FileText, UserSquare2, Send, CheckCircle2, Clock, AlertTriangle, Loader2 } from "lucide-react"
+import { FileText, UserSquare2, Hash, Send, CheckCircle2, Clock, AlertTriangle, Loader2 } from "lucide-react"
 
 /**
  * Production pipeline (matches the automation engine):
@@ -12,19 +12,23 @@ import { FileText, UserSquare2, Send, CheckCircle2, Clock, AlertTriangle, Loader
  * 3. Publicar en IG   — the Reel is uploaded and published on Instagram (~2-5 min)
  */
 const STEPS = [
-  { key: "script", label: "Guion y Caption", desc: "La IA escribe el guion, hook y caption", eta: "~1 min", icon: FileText },
+  { key: "script", label: "Guion", desc: "La IA escribe el guion y el hook", eta: "~1 min", icon: FileText },
   { key: "video", label: "Video con Avatar", desc: "HeyGen crea el video con tu avatar", eta: "~5-15 min", icon: UserSquare2 },
+  { key: "caption", label: "Caption y Hashtags", desc: "La IA prepara el caption y los # para IG", eta: "~1 min", icon: Hash },
   { key: "publish", label: "Publicar en Instagram", desc: "Se sube y publica el Reel", eta: "~2-5 min", icon: Send },
 ] as const
 
-// status → { currentStep (0-based, -1 = not started, 3 = all done), percent }
-const STATUS_MAP: Record<string, { step: number, percent: number }> = {
-  draft: { step: -1, percent: 0 },
-  scripted: { step: 1, percent: 35 },
-  generating: { step: 1, percent: 60 },
-  ready: { step: 2, percent: 85 },
-  published: { step: 3, percent: 100 },
-  failed: { step: -1, percent: 0 },
+// status → { currentStep (0-based, -1 = not started, 4 = all done), percent }
+function getProgress(item: ContentPlanItem): { step: number, percent: number } {
+  const hasCaption = Boolean(item.caption)
+  switch (item.status) {
+    case "draft": return { step: -1, percent: 0 }
+    case "scripted": return { step: 1, percent: hasCaption ? 35 : 30 }
+    case "generating": return { step: 1, percent: 55 }
+    case "ready": return hasCaption ? { step: 3, percent: 90 } : { step: 2, percent: 75 }
+    case "published": return { step: 4, percent: 100 }
+    default: return { step: -1, percent: 0 }
+  }
 }
 
 function pickActiveItem(items: ContentPlanItem[]): { item: ContentPlanItem, mode: "processing" | "next" | "done" } | null {
@@ -52,7 +56,7 @@ export default function PipelineTimeline() {
   if (!active) return null
 
   const { item, mode } = active
-  const { step, percent } = STATUS_MAP[item.status] ?? { step: -1, percent: 0 }
+  const { step, percent } = getProgress(item)
   const scheduled = item.scheduled_at ? new Date(item.scheduled_at) : null
 
   return (
@@ -80,7 +84,7 @@ export default function PipelineTimeline() {
 
         <Progress value={percent} className="h-1.5 mb-4" />
 
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           {STEPS.map((s, i) => {
             const Icon = s.icon
             const done = step > i

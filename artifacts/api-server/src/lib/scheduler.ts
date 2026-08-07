@@ -257,6 +257,30 @@ export async function publishVideoToInstagram(videoId: number, videoUrl?: string
   let caption = "";
   if (video.contentPlanId) {
     const [item] = await db.select().from(contentPlanItemsTable).where(eq(contentPlanItemsTable.id, video.contentPlanId));
+
+    // Safety net: if the item reached publishing without a caption, generate it now
+    if (item && !item.caption) {
+      try {
+        const [settings] = await db.select().from(settingsTable).limit(1);
+        const result = await generateScript(
+          item.topic,
+          settings?.niche ?? "marketing digital",
+          settings?.tone ?? "casual",
+          settings?.language ?? "es",
+          settings?.videoDurationSeconds ?? 60
+        );
+        await db
+          .update(contentPlanItemsTable)
+          .set({ caption: result.caption, hashtags: result.hashtags, updatedAt: new Date() })
+          .where(eq(contentPlanItemsTable.id, item.id));
+        item.caption = result.caption;
+        item.hashtags = result.hashtags;
+        logger.info({ itemId: item.id }, "Caption generated before publishing");
+      } catch (err) {
+        logger.error({ itemId: item.id, err }, "Failed to generate caption before publishing; publishing without it");
+      }
+    }
+
     caption = [item?.caption, item?.hashtags].filter(Boolean).join("\n\n");
   }
 
