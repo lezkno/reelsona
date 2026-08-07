@@ -35,7 +35,7 @@ router.get("/heygen/voices", async (req, res): Promise<void> => {
     name: v.name,
     language: v.language ?? "es",
     gender: v.gender ?? null,
-    preview_audio_url: v.preview_audio_url ?? null,
+    preview_audio_url: (v as any).preview_audio ?? v.preview_audio_url ?? null,
     is_cloned: v.is_clone ?? false,
   }));
   res.json(GetHeyGenVoicesResponse.parse(mapped));
