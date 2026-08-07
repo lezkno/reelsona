@@ -37,13 +37,20 @@ Crea un guion de video para un Reel de Instagram con estas especificaciones:
 - Idioma: ${language}
 - Duración aproximada: ${durationSeconds} segundos (~${wordCount} palabras)
 
+REGLAS OBLIGATORIAS para el campo "script":
+1. El guion DEBE terminar con una llamada a la acción clara y directa hablada por el avatar (ej: "Seguime para más tips como este", "Guardá este video y ponelo en práctica hoy", "Comentá abajo si te pasó esto").
+2. La ÚLTIMA oración del guion SIEMPRE debe ser: "Este video fue creado con inteligencia artificial. Seguime para más contenido como este." — exactamente así, integrado de forma natural en el cierre.
+3. El hook debe ser la primera frase del guion (ya incluida dentro de "script").
+4. Sin indicaciones de escena, sin corchetes, sin asteriscos — solo texto hablado corrido.
+5. El tono debe sentirse conversacional, no como un comercial.
+
 Devuelve SOLO un JSON válido con esta estructura exacta:
 {
   "hook": "Primera frase gancho (primeros 3 segundos, que detenga el scroll)",
-  "script": "El guion completo que leerá el avatar, incluyendo el hook al inicio. Solo texto hablado, sin indicaciones de escena.",
-  "cta": "Llamada a la acción al final (breve, directa)",
-  "caption": "Caption para Instagram (2-3 oraciones atractivas)",
-  "hashtags": "#hashtag1 #hashtag2 #hashtag3 (10-15 hashtags relevantes)",
+  "script": "El guion completo que leerá el avatar. Debe incluir: hook al inicio → desarrollo → CTA hablado → divulgación IA al final.",
+  "cta": "La llamada a la acción principal (la misma que está dentro del script, extraída aquí brevemente)",
+  "caption": "Caption para Instagram (2-3 oraciones atractivas que complementen el video)",
+  "hashtags": "#hashtag1 #hashtag2 #hashtag3 (10-15 hashtags relevantes y específicos al tema)",
   "estimated_duration_seconds": ${durationSeconds}
 }`;
 
@@ -66,6 +73,27 @@ export interface ContentPlanTopic {
   scheduled_at: string;
 }
 
+// Topic categories for a varied, high-performing content mix
+const TOPIC_CATEGORIES = `
+Distribuye los temas en estas proporciones aproximadas:
+  - 35% EVERGREEN: tips prácticos y accionables que siempre son útiles
+  - 30% TRENDING/NOTICIAS: temas que reaccionan a cambios recientes en el nicho (actualizaciones de algoritmos de Instagram/TikTok 2025-2026, nuevas funciones de IA, cambios en plataformas de ecommerce, reportes de tendencias del sector)
+  - 20% EDUCACIONAL: explicaciones de conceptos, comparaciones, "qué es X y cómo usarlo"
+  - 15% SOCIAL PROOF / CASO DE USO: resultados reales, errores comunes, mitos vs realidades
+
+Formatos a alternar (no repetir el mismo más de 3 veces seguidas):
+  - "El mayor error que cometen [audiencia] con [X]"
+  - "Por qué [plataforma/herramienta] cambió todo para [nicho] en 2025"
+  - "Lo que nadie te dice sobre [X]"
+  - "Cómo [beneficio específico] en menos de [tiempo]"
+  - "ChatGPT / IA para [tarea específica del nicho]: guía rápida"
+  - "La actualización de [plataforma] que [audiencia] necesita conocer"
+  - "Mito vs realidad: [creencia común del nicho]"
+  - "[Número] señales de que tu [X] está funcionando"
+  - "El secreto detrás de [resultado que la audiencia quiere]"
+  - "Esto que hacías antes ya no funciona — hacé esto en cambio"
+`.trim();
+
 export async function generateContentTopics(
   niche: string,
   keywords: string[],
@@ -78,27 +106,31 @@ export async function generateContentTopics(
   const client = getClient();
   const total = days * postsPerDay;
 
-  const prompt = `Eres un estratega de contenido para Instagram Reels.
+  const prompt = `Eres un estratega de contenido para Instagram Reels especializado en crecimiento orgánico.
 
 Genera un plan de contenido con ${total} temas únicos para el siguiente nicho:
 - Nicho: ${niche}
 - Palabras clave principales: ${keywords.join(", ")}
 - Tono de comunicación: ${tone}
 - Idioma: ${language}
-- Temas que funcionaron bien antes: ${topPerformingTopics.slice(0, 5).join(", ") || "N/A"}
+- Temas que funcionaron bien antes (no repetir): ${topPerformingTopics.slice(0, 5).join(", ") || "N/A"}
 
-Reglas:
-- Los temas deben ser variados: tips prácticos, educativos, inspiracionales, trending
-- Cada tema debe ser específico y accionable, no genérico
-- Alternar entre diferentes formatos: "cómo hacer X", "error que cometes con X", "secreto de X", etc.
-- Los temas deben programarse a lo largo de ${days} días
+${TOPIC_CATEGORIES}
+
+Reglas adicionales:
+- Cada tema debe ser específico y accionable — evitar títulos genéricos como "Tips de marketing"
+- Los temas TRENDING deben mencionar contexto actual: algoritmos 2025, IA generativa, cambios recientes en plataformas (Instagram, TikTok, LinkedIn, Shopify, etc.)
+- Cada tema debe poder desarrollarse en un Reel de 45-75 segundos
+- No repetir temas de la lista "que funcionaron bien antes"
+- Los temas deben programarse a lo largo de ${days} días, máximo ${postsPerDay} por día
 
 Devuelve SOLO un JSON válido con esta estructura:
 {
   "topics": [
     {
       "topic": "Título del tema específico",
-      "days_from_now": 0
+      "days_from_now": 0,
+      "category": "evergreen|trending|educacional|social_proof"
     }
   ]
 }
@@ -114,7 +146,7 @@ Genera exactamente ${total} temas.`;
   const content = res.choices[0]?.message?.content;
   if (!content) throw new Error("Empty response from AI");
 
-  const parsed = JSON.parse(content) as { topics: Array<{ topic: string; days_from_now: number }> };
+  const parsed = JSON.parse(content) as { topics: Array<{ topic: string; days_from_now: number; category?: string }> };
   const now = new Date();
 
   return parsed.topics.map((t) => {
