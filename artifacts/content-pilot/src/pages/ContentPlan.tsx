@@ -1,4 +1,3 @@
-import { useGetContentPlan, useGenerateContentPlan, useDeleteContentItem, useGenerateVideo, useUpdateContentItem, useCreateContentItem, useProcessContentItemNow, useGetHeyGenAllLooks, getGetContentPlanQueryKey, type ContentPlanItem } from "@workspace/api-client-react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -9,12 +8,14 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from "@/components/ui/label"
 import { format, isSameDay } from "date-fns"
 import { es } from "date-fns/locale"
-import { Wand2, Edit3, Trash2, Video, CheckCircle2, Clock, AlertTriangle, CalendarDays, Plus, Zap, Users, List, Calendar, Sparkles, RefreshCw, X, Check } from "lucide-react"
+import { useGetContentPlan, useGenerateContentPlan, useDeleteContentItem, useGenerateVideo, useUpdateContentItem, useCreateContentItem, useProcessContentItemNow, useGetHeyGenAllLooks, useGenerateScript, getGetContentPlanQueryKey, type ContentPlanItem } from "@workspace/api-client-react"
+import { Textarea } from "@/components/ui/textarea"
+import { Wand2, Edit3, Trash2, Video, CheckCircle2, Clock, AlertTriangle, CalendarDays, Plus, Zap, Users, List, Calendar, Loader2, FileText, RefreshCw, Sparkles, Check, X } from "lucide-react"
 import PipelineTimeline from "@/components/PipelineTimeline"
 import CalendarView from "@/components/CalendarView"
 import { useToast } from "@/hooks/use-toast"
 import { useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
+import { useState, useRef } from "react"
 
 const statusConfig: Record<string, { label: string, variant: string, icon: any }> = {
   draft: { label: "Borrador", variant: "outline", icon: Edit3 },
@@ -118,6 +119,15 @@ export default function ContentPlan() {
     setTopicSuggestion(null)
   }
 
+  // Script review modal state
+  const [scriptModalItem, setScriptModalItem] = useState<ContentPlanItem | null>(null)
+  const [scriptDraft, setScriptDraft] = useState<{ hook: string; script: string; cta: string } | null>(null)
+  const [scriptGenerating, setScriptGenerating] = useState(false)
+  const generateScript = useGenerateScript()
+  // Tracks which item's generation is currently in-flight so stale callbacks
+  // from a cancelled request never overwrite state for a different item.
+  const scriptGenerationItemIdRef = useRef<number | null>(null)
+
   // Derived from real API data — true if ANY item is currently being produced.
   // Used to block all manual generate buttons so only one HeyGen job runs at a time.
   const anyVideoInFlight = (allItems ?? []).some(
@@ -126,35 +136,106 @@ export default function ContentPlan() {
   // Combined disable flag: in-flight from real data OR local pending request
   const generateBlocked = anyVideoInFlight || processingId !== null
 
+  const closeScriptModal = () => {
+    // Clear the in-flight binding so any late-arriving callback is ignored
+    scriptGenerationItemIdRef.current = null
+    setScriptModalItem(null)
+    setScriptDraft(null)
+    setScriptGenerating(false)
+  }
+
+  /**
+   * Open the script review modal.
+   * - If the item already has a script, show it immediately.
+   * - If not, generate one via AI first (POST /content/script).
+   * The callback is bound to item.id via scriptGenerationItemIdRef so that
+   * a stale response arriving after the user cancels and opens a different
+   * item cannot overwrite the new item's state.
+   */
+  const handleOpenScriptReview = (item: ContentPlanItem) => {
+    // Reset state for the new item before starting
+    setScriptModalItem(item)
+    setScriptDraft(null)
+    setScriptGenerating(false)
+    scriptGenerationItemIdRef.current = null
+
+    if (item.hook || item.script || item.cta) {
+      // Existing script — show it right away, no generation needed
+      setScriptDraft({ hook: item.hook ?? "", script: item.script ?? "", cta: item.cta ?? "" })
+    } else {
+      // No script yet — generate one, binding the callback to this item's id
+      setScriptGenerating(true)
+      const boundItemId = item.id
+      scriptGenerationItemIdRef.current = boundItemId
+      generateScript.mutate({ data: { topic: item.topic } }, {
+        onSuccess: (result) => {
+          // Ignore if the user closed the modal or opened a different item
+          if (scriptGenerationItemIdRef.current !== boundItemId) return
+          setScriptDraft({ hook: result.hook, script: result.script, cta: result.cta })
+          setScriptGenerating(false)
+        },
+        onError: (err: any) => {
+          if (scriptGenerationItemIdRef.current !== boundItemId) return
+          closeScriptModal()
+          toast({ title: "No se pudo generar el guion", description: err?.data?.error ?? "Intentá de nuevo.", variant: "destructive" })
+        },
+      })
+    }
+  }
+
+  /**
+   * User approved the script (possibly with edits).
+   * Save it via PATCH (which auto-moves draft→scripted), then trigger video generation.
+   */
+  const handleApproveAndGenerate = () => {
+    if (!scriptModalItem || !scriptDraft) return
+    const item = scriptModalItem
+    const draft = scriptDraft
+
+    // Save script fields (moves draft to scripted if not already)
+    updateItem.mutate(
+      { id: item.id, data: { hook: draft.hook, script: draft.script, cta: draft.cta } },
+      {
+        onSuccess: () => {
+          // Now trigger video generation
+          generateVideo.mutate(
+            { data: { content_plan_id: item.id } },
+            {
+              onSuccess: () => {
+                setScriptModalItem(null)
+                setScriptDraft(null)
+                toast({ title: "Video Generándose", description: "HeyGen está creando el video. Esto puede tardar unos minutos." })
+                queryClient.invalidateQueries({ queryKey: getGetContentPlanQueryKey() })
+              },
+              onError: (err: any) => {
+                const msg = err?.data?.error ?? "No se pudo iniciar la generación del video."
+                toast({ title: "Error al generar video", description: msg, variant: "destructive" })
+                queryClient.invalidateQueries({ queryKey: getGetContentPlanQueryKey() })
+              },
+            }
+          )
+        },
+        onError: (err: any) => {
+          toast({ title: "Error al guardar guion", description: err?.data?.error ?? "No se pudo guardar el guion.", variant: "destructive" })
+        },
+      }
+    )
+  }
+
   const handleProcessNow = (id: number) => {
-    setProcessingId(id)
-    processNow.mutate({ id }, {
-      onSuccess: (r) => {
-        if (r.success) {
-          toast({ title: "Producción iniciada", description: "El video entró al pipeline: guion, video, caption y publicación." })
-        } else {
-          toast({ title: "No se pudo iniciar", description: r.message, variant: "destructive" })
-        }
-        queryClient.invalidateQueries({ queryKey: getGetContentPlanQueryKey() })
-      },
-      onError: (err: any) => {
-        toast({ title: "Error", description: err?.data?.error ?? "No se pudo iniciar la producción.", variant: "destructive" })
-      },
-      onSettled: () => setProcessingId(null),
-    })
+    const item = items?.find((i) => i.id === id)
+    if (item) {
+      // Open script review first instead of going straight to pipeline
+      handleOpenScriptReview(item)
+    }
   }
 
   const handleGenerateVideo = (id: number) => {
-    generateVideo.mutate({ data: { content_plan_id: id } }, {
-      onSuccess: () => {
-        toast({ title: "Video Generándose", description: "HeyGen está creando el video. Esto puede tardar unos minutos." })
-        queryClient.invalidateQueries({ queryKey: getGetContentPlanQueryKey() })
-      },
-      onError: (err: any) => {
-        const msg = err?.data?.error ?? "No se pudo iniciar la generación del video."
-        toast({ title: "Error", description: msg, variant: "destructive" })
-      },
-    })
+    const item = items?.find((i) => i.id === id)
+    if (item) {
+      // Open script review so user can verify/edit before sending to HeyGen
+      handleOpenScriptReview(item)
+    }
   }
 
   // "Add video to this day" dialog state
@@ -558,6 +639,91 @@ export default function ContentPlan() {
         </div>
       </Tabs>
       )}
+
+      {/* ── Script Review Modal ───────────────────────────────────────────── */}
+      <Dialog
+        open={scriptModalItem !== null}
+        onOpenChange={(open) => {
+          // Block closing while any async work is in-flight so a late
+          // generateScript callback cannot land in a different item's session.
+          if (!open && !scriptGenerating && !updateItem.isPending && !generateVideo.isPending) {
+            closeScriptModal()
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="w-5 h-5 text-primary" />
+              Revisar guion
+            </DialogTitle>
+            <DialogDescription>
+              {scriptModalItem?.topic && (
+                <span className="font-medium">{scriptModalItem.topic}</span>
+              )}
+              {" — "}Revisá y editá el guion antes de enviarlo a HeyGen.
+            </DialogDescription>
+          </DialogHeader>
+
+          {scriptGenerating ? (
+            <div className="flex flex-col items-center justify-center py-12 gap-3 text-muted-foreground">
+              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+              <p className="text-sm">Generando guion con IA…</p>
+            </div>
+          ) : scriptDraft ? (
+            <div className="space-y-4 py-2">
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Hook de apertura</Label>
+                <Textarea
+                  value={scriptDraft.hook}
+                  onChange={(e) => setScriptDraft((d) => d ? { ...d, hook: e.target.value } : d)}
+                  placeholder="El gancho que captura la atención en los primeros segundos…"
+                  className="min-h-[70px] text-sm"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Guion completo</Label>
+                <Textarea
+                  value={scriptDraft.script}
+                  onChange={(e) => setScriptDraft((d) => d ? { ...d, script: e.target.value } : d)}
+                  placeholder="El guion que leerá el avatar…"
+                  className="min-h-[180px] text-sm"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">CTA (llamada a la acción)</Label>
+                <Textarea
+                  value={scriptDraft.cta}
+                  onChange={(e) => setScriptDraft((d) => d ? { ...d, cta: e.target.value } : d)}
+                  placeholder="Qué debe hacer el espectador al final…"
+                  className="min-h-[60px] text-sm"
+                />
+              </div>
+            </div>
+          ) : null}
+
+          <DialogFooter className="flex-col sm:flex-row gap-2 pt-2">
+            <Button
+              variant="outline"
+              onClick={closeScriptModal}
+              disabled={scriptGenerating || updateItem.isPending || generateVideo.isPending}
+            >
+              Cancelar
+            </Button>
+            <Button
+              className="gap-2 sm:flex-1 bg-gradient-to-r from-primary to-violet-600 shadow-lg shadow-primary/20"
+              disabled={scriptGenerating || !scriptDraft || updateItem.isPending || generateVideo.isPending || generateBlocked}
+              onClick={handleApproveAndGenerate}
+            >
+              {updateItem.isPending || generateVideo.isPending ? (
+                <><Loader2 className="w-4 h-4 animate-spin" /> Enviando a HeyGen…</>
+              ) : (
+                <><Video className="w-4 h-4" /> Aprobar y generar video</>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={avatarPickerItem !== null} onOpenChange={(open) => !open && setAvatarPickerItem(null)}>
         <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
