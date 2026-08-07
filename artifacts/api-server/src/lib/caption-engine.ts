@@ -577,7 +577,6 @@ export async function applyCaptions(
     // 4. Burn with FFmpeg — pass fontsdir so libass finds our bundled fonts
     logger.info("[CaptionEngine] Running FFmpeg (ass filter)...");
 
-    // Escape the paths for the ass filter parameter (colons need escaping on some platforms)
     const assFilter = `ass='${assPath}':fontsdir='${FONTS_DIR}'`;
 
     const { stderr } = await execFileAsync("ffmpeg", [

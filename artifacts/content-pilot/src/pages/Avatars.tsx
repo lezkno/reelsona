@@ -23,6 +23,16 @@ function LooksDialog({ group, selectedIds, onToggle, onClose }: {
   onClose: () => void
 }) {
   const { data: looks, isLoading } = useGetHeyGenGroupLooks(group.id)
+  // Track which looks have landscape (horizontal) preview images — those avatars
+  // generate landscape videos incompatible with Reels and must be blocked.
+  const [landscapeIds, setLandscapeIds] = useState<Set<string>>(new Set())
+
+  const handleImgLoad = (id: string, e: React.SyntheticEvent<HTMLImageElement>) => {
+    const img = e.currentTarget
+    if (img.naturalWidth > img.naturalHeight) {
+      setLandscapeIds(prev => { const s = new Set(prev); s.add(id); return s })
+    }
+  }
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -31,6 +41,7 @@ function LooksDialog({ group, selectedIds, onToggle, onClose }: {
           <DialogTitle>{group.name}</DialogTitle>
           <DialogDescription>
             Elegí los looks de este avatar que querés usar en tus videos. Los seleccionados entran en la rotación.
+            Los marcados en naranja son horizontales y no son compatibles con Reels.
           </DialogDescription>
         </DialogHeader>
         {isLoading ? (
@@ -41,28 +52,63 @@ function LooksDialog({ group, selectedIds, onToggle, onClose }: {
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
             {looks?.map((look) => {
               const isSelected = selectedIds.has(look.id)
+              const isLandscape = landscapeIds.has(look.id)
               return (
                 <button
                   key={look.id}
                   type="button"
-                  onClick={() => onToggle(look.id)}
-                  className={`relative rounded-lg overflow-hidden border-2 text-left transition-all ${isSelected ? "border-primary ring-2 ring-primary/30" : "border-transparent hover:border-primary/40"}`}
+                  onClick={() => !isLandscape && onToggle(look.id)}
+                  disabled={isLandscape}
+                  className={`relative rounded-lg overflow-hidden border-2 text-left transition-all
+                    ${isLandscape
+                      ? "border-orange-400/60 cursor-not-allowed opacity-75"
+                      : isSelected
+                        ? "border-primary ring-2 ring-primary/30"
+                        : "border-transparent hover:border-primary/40"
+                    }`}
                 >
                   <div className="aspect-[3/4] bg-muted">
                     {look.image_url ? (
-                      <img src={look.image_url} alt={look.name} className="w-full h-full object-cover" loading="lazy" />
+                      <img
+                        src={look.image_url}
+                        alt={look.name}
+                        className="w-full h-full object-cover"
+                        loading="lazy"
+                        onLoad={(e) => handleImgLoad(look.id, e)}
+                      />
                     ) : (
-                      <div className="w-full h-full flex items-center justify-center text-muted-foreground"><ImageIcon className="w-8 h-8" /></div>
+                      <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+                        <ImageIcon className="w-8 h-8" />
+                      </div>
                     )}
                   </div>
+
+                  {/* Landscape overlay — blocks selection */}
+                  {isLandscape && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/50 gap-2 px-3">
+                      <AlertTriangle className="w-7 h-7 text-orange-400 shrink-0" />
+                      <p className="text-white text-[11px] font-bold text-center leading-tight">
+                        Horizontal<br />
+                        <span className="font-normal opacity-80">No compatible con Reels</span>
+                      </p>
+                    </div>
+                  )}
+
                   {/* Avatar type badge */}
-                  <div className={`absolute top-2 left-2 flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold shadow-sm ${look.is_talking_photo ? "bg-orange-500/90 text-white" : "bg-green-600/90 text-white"}`}>
-                    {look.is_talking_photo ? <Camera className="w-2.5 h-2.5" /> : <Video className="w-2.5 h-2.5" />}
-                    {look.is_talking_photo ? "Foto" : "Avatar V"}
-                  </div>
-                  <div className={`absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center ${isSelected ? "bg-primary text-primary-foreground" : "bg-black/30 text-white/60 border border-white/30"}`}>
-                    {isSelected && <CheckCircle2 className="w-5 h-5" />}
-                  </div>
+                  {!isLandscape && (
+                    <div className={`absolute top-2 left-2 flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold shadow-sm ${look.is_talking_photo ? "bg-orange-500/90 text-white" : "bg-green-600/90 text-white"}`}>
+                      {look.is_talking_photo ? <Camera className="w-2.5 h-2.5" /> : <Video className="w-2.5 h-2.5" />}
+                      {look.is_talking_photo ? "Foto" : "Avatar V"}
+                    </div>
+                  )}
+
+                  {/* Selection checkmark */}
+                  {!isLandscape && (
+                    <div className={`absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center ${isSelected ? "bg-primary text-primary-foreground" : "bg-black/30 text-white/60 border border-white/30"}`}>
+                      {isSelected && <CheckCircle2 className="w-5 h-5" />}
+                    </div>
+                  )}
+
                   <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/70 to-transparent px-2 py-1.5">
                     <p className="text-white text-xs font-medium truncate">{look.name}</p>
                   </div>
