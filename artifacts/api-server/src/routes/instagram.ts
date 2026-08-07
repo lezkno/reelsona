@@ -23,15 +23,31 @@ import { analyzeAuditAndRecommend } from "../lib/ai-scripts";
 
 const router = Router();
 
+function isAllowedRedirectUri(uri: string): boolean {
+  try {
+    const u = new URL(uri);
+    if (u.protocol !== "https:" && u.hostname !== "localhost") return false;
+    if (u.pathname !== "/connect") return false;
+    return (
+      u.hostname === "localhost" ||
+      u.hostname.endsWith(".replit.dev") ||
+      u.hostname.endsWith(".replit.app")
+    );
+  } catch {
+    return false;
+  }
+}
+
 router.get("/instagram/auth-url", async (req, res): Promise<void> => {
   // The frontend passes its own origin so the redirect_uri is always the real
   // domain the user sees in their browser — not localhost or an internal host.
   const redirectUri = req.query["redirect_uri"] as string | undefined;
-  if (!redirectUri) {
-    res.status(400).json({ error: "redirect_uri query param is required" });
+  const state = req.query["state"] as string | undefined;
+  if (!redirectUri || !isAllowedRedirectUri(redirectUri)) {
+    res.status(400).json({ error: "redirect_uri query param is required and must be an allowed origin" });
     return;
   }
-  const url = getAuthUrl(redirectUri);
+  const url = getAuthUrl(redirectUri, state);
   res.json(GetInstagramAuthUrlResponse.parse({ url }));
 });
 

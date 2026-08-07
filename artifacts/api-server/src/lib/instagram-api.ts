@@ -3,7 +3,7 @@ import axios from "axios";
 const IG_GRAPH_BASE = "https://graph.instagram.com";
 const IG_API_BASE = "https://api.instagram.com";
 
-export function getAuthUrl(redirectUri: string): string {
+export function getAuthUrl(redirectUri: string, state?: string): string {
   const appId = process.env.INSTAGRAM_APP_ID;
   if (!appId) throw new Error("INSTAGRAM_APP_ID is not set");
   const scope = [
@@ -17,6 +17,7 @@ export function getAuthUrl(redirectUri: string): string {
     scope,
     response_type: "code",
   });
+  if (state) params.set("state", state);
   return `https://www.instagram.com/oauth/authorize?${params.toString()}`;
 }
 

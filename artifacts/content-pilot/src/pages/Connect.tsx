@@ -29,9 +29,24 @@ export default function Connect() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const code = params.get('code')
-    
+    const oauthError = params.get('error') || params.get('error_description')
+
+    if (oauthError) {
+      toast({ title: "Meta rechazó la autorización", description: params.get('error_description') ?? oauthError, variant: "destructive" })
+      setLocation("/connect")
+      return
+    }
+
     if (code && code !== handledCode.current) {
       handledCode.current = code
+      const returnedState = params.get('state')
+      const expectedState = sessionStorage.getItem('ig_oauth_state')
+      if (expectedState && returnedState !== expectedState) {
+        toast({ title: "Error de seguridad", description: "El parámetro state no coincide. Intentá conectar de nuevo.", variant: "destructive" })
+        setLocation("/connect")
+        return
+      }
+      sessionStorage.removeItem('ig_oauth_state')
       handleCallback.mutate({ data: { code, redirect_uri: redirectUri } }, {
         onSuccess: () => {
           toast({ title: "Cuenta Conectada", description: "Tu cuenta de Instagram se vinculó correctamente." })
@@ -59,9 +74,15 @@ export default function Connect() {
   }
 
   const handleConnect = async () => {
+    // CSRF protection: random state, validated when Meta redirects back
+    const state = crypto.randomUUID()
+    sessionStorage.setItem('ig_oauth_state', state)
     // Fetch auth URL passing our real redirect_uri as a query param
-    const res = await fetch(`/api/instagram/auth-url?redirect_uri=${encodeURIComponent(redirectUri)}`)
-    if (!res.ok) return
+    const res = await fetch(`/api/instagram/auth-url?redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}`)
+    if (!res.ok) {
+      toast({ title: "Error", description: "No se pudo generar la URL de autorización.", variant: "destructive" })
+      return
+    }
     const { url } = await res.json() as { url: string }
     window.open(url, '_blank', 'noopener,noreferrer')
   }
@@ -109,6 +130,18 @@ export default function Connect() {
             <p className="text-xs text-muted-foreground mt-4">
               Solo publicaremos el contenido que tú apruebes o que esté automatizado.
             </p>
+            <div className="mt-6 text-left bg-muted/50 border rounded-lg p-4">
+              <p className="text-xs font-medium mb-1">URI de redireccionamiento (debe estar registrada exactamente así en tu Meta App):</p>
+              <div className="flex items-center gap-2">
+                <code className="text-xs bg-background border rounded px-2 py-1 flex-1 overflow-x-auto whitespace-nowrap">{redirectUri}</code>
+                <Button variant="outline" size="sm" onClick={() => { navigator.clipboard.writeText(redirectUri); toast({ title: "Copiada", description: "URI copiada al portapapeles." }) }}>
+                  Copiar
+                </Button>
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-2">
+                Meta Dashboard → Instagram → Inicio de sesión con Instagram para empresas → Configurar → "URI de redireccionamiento de OAuth válidos". Usá el botón "Comprobar URI" con este valor exacto.
+              </p>
+            </div>
           </CardContent>
         </Card>
       ) : (
