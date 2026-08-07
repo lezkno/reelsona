@@ -1,4 +1,4 @@
-import { useGetHeyGenAvatarGroups, useGetHeyGenGroupLooks, useGetAvatarConfig, useUpdateAvatarConfig, getGetAvatarConfigQueryKey, AvatarConfigRotationStrategy, type HeyGenAvatarGroup } from "@workspace/api-client-react"
+import { useGetHeyGenAvatarGroups, useGetHeyGenGroupLooks, useGetHeyGenVoices, useGetAvatarConfig, useUpdateAvatarConfig, getGetAvatarConfigQueryKey, AvatarConfigRotationStrategy, type HeyGenAvatarGroup } from "@workspace/api-client-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -79,11 +79,23 @@ export default function Avatars() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [strategy, setStrategy] = useState<AvatarConfigRotationStrategy>(AvatarConfigRotationStrategy.sequential)
   const [openGroup, setOpenGroup] = useState<HeyGenAvatarGroup | null>(null)
+  const [voiceId, setVoiceId] = useState<string>("")
+  const { data: voices } = useGetHeyGenVoices()
+
+  const spanishVoices = (voices ?? []).filter((v) => {
+    const lang = (v.language ?? "").toLowerCase()
+    return lang.includes("spanish") || lang.startsWith("es") || v.is_cloned
+  })
+  // Ensure the currently saved voice is listed even if it's not Spanish
+  const voiceOptions = voiceId && !spanishVoices.some((v) => v.voice_id === voiceId)
+    ? [...spanishVoices, ...(voices ?? []).filter((v) => v.voice_id === voiceId)]
+    : spanishVoices
 
   useEffect(() => {
     if (config) {
       setSelectedIds(new Set(config.selected_avatar_ids))
       setStrategy(config.rotation_strategy)
+      setVoiceId(config.preferred_voice_id ?? "")
     }
   }, [config])
 
@@ -103,7 +115,8 @@ export default function Avatars() {
     updateConfig.mutate({
       data: {
         selected_avatar_ids: Array.from(selectedIds),
-        rotation_strategy: strategy
+        rotation_strategy: strategy,
+        preferred_voice_id: voiceId || null
       }
     }, {
       onSuccess: () => {
@@ -142,18 +155,36 @@ export default function Avatars() {
                 ContentPilot puede rotar entre los looks seleccionados automáticamente para darle variedad a tu feed.
               </p>
             </div>
-            <div className="w-full sm:w-64 shrink-0">
-              <Label className="mb-2 block">Método de rotación</Label>
-              <Select value={strategy} onValueChange={(v) => setStrategy(v as AvatarConfigRotationStrategy)}>
-                <SelectTrigger className="bg-background">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={AvatarConfigRotationStrategy.sequential}>Secuencial (1, 2, 3, 1...)</SelectItem>
-                  <SelectItem value={AvatarConfigRotationStrategy.random}>Aleatorio</SelectItem>
-                  <SelectItem value={AvatarConfigRotationStrategy.performance}>Por Rendimiento (IA)</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="w-full sm:w-64 shrink-0 space-y-4">
+              <div>
+                <Label className="mb-2 block">Método de rotación</Label>
+                <Select value={strategy} onValueChange={(v) => setStrategy(v as AvatarConfigRotationStrategy)}>
+                  <SelectTrigger className="bg-background">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={AvatarConfigRotationStrategy.sequential}>Secuencial (1, 2, 3, 1...)</SelectItem>
+                    <SelectItem value={AvatarConfigRotationStrategy.random}>Aleatorio</SelectItem>
+                    <SelectItem value={AvatarConfigRotationStrategy.performance}>Por Rendimiento (IA)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="mb-2 block">Voz de los videos</Label>
+                <Select value={voiceId} onValueChange={setVoiceId}>
+                  <SelectTrigger className="bg-background">
+                    <SelectValue placeholder="Elegí una voz" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-72">
+                    {voiceOptions.map((v) => (
+                      <SelectItem key={v.voice_id} value={v.voice_id}>
+                        {v.name}{v.gender ? ` · ${v.gender === "male" ? "masculina" : v.gender === "female" ? "femenina" : v.gender}` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1">Todos los videos se narran con esta voz.</p>
+              </div>
             </div>
           </div>
         </CardContent>
