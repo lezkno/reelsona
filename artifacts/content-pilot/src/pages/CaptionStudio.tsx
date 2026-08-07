@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useGetCaptionPresets, useGetCaptionConfig, useUpdateCaptionConfig, useGetAutomation, useUpdateAutomation } from "@workspace/api-client-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -245,12 +245,23 @@ function PhoneFrame({ children }: { children: React.ReactNode }) {
   )
 }
 
-function CaptionPreview({ config }: { config: Partial<CaptionConfig> }) {
+function CaptionPreview({
+  config,
+  onYPositionChange,
+}: {
+  config: Partial<CaptionConfig>
+  onYPositionChange?: (y: number) => void
+}) {
   const isMixedMode  = config.highlight_mode === "mixed"
   const isPopMode    = config.highlight_mode === "scale" || config.highlight_mode === "both"
   const useAccent    = config.highlight_mode === "both" || config.highlight_mode === "color"
   const wordsPerLine = config.words_per_line ?? 3
-  const lsf          = config.line_spacing_factor ?? 1.1  // line spacing factor
+  const lsf          = config.line_spacing_factor ?? 1.1
+  const [isDragging, setIsDragging] = useState(false)
+
+  // y_position: 0–100 % from top of video. baseY_px is pixels from top in the preview.
+  const yPos    = config.y_position ?? 75
+  const baseY_px = Math.round(PHONE_SCREEN_H * (yPos / 100))
 
   // Highlight / Pop cycling
   const allWords = ["ESTO", "ES", "TU", "CAPTION", "DINÁMICO", "EN", "ACCIÓN", "HOY"]
@@ -279,12 +290,6 @@ function CaptionPreview({ config }: { config: Partial<CaptionConfig> }) {
     ` 0  -2px  0 ${outlineColor}`, `0   2px  0 ${outlineColor}`,
   ].join(", ")
 
-  const positionStyle: React.CSSProperties = {
-    top:    { paddingTop: "8%" }    as React.CSSProperties,
-    center: { paddingTop: "40%" }  as React.CSSProperties,
-    bottom: { paddingBottom: "8%" } as React.CSSProperties,
-  }[config.position ?? "bottom"] ?? { paddingBottom: "8%" }
-
   // Proportionally accurate font sizes: scaled 1:1 to real video dimensions
   const rawSize  = config.font_size ?? 88
   const largePx  = Math.max(8, Math.round(rawSize * PREVIEW_SCALE))
@@ -305,7 +310,7 @@ function CaptionPreview({ config }: { config: Partial<CaptionConfig> }) {
         slots.push({ words: slot === 0 ? DIM_BLOCKS[li].slice(0, curWi + 1) : DIM_BLOCKS[li] })
       }
       return (
-        <div className="absolute bottom-0 left-0 right-0 px-3 pb-3 flex flex-col items-start" style={{ gap: lineGap }}>
+        <div className="absolute left-0 right-0 px-3 flex flex-col items-start justify-end overflow-hidden" style={{ top: 0, height: baseY_px, gap: lineGap }}>
           {[...slots].reverse().map(({ words }, idx) => (
             <div key={`${curLi}-${idx}`} className="flex items-baseline flex-wrap" style={{ gap: "4px" }}>
               {words.map((w, wi) => {
@@ -330,7 +335,7 @@ function CaptionPreview({ config }: { config: Partial<CaptionConfig> }) {
     if (isPopMode) {
       const word = allWords[activeIdx]
       return (
-        <div className="absolute inset-0 flex items-end justify-center" style={positionStyle}>
+        <div className="absolute left-0 right-0 flex items-end justify-center px-3" style={{ top: 0, height: baseY_px }}>
           <span className="transition-all duration-100" style={{
             fontFamily: fontFam, fontWeight: 700,
             fontSize: `${largePx}px`,
@@ -350,7 +355,7 @@ function CaptionPreview({ config }: { config: Partial<CaptionConfig> }) {
     const chunk        = allWords.slice(chunkStart, chunkStart + wordsPerLine)
     const activeInChunk = activeIdx - chunkStart
     return (
-      <div className="absolute inset-0 flex items-end justify-center" style={positionStyle}>
+      <div className="absolute left-0 right-0 flex items-end justify-center px-3" style={{ top: 0, height: baseY_px }}>
         <div className="flex flex-wrap justify-center items-center gap-x-1.5 gap-y-0.5">
           {chunk.map((word, i) => {
             const isActive = i === activeInChunk
@@ -468,9 +473,60 @@ function CaptionPreview({ config }: { config: Partial<CaptionConfig> }) {
           <div className="w-8 h-6 rounded-md border-2 border-white/80 flex items-center justify-center">
             <Plus size={13} className="text-white" strokeWidth={2.5} />
           </div>
-          {/* Reels icon — active */}
           <Clapperboard size={20} className="text-white" />
           <User size={20} className="text-white/70" />
+        </div>
+
+        {/* ── DRAG OVERLAY — captures pointer events to move the caption ── */}
+        <div
+          className="absolute inset-0 z-40"
+          style={{ cursor: isDragging ? "grabbing" : "ns-resize" }}
+          onPointerDown={(e) => {
+            setIsDragging(true)
+            e.currentTarget.setPointerCapture(e.pointerId)
+          }}
+          onPointerMove={(e) => {
+            if (!isDragging) return
+            const rect = e.currentTarget.getBoundingClientRect()
+            const pct  = Math.max(10, Math.min(97, ((e.clientY - rect.top) / rect.height) * 100))
+            onYPositionChange?.(Math.round(pct * 10) / 10)
+          }}
+          onPointerUp={() => setIsDragging(false)}
+          onPointerLeave={() => setIsDragging(false)}
+        />
+
+        {/* Position line — shows where baseY sits */}
+        <div
+          className="absolute left-0 right-0 z-41 pointer-events-none transition-all duration-75"
+          style={{
+            top: baseY_px - 1,
+            borderTop: isDragging
+              ? "1.5px dashed rgba(255,255,255,0.85)"
+              : "1px dashed rgba(255,255,255,0.20)",
+          }}
+        />
+        {/* Percentage badge while dragging */}
+        {isDragging && (
+          <div
+            className="absolute left-2 z-42 pointer-events-none"
+            style={{ top: baseY_px - 20 }}
+          >
+            <span className="text-white text-[9px] font-medium bg-black/70 px-1.5 py-0.5 rounded-full">
+              {Math.round(yPos)}%
+            </span>
+          </div>
+        )}
+
+        {/* Grip handle — always visible, shows the position line */}
+        <div
+          className="absolute left-2 z-41 pointer-events-none transition-all duration-75"
+          style={{ top: baseY_px - 7 }}
+        >
+          <div className="flex flex-col gap-[2.5px]">
+            {[0,1,2].map(i => (
+              <div key={i} className="w-4 h-px rounded-full" style={{ background: "rgba(255,255,255,0.4)" }} />
+            ))}
+          </div>
         </div>
 
       </div>
@@ -637,16 +693,17 @@ export default function CaptionStudio() {
             <Card>
               <CardContent className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-6">
 
-                <div className="space-y-2">
-                  <Label>Posición en pantalla</Label>
-                  <Select value={local.position ?? "bottom"} onValueChange={(v) => set("position", v as any)}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {Object.entries(POSITION_LABELS).map(([v, l]) => (
-                        <SelectItem key={v} value={v}>{l}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                <div className="space-y-2 flex items-start gap-2 p-3 rounded-lg bg-muted/40 col-span-full sm:col-span-1">
+                  <span className="text-base mt-0.5 shrink-0">↕</span>
+                  <div>
+                    <p className="text-xs font-medium mb-0.5">Posición vertical</p>
+                    <p className="text-xs text-muted-foreground leading-snug">
+                      Arrastrá el preview del celular para mover los captions.
+                    </p>
+                    <p className="text-xs text-primary font-medium mt-1">
+                      {Math.round(local.y_position ?? 75)}% desde arriba
+                    </p>
+                  </div>
                 </div>
 
                 <div className="space-y-2">
@@ -753,7 +810,7 @@ export default function CaptionStudio() {
         <div className="space-y-6">
           <div>
             <h2 className="text-xl font-display font-bold mb-4">Vista previa</h2>
-            <CaptionPreview config={local} />
+            <CaptionPreview config={local} onYPositionChange={(y) => set("y_position", y)} />
             <p className="text-xs text-muted-foreground mt-2 text-center">
               Simula el efecto real — la palabra activa cambia cada 700ms
             </p>

@@ -17,6 +17,7 @@ export const captionConfigTable = pgTable("caption_config", {
   highlightMode: text("highlight_mode").notNull().default("color"), // color | scale | both
   autoScale: boolean("auto_scale").notNull().default(true),
   lineSpacingFactor: real("line_spacing_factor").notNull().default(1.1),
+  yPosition: real("y_position").notNull().default(75),
   autoMovement: boolean("auto_movement").notNull().default(false),
   subtleRotation: boolean("subtle_rotation").notNull().default(false),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),

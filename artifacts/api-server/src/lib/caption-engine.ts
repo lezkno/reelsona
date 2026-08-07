@@ -32,7 +32,8 @@ const FONTS_DIR = path.join(__dirname, "../assets/fonts");
 
 export interface CaptionStyle {
   presetId: string;
-  position: "top" | "center" | "bottom";
+  position: "top" | "center" | "bottom";  // legacy — yPosition takes priority
+  yPosition: number;                       // 0–100, percent from top of video
   wordsPerLine: number;
   primaryColor: string;        // CSS hex (#RRGGBB)
   activeWordColor: string;     // CSS hex — active-word highlight
@@ -215,8 +216,11 @@ function buildASSHeader(
   videoWidth: number,
   videoHeight: number
 ): string {
-  const alignment = config.position === "top" ? 8 : config.position === "center" ? 5 : 2;
-  const marginV = config.position === "center" ? 0 : 120;
+  // yPosition: 0=top edge, 100=bottom edge (percent from top of video)
+  // Convert to ASS bottom-aligned marginV so text sits at that Y coordinate
+  const yPos    = config.yPosition ?? (config.position === "top" ? 15 : config.position === "center" ? 50 : 75);
+  const alignment = 2; // always bottom-align; marginV controls height
+  const marginV = Math.round(videoHeight * (1 - yPos / 100));
   const fontName = resolveFontName(config.fontFamily);
 
   const primaryColor = hexToAss(config.primaryColor);
@@ -448,7 +452,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
   const LEFT_X      = 60;                              // left margin (px)
   const lsf         = config.lineSpacingFactor ?? 1.1; // user-configurable multiplier
   const lineSpacing = Math.round(largeSize * lsf);
-  const baseY       = videoHeight - 100;
+  const yPos    = config.yPosition ?? (config.position === "bottom" ? 94.8 : config.position === "center" ? 50 : 15);
+  const baseY   = Math.round(videoHeight * (yPos / 100));
 
   // slotY[0] = bottom (newest line), slotY[3] = top (oldest visible)
   const slotY = Array.from({ length: MAX_SLOTS }, (_, s) => baseY - s * lineSpacing);

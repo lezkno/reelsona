@@ -408,6 +408,7 @@ export async function pollAndPublishVideos(): Promise<void> {
                 fontFamily: captionCfg.fontFamily,
                 fontSize: captionCfg.fontSize,
                 lineSpacingFactor: captionCfg.lineSpacingFactor,
+                yPosition: captionCfg.yPosition,
                 activeWordScale: captionCfg.activeWordScale,
                 highlightMode: captionCfg.highlightMode as CaptionStyle["highlightMode"],
                 autoScale: captionCfg.autoScale,

@@ -24,6 +24,7 @@ function mapConfig(c: typeof captionConfigTable.$inferSelect) {
     font_family: c.fontFamily,
     font_size: c.fontSize,
     line_spacing_factor: c.lineSpacingFactor,
+    y_position: c.yPosition,
     active_word_scale: c.activeWordScale,
     highlight_mode: c.highlightMode as "color" | "scale" | "both",
     auto_scale: c.autoScale,
@@ -82,6 +83,7 @@ router.put("/captions/config", async (req, res): Promise<void> => {
   if (d.font_family !== undefined) updates.fontFamily = d.font_family;
   if (d.font_size !== undefined) updates.fontSize = d.font_size;
   if (d.line_spacing_factor !== undefined) updates.lineSpacingFactor = d.line_spacing_factor;
+  if (d.y_position !== undefined) updates.yPosition = d.y_position;
   if (d.active_word_scale !== undefined) updates.activeWordScale = d.active_word_scale;
   if (d.highlight_mode !== undefined) updates.highlightMode = d.highlight_mode;
   if (d.auto_scale !== undefined) updates.autoScale = d.auto_scale;
