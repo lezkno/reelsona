@@ -9,8 +9,12 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { useQueryClient } from "@tanstack/react-query"
 import { useToast } from "@/hooks/use-toast"
 import { useState, useEffect } from "react"
-import { Users, Save, CheckCircle2, Image as ImageIcon, Play, Square } from "lucide-react"
+import { Users, Save, CheckCircle2, Image as ImageIcon, Play, Square, EyeOff, Eye, X } from "lucide-react"
 import { useRef } from "react"
+
+const HIDDEN_KEY = "contentpilot_hidden_avatar_groups"
+function loadHidden(): Set<string> { try { return new Set(JSON.parse(localStorage.getItem(HIDDEN_KEY) ?? "[]")) } catch { return new Set() } }
+function saveHidden(s: Set<string>) { localStorage.setItem(HIDDEN_KEY, JSON.stringify([...s])) }
 
 function LooksDialog({ group, selectedIds, onToggle, onClose }: {
   group: HeyGenAvatarGroup
@@ -80,7 +84,16 @@ export default function Avatars() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [strategy, setStrategy] = useState<AvatarConfigRotationStrategy>(AvatarConfigRotationStrategy.sequential)
   const [openGroup, setOpenGroup] = useState<HeyGenAvatarGroup | null>(null)
+  const [hiddenGroups, setHiddenGroups] = useState<Set<string>>(loadHidden)
+  const [onlyInUse, setOnlyInUse] = useState(false)
   const { data: allLooks } = useGetHeyGenAllLooks()
+
+  const hideGroup = (id: string) => {
+    const next = new Set(hiddenGroups).add(id)
+    setHiddenGroups(next)
+    saveHidden(next)
+  }
+  const unhideAll = () => { setHiddenGroups(new Set()); saveHidden(new Set()) }
 
   // Number of selected looks per avatar group
   const selectedByGroup = new Map<string, number>()
@@ -242,11 +255,36 @@ export default function Avatars() {
         </CardContent>
       </Card>
 
+      {/* Filter bar */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <Button
+          variant={onlyInUse ? "default" : "outline"}
+          size="sm"
+          className="gap-1.5"
+          onClick={() => setOnlyInUse(!onlyInUse)}
+        >
+          {onlyInUse ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+          {onlyInUse ? "Mostrando solo en uso" : "Solo los que uso"}
+        </Button>
+        {hiddenGroups.size > 0 && (
+          <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground" onClick={unhideAll}>
+            <Eye className="w-3.5 h-3.5" />
+            Mostrar {hiddenGroups.size} oculto{hiddenGroups.size !== 1 ? "s" : ""}
+          </Button>
+        )}
+      </div>
+
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-        {groups?.map((group) => (
+        {groups
+          ?.filter((g) => {
+            if (hiddenGroups.has(g.id)) return false
+            if (onlyInUse && (selectedByGroup.get(g.id) ?? 0) === 0) return false
+            return true
+          })
+          .map((group) => (
           <Card
             key={group.id}
-            className="overflow-hidden cursor-pointer transition-all duration-300 hover:border-primary/50 hover:shadow-lg"
+            className="overflow-hidden cursor-pointer transition-all duration-300 hover:border-primary/50 hover:shadow-lg group/card"
             onClick={() => setOpenGroup(group)}
           >
             <div className="aspect-square bg-muted relative">
@@ -256,11 +294,20 @@ export default function Avatars() {
                 <div className="w-full h-full flex items-center justify-center text-muted-foreground"><ImageIcon className="w-10 h-10" /></div>
               )}
               {(selectedByGroup.get(group.id) ?? 0) > 0 && (
-                <Badge className="absolute top-2 right-2 gap-1 bg-primary text-primary-foreground shadow">
+                <Badge className="absolute top-2 left-2 gap-1 bg-primary text-primary-foreground shadow">
                   <CheckCircle2 className="w-3 h-3" />
                   {selectedByGroup.get(group.id)} seleccionado{selectedByGroup.get(group.id)! !== 1 ? "s" : ""}
                 </Badge>
               )}
+              {/* Hide button */}
+              <button
+                type="button"
+                title="Ocultar este avatar"
+                onClick={(e) => { e.stopPropagation(); hideGroup(group.id) }}
+                className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/40 text-white flex items-center justify-center opacity-0 group-hover/card:opacity-100 transition-opacity hover:bg-black/70"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
             </div>
             <CardContent className="p-4 flex items-center justify-between gap-2">
               <div className="min-w-0">
