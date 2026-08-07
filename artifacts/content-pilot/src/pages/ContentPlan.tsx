@@ -10,7 +10,7 @@ import { format, isSameDay } from "date-fns"
 import { es } from "date-fns/locale"
 import { useGetContentPlan, useGenerateContentPlan, useDeleteContentItem, useGenerateVideo, useUpdateContentItem, useCreateContentItem, useGetHeyGenAllLooks, useGenerateScript, usePublishVideo, useGetAutomation, getGetContentPlanQueryKey, type ContentPlanItem } from "@workspace/api-client-react"
 import { Textarea } from "@/components/ui/textarea"
-import { Wand2, Edit3, Trash2, Video, CheckCircle2, Clock, AlertTriangle, CalendarDays, Plus, Zap, Users, List, Calendar, Loader2, FileText, RefreshCw, Sparkles, Check, X, Send, Bot, Hand } from "lucide-react"
+import { Wand2, Edit3, Trash2, Video, CheckCircle2, Clock, AlertTriangle, CalendarDays, Plus, Zap, Users, List, Calendar, Loader2, FileText, RefreshCw, Sparkles, Check, X, Send, Bot, Hand, Play } from "lucide-react"
 import PipelineTimeline from "@/components/PipelineTimeline"
 import CalendarView from "@/components/CalendarView"
 import { useToast } from "@/hooks/use-toast"
@@ -90,6 +90,7 @@ export default function ContentPlan() {
   const createItem = useCreateContentItem()
   const publishVideo = usePublishVideo()
   const [publishingVideoId, setPublishingVideoId] = useState<number | null>(null)
+  const [previewItem, setPreviewItem] = useState<ContentPlanItem | null>(null)
   const [editingTopic, setEditingTopic] = useState<{ id: number; value: string } | null>(null)
   const [suggestingId, setSuggestingId] = useState<number | null>(null)
   const [topicSuggestion, setTopicSuggestion] = useState<{ id: number; topic: string } | null>(null)
@@ -419,6 +420,7 @@ export default function ContentPlan() {
           onGenerateVideo={handleGenerateVideo}
           onProcessNow={handleProcessNow}
           onPublishNow={handlePublishNow}
+          onPreview={setPreviewItem}
           onPickAvatar={setAvatarPickerItem}
           generateVideoPending={generateVideo.isPending}
           publishingVideoId={publishingVideoId}
@@ -526,6 +528,7 @@ export default function ContentPlan() {
                                 )}
                                 {item.status === "ready" && item.video_id != null && (() => {
                                   const captionTerminal = item.caption_status === "done" || item.caption_status === "failed" || item.caption_status === "disabled"
+                                  const playUrl = item.captioned_video_url || item.video_url
                                   if (!captionTerminal) {
                                     return (
                                       <div className="flex items-center gap-1 text-xs text-muted-foreground py-1">
@@ -533,23 +536,34 @@ export default function ContentPlan() {
                                       </div>
                                     )
                                   }
-                                  if (willAutoPublish) {
-                                    return (
-                                      <div className="flex items-center gap-1 text-xs text-primary py-1">
-                                        <CheckCircle2 className="w-3 h-3" /> Auto-publicación
-                                      </div>
-                                    )
-                                  }
                                   return (
-                                    <Button
-                                      size="sm"
-                                      className="w-full h-7 gap-1 text-xs bg-gradient-to-r from-pink-500 to-orange-400 hover:from-pink-600 hover:to-orange-500 text-white border-0"
-                                      disabled={publishingVideoId === item.video_id}
-                                      onClick={() => handlePublishNow(item.video_id!)}
-                                    >
-                                      <Send className="w-3 h-3" />
-                                      {publishingVideoId === item.video_id ? "Publicando..." : "Publicar en IG"}
-                                    </Button>
+                                    <div className="space-y-1.5">
+                                      {playUrl && (
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          className="w-full h-7 gap-1 text-xs"
+                                          onClick={() => setPreviewItem(item)}
+                                        >
+                                          <Play className="w-3 h-3" /> Ver video
+                                        </Button>
+                                      )}
+                                      {willAutoPublish ? (
+                                        <div className="flex items-center gap-1 text-xs text-primary py-0.5">
+                                          <CheckCircle2 className="w-3 h-3" /> Auto-publicación
+                                        </div>
+                                      ) : (
+                                        <Button
+                                          size="sm"
+                                          className="w-full h-7 gap-1 text-xs bg-gradient-to-r from-pink-500 to-orange-400 hover:from-pink-600 hover:to-orange-500 text-white border-0"
+                                          disabled={publishingVideoId === item.video_id}
+                                          onClick={() => handlePublishNow(item.video_id!)}
+                                        >
+                                          <Send className="w-3 h-3" />
+                                          {publishingVideoId === item.video_id ? "Publicando..." : "Publicar en IG"}
+                                        </Button>
+                                      )}
+                                    </div>
                                   )
                                 })()}
                               </>
@@ -812,6 +826,58 @@ export default function ContentPlan() {
               )
             })}
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Video Preview Modal ───────────────────────────────────────────── */}
+      <Dialog open={previewItem !== null} onOpenChange={(open) => !open && setPreviewItem(null)}>
+        <DialogContent className="sm:max-w-sm p-0 overflow-hidden">
+          <DialogHeader className="px-4 pt-4 pb-2">
+            <DialogTitle className="text-base leading-snug">{previewItem?.topic}</DialogTitle>
+            <DialogDescription className="text-xs">
+              {previewItem?.caption_status === "done"
+                ? "Con captions aplicados"
+                : "Video generado por HeyGen"}
+            </DialogDescription>
+          </DialogHeader>
+          {previewItem && (() => {
+            const playUrl = previewItem.captioned_video_url || previewItem.video_url
+            if (!playUrl) return <div className="px-4 pb-4 text-sm text-muted-foreground">URL no disponible.</div>
+            return (
+              <>
+                <div className="bg-black">
+                  <video
+                    src={playUrl}
+                    poster={previewItem.thumbnail_url ?? undefined}
+                    controls
+                    autoPlay={false}
+                    className="w-full max-h-[60vh] object-contain"
+                  />
+                </div>
+                <div className="px-4 py-3 flex gap-2">
+                  {!willAutoPublish && previewItem.video_id != null && (
+                    <Button
+                      className="flex-1 gap-2 bg-gradient-to-r from-pink-500 to-orange-400 hover:from-pink-600 hover:to-orange-500 text-white border-0"
+                      disabled={publishingVideoId === previewItem.video_id}
+                      onClick={() => {
+                        handlePublishNow(previewItem.video_id!)
+                        setPreviewItem(null)
+                      }}
+                    >
+                      <Send className="w-4 h-4" />
+                      {publishingVideoId === previewItem.video_id ? "Publicando..." : "Publicar en Instagram"}
+                    </Button>
+                  )}
+                  {willAutoPublish && (
+                    <p className="text-xs text-primary flex items-center gap-1.5 flex-1">
+                      <CheckCircle2 className="w-4 h-4 shrink-0" />
+                      Se publicará automáticamente en el horario programado.
+                    </p>
+                  )}
+                </div>
+              </>
+            )
+          })()}
         </DialogContent>
       </Dialog>
 

@@ -35,6 +35,12 @@ export interface ContentPlanItem {
      * @nullable
      */
   caption_status?: ContentPlanItemCaptionStatus;
+  /** @nullable */
+  video_url?: string | null;
+  /** @nullable */
+  captioned_video_url?: string | null;
+  /** @nullable */
+  thumbnail_url?: string | null;
   created_at: string;
   updated_at: string;
 }

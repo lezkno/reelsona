@@ -27,9 +27,17 @@ import { runAutomationCycle } from "../lib/scheduler";
 
 const router = Router();
 
+interface VideoInfo {
+  captionStatus: string | null;
+  videoUrl: string | null;
+  captionedVideoUrl: string | null;
+  thumbnailUrl: string | null;
+}
+
 function mapItem(
   item: typeof contentPlanItemsTable.$inferSelect,
-  captionStatus?: string | null
+  captionStatus?: string | null,
+  videoInfo?: VideoInfo | null
 ) {
   return {
     id: item.id,
@@ -45,19 +53,38 @@ function mapItem(
     status: item.status,
     video_id: item.videoId ?? null,
     caption_status: captionStatus ?? null,
+    video_url: videoInfo?.videoUrl ?? null,
+    captioned_video_url: videoInfo?.captionedVideoUrl ?? null,
+    thumbnail_url: videoInfo?.thumbnailUrl ?? null,
     created_at: item.createdAt.toISOString(),
     updated_at: item.updatedAt.toISOString(),
   };
 }
 
-/** Fetch captionStatus for a list of video IDs, returns a Map<videoId, captionStatus>. */
-async function fetchCaptionStatuses(videoIds: number[]): Promise<Map<number, string | null>> {
+/** Fetch video info for a list of video IDs — caption status, URLs, thumbnail. */
+async function fetchVideoInfos(videoIds: number[]): Promise<Map<number, VideoInfo>> {
   if (videoIds.length === 0) return new Map();
   const rows = await db
-    .select({ id: videosTable.id, captionStatus: videosTable.captionStatus })
+    .select({
+      id: videosTable.id,
+      captionStatus: videosTable.captionStatus,
+      videoUrl: videosTable.videoUrl,
+      captionedVideoUrl: videosTable.captionedVideoUrl,
+      thumbnailUrl: videosTable.thumbnailUrl,
+    })
     .from(videosTable)
     .where(inArray(videosTable.id, videoIds));
-  return new Map(rows.map((r) => [r.id, r.captionStatus]));
+  return new Map(
+    rows.map((r) => [
+      r.id,
+      {
+        captionStatus: r.captionStatus,
+        videoUrl: r.videoUrl,
+        captionedVideoUrl: r.captionedVideoUrl,
+        thumbnailUrl: r.thumbnailUrl,
+      },
+    ])
+  );
 }
 
 router.get("/content/plan", async (req, res): Promise<void> => {
@@ -84,16 +111,17 @@ router.get("/content/plan", async (req, res): Promise<void> => {
 
   const captionsGloballyEnabled = automation?.captionsEnabled ?? false;
 
-  // Fetch captionStatus for items that have an associated video
+  // Fetch video info (caption status + URLs) for items that have an associated video
   const videoIds = items.map((i) => i.videoId).filter((v): v is number => v != null);
-  const captionMap = await fetchCaptionStatuses(videoIds);
+  const videoInfoMap = await fetchVideoInfos(videoIds);
 
   res.json(
     GetContentPlanResponse.parse(
       items.map((i) => {
-        if (i.videoId == null) return mapItem(i, null);
+        if (i.videoId == null) return mapItem(i, null, null);
 
-        let cs = captionMap.get(i.videoId) ?? null;
+        const info = videoInfoMap.get(i.videoId) ?? null;
+        let cs = info?.captionStatus ?? null;
 
         // Backfill: videos created before the captionStatus-aware fix have
         // captionStatus = "disabled" by default. If captions are globally
@@ -104,7 +132,7 @@ router.get("/content/plan", async (req, res): Promise<void> => {
           cs = null;
         }
 
-        return mapItem(i, cs);
+        return mapItem(i, cs, info);
       })
     )
   );
