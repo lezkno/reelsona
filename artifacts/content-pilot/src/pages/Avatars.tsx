@@ -411,40 +411,6 @@ export default function Avatars() {
         </CardContent>
       </Card>
 
-      {/* Summary of voice overrides */}
-      {selectedLooks.length > 0 && (
-        <div className="flex items-center gap-2.5 px-4 py-3 rounded-lg border border-primary/20 bg-primary/5 text-sm">
-          <Mic className="w-4 h-4 text-primary shrink-0" />
-          <span className="text-muted-foreground">
-            <span className="font-medium text-foreground">{selectedIds.size} looks</span> en rotación —{" "}
-            {Object.keys(voiceOverrides).filter(id => selectedIds.has(id)).length > 0
-              ? <><span className="font-medium text-foreground">{Object.keys(voiceOverrides).filter(id => selectedIds.has(id)).length}</span> con voz asignada, el resto usa la predeterminada de HeyGen.</>
-              : <>todos usan la voz predeterminada de HeyGen. Abrí un avatar para asignar voces por look.</>
-            }
-          </span>
-        </div>
-      )}
-
-      {/* Warning: talking photos */}
-      {(() => {
-        const tpCount = selectedLooks.filter(l => l.is_talking_photo).length
-        const avCount = selectedLooks.filter(l => !l.is_talking_photo).length
-        if (tpCount === 0 || selectedLooks.length === 0) return null
-        return (
-          <div className="flex items-start gap-3 p-4 rounded-lg border border-orange-500/30 bg-orange-500/5">
-            <AlertTriangle className="w-5 h-5 text-orange-500 shrink-0 mt-0.5" />
-            <div>
-              <p className="font-semibold text-orange-600 dark:text-orange-400 text-sm">
-                {tpCount} look{tpCount !== 1 ? "s" : ""} de tipo "Foto" en tu rotación
-              </p>
-              <p className="text-sm text-muted-foreground mt-0.5">
-                Los looks <strong>Foto</strong> usan lipsync sobre imagen estática. Los looks <strong>Avatar V</strong> ({avCount} seleccionado{avCount !== 1 ? "s" : ""}) tienen el mejor lipsync.
-              </p>
-            </div>
-          </div>
-        )
-      })()}
-
       {/* Filter bar */}
       <div className="flex items-center gap-3 flex-wrap">
         <Button
