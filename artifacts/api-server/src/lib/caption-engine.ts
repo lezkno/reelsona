@@ -1,15 +1,16 @@
 /**
- * Caption Engine — v2 (real implementation)
+ * Caption Engine — v3 (viral styles)
  *
  * Pipeline:
  *  1. Download the HeyGen video to a temp file
  *  2. Fetch the SRT subtitle file returned by HeyGen (word-level timings)
  *     or fall back to distributing the script evenly across the video duration
- *  3. Convert SRT → ASS with the Caption Studio style settings
- *     (colors, font, position, karaoke word-highlighting)
- *  4. Burn the ASS file into the video with FFmpeg (libass filter)
- *  5. Save the captioned video to /tmp/contentpilot-captioned/
- *  6. Return a public URL served by the API server at /api/captioned/:file
+ *  3. Extract word-level timings from SRT blocks
+ *  4. Build an ASS file using one of two viral rendering modes:
+ *       "highlight" — show N words, highlight the active word in accent color
+ *       "pop"       — one word at a time, large, centered
+ *  5. Burn the ASS into the video with FFmpeg (libass) using the bundled fonts
+ *  6. Serve the captioned video at /api/captioned/:file
  */
 
 import { execFile } from "child_process";
@@ -24,19 +25,22 @@ const execFileAsync = promisify(execFile);
 
 export const CAPTION_DIR = "/tmp/contentpilot-captioned";
 
+// Bundled fonts shipped with the API server
+const FONTS_DIR = path.join(__dirname, "../assets/fonts");
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export interface CaptionStyle {
   presetId: string;
   position: "top" | "center" | "bottom";
   wordsPerLine: number;
-  primaryColor: string;        // CSS hex
-  activeWordColor: string;     // CSS hex — karaoke highlight
+  primaryColor: string;        // CSS hex (#RRGGBB)
+  activeWordColor: string;     // CSS hex — active-word highlight
   outlineColor: string;        // CSS hex
   backgroundColor: string | null; // CSS rgba() or null
   fontFamily: string;
   fontSize: number;
-  activeWordScale: number;     // e.g. 1.2 = 120%
+  activeWordScale: number;     // unused in v3 (scale overrides cause ASS issues)
   highlightMode: "color" | "scale" | "both";
   autoScale: boolean;
   autoMovement: boolean;
@@ -44,9 +48,22 @@ export interface CaptionStyle {
 }
 
 export interface CaptionResult {
-  /** Public URL of the captioned video, or null if rendering failed/skipped. */
   url: string | null;
   error?: string;
+}
+
+// ─── Word-level timing ────────────────────────────────────────────────────────
+
+interface WordTiming {
+  text: string;
+  start: number; // ms
+  end: number;   // ms
+}
+
+interface SRTBlock {
+  start: number; // ms
+  end: number;
+  text: string;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -56,10 +73,7 @@ async function ensureDir(dir: string) {
 }
 
 async function downloadFile(url: string, dest: string): Promise<void> {
-  const response = await axios.get(url, {
-    responseType: "stream",
-    timeout: 120_000,
-  });
+  const response = await axios.get(url, { responseType: "stream", timeout: 120_000 });
   return new Promise((resolve, reject) => {
     const writer = createWriteStream(dest);
     response.data.pipe(writer);
@@ -68,228 +82,268 @@ async function downloadFile(url: string, dest: string): Promise<void> {
   });
 }
 
-/**
- * Convert a CSS hex color → ASS color string (&HAABBGGRR, AA=0 means opaque).
- * ASS uses BGR order!
- */
+/** CSS hex → ASS color string &HAABBGGRR (ASS uses BGR order) */
 function hexToAss(hex: string, alpha = 0): string {
   const h = hex.replace("#", "").padEnd(6, "0");
-  const r = parseInt(h.slice(0, 2), 16);
-  const g = parseInt(h.slice(2, 4), 16);
-  const b = parseInt(h.slice(4, 6), 16);
+  const r = h.slice(0, 2);
+  const g = h.slice(2, 4);
+  const b = h.slice(4, 6);
   const aa = alpha.toString(16).padStart(2, "0").toUpperCase();
-  const rr = r.toString(16).padStart(2, "0").toUpperCase();
-  const gg = g.toString(16).padStart(2, "0").toUpperCase();
-  const bb = b.toString(16).padStart(2, "0").toUpperCase();
-  return `&H${aa}${bb}${gg}${rr}`;
+  return `&H${aa}${b}${g}${r}`.toUpperCase();
 }
 
-/** CSS rgba(r,g,b,a) → ASS color (converts CSS alpha → ASS alpha byte). */
-function rgbaToAss(rgba: string | null): string {
-  if (!rgba) return "&H00000000";
+/** CSS rgba() → ASS color string */
+function rgbaToAss(rgba: string): string {
   const m = rgba.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
-  if (!m) return hexToAss(rgba.startsWith("#") ? rgba : "#000000");
-  const r = parseInt(m[1]), g = parseInt(m[2]), b = parseInt(m[3]);
-  const cssAlpha = m[4] !== undefined ? parseFloat(m[4]) : 1;
-  // ASS alpha: 0 = opaque, 255 = transparent (inverse of CSS)
-  const alpha = Math.round((1 - cssAlpha) * 255);
-  const hex = `${r.toString(16).padStart(2,"0")}${g.toString(16).padStart(2,"0")}${b.toString(16).padStart(2,"0")}`;
-  return hexToAss(hex, alpha);
+  if (!m) return "&H80000000";
+  const r = parseInt(m[1]).toString(16).padStart(2, "0");
+  const g = parseInt(m[2]).toString(16).padStart(2, "0");
+  const b = parseInt(m[3]).toString(16).padStart(2, "0");
+  const alphaF = m[4] !== undefined ? parseFloat(m[4]) : 1;
+  const aa = Math.round((1 - alphaF) * 255).toString(16).padStart(2, "0").toUpperCase();
+  return `&H${aa}${b}${g}${r}`.toUpperCase();
 }
 
-// ─── SRT Parsing ─────────────────────────────────────────────────────────────
-
-interface SRTBlock {
-  start: number;  // ms
-  end: number;    // ms
-  text: string;
-}
-
-/** "00:00:01,234" or "00:00:01.234" → milliseconds */
-function srtTimeToMs(t: string): number {
-  const clean = t.trim().replace(",", ".");
-  const [hms, fracStr] = clean.split(".");
-  const [h, m, s] = hms.split(":").map(Number);
-  const frac = fracStr ? parseInt(fracStr.padEnd(3, "0").slice(0, 3)) : 0;
-  return (h * 3600 + m * 60 + s) * 1000 + frac;
-}
-
-/** ms → ASS timestamp "H:MM:SS.cs" (centiseconds) */
+/** ms → ASS timestamp H:MM:SS.cc */
 function msToAssTime(ms: number): string {
   const h = Math.floor(ms / 3_600_000);
   const m = Math.floor((ms % 3_600_000) / 60_000);
   const s = Math.floor((ms % 60_000) / 1_000);
-  const cs = Math.floor((ms % 1_000) / 10);
+  const cs = Math.floor((ms % 1_000) / 10); // centiseconds
   return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.${String(cs).padStart(2, "0")}`;
 }
 
-function parseSRT(srt: string): SRTBlock[] {
-  const blocks = srt.trim().split(/\n\s*\n/);
-  const result: SRTBlock[] = [];
-  for (const block of blocks) {
-    const lines = block.trim().split("\n");
-    const timingIdx = lines.findIndex((l) => l.includes("-->"));
-    if (timingIdx === -1) continue;
-    const [startStr, endStr] = lines[timingIdx].split("-->");
-    const text = lines
-      .slice(timingIdx + 1)
-      .join(" ")
-      .trim()
-      .replace(/<[^>]+>/g, ""); // strip HTML tags HeyGen sometimes includes
-    if (!text) continue;
-    result.push({
-      start: srtTimeToMs(startStr),
-      end: srtTimeToMs(endStr),
-      text,
-    });
-  }
-  return result;
+/** SRT timestamp HH:MM:SS,mmm → ms */
+function srtTimeToMs(ts: string): number {
+  const [hms, ms] = ts.split(",");
+  const [h, m, s] = hms.split(":").map(Number);
+  return h * 3_600_000 + m * 60_000 + s * 1_000 + parseInt(ms ?? "0");
 }
 
-// ─── SRT Fallback (from script + duration) ───────────────────────────────────
+// ─── SRT parsing ─────────────────────────────────────────────────────────────
 
-/**
- * When HeyGen doesn't return a subtitle_url, generate a basic SRT by
- * distributing the script words evenly across the video duration.
- */
+function parseSRT(srt: string): SRTBlock[] {
+  const blocks: SRTBlock[] = [];
+  const entries = srt.trim().split(/\n\s*\n/);
+  for (const entry of entries) {
+    const lines = entry.trim().split("\n");
+    if (lines.length < 2) continue;
+    const timeLine = lines.find((l) => l.includes("-->"));
+    if (!timeLine) continue;
+    const [startRaw, endRaw] = timeLine.split("-->").map((s) => s.trim());
+    const text = lines
+      .filter((l) => l !== timeLine && !/^\d+$/.test(l.trim()))
+      .join(" ")
+      .replace(/<[^>]+>/g, "")  // strip HTML tags
+      .trim();
+    if (!text) continue;
+    blocks.push({ start: srtTimeToMs(startRaw), end: srtTimeToMs(endRaw), text });
+  }
+  return blocks;
+}
+
+/** Fallback SRT from plain script, distributing time evenly across word groups */
 function generateBasicSRT(script: string, durationMs: number): string {
-  const words = script.split(/\s+/).filter(Boolean);
-  if (words.length === 0) return "";
-  const msPerWord = durationMs / words.length;
+  const words = script.trim().split(/\s+/).filter(Boolean);
   const WORDS_PER_BLOCK = 5;
-  const blocks: string[] = [];
+  const msPerWord = durationMs / Math.max(1, words.length);
+  const fmt = (ms: number) => {
+    const h = Math.floor(ms / 3_600_000);
+    const m = Math.floor((ms % 3_600_000) / 60_000);
+    const s = Math.floor((ms % 60_000) / 1_000);
+    const ms3 = Math.floor(ms % 1_000);
+    return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")},${String(ms3).padStart(3,"0")}`;
+  };
+  const chunks: string[] = [];
   let idx = 1;
   for (let i = 0; i < words.length; i += WORDS_PER_BLOCK) {
     const chunk = words.slice(i, i + WORDS_PER_BLOCK);
     const startMs = i * msPerWord;
     const endMs = Math.min((i + WORDS_PER_BLOCK) * msPerWord, durationMs);
-    const fmt = (ms: number) => {
-      const h = Math.floor(ms / 3_600_000);
-      const m = Math.floor((ms % 3_600_000) / 60_000);
-      const s = Math.floor((ms % 60_000) / 1_000);
-      const ms3 = Math.floor(ms % 1_000);
-      return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")},${String(ms3).padStart(3,"0")}`;
-    };
-    blocks.push(`${idx}\n${fmt(startMs)} --> ${fmt(endMs)}\n${chunk.join(" ")}`);
+    chunks.push(`${idx}\n${fmt(startMs)} --> ${fmt(endMs)}\n${chunk.join(" ")}`);
     idx++;
   }
-  return blocks.join("\n\n");
+  return chunks.join("\n\n");
 }
 
-// ─── ASS Generation ──────────────────────────────────────────────────────────
+// ─── Word-level timing extraction ────────────────────────────────────────────
 
 /**
- * Convert Caption Studio config → an ASS file string.
- *
- * Uses karaoke \kf tags for word-by-word color highlighting (when
- * highlightMode includes "color"). The secondary colour in ASS karaoke
- * is the "filled" (active) colour — matches our activeWordColor.
+ * Expand SRT blocks into individual word timings.
+ * Within each block, time is distributed proportionally by word character count.
  */
+function extractWordTimings(blocks: SRTBlock[]): WordTiming[] {
+  const result: WordTiming[] = [];
+  for (const block of blocks) {
+    const words = block.text.split(/\s+/).filter(Boolean);
+    if (words.length === 0) continue;
+    const blockDuration = block.end - block.start;
+    const totalChars = words.reduce((sum, w) => sum + w.length, 0) || 1;
+    let cursor = block.start;
+    for (let i = 0; i < words.length; i++) {
+      const wordDuration = Math.round((words[i].length / totalChars) * blockDuration);
+      const wordEnd = i === words.length - 1 ? block.end : cursor + wordDuration;
+      result.push({ text: words[i], start: cursor, end: wordEnd });
+      cursor = wordEnd;
+    }
+  }
+  return result;
+}
+
+// ─── Font mapping ─────────────────────────────────────────────────────────────
+
+function resolveFontName(fontFamily: string): string {
+  const map: Record<string, string> = {
+    Oswald: "Oswald",
+    Bangers: "Bangers",
+    "DejaVu Sans": "DejaVu Sans",
+    "DejaVu Serif": "DejaVu Serif",
+    Montserrat: "DejaVu Sans",
+    Inter: "DejaVu Sans",
+    Georgia: "DejaVu Serif",
+    Arial: "DejaVu Sans",
+  };
+  return map[fontFamily] ?? "Oswald";
+}
+
+// ─── ASS header builder ───────────────────────────────────────────────────────
+
+function buildASSHeader(
+  config: CaptionStyle,
+  videoWidth: number,
+  videoHeight: number
+): string {
+  const alignment = config.position === "top" ? 8 : config.position === "center" ? 5 : 2;
+  const marginV = config.position === "center" ? 0 : 120;
+  const fontName = resolveFontName(config.fontFamily);
+
+  const primaryColor = hexToAss(config.primaryColor);
+  const activeColor  = hexToAss(config.activeWordColor);
+  const outlineColor = hexToAss(config.outlineColor);
+  const backColor    = config.backgroundColor ? rgbaToAss(config.backgroundColor) : "&H00000000";
+  const borderStyle  = config.backgroundColor ? 3 : 1;
+  const outlineWidth = borderStyle === 3 ? 0 : 5;   // thick outline for no-bg styles
+  const shadowDepth  = borderStyle === 3 ? 0 : 2;
+  const letterSpacing = 1.5;
+
+  return `[Script Info]
+ScriptType: v4.00+
+PlayResX: ${videoWidth}
+PlayResY: ${videoHeight}
+ScaledBorderAndShadow: yes
+WrapStyle: 0
+YCbCr Matrix: TV.709
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Caption,${fontName},${config.fontSize},${primaryColor},${activeColor},${outlineColor},${backColor},-1,0,0,0,100,100,${letterSpacing},0,${borderStyle},${outlineWidth},${shadowDepth},${alignment},60,60,${marginV},1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`;
+}
+
+// ─── Rendering mode: HIGHLIGHT LINE ──────────────────────────────────────────
+//
+// Shows wordsPerLine words simultaneously.
+// The active word is rendered in activeWordColor; inactive words in primaryColor.
+// For each word-slot in the line, a separate Dialogue entry is generated with
+// inline \c color overrides — this gives the TikTok / Reels "word highlight" look.
+//
+// Before-active words: slightly faded (50% alpha) to focus the eye
+// Active word: accent color, no alpha
+// After-active words: primary color, no alpha
+
+function buildHighlightLineASS(
+  wordTimings: WordTiming[],
+  config: CaptionStyle,
+  videoWidth: number,
+  videoHeight: number
+): string {
+  const header = buildASSHeader(config, videoWidth, videoHeight);
+  const wordsPerLine = Math.max(1, config.wordsPerLine);
+
+  const accentColor  = hexToAss(config.activeWordColor);
+  const primaryColor = hexToAss(config.primaryColor);
+  // Faded version of primary color (50% alpha = &H80)
+  const fadedColor   = hexToAss(config.primaryColor, 0x60);
+
+  const dialogues: string[] = [];
+
+  // Group word timings into lines
+  for (let i = 0; i < wordTimings.length; i += wordsPerLine) {
+    const lineWords = wordTimings.slice(i, Math.min(i + wordsPerLine, wordTimings.length));
+
+    // For each word position in the line, emit one Dialogue entry
+    for (let wi = 0; wi < lineWords.length; wi++) {
+      const slotStart = lineWords[wi].start;
+      const slotEnd   = wi + 1 < lineWords.length ? lineWords[wi + 1].start : lineWords[wi].end;
+
+      // Build the styled line text
+      const parts = lineWords.map((w, j) => {
+        const word = w.text.toUpperCase();
+        if (j === wi) {
+          // Active word: accent color, bold marker (already bold in style but emphasize)
+          return `{\\c${accentColor}}${word}{\\c${primaryColor}}`;
+        } else if (j < wi) {
+          // Already-spoken words: faded
+          return `{\\c${fadedColor}}${word}{\\c${primaryColor}}`;
+        } else {
+          // Upcoming words: primary color
+          return word;
+        }
+      });
+
+      dialogues.push(
+        `Dialogue: 0,${msToAssTime(slotStart)},${msToAssTime(slotEnd)},Caption,,0,0,0,,${parts.join(" ")}`
+      );
+    }
+  }
+
+  return `${header}\n${dialogues.join("\n")}`;
+}
+
+// ─── Rendering mode: POP (one word at a time) ────────────────────────────────
+//
+// Each word gets its own Dialogue entry with the word's exact duration.
+// Words appear one at a time, centered, large — closest to the "Energy" style.
+// If highlightMode is "both", the word is rendered in accentColor.
+
+function buildPopASS(
+  wordTimings: WordTiming[],
+  config: CaptionStyle,
+  videoWidth: number,
+  videoHeight: number
+): string {
+  const header = buildASSHeader(config, videoWidth, videoHeight);
+  const useAccentColor = config.highlightMode === "both";
+  const accentColor = hexToAss(config.activeWordColor);
+  const colorTag = useAccentColor ? `{\\c${accentColor}}` : "";
+
+  const dialogues = wordTimings.map((w) => {
+    const word = w.text.toUpperCase();
+    return `Dialogue: 0,${msToAssTime(w.start)},${msToAssTime(w.end)},Caption,,0,0,0,,${colorTag}${word}`;
+  });
+
+  return `${header}\n${dialogues.join("\n")}`;
+}
+
+// ─── Main ASS builder dispatcher ─────────────────────────────────────────────
+
 function buildASS(
   blocks: SRTBlock[],
   config: CaptionStyle,
   videoWidth = 1080,
   videoHeight = 1920
 ): string {
-  // ASS alignment: numpad layout — 8=top-center, 5=mid-center, 2=bot-center
-  const alignment = config.position === "top" ? 8 : config.position === "center" ? 5 : 2;
-  const marginV = 80; // vertical margin from edge (pixels at PlayRes scale)
+  const wordTimings = extractWordTimings(blocks);
 
-  const primaryColor = hexToAss(config.primaryColor);
-  // In ASS karaoke, SecondaryColour = colour of the word BEFORE it's reached,
-  // then PrimaryColour fills in. We want the opposite: highlight active word.
-  // Trick: set Secondary = same as Primary, use \kf so the highlight sweeps
-  // in as active-word colour.
-  const activeColor = hexToAss(config.activeWordColor);
-  const outlineColor = hexToAss(config.outlineColor);
-  const backColor = config.backgroundColor
-    ? rgbaToAss(config.backgroundColor)
-    : "&H00000000"; // fully transparent
-
-  // BorderStyle 1 = outline+shadow, 3 = opaque box
-  const borderStyle = config.backgroundColor ? 3 : 1;
-  const outlineWidth = borderStyle === 3 ? 0 : 2.5;
-  const shadowDepth = borderStyle === 3 ? 0 : 1;
-
-  // Font: map Caption Studio names → available system fonts (DejaVu)
-  const fontMap: Record<string, string> = {
-    Montserrat: "DejaVu Sans",
-    Inter: "DejaVu Sans",
-    Georgia: "DejaVu Serif",
-    Arial: "DejaVu Sans",
-    "DejaVu Sans": "DejaVu Sans",
-    "DejaVu Serif": "DejaVu Serif",
-  };
-  const fontName = fontMap[config.fontFamily] ?? "DejaVu Sans";
-
-  const useKaraoke =
-    config.highlightMode === "color" || config.highlightMode === "both";
-
-  const header = `[Script Info]
-ScriptType: v4.00+
-PlayResX: ${videoWidth}
-PlayResY: ${videoHeight}
-ScaledBorderAndShadow: yes
-WrapStyle: 0
-
-[V4+ Styles]
-Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Caption,${fontName},${config.fontSize},${primaryColor},${activeColor},${outlineColor},${backColor},-1,0,0,0,100,100,0,0,${borderStyle},${outlineWidth},${shadowDepth},${alignment},40,40,${marginV},1
-
-[Events]
-Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`;
-
-  const wordsPerLine = Math.max(1, config.wordsPerLine);
-
-  const dialogues: string[] = [];
-
-  for (const block of blocks) {
-    const words = block.text.split(/\s+/).filter(Boolean);
-    if (words.length === 0) continue;
-
-    // Split into lines of wordsPerLine words each
-    const lines: string[][] = [];
-    for (let i = 0; i < words.length; i += wordsPerLine) {
-      lines.push(words.slice(i, i + wordsPerLine));
-    }
-
-    const blockDuration = block.end - block.start;
-    const lineDuration = blockDuration / lines.length;
-
-    for (let li = 0; li < lines.length; li++) {
-      const lineWords = lines[li];
-      const lineStart = block.start + li * lineDuration;
-      const lineEnd = lineStart + lineDuration;
-
-      let text: string;
-
-      if (useKaraoke && lineWords.length > 1) {
-        // Distribute line duration proportionally by character count
-        const totalChars = lineWords.reduce((acc, w) => acc + w.length, 0);
-        const parts = lineWords.map((word) => {
-          const cs = Math.max(1, Math.round((word.length / totalChars) * lineDuration / 10));
-          return `{\\kf${cs}}${word}`;
-        });
-        text = parts.join(" ");
-      } else {
-        text = lineWords.join(" ");
-      }
-
-      // Add scale override for active word if highlightMode includes scale
-      if (config.highlightMode === "scale" || config.highlightMode === "both") {
-        const pct = Math.round(config.activeWordScale * 100);
-        // Prepend a font-size override for the whole line (coarse approximation)
-        // True per-word scale in ASS requires \fscx/\fscy overrides per syllable
-        text = `{\\fscx${pct}\\fscy${pct}}${text}{\\fscx100\\fscy100}`;
-      }
-
-      dialogues.push(
-        `Dialogue: 0,${msToAssTime(lineStart)},${msToAssTime(lineEnd)},Caption,,0,0,0,,${text}`
-      );
-    }
+  // "color" → highlight line (show N words, highlight active)
+  // "scale" or "both" → pop (one word at a time)
+  if (config.highlightMode === "color") {
+    return buildHighlightLineASS(wordTimings, config, videoWidth, videoHeight);
+  } else {
+    return buildPopASS(wordTimings, config, videoWidth, videoHeight);
   }
-
-  return `${header}\n${dialogues.join("\n")}`;
 }
 
 // ─── Main entry point ─────────────────────────────────────────────────────────
@@ -303,53 +357,41 @@ export async function applyCaptions(
     videoDurationSeconds?: number | null;
   }
 ): Promise<CaptionResult> {
-  const subtitleUrl = options?.subtitleUrl ?? null;
-  const videoDurationMs = ((options?.videoDurationSeconds ?? 60) * 1000);
+  const subtitleUrl   = options?.subtitleUrl ?? null;
+  const videoDurationMs = (options?.videoDurationSeconds ?? 60) * 1000;
 
   try {
     await ensureDir(CAPTION_DIR);
-    const id = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
-    const videoPath = path.join(CAPTION_DIR, `in_${id}.mp4`);
-    const assPath = path.join(CAPTION_DIR, `captions_${id}.ass`);
-    const outputPath = path.join(CAPTION_DIR, `captioned_${id}.mp4`);
+    const id          = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+    const videoPath   = path.join(CAPTION_DIR, `in_${id}.mp4`);
+    const assPath     = path.join(CAPTION_DIR, `captions_${id}.ass`);
+    const outputPath  = path.join(CAPTION_DIR, `captioned_${id}.mp4`);
 
-    // 1. Download HeyGen video ──────────────────────────────────────────────
-    logger.info(
-      { url: videoUrl.slice(0, 80) },
-      "[CaptionEngine] Downloading source video..."
-    );
+    // 1. Download HeyGen video
+    logger.info({ url: videoUrl.slice(0, 80) }, "[CaptionEngine] Downloading source video...");
     await downloadFile(videoUrl, videoPath);
 
-    // 2. Get SRT ───────────────────────────────────────────────────────────
+    // 2. Get SRT
     let srtContent: string | null = null;
-
     if (subtitleUrl) {
       try {
         logger.info("[CaptionEngine] Fetching SRT from HeyGen...");
-        const srtRes = await axios.get<string>(subtitleUrl, {
-          responseType: "text",
-          timeout: 30_000,
-        });
+        const srtRes = await axios.get<string>(subtitleUrl, { responseType: "text", timeout: 30_000 });
         srtContent = srtRes.data;
-        logger.info(
-          { blocks: srtContent.trim().split(/\n\s*\n/).length },
-          "[CaptionEngine] SRT downloaded"
-        );
+        logger.info({ blocks: srtContent.trim().split(/\n\s*\n/).length }, "[CaptionEngine] SRT downloaded");
       } catch (e) {
         logger.warn({ err: e }, "[CaptionEngine] SRT download failed — using script fallback");
       }
     }
-
     if (!srtContent && script) {
       logger.info("[CaptionEngine] Generating basic SRT from script...");
       srtContent = generateBasicSRT(script, videoDurationMs);
     }
-
     if (!srtContent) {
       return { url: null, error: "No SRT source available (no subtitleUrl and no script)" };
     }
 
-    // 3. Parse SRT → ASS ───────────────────────────────────────────────────
+    // 3. Parse SRT → ASS
     const blocks = parseSRT(srtContent);
     if (blocks.length === 0) {
       return { url: null, error: "SRT parsed to 0 blocks" };
@@ -359,11 +401,15 @@ export async function applyCaptions(
     const assContent = buildASS(blocks, config);
     await fs.writeFile(assPath, assContent, "utf-8");
 
-    // 4. Burn with FFmpeg ──────────────────────────────────────────────────
+    // 4. Burn with FFmpeg — pass fontsdir so libass finds our bundled fonts
     logger.info("[CaptionEngine] Running FFmpeg (ass filter)...");
+
+    // Escape the paths for the ass filter parameter (colons need escaping on some platforms)
+    const assFilter = `ass='${assPath}':fontsdir='${FONTS_DIR}'`;
+
     const { stderr } = await execFileAsync("ffmpeg", [
       "-i", videoPath,
-      "-vf", `ass=${assPath}`,
+      "-vf", assFilter,
       "-c:a", "copy",
       "-movflags", "+faststart",
       "-y",
@@ -371,37 +417,36 @@ export async function applyCaptions(
     ]);
 
     if (stderr) {
-      // FFmpeg prints progress to stderr — only log the last line
       const lastLine = stderr.trim().split("\n").at(-1) ?? "";
       if (lastLine) logger.debug({ ffmpeg: lastLine }, "[CaptionEngine] ffmpeg");
     }
 
-    // 5. Clean up input files ──────────────────────────────────────────────
+    // 5. Clean up temp input files
     await Promise.all([
       fs.unlink(videoPath).catch(() => {}),
       fs.unlink(assPath).catch(() => {}),
     ]);
 
-    // 6. Build public URL ──────────────────────────────────────────────────
-    const filename = path.basename(outputPath);
+    // 6. Build public URL
+    const filename  = path.basename(outputPath);
     const devDomain = process.env.REPLIT_DEV_DOMAIN;
-    const baseUrl = devDomain
-      ? `https://${devDomain}/api`
-      : `http://localhost:8080`;
+    const baseUrl   = devDomain ? `https://${devDomain}/api` : `http://localhost:8080`;
     const publicUrl = `${baseUrl}/captioned/${filename}`;
 
     logger.info({ publicUrl }, "[CaptionEngine] Captioned video ready");
     return { url: publicUrl };
   } catch (err) {
     logger.error({ err }, "[CaptionEngine] Failed");
-    return {
-      url: null,
-      error: err instanceof Error ? err.message : String(err),
-    };
+    return { url: null, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
-/** Built-in presets — visual vocabulary of Caption Studio. */
+// ─── Presets ──────────────────────────────────────────────────────────────────
+//
+// Visual vocabulary of Caption Studio.
+// highlightMode "color"      → Highlight Line (show N words, accent active)
+// highlightMode "scale"/"both" → Pop (one word at a time, big)
+
 export const CAPTION_PRESETS: {
   id: string;
   name: string;
@@ -418,61 +463,106 @@ export const CAPTION_PRESETS: {
   subtleRotation: boolean;
 }[] = [
   {
-    id: "bold",
-    name: "Bold Impact",
-    description: "Texto blanco grueso, palabra activa en amarillo. Clásico de Reels virales.",
+    id: "viral",
+    name: "Viral (Highlight)",
+    description: "3 palabras a la vez, la activa en amarillo. El look más viral de TikTok e IG Reels.",
     primaryColor: "#FFFFFF",
     activeWordColor: "#FFE600",
     outlineColor: "#000000",
     backgroundColor: null,
-    fontFamily: "Montserrat",
-    fontSize: 72,
+    fontFamily: "Oswald",
+    fontSize: 88,
     activeWordScale: 1.2,
-    highlightMode: "both",
+    highlightMode: "color",
+    autoMovement: false,
+    subtleRotation: false,
+  },
+  {
+    id: "pop",
+    name: "Pop (Una Palabra)",
+    description: "Una palabra enorme a la vez, blanca con outline negro. Máximo impacto visual.",
+    primaryColor: "#FFFFFF",
+    activeWordColor: "#FFFFFF",
+    outlineColor: "#000000",
+    backgroundColor: null,
+    fontFamily: "Oswald",
+    fontSize: 110,
+    activeWordScale: 1,
+    highlightMode: "scale",
+    autoMovement: false,
+    subtleRotation: false,
+  },
+  {
+    id: "energy",
+    name: "Energy (Caja)",
+    description: "Una palabra a la vez en caja de color. Estilo 'Energy' del video de referencia.",
+    primaryColor: "#FFFFFF",
+    activeWordColor: "#FFFFFF",
+    outlineColor: "#000000",
+    backgroundColor: "rgba(0,0,0,0.85)",
+    fontFamily: "Oswald",
+    fontSize: 96,
+    activeWordScale: 1,
+    highlightMode: "scale",
+    autoMovement: false,
+    subtleRotation: false,
+  },
+  {
+    id: "fire",
+    name: "Fire (Naranja)",
+    description: "Estilo highlight con palabra activa en naranja intenso. Urgencia máxima.",
+    primaryColor: "#FFFFFF",
+    activeWordColor: "#FF5500",
+    outlineColor: "#000000",
+    backgroundColor: null,
+    fontFamily: "Oswald",
+    fontSize: 88,
+    activeWordScale: 1.2,
+    highlightMode: "color",
     autoMovement: false,
     subtleRotation: false,
   },
   {
     id: "neon",
-    name: "Neon Glow",
-    description: "Texto cian brillante con glow, estilo tech/gaming.",
+    name: "Neon",
+    description: "Palabra activa en cian brillante, estilo tech/gaming.",
     primaryColor: "#FFFFFF",
-    activeWordColor: "#00F5FF",
-    outlineColor: "#003366",
+    activeWordColor: "#00F0FF",
+    outlineColor: "#001A33",
     backgroundColor: null,
-    fontFamily: "Montserrat",
-    fontSize: 68,
+    fontFamily: "Oswald",
+    fontSize: 88,
     activeWordScale: 1.15,
     highlightMode: "color",
-    autoMovement: true,
+    autoMovement: false,
     subtleRotation: false,
   },
   {
-    id: "fire",
-    name: "Fire Energy",
-    description: "Palabra activa en naranja/rojo, máxima energía y urgencia.",
+    id: "bangers",
+    name: "Bangers (Cómic)",
+    description: "Fuente cómic, una palabra a la vez en acento de color. Dinámico y divertido.",
     primaryColor: "#FFFFFF",
-    activeWordColor: "#FF4500",
-    outlineColor: "#1A0000",
+    activeWordColor: "#FF3366",
+    outlineColor: "#000000",
     backgroundColor: null,
-    fontFamily: "Montserrat",
-    fontSize: 74,
-    activeWordScale: 1.25,
+    fontFamily: "Bangers",
+    fontSize: 120,
+    activeWordScale: 1,
     highlightMode: "both",
-    autoMovement: true,
-    subtleRotation: true,
+    autoMovement: false,
+    subtleRotation: false,
   },
   {
     id: "minimal",
-    name: "Minimal Clean",
-    description: "Texto blanco fino, sin efectos extra. Profesional y legible.",
+    name: "Minimal",
+    description: "Pop limpio sin color de acento. Profesional y legible.",
     primaryColor: "#FFFFFF",
     activeWordColor: "#FFFFFF",
     outlineColor: "#000000",
     backgroundColor: null,
-    fontFamily: "Inter",
-    fontSize: 60,
-    activeWordScale: 1.05,
+    fontFamily: "Oswald",
+    fontSize: 96,
+    activeWordScale: 1,
     highlightMode: "scale",
     autoMovement: false,
     subtleRotation: false,
@@ -480,13 +570,13 @@ export const CAPTION_PRESETS: {
   {
     id: "cinematic",
     name: "Cinematic",
-    description: "Fondo negro semitransparente, texto elegante estilo documental.",
-    primaryColor: "#F5F5DC",
+    description: "Caja oscura semitransparente, 3 palabras, activa en dorado. Estilo documental.",
+    primaryColor: "#F0EAD6",
     activeWordColor: "#FFD700",
     outlineColor: "#000000",
-    backgroundColor: "rgba(0,0,0,0.55)",
-    fontFamily: "Georgia",
-    fontSize: 58,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    fontFamily: "Oswald",
+    fontSize: 72,
     activeWordScale: 1.1,
     highlightMode: "color",
     autoMovement: false,
