@@ -35,6 +35,19 @@ Promise singleton pattern replaces `_loadAttempted` boolean flag. Concurrent cal
 ## /api/captioned/:filename route
 Moved to before `requireAuth` middleware in `app.ts` — serves from `/tmp/contentpilot-captioned/` without auth. Files are ephemeral (/tmp), so no auth needed. This route is used for both production captioned videos AND test videos.
 
+## CSS preview vs canvas pixel calibration (Aug 2026)
+**Problem:** `TemplateCaptionPreview` used CSS `flex items-end` with container height = `baselineY`. The CSS LINE BOX bottom sat at `baselineY`, but the canvas draws text with `textBaseline="alphabetic"` at `baselineY` — the alphabetic baseline is inside the line box, so CSS text appeared ~15px HIGHER than in the real video.
+
+**Measurement (authority_bold, 1920px canvas):**
+- ImageMagick trim on cue PNG → text bbox top=1486, bottom=1615
+- Canvas baseline at yPercent=82 → `1574px`
+- Visual text bottom (including descender + outline + shadow) → `1615px = 84.1%` (not 82%)
+- 41px gap at 1920 scale = `41 × (444/1920) ≈ 10px` at preview scale
+
+**Fix:** `extraBelowBaseline = ceil(scaledFS × 0.25 + scaledOW × 1.2 + scaledSY + scaledBlur × 0.4)`. Container height = `baselineY + extraBelowBaseline`. Guide line stays at `baselineY` (canvas baseline reference). Verified: 84.1% matches for all three templates.
+
+**Why:** Font descender metric (~25% of em) + outline below baseline + shadow downward extent all contribute below the alphabetic baseline. CSS previews this space differently than `@napi-rs/canvas`.
+
 ## Diagnostic notes
 - `GET /api/captions/browser/status` — returns `{ available: boolean }`, polled by CaptionStudio on mount
 - `GET /api/captions/browser/preview-frame?templateId=clean_coach` — renders a single diagnostic PNG (no UI button yet)

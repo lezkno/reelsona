@@ -234,29 +234,64 @@ function TemplateCaptionPreview({
   const baselineY  = Math.round(PHONE_SCREEN_H * effectiveYPct / 100)
   const marginX_px = Math.round(effectiveMarginXPx * PREVIEW_SCALE)
 
+  // ── Pixel-accurate text container height ────────────────────────────────
+  // The canvas draws text with ctx.textBaseline="alphabetic" at baselineY.
+  // Below that baseline, the rendered PNG extends by: font-descender + outline + shadow.
+  // Measuring authority_bold cue PNGs: text bbox bottom = baseline + 41px at 1920 scale.
+  // Formula: fontDescender(~25% em) + outline*1.2 + shadowOffsetY + shadowBlur*0.5
+  // Scaled to preview: all values at PREVIEW_SCALE.
+  // Adding this as padding lets the CSS text sit at the same visual position as the canvas.
+  const extraBelowBaseline = Math.ceil(
+    scaledFS   * 0.25 +           // font descender metric (~25% of em for Poppins/Oswald)
+    scaledOW   * 1.2  +           // outline extends below the alphabetic baseline
+    scaledSY          +           // shadow offset downward
+    scaledBlur * 0.4              // shadow blur spreads downward
+  )
+  // Text container spans from top of frame to baselineY + extraBelowBaseline,
+  // so the visual glyph bottom (including outline/shadow) lands at the correct position.
+  const containerH = baselineY + extraBelowBaseline
+
   return (
     <PhoneFrame>
+      {/*
+        Background simulates a real talking-head studio shot based on actual test video frames:
+        — top portion: warm lit background (white wall, bookshelf, lamp highlight)
+        — middle: dark navy area (person's sweater)
+        — lower: warm wood desk surface visible at the bottom
+        This lets the user judge caption position the same way they would in the real video.
+      */}
       <div className="w-full h-full relative overflow-hidden select-none"
-        style={{ background: "linear-gradient(160deg, #1a1a2e 0%, #16213e 55%, #0f3460 100%)" }}>
+        style={{ background: `
+          linear-gradient(180deg,
+            #c8b8a8 0%,
+            #d4c8b8 6%,
+            #a89888 16%,
+            #786858 26%,
+            #1e2840 36%,
+            #18202e 52%,
+            #141820 66%,
+            #2a2418 74%,
+            #6a5030 82%,
+            #583e24 90%,
+            #2a1e10 100%
+          )` }}>
 
-        {/* Subtle avatar silhouette */}
-        <div className="absolute inset-0 flex items-center justify-center opacity-10">
-          <div className="w-24 h-32 bg-white/30" style={{ borderRadius: "50% 50% 45% 45%" }} />
-        </div>
+        {/* Lamp highlight — upper-left warm glow, matching real video */}
+        <div className="absolute pointer-events-none"
+          style={{ top: "6%", left: "8%", width: "22%", height: "18%",
+            background: "radial-gradient(ellipse, rgba(255,200,80,0.28) 0%, transparent 70%)" }} />
+        {/* Right-side window/wall highlight */}
+        <div className="absolute pointer-events-none"
+          style={{ top: "0", right: "0", width: "35%", height: "40%",
+            background: "radial-gradient(ellipse at top right, rgba(220,215,210,0.18) 0%, transparent 70%)" }} />
 
-        {/* Bottom gradient */}
-        <div className="absolute bottom-0 left-0 right-0 h-44 pointer-events-none"
-          style={{ background: "linear-gradient(to top, rgba(0,0,0,0.75) 0%, transparent 100%)" }} />
-        {/* Top gradient */}
-        <div className="absolute top-0 left-0 right-0 h-16 pointer-events-none"
-          style={{ background: "linear-gradient(to bottom, rgba(0,0,0,0.5) 0%, transparent 100%)" }} />
-
-        {/* Caption words — bottom-anchored at baselineY */}
+        {/* Caption words — bottom-anchored at (baselineY + extraBelowBaseline)
+            so the visual glyph bottom matches the canvas-rendered video exactly */}
         <div
           className="absolute left-0 right-0 z-10 flex items-end justify-center"
           style={{
             top:          0,
-            height:       baselineY,
+            height:       containerH,
             paddingLeft:  marginX_px,
             paddingRight: marginX_px,
           }}
@@ -297,13 +332,14 @@ function TemplateCaptionPreview({
           onPointerLeave={() => setIsDragging(false)}
         />
 
-        {/* Horizontal guide line */}
+        {/* Horizontal guide line — sits at the canvas alphabetic baseline (baselineY).
+            The rendered text visual bottom is extraBelowBaseline px lower, matching the video. */}
         <div className="absolute left-0 right-0 z-41 pointer-events-none transition-all duration-75"
           style={{
             top: baselineY - 1,
             borderTop: isDragging
-              ? "1.5px dashed rgba(255,255,255,0.85)"
-              : "1px dashed rgba(255,255,255,0.18)",
+              ? "1.5px dashed rgba(255,255,255,0.75)"
+              : "1px dashed rgba(255,255,255,0.15)",
           }}
         />
         {/* Vertical guide line */}
@@ -311,8 +347,8 @@ function TemplateCaptionPreview({
           style={{
             left: marginX_px - 1,
             borderLeft: isDragging
-              ? "1.5px dashed rgba(255,255,255,0.85)"
-              : "1px dashed rgba(255,255,255,0.18)",
+              ? "1.5px dashed rgba(255,255,255,0.75)"
+              : "1px dashed rgba(255,255,255,0.15)",
           }}
         />
         {/* Crosshair grip */}
@@ -333,52 +369,39 @@ function TemplateCaptionPreview({
           </div>
         )}
 
-        {/* Instagram UI overlay */}
-        <div className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-3 pt-2 pb-1">
-          <ChevronLeft size={18} className="text-white drop-shadow" />
-          <span className="text-white text-[11px] font-semibold tracking-wide drop-shadow">Reels</span>
-          <Clapperboard size={16} className="text-white drop-shadow" />
+        {/* Instagram UI — subtle, unobtrusive; no bottom nav bar inside the video area
+            (the real video has no nav bar — that lives outside the content frame) */}
+        {/* Top bar */}
+        <div className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-3 pt-2 pb-1 pointer-events-none">
+          <ChevronLeft size={18} className="text-white/70 drop-shadow" />
+          <span className="text-white/80 text-[11px] font-semibold tracking-wide drop-shadow">Reels</span>
+          <Clapperboard size={16} className="text-white/70 drop-shadow" />
         </div>
-        <div className="absolute right-2 z-20 flex flex-col items-center gap-3.5" style={{ bottom: 52 }}>
-          <div className="relative mb-1">
-            <div className="w-8 h-8 rounded-full border-2 border-white"
+        {/* Side engagement icons — anchored near the bottom, low opacity */}
+        <div className="absolute right-2 z-20 flex flex-col items-center gap-3 pointer-events-none" style={{ bottom: 14 }}>
+          <div className="relative">
+            <div className="w-7 h-7 rounded-full border border-white/60"
               style={{ background: "linear-gradient(135deg, #833ab4, #fd1d1d, #fcb045)" }} />
-            <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 rounded-full bg-[#0095f6] border border-black flex items-center justify-center">
-              <Plus size={9} className="text-white" strokeWidth={3} />
-            </div>
           </div>
-          <div className="flex flex-col items-center gap-0.5 mt-1">
-            <Heart size={22} className="text-white drop-shadow fill-white" />
-            <span className="text-white text-[9px] font-medium drop-shadow">47.2K</span>
+          <div className="flex flex-col items-center gap-0.5 opacity-60">
+            <Heart size={20} className="text-white fill-white" />
+            <span className="text-white text-[8px]">47K</span>
           </div>
-          <div className="flex flex-col items-center gap-0.5">
-            <MessageCircle size={22} className="text-white drop-shadow" />
-            <span className="text-white text-[9px] font-medium drop-shadow">1.8K</span>
+          <div className="flex flex-col items-center gap-0.5 opacity-60">
+            <MessageCircle size={20} className="text-white" />
+            <span className="text-white text-[8px]">1.8K</span>
           </div>
         </div>
-        <div className="absolute left-2 right-14 z-20" style={{ bottom: 50 }}>
-          <div className="flex items-center gap-1.5 mb-1">
-            <div className="w-6 h-6 rounded-full border border-white/80"
+        {/* Bottom user info strip — very subtle, inside video content area */}
+        <div className="absolute left-2 right-12 z-20 pointer-events-none" style={{ bottom: 12 }}>
+          <div className="flex items-center gap-1.5 mb-0.5 opacity-75">
+            <div className="w-5 h-5 rounded-full border border-white/70"
               style={{ background: "linear-gradient(135deg, #833ab4, #fd1d1d, #fcb045)" }} />
-            <span className="text-white text-[10px] font-bold drop-shadow">tu_cuenta</span>
+            <span className="text-white text-[9px] font-bold drop-shadow">tu_cuenta</span>
           </div>
-          <p className="text-white text-[8.5px] leading-tight line-clamp-2 drop-shadow opacity-90">
-            ✨ Así funciona la automatización con IA para hacer crecer tu marca
+          <p className="text-white text-[7.5px] leading-tight line-clamp-1 opacity-60">
+            ✨ Automatización con IA para tu marca
           </p>
-          <div className="flex items-center gap-1 mt-1">
-            <Music2 size={8} className="text-white drop-shadow" />
-            <span className="text-white text-[7.5px] opacity-80 drop-shadow">Audio original · tu_cuenta</span>
-          </div>
-        </div>
-        <div className="absolute bottom-0 left-0 right-0 z-20 flex items-center justify-around bg-black/90"
-          style={{ height: 44, borderTop: "0.5px solid rgba(255,255,255,0.15)" }}>
-          <Home size={20} className="text-white/70" />
-          <Search size={20} className="text-white/70" />
-          <div className="w-8 h-6 rounded-md border-2 border-white/80 flex items-center justify-center">
-            <Plus size={13} className="text-white" strokeWidth={2.5} />
-          </div>
-          <Clapperboard size={20} className="text-white" />
-          <User size={20} className="text-white/70" />
         </div>
       </div>
     </PhoneFrame>
