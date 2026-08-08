@@ -117,6 +117,41 @@ export { BROWSER_CAPTION_TEMPLATES };
 
 // ── Frame renderer ────────────────────────────────────────────────────────────
 
+/**
+ * Build wrapped lines from a flat list of word indices.
+ * Mirrors the CSS `flex-wrap: wrap` behaviour of the React preview:
+ * words are packed greedily into lines; a new line starts when the next word
+ * would exceed the available width (VIDEO_WIDTH − 2 × marginX).
+ */
+function buildWrappedLines(
+  measurements: number[],
+  wordGap: number,
+  availableW: number,
+): Array<{ wordIndices: number[]; lineWidth: number }> {
+  const lines: Array<{ wordIndices: number[]; lineWidth: number }> = [];
+  let currentIndices: number[] = [];
+  let currentWidth = 0;
+
+  for (let i = 0; i < measurements.length; i++) {
+    const wordW = measurements[i];
+    const gapW  = currentIndices.length > 0 ? wordGap : 0;
+
+    if (currentIndices.length > 0 && currentWidth + gapW + wordW > availableW) {
+      // Flush current line and start a new one
+      lines.push({ wordIndices: currentIndices, lineWidth: currentWidth });
+      currentIndices = [i];
+      currentWidth   = wordW;
+    } else {
+      currentIndices.push(i);
+      currentWidth += gapW + wordW;
+    }
+  }
+  if (currentIndices.length > 0) {
+    lines.push({ wordIndices: currentIndices, lineWidth: currentWidth });
+  }
+  return lines;
+}
+
 async function renderCueFrame(
   canvas: CanvasModule,
   template: CaptionTemplate,
@@ -128,97 +163,99 @@ async function renderCueFrame(
   // Fully transparent background — the PNG is composited over the video
   ctx.clearRect(0, 0, VIDEO_WIDTH, VIDEO_HEIGHT);
 
-  // All template values are at VIDEO_HEIGHT reference; scale factor = 1.0 for actual render
-  const scaleFactor = 1.0;
-  const fontSize    = Math.round(scaleToHeight(template.fontSize, VIDEO_HEIGHT));
-  const outlineW    = scaleToHeight(template.outlineWidth, VIDEO_HEIGHT);
-  const shadowX     = scaleToHeight(template.shadowOffsetX, VIDEO_HEIGHT);
-  const shadowY     = scaleToHeight(template.shadowOffsetY, VIDEO_HEIGHT);
-  const shadowBlur  = scaleToHeight(template.shadowBlur, VIDEO_HEIGHT);
+  const fontSize    = Math.round(scaleToHeight(template.fontSize,     VIDEO_HEIGHT));
+  const outlineW    = scaleToHeight(template.outlineWidth,   VIDEO_HEIGHT);
+  const shadowX     = scaleToHeight(template.shadowOffsetX,  VIDEO_HEIGHT);
+  const shadowY     = scaleToHeight(template.shadowOffsetY,  VIDEO_HEIGHT);
+  const shadowBlur  = scaleToHeight(template.shadowBlur,     VIDEO_HEIGHT);
   const baselineY   = getBaselineY(template, VIDEO_HEIGHT);
   const marginX     = getSafeMarginX(template, VIDEO_WIDTH);
   const wordGap     = Math.round(fontSize * WORD_GAP_FACTOR);
+  const availableW  = VIDEO_WIDTH - 2 * marginX;
+  // Line spacing: distance from one baseline to the next
+  const lineSpacing = Math.round(fontSize * template.lineHeight);
 
   // Format words (apply uppercase if template requires it)
   const displayWords = cue.words.map((w) => formatWord(w.text, template));
 
-  // Pre-measure all words to compute total width for centering
+  // Pre-measure all words
   const measurements: number[] = displayWords.map((word, i) => {
-    const isActive    = i === cue.activeWordIndex;
-    const wordScale   = isActive && template.highlightMode === "scale" ? template.activeWordScale : 1.0;
-    const wordFontSz  = Math.round(fontSize * wordScale);
+    const isActive   = i === cue.activeWordIndex;
+    const wordScale  = isActive && template.highlightMode === "scale" ? template.activeWordScale : 1.0;
+    const wordFontSz = Math.round(fontSize * wordScale);
     ctx.font = `${template.fontWeight} ${wordFontSz}px '${template.fontFamily}'`;
     return ctx.measureText(word).width;
   });
 
-  const totalWidth = measurements.reduce(
-    (sum, w, i) => sum + w + (i < measurements.length - 1 ? wordGap : 0),
-    0,
-  );
+  // Wrap words into lines (same greedy algorithm as CSS flex-wrap)
+  const lines = buildWrappedLines(measurements, wordGap, availableW);
 
-  // Clamp starting X to safe area
-  let x = Math.max(marginX, (VIDEO_WIDTH - totalWidth) / 2);
+  // Draw lines bottom-up: last line baseline = baselineY, earlier lines shifted up
+  for (let li = 0; li < lines.length; li++) {
+    const { wordIndices, lineWidth } = lines[li];
+    // li=0 is the top line; li=(lines.length-1) is the bottom line at baselineY
+    const lineY = baselineY - (lines.length - 1 - li) * lineSpacing;
+    // Center each line within safe area
+    const lineX = Math.max(marginX, (VIDEO_WIDTH - lineWidth) / 2);
+    let x = lineX;
 
-  // Draw each word
-  displayWords.forEach((word, i) => {
-    const isActive   = i === cue.activeWordIndex;
-    const wordScale  = isActive && template.highlightMode === "scale" ? template.activeWordScale : 1.0;
-    const wordFontSz = Math.round(fontSize * wordScale);
-    const color      = isActive ? template.activeWordColor : template.primaryColor;
-    const alpha      = isActive ? 1.0 : template.inactiveOpacity;
-    const wordWidth  = measurements[i];
+    for (const wi of wordIndices) {
+      const word       = displayWords[wi];
+      const isActive   = wi === cue.activeWordIndex;
+      const wordScale  = isActive && template.highlightMode === "scale" ? template.activeWordScale : 1.0;
+      const wordFontSz = Math.round(fontSize * wordScale);
+      const color      = isActive ? template.activeWordColor : template.primaryColor;
+      const alpha      = isActive ? 1.0 : template.inactiveOpacity;
+      const wordWidth  = measurements[wi];
 
-    ctx.save();
-
-    ctx.font          = `${template.fontWeight} ${wordFontSz}px '${template.fontFamily}'`;
-    ctx.textBaseline  = "alphabetic";
-
-    // Shadow (applies to stroke + fill — set before both draws)
-    ctx.shadowColor   = template.shadowColor;
-    ctx.shadowOffsetX = shadowX;
-    ctx.shadowOffsetY = shadowY;
-    ctx.shadowBlur    = shadowBlur;
-
-    // Word background box
-    if (template.backgroundMode === "word" && template.backgroundColor) {
-      const padX = scaleToHeight(template.backgroundPaddingX, VIDEO_HEIGHT);
-      const padY = scaleToHeight(template.backgroundPaddingY, VIDEO_HEIGHT);
-      const r    = scaleToHeight(template.backgroundRadius,   VIDEO_HEIGHT);
       ctx.save();
-      ctx.shadowColor = "transparent";
-      ctx.fillStyle   = template.backgroundColor;
-      const boxX = x - padX;
-      const boxY = baselineY - wordFontSz - padY;
-      const boxW = wordWidth + padX * 2;
-      const boxH = wordFontSz * 1.25 + padY * 2;
-      ctx.beginPath();
-      if (r > 0 && "roundRect" in ctx) {
-        (ctx as any).roundRect(boxX, boxY, boxW, boxH, r);
-      } else {
-        ctx.rect(boxX, boxY, boxW, boxH);
+      ctx.font         = `${template.fontWeight} ${wordFontSz}px '${template.fontFamily}'`;
+      ctx.textBaseline = "alphabetic";
+
+      ctx.shadowColor   = template.shadowColor;
+      ctx.shadowOffsetX = shadowX;
+      ctx.shadowOffsetY = shadowY;
+      ctx.shadowBlur    = shadowBlur;
+
+      // Word background box
+      if (template.backgroundMode === "word" && template.backgroundColor) {
+        const padX = scaleToHeight(template.backgroundPaddingX, VIDEO_HEIGHT);
+        const padY = scaleToHeight(template.backgroundPaddingY, VIDEO_HEIGHT);
+        const r    = scaleToHeight(template.backgroundRadius,   VIDEO_HEIGHT);
+        ctx.save();
+        ctx.shadowColor = "transparent";
+        ctx.fillStyle   = template.backgroundColor;
+        const boxX = x - padX;
+        const boxY = lineY - wordFontSz - padY;
+        const boxW = wordWidth + padX * 2;
+        const boxH = wordFontSz * 1.25 + padY * 2;
+        ctx.beginPath();
+        if (r > 0 && "roundRect" in ctx) {
+          (ctx as any).roundRect(boxX, boxY, boxW, boxH, r);
+        } else {
+          ctx.rect(boxX, boxY, boxW, boxH);
+        }
+        ctx.fill();
+        ctx.restore();
       }
-      ctx.fill();
-      ctx.restore();
-    }
 
-    // Stroke outline — drawn first so fill covers the inner half
-    // (equivalent to CSS `paint-order: stroke fill`)
-    if (outlineW > 0) {
-      ctx.strokeStyle = template.outlineColor;
-      ctx.lineWidth   = outlineW * 2;   // ×2: half gets covered by fill → net outward stroke = outlineW
-      ctx.lineJoin    = "round";
+      // Stroke outline (paint-order: stroke fill)
+      if (outlineW > 0) {
+        ctx.strokeStyle = template.outlineColor;
+        ctx.lineWidth   = outlineW * 2;
+        ctx.lineJoin    = "round";
+        ctx.globalAlpha = alpha;
+        ctx.strokeText(word, x, lineY);
+      }
+
+      ctx.fillStyle   = color;
       ctx.globalAlpha = alpha;
-      ctx.strokeText(word, x, baselineY);
+      ctx.fillText(word, x, lineY);
+
+      ctx.restore();
+      x += wordWidth + wordGap;
     }
-
-    // Fill
-    ctx.fillStyle   = color;
-    ctx.globalAlpha = alpha;
-    ctx.fillText(word, x, baselineY);
-
-    ctx.restore();
-    x += wordWidth + wordGap;
-  });
+  }
 
   return cvs.encode("png");
 }
@@ -375,45 +412,82 @@ export async function applyCaptionsBrowser(
 
     logger.info({ count: segments.length }, "[BrowserEngine] Frames rendered");
 
-    // ── 7. Composite frames onto video via FFmpeg ─────────────────────────
-    // Build a filter_complex chain: each PNG overlaid for its time window.
-    // FFmpeg handles filter chains of 400+ nodes reliably.
+    // ── 7. Composite frames onto video via FFmpeg (batch-segment approach) ───
+    // Splitting into small batches avoids FFmpeg filter_complex limits with
+    // large cue counts (140+ overlays). Each batch processes a short time
+    // range of the source video with at most MAX_BATCH_OVERLAYS PNG overlays,
+    // then all segments are concatenated into the final output.
+    const MAX_BATCH_OVERLAYS = 15;
     const outputPath = path.join(tmpDir, "output.mp4");
 
-    const extraInputs: string[] = [];
-    const filterParts: string[] = [];
-    let prevLabel = "[0:v]";
+    logger.info("[BrowserEngine] Running FFmpeg batch composite...");
 
-    segments.forEach(({ pngPath, startSec, endSec }, i) => {
-      extraInputs.push("-i", pngPath);
-      const outLabel = i < segments.length - 1 ? `[ov${i}]` : "[vout]";
-      filterParts.push(
-        `${prevLabel}[${i + 1}:v]overlay=0:0:enable='between(t,${startSec.toFixed(3)},${endSec.toFixed(3)})'${outLabel}`,
-      );
-      prevLabel = outLabel;
-    });
+    const batches: Array<typeof segments> = [];
+    for (let i = 0; i < segments.length; i += MAX_BATCH_OVERLAYS) {
+      batches.push(segments.slice(i, i + MAX_BATCH_OVERLAYS));
+    }
 
-    const filterComplex = filterParts.join("; ");
+    const segmentFiles: string[] = [];
 
-    logger.info("[BrowserEngine] Running FFmpeg composite...");
+    for (let b = 0; b < batches.length; b++) {
+      const batch      = batches[b];
+      const batchStart = batch[0].startSec;
+      const batchEnd   = batches[b + 1] ? batches[b + 1][0].startSec
+        : batch[batch.length - 1].endSec;
+      const batchDur   = batchEnd - batchStart;
+      const segOut     = path.join(tmpDir, `seg_${String(b).padStart(3, "0")}.mp4`);
 
-    await execFileAsync(
-      "ffmpeg",
-      [
-        "-i", videoPath,
+      const extraInputs: string[] = [];
+      const filterParts: string[] = [];
+      let prevLabel = "[base]";
+
+      batch.forEach(({ pngPath, startSec, endSec }, i) => {
+        const relStart = (startSec - batchStart).toFixed(3);
+        const relEnd   = (endSec   - batchStart).toFixed(3);
+        const inLabel  = `[cap${i}]`;
+        const outLabel = i < batch.length - 1 ? `[ov${i}]` : "[out]";
+        extraInputs.push("-i", pngPath);
+        // Scale PNG from render resolution (1080×1920) to source video size
+        filterParts.push(`[${i + 1}:v]scale=${VIDEO_WIDTH}:${VIDEO_HEIGHT}${inLabel}`);
+        filterParts.push(
+          `${prevLabel}${inLabel}overlay=0:0:enable='between(t,${relStart},${relEnd})'${outLabel}`,
+        );
+        prevLabel = outLabel;
+      });
+
+      const fullFilter = `[0:v]setpts=PTS-STARTPTS[base]; ${filterParts.join("; ")}`;
+
+      await execFileAsync("ffmpeg", [
+        "-ss", String(batchStart),
+        "-t",  String(batchDur),
+        "-i",  videoPath,
         ...extraInputs,
-        "-filter_complex", filterComplex,
-        "-map", "[vout]",
+        "-filter_complex", fullFilter,
+        "-map", "[out]",
         "-map", "0:a?",
         "-c:v", "libx264",
         "-preset", "fast",
-        "-crf", "23",
-        "-c:a", "copy",
-        "-y",
-        outputPath,
-      ],
-      { maxBuffer: 200 * 1024 * 1024 },
-    );
+        "-crf", "21",
+        "-c:a", "aac",
+        "-b:a", "128k",
+        "-y", segOut,
+      ], { maxBuffer: 100 * 1024 * 1024 });
+
+      segmentFiles.push(segOut);
+      logger.debug({ batch: b + 1, total: batches.length }, "[BrowserEngine] Batch done");
+    }
+
+    // Concatenate all segments
+    const segListPath = path.join(tmpDir, "seg_list.txt");
+    await fs.writeFile(segListPath, segmentFiles.map((f) => `file '${f}'`).join("\n"));
+
+    await execFileAsync("ffmpeg", [
+      "-f", "concat",
+      "-safe", "0",
+      "-i", segListPath,
+      "-c", "copy",
+      "-y", outputPath,
+    ], { maxBuffer: 200 * 1024 * 1024 });
 
     logger.info("[BrowserEngine] FFmpeg composite done");
 
