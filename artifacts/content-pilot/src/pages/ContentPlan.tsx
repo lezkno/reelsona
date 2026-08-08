@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from "@/components/ui/label"
 import { format, isSameDay } from "date-fns"
 import { es } from "date-fns/locale"
-import { useGetContentPlan, useGenerateContentPlan, useDeleteContentItem, useGenerateVideo, useUpdateContentItem, useCreateContentItem, useGetHeyGenAllLooks, useGenerateScript, usePublishVideo, useGetAutomation, getGetContentPlanQueryKey, type ContentPlanItem } from "@workspace/api-client-react"
+import { useGetContentPlan, useGenerateContentPlan, useDeleteContentItem, useGenerateVideo, useUpdateContentItem, useCreateContentItem, useGetHeyGenAllLooks, useGetAvatarConfig, useGenerateScript, usePublishVideo, useGetAutomation, getGetContentPlanQueryKey, type ContentPlanItem } from "@workspace/api-client-react"
 import { Textarea } from "@/components/ui/textarea"
 import { Wand2, Edit3, Trash2, Video, CheckCircle2, Clock, AlertTriangle, CalendarDays, Plus, Zap, Users, List, Calendar, Loader2, FileText, RefreshCw, Sparkles, Check, X, Send, Bot, Hand, Play } from "lucide-react"
 import PipelineTimeline from "@/components/PipelineTimeline"
@@ -261,7 +261,12 @@ export default function ContentPlan() {
 
   // Avatar thumbnail + picker
   const { data: allLooks } = useGetHeyGenAllLooks()
+  const { data: avatarConfig } = useGetAvatarConfig()
   const lookById = new Map((allLooks ?? []).map((l) => [l.id, l]))
+  // Only show looks that are in the active rotation — picking outside it would be
+  // silently overridden by the scheduler when generating the video.
+  const selectedAvatarIds = new Set(avatarConfig?.selected_avatar_ids ?? [])
+  const pickerLooks = (allLooks ?? []).filter((l) => selectedAvatarIds.has(l.id))
   const [avatarPickerItem, setAvatarPickerItem] = useState<ContentPlanItem | null>(null)
 
   const handleSaveTopic = (id: number, value: string) => {
@@ -801,7 +806,7 @@ export default function ContentPlan() {
             </DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
-            {(allLooks ?? []).map((look) => {
+            {pickerLooks.map((look) => {
               const isCurrent = avatarPickerItem?.avatar_id === look.id
               return (
                 <button
