@@ -27,7 +27,7 @@ import type { CaptionTemplate } from "@workspace/caption-templates"
 // Load Oswald & Bangers from Google Fonts for preview rendering
 const link = document.createElement("link")
 link.rel = "stylesheet"
-link.href = "https://fonts.googleapis.com/css2?family=Bangers&family=Oswald:wght@400;700&family=Poppins:wght@400;800&display=swap"
+link.href = "https://fonts.googleapis.com/css2?family=Bangers&family=Montserrat:wght@900&family=Oswald:wght@400;700&family=Poppins:wght@400;800&display=swap"
 document.head.appendChild(link)
 
 const POSITION_LABELS: Record<string, string> = { top: "Arriba", center: "Centro", bottom: "Abajo" }
