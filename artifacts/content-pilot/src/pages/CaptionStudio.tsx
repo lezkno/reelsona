@@ -1246,41 +1246,6 @@ export default function CaptionStudio() {
             </p>
           </div>
 
-          {/* Pipeline flow */}
-          <Card>
-            <CardContent className="p-4 space-y-3">
-              <p className="text-sm font-bold font-display">Flujo del pipeline</p>
-              {[
-                { label: "HeyGen termina", status: "done", note: "video_url guardado" },
-                { label: "Caption Engine", status: captionsEnabled ? "active" : "skip",
-                  note: captionsEnabled
-                    ? (local.caption_engine === "browser_experimental"
-                        ? `Browser Engine: ${BROWSER_CAPTION_TEMPLATES.find((t) => t.id === local.template_id)?.name ?? "canvas render"}`
-                        : "motor estándar ASS/FFmpeg")
-                    : "desactivado"
-                },
-                { label: "Video con captions", status: captionsEnabled ? "active" : "skip", note: captionsEnabled ? "plantilla aplicada al MP4" : "—" },
-                { label: "Fallback", status: "info", note: local.caption_engine === "browser_experimental" ? "ASS/FFmpeg si falla canvas" : "video original de HeyGen si falla el render" },
-                { label: "Publica en Instagram", status: "done", note: "con la mejor URL disponible" },
-              ].map((step, i) => (
-                <div key={i} className="flex items-start gap-2">
-                  <div className={`shrink-0 mt-0.5 w-4 h-4 rounded-full flex items-center justify-center ${
-                    step.status === "done" ? "bg-emerald-500" :
-                    step.status === "active" ? "bg-primary" :
-                    step.status === "info" ? "bg-amber-500" :
-                    "bg-muted"
-                  }`}>
-                    {(step.status === "done" || step.status === "active") && <CheckCircle2 className="w-3 h-3 text-white" />}
-                    {step.status === "info" && <AlertCircle className="w-3 h-3 text-white" />}
-                  </div>
-                  <div>
-                    <p className="text-xs font-semibold">{step.label}</p>
-                    <p className="text-[11px] text-muted-foreground">{step.note}</p>
-                  </div>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
         </div>
       </div>
     </div>
