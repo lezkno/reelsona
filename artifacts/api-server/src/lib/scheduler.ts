@@ -12,7 +12,7 @@ import {
   captionConfigTable,
 } from "@workspace/db";
 import { applyCaptions, CAPTION_DIR, type CaptionStyle } from "./caption-engine";
-import { eq, and, lte, inArray } from "drizzle-orm";
+import { eq, and, lte, inArray, isNull } from "drizzle-orm";
 import { logger } from "./logger";
 import { generateScript } from "./ai-scripts";
 import { generateVideo, getVideoStatus, listVoices, getAvatarDefaultVoiceId } from "./heygen";
@@ -331,11 +331,102 @@ export async function runAutomationCycle(targetItemId?: number): Promise<{
   }
 }
 
+/**
+ * Apply Caption Studio processing to a single video row.
+ * Uses the video's stored URL + the linked content-item script.
+ * subtitleUrl is optional — if absent (e.g. recovery after restart) the engine
+ * falls back to proportional SRT generated from the script text.
+ */
+async function runCaptionProcessing(
+  videoId: number,
+  videoUrl: string,
+  contentPlanId: number | null,
+  subtitleUrl?: string | null,
+  durationSeconds?: number | null
+): Promise<void> {
+  const [captionCfg] = await db.select().from(captionConfigTable).limit(1);
+  if (!captionCfg) {
+    // Fix 2: no config → mark failed instead of silently leaving captionStatus=null
+    await db.update(videosTable)
+      .set({ captionStatus: "failed", updatedAt: new Date() })
+      .where(eq(videosTable.id, videoId));
+    logger.warn({ videoId }, "[CaptionEngine] No caption config found — marking as failed");
+    return;
+  }
+
+  await db.update(videosTable)
+    .set({ captionStatus: "processing", updatedAt: new Date() })
+    .where(eq(videosTable.id, videoId));
+
+  let script: string | null = null;
+  if (contentPlanId) {
+    const [item] = await db.select().from(contentPlanItemsTable)
+      .where(eq(contentPlanItemsTable.id, contentPlanId));
+    script = item?.script ?? null;
+  }
+
+  const style: CaptionStyle = {
+    presetId: captionCfg.presetId,
+    position: captionCfg.position as CaptionStyle["position"],
+    wordsPerLine: captionCfg.wordsPerLine,
+    primaryColor: captionCfg.primaryColor,
+    activeWordColor: captionCfg.activeWordColor,
+    outlineColor: captionCfg.outlineColor,
+    backgroundColor: captionCfg.backgroundColor ?? null,
+    fontFamily: captionCfg.fontFamily,
+    fontSize: captionCfg.fontSize,
+    lineSpacingFactor: captionCfg.lineSpacingFactor,
+    yPosition: captionCfg.yPosition,
+    marginX: captionCfg.marginX,
+    activeWordScale: captionCfg.activeWordScale,
+    highlightMode: captionCfg.highlightMode as CaptionStyle["highlightMode"],
+    autoScale: captionCfg.autoScale,
+    autoMovement: captionCfg.autoMovement,
+    subtleRotation: captionCfg.subtleRotation,
+  };
+
+  try {
+    const captionResult = await applyCaptions(videoUrl, script, style, {
+      subtitleUrl: subtitleUrl ?? undefined,
+      videoDurationSeconds: durationSeconds ?? undefined,
+    });
+
+    if (captionResult.url) {
+      await db.update(videosTable)
+        .set({ captionedVideoUrl: captionResult.url, captionStatus: "done", updatedAt: new Date() })
+        .where(eq(videosTable.id, videoId));
+      logger.info({ videoId }, "[CaptionEngine] Captioned video ready");
+    } else {
+      await db.update(videosTable)
+        .set({ captionStatus: "failed", updatedAt: new Date() })
+        .where(eq(videosTable.id, videoId));
+      logger.warn({ videoId, error: captionResult.error }, "[CaptionEngine] Failed — using original video");
+    }
+  } catch (captionErr) {
+    logger.error({ videoId, captionErr }, "[CaptionEngine] Unexpected error — using original video");
+    await db.update(videosTable)
+      .set({ captionStatus: "failed", updatedAt: new Date() })
+      .where(eq(videosTable.id, videoId)).catch(() => {});
+  }
+}
+
 export async function pollAndPublishVideos(): Promise<void> {
-  // ── Publish videos that are already "ready" (captions done/failed/disabled) ──
-  // This handles the case where the server restarted after captions were applied
-  // but before publishing, leaving videos stuck in "ready" state.
+  // ── Recovery: videos stuck in "ready" with captionStatus=null ─────────────
+  // These are videos that completed in HeyGen but caption processing never ran
+  // (e.g. server restarted mid-processing, or captionConfig was missing).
+  // subtitle_url is no longer available so the engine uses proportional-SRT fallback.
   const [automation] = await db.select().from(automationConfigTable).limit(1);
+  const stuckVideos = await db
+    .select()
+    .from(videosTable)
+    .where(and(eq(videosTable.status, "ready"), isNull(videosTable.captionStatus)));
+  for (const v of stuckVideos) {
+    if (!v.videoUrl) continue;
+    logger.info({ videoId: v.id }, "[CaptionEngine] Recovery: re-processing stuck caption");
+    await runCaptionProcessing(v.id, v.videoUrl, v.contentPlanId ?? null, null, v.durationSeconds).catch((err) =>
+      logger.error({ videoId: v.id, err }, "[CaptionEngine] Recovery failed")
+    );
+  }
   // ── Publish videos whose scheduled_publish_at has passed ─────────────────
   const now = new Date();
   const scheduledDue = await db
@@ -413,72 +504,21 @@ export async function pollAndPublishVideos(): Promise<void> {
 
         logger.info({ videoId: video.id }, "Video ready");
 
-        // ── Caption Studio: optional captions layer (Punto A) ─────────────────
-        const [automation] = await db.select().from(automationConfigTable).limit(1);
-        if (automation?.captionsEnabled) {
-          try {
-            const [captionCfg] = await db.select().from(captionConfigTable).limit(1);
-            if (captionCfg) {
-              await db.update(videosTable)
-                .set({ captionStatus: "processing", updatedAt: new Date() })
-                .where(eq(videosTable.id, video.id));
-
-              // Fetch script for word-timing (passed to render engine)
-              let script: string | null = null;
-              if (video.contentPlanId) {
-                const [item] = await db.select().from(contentPlanItemsTable)
-                  .where(eq(contentPlanItemsTable.id, video.contentPlanId));
-                script = item?.script ?? null;
-              }
-
-              const style: CaptionStyle = {
-                presetId: captionCfg.presetId,
-                position: captionCfg.position as CaptionStyle["position"],
-                wordsPerLine: captionCfg.wordsPerLine,
-                primaryColor: captionCfg.primaryColor,
-                activeWordColor: captionCfg.activeWordColor,
-                outlineColor: captionCfg.outlineColor,
-                backgroundColor: captionCfg.backgroundColor ?? null,
-                fontFamily: captionCfg.fontFamily,
-                fontSize: captionCfg.fontSize,
-                lineSpacingFactor: captionCfg.lineSpacingFactor,
-                yPosition: captionCfg.yPosition,
-                marginX: captionCfg.marginX,
-                activeWordScale: captionCfg.activeWordScale,
-                highlightMode: captionCfg.highlightMode as CaptionStyle["highlightMode"],
-                autoScale: captionCfg.autoScale,
-                autoMovement: captionCfg.autoMovement,
-                subtleRotation: captionCfg.subtleRotation,
-              };
-
-              const captionResult = await applyCaptions(status.video_url, script, style, {
-                subtitleUrl: status.subtitle_url,
-                videoDurationSeconds: status.duration ?? undefined,
-              });
-
-              if (captionResult.url) {
-                await db.update(videosTable)
-                  .set({ captionedVideoUrl: captionResult.url, captionStatus: "done", updatedAt: new Date() })
-                  .where(eq(videosTable.id, video.id));
-                logger.info({ videoId: video.id }, "[CaptionEngine] Captioned video ready");
-              } else {
-                await db.update(videosTable)
-                  .set({ captionStatus: "failed", updatedAt: new Date() })
-                  .where(eq(videosTable.id, video.id));
-                logger.warn({ videoId: video.id, error: captionResult.error }, "[CaptionEngine] Failed — using original video");
-              }
-            }
-          } catch (captionErr) {
-            logger.error({ videoId: video.id, captionErr }, "[CaptionEngine] Unexpected error — using original video");
-            await db.update(videosTable)
-              .set({ captionStatus: "failed", updatedAt: new Date() })
-              .where(eq(videosTable.id, video.id)).catch(() => {});
-          }
-        } else {
-          await db.update(videosTable)
-            .set({ captionStatus: "disabled", updatedAt: new Date() })
-            .where(eq(videosTable.id, video.id));
+        // ── Caption Studio ────────────────────────────────────────────────────
+        // Use the per-video captionStatus snapshot (null = captions requested at
+        // creation time) rather than re-reading automation.captionsEnabled here.
+        // This ensures manual videos get captions even when automation is off,
+        // and prevents a live toggle from retroactively disabling in-flight work.
+        if (video.captionStatus === null) {
+          await runCaptionProcessing(
+            video.id,
+            status.video_url,
+            video.contentPlanId ?? null,
+            status.subtitle_url,   // HeyGen word-level SRT (only available here)
+            status.duration ?? null
+          );
         }
+        // captionStatus "disabled" was set at creation — no further action needed.
         // ─────────────────────────────────────────────────────────────────────
 
         // Auto-publish only when both the master switch and auto_publish are on
