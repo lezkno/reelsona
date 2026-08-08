@@ -28,6 +28,27 @@ import {
 import { generateScript, generateContentTopics } from "../lib/ai-scripts";
 import { runAutomationCycle } from "../lib/scheduler";
 
+/** Normalise a title for duplicate detection: lowercase, strip accents + punctuation */
+function normTopic(t: string): string {
+  return t
+    .toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")  // strip accents
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Remove duplicates within `topics`, also excluding any already in `existing` */
+function deduplicateTopics<T extends { topic: string }>(topics: T[], existing: string[]): T[] {
+  const seen = new Set(existing.map(normTopic));
+  return topics.filter(t => {
+    const n = normTopic(t.topic);
+    if (seen.has(n)) return false;
+    seen.add(n);
+    return true;
+  });
+}
+
 const router = Router();
 
 interface VideoInfo {
@@ -208,7 +229,7 @@ router.post("/content/plan/generate", async (req, res): Promise<void> => {
     return;
   }
 
-  const topics = await generateContentTopics(
+  const rawTopics = await generateContentTopics(
     niche,
     keywords,
     tone,
@@ -217,6 +238,10 @@ router.post("/content/plan/generate", async (req, res): Promise<void> => {
     postsPerDay,
     existingTopics
   );
+
+  // Server-side safety net: remove any topics the AI returned more than once
+  // or that are too similar to topics already in the plan.
+  const topics = deduplicateTopics(rawTopics, existingTopics);
 
   const inserted = await db
     .insert(contentPlanItemsTable)

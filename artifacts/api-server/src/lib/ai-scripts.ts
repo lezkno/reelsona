@@ -85,25 +85,31 @@ export interface ContentPlanTopic {
   scheduled_at: string;
 }
 
-// Topic categories for a varied, high-performing content mix
+// Topic categories and hook formats for high-performing Reels content
 const TOPIC_CATEGORIES = `
-Distribuye los temas en estas proporciones aproximadas:
-  - 35% EVERGREEN: tips prácticos y accionables que siempre son útiles
-  - 30% TRENDING/NOTICIAS: temas que reaccionan a cambios recientes en el nicho (actualizaciones de algoritmos de Instagram/TikTok 2025-2026, nuevas funciones de IA, cambios en plataformas de ecommerce, reportes de tendencias del sector)
-  - 20% EDUCACIONAL: explicaciones de conceptos, comparaciones, "qué es X y cómo usarlo"
-  - 15% SOCIAL PROOF / CASO DE USO: resultados reales, errores comunes, mitos vs realidades
+MEZCLA DE CONTENIDO (proporciones aproximadas):
+  - 30% GANCHO EMOCIONAL: frustraciones reales, errores costosos, miedos del nicho
+  - 25% REVELACIÓN: algo que la audiencia no sabe o cree equivocado
+  - 25% RESULTADO CONCRETO: caso real, número específico, transformación visible
+  - 20% TENDENCIA URGENTE: algo que cambia ahora y afecta al nicho
 
-Formatos a alternar (no repetir el mismo más de 3 veces seguidas):
-  - "El mayor error que cometen [audiencia] con [X]"
-  - "Por qué [plataforma/herramienta] cambió todo para [nicho] en 2025"
-  - "Lo que nadie te dice sobre [X]"
-  - "Cómo [beneficio específico] en menos de [tiempo]"
-  - "ChatGPT / IA para [tarea específica del nicho]: guía rápida"
-  - "La actualización de [plataforma] que [audiencia] necesita conocer"
-  - "Mito vs realidad: [creencia común del nicho]"
-  - "[Número] señales de que tu [X] está funcionando"
-  - "El secreto detrás de [resultado que la audiencia quiere]"
-  - "Esto que hacías antes ya no funciona — haz esto en cambio"
+FORMATOS DE TÍTULO — rota entre todos estos, NUNCA uses el mismo formato más de 2 veces en el mismo plan:
+  A) Pregunta provocadora:     "¿Por qué [problema que todos tienen pero nadie admite]?"
+  B) Error costoso:            "El error que [consecuencia negativa concreta] — y cómo evitarlo"
+  C) Dato que sorprende:       "[Número o porcentaje] de [audiencia] [hecho inesperado] — aquí por qué"
+  D) Revelación:               "Lo que [plataforma/empresa famosa] no quiere que sepas sobre [X]"
+  E) Contraintuitivo:          "Dejar de [hacer X] fue lo mejor que hice para [resultado del nicho]"
+  F) Caso real sin nombre:     "De [estado inicial] a [resultado] en [tiempo] — sin [recurso que la gente cree necesitar]"
+  G) Urgencia de tendencia:    "[Plataforma] acaba de cambiar [cosa específica] — esto te afecta si [descripción audiencia]"
+  H) Desmitificación:          "No necesitas [cosa cara/compleja] para [resultado deseado] — esto es lo que sí funciona"
+  I) Lista corta accionable:   "[2-4] cosas que [audiencia] hace diferente para [resultado concreto]"
+  J) Provocación directa:      "Tu [X] está perdiendo dinero ahora mismo — y probablemente ni lo sabes"
+
+REGLA CRÍTICA DE TÍTULOS:
+  ❌ PROHIBIDO: títulos que empiecen con "Cómo crear", "Guía para", "Tutorial de", "Paso a paso"
+  ❌ PROHIBIDO: mencionar nombres de herramientas técnicas en el título a menos que sean marcas conocidas (WhatsApp, Instagram, ChatGPT)
+  ✅ OBLIGATORIO: el título debe sonar como la primera frase que diría una persona real mirando a cámara
+  ✅ OBLIGATORIO: debe generar curiosidad o incomodidad en los primeros 3 segundos
 `.trim();
 
 export async function generateContentTopics(
@@ -136,46 +142,55 @@ export async function generateContentTopics(
 
   const prompt = `Eres un estratega de contenido para Instagram Reels especializado en crecimiento orgánico.
 
-IMPORTANTE: Usa español neutro en todos los títulos y textos (sin voseo, sin modismos regionales). El contenido debe ser comprensible para cualquier hispanohablante.
+IMPORTANTE: Usa español neutro (sin voseo, sin modismos regionales). Tutea al espectador ("tú", "te"). Todo debe sonar natural cuando lo dice un avatar en video.
 
-Genera un plan de contenido con ${total} temas únicos para el siguiente nicho:
+Genera un plan de contenido con EXACTAMENTE ${total} temas únicos para:
 - Nicho: ${niche}
-- Tono de comunicación: ${tone}
+- Tono: ${tone}
 - Idioma: ${language}
-- Temas que ya existen (NO repetir ni parafrasear): ${topPerformingTopics.slice(0, 8).join(" | ") || "N/A"}
 
-PILARES DE CONTENIDO — distribuye los ${total} temas equitativamente entre todos estos pilares.
-Cada pilar puede tener como máximo ${maxPerPillar} temas. No pongas más de 2 temas seguidos del mismo pilar:
+TEMAS PROHIBIDOS — NO repetir, NO parafrasear, NO abordar el mismo ángulo:
+${topPerformingTopics.slice(0, 12).join("\n") || "N/A"}
+
+PILARES DE CONTENIDO — distribuye los ${total} temas entre estos pilares (máx ${maxPerPillar} por pilar, nunca 2 seguidos del mismo):
 ${allPillars.map((p, i) => `  ${i + 1}. ${p}`).join("\n")}
 
-REGLA CRÍTICA DE VARIEDAD: Aunque un pilar sea "chatbot" o "automatizaciones", los temas dentro de él deben ser distintos entre sí — diferentes ángulos, problemas, audiencias, plataformas. Ejemplos de ángulos para variar:
-  - Para el usuario (el dueño del negocio): "cómo implementar X", "errores al configurar X"
-  - Para el cliente final: "por qué las empresas usan X", "qué esperar cuando X te atiende"
-  - Comparativas: "X vs Y — cuál conviene para tu negocio"
-  - Noticias/tendencias: "qué cambió en X en 2025", "la nueva función de X que cambia todo"
-  - Resultados: "cuánto ahorra una empresa con X", "caso real: empresa que implementó X"
+ÁNGULOS POSIBLES POR PILAR (varía entre ellos):
+  - Problema del dueño del negocio: "el error que cometen al usar X", "por qué X les cuesta dinero sin saberlo"
+  - Perspectiva del cliente final: "qué piensan tus clientes cuando X los atiende"
+  - Comparativa: "X vs Y — cuál elegir según tu situación"
+  - Tendencia reciente: "qué cambió en X en 2026 y cómo te afecta"
+  - Resultado medible: "qué logra una empresa que usa X bien vs una que lo usa mal"
+  - Desmitificación: "por qué la mayoría cree que X es difícil (y están equivocados)"
 
 ${TOPIC_CATEGORIES}
 
-Reglas adicionales:
-- Cada tema debe ser específico — evitar títulos genéricos como "Tips de marketing"
-- Los temas TRENDING deben referenciar contexto actual: algoritmos 2025-2026, IA generativa, cambios en plataformas (Instagram, WhatsApp Business, Shopify, etc.)
-- Cada tema debe poder desarrollarse en un Reel de 45-75 segundos
-- Los temas deben distribuirse a lo largo de ${days} días, máximo ${postsPerDay} por día
+REGLA ANTI-DUPLICADOS — CRÍTICA:
+  • Cada uno de los ${total} temas debe ser COMPLETAMENTE DIFERENTE en ángulo, formato y subtema
+  • Si hay ${postsPerDay} videos el mismo día, sus temas deben hablar de cosas DISTINTAS (uno no puede ser la continuación del otro)
+  • Antes de escribir cada título, verifica mentalmente que no coincida con ninguno anterior de la lista
+  • NUNCA repitas el mismo verbo o estructura en más de 2 títulos del mismo plan
 
-Devuelve SOLO un JSON válido con esta estructura:
+Reglas de calidad:
+  • Cada título debe ser específico — evitar genéricos como "Tips de marketing" o "Consejos de IA"
+  • Los temas TRENDING deben referenciar contexto real 2025-2026: cambios de algoritmo, nuevas funciones de plataformas, reportes de adopción de IA
+  • Cada tema debe desarrollarse en un Reel de 45-75 segundos sin necesidad de visuals complejas
+  • Los temas deben distribuirse a lo largo de ${days} días, máximo ${postsPerDay} por día
+
+Devuelve SOLO un JSON válido:
 {
   "topics": [
     {
-      "topic": "Título del tema específico",
+      "topic": "Título exacto del Reel",
       "days_from_now": 0,
       "pillar": "nombre del pilar",
-      "category": "evergreen|trending|educacional|social_proof"
+      "format": "letra del formato usado (A-J)",
+      "category": "emocional|revelacion|resultado|tendencia"
     }
   ]
 }
 
-Genera exactamente ${total} temas.`;
+Genera exactamente ${total} temas distintos. Verifica la lista completa antes de responder para confirmar que no hay duplicados ni temas similares.`;
 
   const res = await client.chat.completions.create({
     model: "gpt-5.6-luna",
