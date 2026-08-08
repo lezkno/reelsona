@@ -324,13 +324,16 @@ function BrowserTemplateCard({
   saving: boolean
   onClick: () => void
 }) {
-  // Preview at ~60% scale inside the card (card is smaller than the live preview)
-  const CARD_H   = PHONE_SCREEN_H * 0.6
+  // CARD_H must match the h-[Xpx] on the preview container below — this guarantees
+  // scaleToHeight produces font sizes that are proportionally correct in the card.
+  const CARD_H   = 220
   const scaledFS = Math.round(scaleToHeight(template.fontSize,    CARD_H))
   const scaledOW = +scaleToHeight(template.outlineWidth,  CARD_H).toFixed(1)
   const scaledSX = +scaleToHeight(template.shadowOffsetX, CARD_H).toFixed(1)
   const scaledSY = +scaleToHeight(template.shadowOffsetY, CARD_H).toFixed(1)
   const scaledBl = +scaleToHeight(template.shadowBlur,    CARD_H).toFixed(1)
+  // Same yPercent-based positioning as TemplateCaptionPreview
+  const baselineY = getBaselineY(template, CARD_H)
 
   const demoWords = DEMO_WORDS.slice(0, Math.min(template.wordsPerLine, 3))
 
@@ -344,20 +347,31 @@ function BrowserTemplateCard({
           : "border-border hover:border-violet-400/40 hover:scale-[1.005]"
       }`}
     >
-      {/* Visual preview */}
+      {/* Visual preview — fixed h-[220px] so CARD_H matches actual rendered height */}
       <div
-        className="aspect-[9/16] flex flex-col items-center justify-end pb-5 px-3 select-none"
+        className="h-[220px] relative overflow-hidden select-none"
         style={{ background: "linear-gradient(to bottom, #1a1a2e 0%, #16213e 60%, #0f3460 100%)" }}
       >
-        <div className="flex flex-wrap justify-center items-end gap-x-1 gap-y-0.5">
-          {demoWords.map((word, i) => (
-            <span
-              key={i}
-              style={buildWordStyle(template, i === 1, scaledFS, scaledOW, scaledSX, scaledSY, scaledBl) as React.CSSProperties}
-            >
-              {template.uppercase ? word.toUpperCase() : word}
-            </span>
-          ))}
+        {/* Same bottom-anchor technique as TemplateCaptionPreview */}
+        <div
+          className="absolute left-0 right-0 flex items-end justify-center"
+          style={{
+            top:          0,
+            height:       baselineY,
+            paddingLeft:  `${template.marginXPercent}%`,
+            paddingRight: `${template.marginXPercent}%`,
+          }}
+        >
+          <div className="flex flex-wrap justify-center items-end gap-x-1 gap-y-0.5">
+            {demoWords.map((word, i) => (
+              <span
+                key={i}
+                style={buildWordStyle(template, i === 1, scaledFS, scaledOW, scaledSX, scaledSY, scaledBl) as React.CSSProperties}
+              >
+                {template.uppercase ? word.toUpperCase() : word}
+              </span>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -1078,6 +1092,17 @@ export default function CaptionStudio() {
           {/* Advanced config */}
           <div>
             <h2 className="text-xl font-display font-bold mb-4">Ajustes avanzados</h2>
+            <div className="relative">
+              {local.caption_engine === "browser_experimental" && (
+                <div className="absolute inset-0 z-10 rounded-xl backdrop-blur-[2px] bg-background/60 flex flex-col items-center justify-center gap-2 pointer-events-auto">
+                  <span className="text-2xl">🎨</span>
+                  <p className="text-sm font-semibold text-center px-6">Ajustes no disponibles con Browser Engine</p>
+                  <p className="text-xs text-muted-foreground text-center px-8 leading-snug">
+                    Las plantillas experimentales definen su propio estilo.<br />
+                    Seleccioná un preset estándar para editar estos ajustes.
+                  </p>
+                </div>
+              )}
             <Card>
               <CardContent className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-6">
 
@@ -1207,6 +1232,7 @@ export default function CaptionStudio() {
 
               </CardContent>
             </Card>
+            </div>{/* end relative wrapper */}
           </div>
         </div>
 
