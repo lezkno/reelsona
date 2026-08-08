@@ -1019,8 +1019,13 @@ export default function CaptionStudio() {
   const [savingPresetId, setSavingPresetId] = useState<string | null>(null)
   // null = checking, true = available, false = unavailable
   const [browserEngineAvailable, setBrowserEngineAvailable] = useState<boolean | null>(null)
-  // Per-template style overrides (browser engine only) — Partial<CaptionTemplate> in state
-  const [tmplOverrides, setTmplOverrides] = useState<Partial<CaptionTemplate>>({})
+
+  // ── Per-template overrides map ────────────────────────────────────────────
+  // Stored as Record<templateId, Partial<CaptionTemplate>> so each template
+  // remembers its own tweaks independently. Saved to DB as a JSON string in
+  // caption_config.template_overrides. Auto-saved on every change (debounced).
+  const [allTmplOverrides, setAllTmplOverrides] = useState<Record<string, Partial<CaptionTemplate>>>({})
+  const overrideSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     fetch("/api/captions/browser/status")
@@ -1032,10 +1037,22 @@ export default function CaptionStudio() {
   useEffect(() => {
     if (config && Object.keys(local).length === 0) {
       setLocal(config)
-      // Restore saved overrides from DB
+      // Restore saved overrides from DB — stored as Record<templateId, Partial<CaptionTemplate>>
       try {
-        if (config.template_overrides) setTmplOverrides(JSON.parse(config.template_overrides))
-      } catch { setTmplOverrides({}) }
+        if (config.template_overrides) {
+          const parsed = JSON.parse(config.template_overrides)
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            const knownIds = new Set(BROWSER_CAPTION_TEMPLATES.map((t) => t.id))
+            const isMap = Object.keys(parsed).some((k) => knownIds.has(k))
+            if (isMap) {
+              setAllTmplOverrides(parsed)
+            } else if (config.template_id) {
+              // Old flat format (pre-migration) — assign to current template
+              setAllTmplOverrides({ [config.template_id]: parsed })
+            }
+          }
+        }
+      } catch { /* ignore malformed JSON */ }
     }
   }, [config])
 
@@ -1049,46 +1066,64 @@ export default function CaptionStudio() {
   }
 
   // ── Template override helpers (browser engine only) ───────────────────────
-  // `tmplOverrides` holds the user's tweaks as a Partial<CaptionTemplate>.
-  // We also keep `local.template_overrides` as the JSON string for persistence.
-  const setOverride = <K extends keyof CaptionTemplate>(key: K, val: CaptionTemplate[K]) => {
-    setTmplOverrides((prev) => {
-      const next = { ...prev, [key]: val }
-      setLocal((l) => ({ ...l, template_overrides: JSON.stringify(next) }))
-      setDirty(true)
-      return next
-    })
-  }
-  const resetOverrides = () => {
-    setTmplOverrides({})
-    setLocal((l) => ({ ...l, template_overrides: null as any }))
-    setDirty(true)
-  }
-
   // Active base template (if browser engine is selected)
   const activeTmpl = (local.caption_engine === "browser_experimental" && local.template_id)
     ? BROWSER_CAPTION_TEMPLATES.find((t) => t.id === local.template_id) ?? null
     : null
+
+  // Current template's override slice
+  const currentOverrides: Partial<CaptionTemplate> = (activeTmpl && allTmplOverrides[activeTmpl.id]) ?? {}
+
   // Merged template = base + user overrides (live preview + final render)
   const mergedTmpl: CaptionTemplate | null = activeTmpl
-    ? { ...activeTmpl, ...tmplOverrides }
+    ? { ...activeTmpl, ...currentOverrides }
     : null
+
   // Convenience: effective value = override ?? base template default
   function ov<K extends keyof CaptionTemplate>(key: K): CaptionTemplate[K] {
-    return (tmplOverrides[key] ?? activeTmpl?.[key]) as CaptionTemplate[K]
+    return (currentOverrides[key] ?? activeTmpl?.[key]) as CaptionTemplate[K]
+  }
+
+  // Auto-save the full overrides map to DB (debounced 400ms)
+  const saveOverridesToDB = (nextMap: Record<string, Partial<CaptionTemplate>>) => {
+    if (overrideSaveTimer.current) clearTimeout(overrideSaveTimer.current)
+    overrideSaveTimer.current = setTimeout(() => {
+      updateConfig.mutate({ data: { template_overrides: JSON.stringify(nextMap) } as any })
+    }, 400)
+  }
+
+  const setOverride = <K extends keyof CaptionTemplate>(key: K, val: CaptionTemplate[K]) => {
+    if (!activeTmpl) return
+    const tid = activeTmpl.id
+    setAllTmplOverrides((prev) => {
+      const next = { ...prev, [tid]: { ...prev[tid], [key]: val } }
+      saveOverridesToDB(next)
+      return next
+    })
+  }
+
+  const resetOverrides = () => {
+    if (!activeTmpl) return
+    const tid = activeTmpl.id
+    setAllTmplOverrides((prev) => {
+      const next = { ...prev }
+      delete next[tid]
+      saveOverridesToDB(next)
+      return next
+    })
   }
 
   // Auto-save when a Browser Template is selected.
-  // Also syncs the legacy ASS colors with the template's palette so that if the
-  // browser engine falls back to ASS, the output still uses the right colors.
+  // Preserves the full overrides map so each template's tweaks survive switching.
   const applyBrowserTemplate = (template: CaptionTemplate) => {
-    // Reset overrides when switching to a different template
-    setTmplOverrides({})
     const update: Partial<CaptionConfig> = {
       caption_engine:     "browser_experimental",
       template_id:        template.id,
-      template_overrides: null as any,
-      // Mirror template colors → ASS fallback will use teal highlight, not all-white
+      // Preserve the full map — switching templates must not erase other templates' overrides
+      template_overrides: Object.keys(allTmplOverrides).length > 0
+        ? JSON.stringify(allTmplOverrides)
+        : null as any,
+      // Mirror template colors → ASS fallback will use the right palette
       primary_color:      template.primaryColor,
       active_word_color:  template.activeWordColor,
       outline_color:      template.outlineColor,
@@ -1305,7 +1340,7 @@ export default function CaptionStudio() {
             <div>
               <div className="flex items-center justify-between mb-1">
                 <h2 className="text-xl font-display font-bold">Ajustes de plantilla</h2>
-                {Object.keys(tmplOverrides).length > 0 && (
+                {Object.keys(currentOverrides).length > 0 && (
                   <button
                     type="button"
                     onClick={resetOverrides}
@@ -1327,7 +1362,7 @@ export default function CaptionStudio() {
                     <Label>
                       Tamaño de letra:&nbsp;
                       <span className="text-primary font-bold">{ov("fontSize")}px</span>
-                      {tmplOverrides.fontSize !== undefined && (
+                      {currentOverrides.fontSize !== undefined && (
                         <span className="ml-1 text-[10px] text-violet-500">(modificado)</span>
                       )}
                     </Label>
@@ -1350,7 +1385,7 @@ export default function CaptionStudio() {
                     <Label>
                       Palabras por línea:&nbsp;
                       <span className="text-primary font-bold">{ov("wordsPerLine")}</span>
-                      {tmplOverrides.wordsPerLine !== undefined && (
+                      {currentOverrides.wordsPerLine !== undefined && (
                         <span className="ml-1 text-[10px] text-violet-500">(modificado)</span>
                       )}
                     </Label>
@@ -1373,7 +1408,7 @@ export default function CaptionStudio() {
                     <Label>
                       Grosor del outline:&nbsp;
                       <span className="text-primary font-bold">{ov("outlineWidth")}px</span>
-                      {tmplOverrides.outlineWidth !== undefined && (
+                      {currentOverrides.outlineWidth !== undefined && (
                         <span className="ml-1 text-[10px] text-violet-500">(modificado)</span>
                       )}
                     </Label>
@@ -1396,7 +1431,7 @@ export default function CaptionStudio() {
                     <Label>
                       Opacidad de palabras inactivas:&nbsp;
                       <span className="text-primary font-bold">{Math.round((ov("inactiveOpacity") ?? 1) * 100)}%</span>
-                      {tmplOverrides.inactiveOpacity !== undefined && (
+                      {currentOverrides.inactiveOpacity !== undefined && (
                         <span className="ml-1 text-[10px] text-violet-500">(modificado)</span>
                       )}
                     </Label>
@@ -1418,7 +1453,7 @@ export default function CaptionStudio() {
                   <div className="space-y-2">
                     <Label>
                       Color de texto
-                      {tmplOverrides.primaryColor !== undefined && (
+                      {currentOverrides.primaryColor !== undefined && (
                         <span className="ml-1 text-[10px] text-violet-500">(modificado)</span>
                       )}
                     </Label>
@@ -1441,7 +1476,7 @@ export default function CaptionStudio() {
                   <div className="space-y-2">
                     <Label>
                       Color de palabra activa
-                      {tmplOverrides.activeWordColor !== undefined && (
+                      {currentOverrides.activeWordColor !== undefined && (
                         <span className="ml-1 text-[10px] text-violet-500">(modificado)</span>
                       )}
                     </Label>
@@ -1464,7 +1499,7 @@ export default function CaptionStudio() {
                   <div className="space-y-2">
                     <Label>
                       Color del outline
-                      {tmplOverrides.outlineColor !== undefined && (
+                      {currentOverrides.outlineColor !== undefined && (
                         <span className="ml-1 text-[10px] text-violet-500">(modificado)</span>
                       )}
                     </Label>
