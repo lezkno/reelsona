@@ -1019,6 +1019,8 @@ export default function CaptionStudio() {
   const [savingPresetId, setSavingPresetId] = useState<string | null>(null)
   // null = checking, true = available, false = unavailable
   const [browserEngineAvailable, setBrowserEngineAvailable] = useState<boolean | null>(null)
+  // Per-template style overrides (browser engine only) — Partial<CaptionTemplate> in state
+  const [tmplOverrides, setTmplOverrides] = useState<Partial<CaptionTemplate>>({})
 
   useEffect(() => {
     fetch("/api/captions/browser/status")
@@ -1028,7 +1030,13 @@ export default function CaptionStudio() {
   }, [])
 
   useEffect(() => {
-    if (config && Object.keys(local).length === 0) setLocal(config)
+    if (config && Object.keys(local).length === 0) {
+      setLocal(config)
+      // Restore saved overrides from DB
+      try {
+        if (config.template_overrides) setTmplOverrides(JSON.parse(config.template_overrides))
+      } catch { setTmplOverrides({}) }
+    }
   }, [config])
 
   useEffect(() => {
@@ -1040,17 +1048,50 @@ export default function CaptionStudio() {
     setDirty(true)
   }
 
+  // ── Template override helpers (browser engine only) ───────────────────────
+  // `tmplOverrides` holds the user's tweaks as a Partial<CaptionTemplate>.
+  // We also keep `local.template_overrides` as the JSON string for persistence.
+  const setOverride = <K extends keyof CaptionTemplate>(key: K, val: CaptionTemplate[K]) => {
+    setTmplOverrides((prev) => {
+      const next = { ...prev, [key]: val }
+      setLocal((l) => ({ ...l, template_overrides: JSON.stringify(next) }))
+      setDirty(true)
+      return next
+    })
+  }
+  const resetOverrides = () => {
+    setTmplOverrides({})
+    setLocal((l) => ({ ...l, template_overrides: null as any }))
+    setDirty(true)
+  }
+
+  // Active base template (if browser engine is selected)
+  const activeTmpl = (local.caption_engine === "browser_experimental" && local.template_id)
+    ? BROWSER_CAPTION_TEMPLATES.find((t) => t.id === local.template_id) ?? null
+    : null
+  // Merged template = base + user overrides (live preview + final render)
+  const mergedTmpl: CaptionTemplate | null = activeTmpl
+    ? { ...activeTmpl, ...tmplOverrides }
+    : null
+  // Convenience: effective value = override ?? base template default
+  function ov<K extends keyof CaptionTemplate>(key: K): CaptionTemplate[K] {
+    return (tmplOverrides[key] ?? activeTmpl?.[key]) as CaptionTemplate[K]
+  }
+
   // Auto-save when a Browser Template is selected.
   // Also syncs the legacy ASS colors with the template's palette so that if the
   // browser engine falls back to ASS, the output still uses the right colors.
   const applyBrowserTemplate = (template: CaptionTemplate) => {
+    // Reset overrides when switching to a different template
+    setTmplOverrides({})
     const update: Partial<CaptionConfig> = {
-      caption_engine:    "browser_experimental",
-      template_id:       template.id,
+      caption_engine:     "browser_experimental",
+      template_id:        template.id,
+      template_overrides: null as any,
       // Mirror template colors → ASS fallback will use teal highlight, not all-white
-      primary_color:     template.primaryColor,
-      active_word_color: template.activeWordColor,
-      outline_color:     template.outlineColor,
+      primary_color:      template.primaryColor,
+      active_word_color:  template.activeWordColor,
+      outline_color:      template.outlineColor,
     }
     setLocal((prev) => ({ ...prev, ...update }))
     setDirty(false)
@@ -1259,7 +1300,209 @@ export default function CaptionStudio() {
             )}
           </div>
 
-          {/* Advanced config */}
+          {/* ── Browser template advanced settings ─────────────────────── */}
+          {local.caption_engine === "browser_experimental" && mergedTmpl && (
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <h2 className="text-xl font-display font-bold">Ajustes de plantilla</h2>
+                {Object.keys(tmplOverrides).length > 0 && (
+                  <button
+                    type="button"
+                    onClick={resetOverrides}
+                    disabled={isVideoProcessing}
+                    className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 disabled:opacity-40"
+                  >
+                    Restaurar valores originales
+                  </button>
+                )}
+              </div>
+              <p className="text-sm text-muted-foreground mb-4">
+                Ajustá los valores de la plantilla <strong>{activeTmpl?.name}</strong>. El preview se actualiza en tiempo real y los cambios se aplican al video final.
+              </p>
+              <Card>
+                <CardContent className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-6">
+
+                  {/* Font size */}
+                  <div className="space-y-2">
+                    <Label>
+                      Tamaño de letra:&nbsp;
+                      <span className="text-primary font-bold">{ov("fontSize")}px</span>
+                      {tmplOverrides.fontSize !== undefined && (
+                        <span className="ml-1 text-[10px] text-violet-500">(modificado)</span>
+                      )}
+                    </Label>
+                    <Slider
+                      min={60} max={220} step={5}
+                      value={[ov("fontSize") ?? 88]}
+                      onValueChange={([v]) => setOverride("fontSize", v)}
+                      disabled={isVideoProcessing}
+                      className="mt-3"
+                    />
+                    <div className="flex justify-between text-[10px] text-muted-foreground">
+                      <span>60 — compacto</span>
+                      <span>Default: {activeTmpl?.fontSize}px</span>
+                      <span>220 — máximo</span>
+                    </div>
+                  </div>
+
+                  {/* Words per line */}
+                  <div className="space-y-2">
+                    <Label>
+                      Palabras por línea:&nbsp;
+                      <span className="text-primary font-bold">{ov("wordsPerLine")}</span>
+                      {tmplOverrides.wordsPerLine !== undefined && (
+                        <span className="ml-1 text-[10px] text-violet-500">(modificado)</span>
+                      )}
+                    </Label>
+                    <Slider
+                      min={1} max={6} step={1}
+                      value={[ov("wordsPerLine") ?? 3]}
+                      onValueChange={([v]) => setOverride("wordsPerLine", v)}
+                      disabled={isVideoProcessing}
+                      className="mt-3"
+                    />
+                    <div className="flex justify-between text-[10px] text-muted-foreground">
+                      <span>1 — una palabra</span>
+                      <span>Default: {activeTmpl?.wordsPerLine}</span>
+                      <span>6 — frase larga</span>
+                    </div>
+                  </div>
+
+                  {/* Outline width */}
+                  <div className="space-y-2">
+                    <Label>
+                      Grosor del outline:&nbsp;
+                      <span className="text-primary font-bold">{ov("outlineWidth")}px</span>
+                      {tmplOverrides.outlineWidth !== undefined && (
+                        <span className="ml-1 text-[10px] text-violet-500">(modificado)</span>
+                      )}
+                    </Label>
+                    <Slider
+                      min={0} max={20} step={1}
+                      value={[ov("outlineWidth") ?? 0]}
+                      onValueChange={([v]) => setOverride("outlineWidth", v)}
+                      disabled={isVideoProcessing}
+                      className="mt-3"
+                    />
+                    <div className="flex justify-between text-[10px] text-muted-foreground">
+                      <span>0 — sin outline</span>
+                      <span>Default: {activeTmpl?.outlineWidth}px</span>
+                      <span>20 — trazo grueso</span>
+                    </div>
+                  </div>
+
+                  {/* Inactive opacity */}
+                  <div className="space-y-2">
+                    <Label>
+                      Opacidad de palabras inactivas:&nbsp;
+                      <span className="text-primary font-bold">{Math.round((ov("inactiveOpacity") ?? 1) * 100)}%</span>
+                      {tmplOverrides.inactiveOpacity !== undefined && (
+                        <span className="ml-1 text-[10px] text-violet-500">(modificado)</span>
+                      )}
+                    </Label>
+                    <Slider
+                      min={0} max={1} step={0.05}
+                      value={[ov("inactiveOpacity") ?? 1]}
+                      onValueChange={([v]) => setOverride("inactiveOpacity", Math.round(v * 20) / 20)}
+                      disabled={isVideoProcessing}
+                      className="mt-3"
+                    />
+                    <div className="flex justify-between text-[10px] text-muted-foreground">
+                      <span>0% — invisibles</span>
+                      <span>Default: {Math.round((activeTmpl?.inactiveOpacity ?? 1) * 100)}%</span>
+                      <span>100% — igual que activa</span>
+                    </div>
+                  </div>
+
+                  {/* Primary color */}
+                  <div className="space-y-2">
+                    <Label>
+                      Color de texto
+                      {tmplOverrides.primaryColor !== undefined && (
+                        <span className="ml-1 text-[10px] text-violet-500">(modificado)</span>
+                      )}
+                    </Label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="color"
+                        value={ov("primaryColor") ?? "#FFFFFF"}
+                        onChange={(e) => setOverride("primaryColor", e.target.value)}
+                        disabled={isVideoProcessing}
+                        className="w-10 h-10 rounded-md border cursor-pointer bg-background p-0.5"
+                      />
+                      <div>
+                        <p className="text-sm font-mono">{ov("primaryColor")}</p>
+                        <p className="text-[10px] text-muted-foreground">Default: {activeTmpl?.primaryColor}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Active word color */}
+                  <div className="space-y-2">
+                    <Label>
+                      Color de palabra activa
+                      {tmplOverrides.activeWordColor !== undefined && (
+                        <span className="ml-1 text-[10px] text-violet-500">(modificado)</span>
+                      )}
+                    </Label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="color"
+                        value={ov("activeWordColor") ?? "#FFFFFF"}
+                        onChange={(e) => setOverride("activeWordColor", e.target.value)}
+                        disabled={isVideoProcessing}
+                        className="w-10 h-10 rounded-md border cursor-pointer bg-background p-0.5"
+                      />
+                      <div>
+                        <p className="text-sm font-mono">{ov("activeWordColor")}</p>
+                        <p className="text-[10px] text-muted-foreground">Default: {activeTmpl?.activeWordColor}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Outline color */}
+                  <div className="space-y-2">
+                    <Label>
+                      Color del outline
+                      {tmplOverrides.outlineColor !== undefined && (
+                        <span className="ml-1 text-[10px] text-violet-500">(modificado)</span>
+                      )}
+                    </Label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="color"
+                        value={ov("outlineColor") ?? "#000000"}
+                        onChange={(e) => setOverride("outlineColor", e.target.value)}
+                        disabled={isVideoProcessing}
+                        className="w-10 h-10 rounded-md border cursor-pointer bg-background p-0.5"
+                      />
+                      <div>
+                        <p className="text-sm font-mono">{ov("outlineColor")}</p>
+                        <p className="text-[10px] text-muted-foreground">Default: {activeTmpl?.outlineColor}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Vertical position — hint */}
+                  <div className="sm:col-span-2 flex items-start gap-2 p-3 rounded-lg bg-muted/40">
+                    <span className="text-base mt-0.5 shrink-0">✥</span>
+                    <div>
+                      <p className="text-xs font-medium mb-0.5">Posición vertical y margen</p>
+                      <p className="text-xs text-muted-foreground leading-snug">
+                        Arrastrá el preview del celular para mover los captions.
+                      </p>
+                      <p className="text-xs text-primary font-medium mt-1">
+                        ↕ {Math.round(local.y_position ?? (activeTmpl?.yPercent ?? 75))}% &nbsp;·&nbsp; ← {Math.round(local.margin_x ?? ((activeTmpl?.marginXPercent ?? 5) * 1080 / 100))}px
+                      </p>
+                    </div>
+                  </div>
+
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {/* Advanced config (standard engine only) */}
           <div>
             <h2 className="text-xl font-display font-bold mb-4">Ajustes avanzados</h2>
             <div className="relative">
@@ -1274,10 +1517,9 @@ export default function CaptionStudio() {
               ) : local.caption_engine === "browser_experimental" && (
                 <div className="absolute inset-0 z-10 rounded-xl backdrop-blur-[2px] bg-background/60 flex flex-col items-center justify-center gap-2 pointer-events-auto">
                   <span className="text-2xl">🎨</span>
-                  <p className="text-sm font-semibold text-center px-6">Ajustes no disponibles con Browser Engine</p>
+                  <p className="text-sm font-semibold text-center px-6">Usa los ajustes de plantilla de arriba</p>
                   <p className="text-xs text-muted-foreground text-center px-8 leading-snug">
-                    Las plantillas experimentales definen su propio estilo.<br />
-                    Seleccioná un preset estándar para editar estos ajustes.
+                    Las plantillas experimentales tienen sus propios controles.
                   </p>
                 </div>
               )}
@@ -1418,27 +1660,16 @@ export default function CaptionStudio() {
         <div className="space-y-6 lg:sticky lg:top-6 lg:self-start">
           <div>
             <h2 className="text-xl font-display font-bold mb-4">Vista previa</h2>
-            {local.caption_engine === "browser_experimental" && local.template_id
-              ? (() => {
-                  const activeTmpl = BROWSER_CAPTION_TEMPLATES.find((t) => t.id === local.template_id)
-                  return activeTmpl
-                    ? (
-                      <TemplateCaptionPreview
-                        template={activeTmpl}
-                        yOverride={local.y_position ?? undefined}
-                        marginXOverride={local.margin_x ?? undefined}
-                        onYPositionChange={(y) => set("y_position", y)}
-                        onXMarginChange={(x) => set("margin_x", x)}
-                      />
-                    )
-                    : (
-                      <CaptionPreview
-                        config={local}
-                        onYPositionChange={(y) => set("y_position", y)}
-                        onXMarginChange={(x) => set("margin_x", x)}
-                      />
-                    )
-                })()
+            {mergedTmpl
+              ? (
+                  <TemplateCaptionPreview
+                    template={mergedTmpl}
+                    yOverride={local.y_position ?? undefined}
+                    marginXOverride={local.margin_x ?? undefined}
+                    onYPositionChange={(y) => set("y_position", y)}
+                    onXMarginChange={(x) => set("margin_x", x)}
+                  />
+                )
               : (
                 <CaptionPreview
                   config={local}

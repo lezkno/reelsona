@@ -24,6 +24,7 @@ export const captionConfigTable = pgTable("caption_config", {
   // Browser Caption Engine feature flag
   captionEngine: text("caption_engine").notNull().default("standard"), // "standard" | "browser_experimental"
   templateId: text("template_id"),                                     // null when captionEngine = "standard"
+  templateOverrides: text("template_overrides"),                       // JSON: Partial<CaptionTemplate> — per-template user tweaks
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 

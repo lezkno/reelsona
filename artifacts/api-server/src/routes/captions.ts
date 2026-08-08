@@ -34,6 +34,7 @@ function mapConfig(c: typeof captionConfigTable.$inferSelect) {
     subtle_rotation: c.subtleRotation,
     caption_engine: (c.captionEngine ?? "standard") as "standard" | "browser_experimental",
     template_id: c.templateId ?? null,
+    template_overrides: c.templateOverrides ?? null,
     updated_at: c.updatedAt.toISOString(),
   };
 }
@@ -96,8 +97,9 @@ router.put("/captions/config", async (req, res): Promise<void> => {
   if (d.auto_movement     !== undefined) updates.autoMovement      = d.auto_movement;
   if (d.subtle_rotation   !== undefined) updates.subtleRotation    = d.subtle_rotation;
   // Browser Caption Engine fields
-  if (d.caption_engine    !== undefined) updates.captionEngine     = d.caption_engine;
-  if (d.template_id       !== undefined) updates.templateId        = d.template_id;
+  if (d.caption_engine       !== undefined) updates.captionEngine      = d.caption_engine;
+  if (d.template_id          !== undefined) updates.templateId         = d.template_id;
+  if (d.template_overrides   !== undefined) updates.templateOverrides  = d.template_overrides ?? null;
 
   const [existing] = await db.select().from(captionConfigTable).limit(1);
   let config;

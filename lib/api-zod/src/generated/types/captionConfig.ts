@@ -27,5 +27,10 @@ export interface CaptionConfig {
   auto_scale: boolean;
   auto_movement: boolean;
   subtle_rotation: boolean;
+  caption_engine: 'standard' | 'browser_experimental';
+  /** @nullable */
+  template_id?: string | null;
+  /** @nullable — JSON: Partial<CaptionTemplate> style overrides */
+  template_overrides?: string | null;
   updated_at: string;
 }

@@ -427,6 +427,8 @@ export async function applyCaptionsBrowser(
     yPositionPct?: number;
     /** Override template.marginXPercent (% of VIDEO_WIDTH). Converted from caption_config.margin_x. */
     marginXPct?: number;
+    /** Per-template style overrides from Caption Studio advanced settings. Applied on top of the base template. */
+    templateOverrides?: Partial<CaptionTemplate>;
   },
 ): Promise<CaptionResult> {
   logger.info({ templateId }, "[BrowserEngine] applyCaptionsBrowser invoked");
@@ -449,9 +451,11 @@ export async function applyCaptionsBrowser(
     return { url: null, error: err };
   }
 
-  // Apply user position overrides (drag-to-position from Caption Studio)
+  // Apply user overrides: first style tweaks from Caption Studio, then position
+  const styleOverrides: Partial<CaptionTemplate> = opts?.templateOverrides ?? {};
   const template: CaptionTemplate = {
     ...baseTemplate,
+    ...styleOverrides,
     ...(opts?.yPositionPct !== undefined && { yPercent:       opts.yPositionPct }),
     ...(opts?.marginXPct   !== undefined && { marginXPercent: opts.marginXPct   }),
   };

@@ -786,6 +786,7 @@ export const GetCaptionConfigResponse = zod.object({
   // Browser Caption Engine feature flag
   "caption_engine": zod.enum(['standard', 'browser_experimental']),
   "template_id": zod.string().nullish(),
+  "template_overrides": zod.string().nullish(),
   "updated_at": zod.string()
 })
 
@@ -822,7 +823,8 @@ export const UpdateCaptionConfigBody = zod.object({
   "subtle_rotation": zod.boolean().optional(),
   // Browser Caption Engine feature flag
   "caption_engine": zod.enum(['standard', 'browser_experimental']).optional(),
-  "template_id": zod.string().nullish()
+  "template_id": zod.string().nullish(),
+  "template_overrides": zod.string().nullish()
 })
 
 export const UpdateCaptionConfigResponse = zod.object({
@@ -845,6 +847,7 @@ export const UpdateCaptionConfigResponse = zod.object({
   "subtle_rotation": zod.boolean(),
   "caption_engine": zod.enum(['standard', 'browser_experimental']),
   "template_id": zod.string().nullish(),
+  "template_overrides": zod.string().nullish(),
   "updated_at": zod.string()
 })
 

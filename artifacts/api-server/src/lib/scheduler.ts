@@ -419,6 +419,11 @@ async function runCaptionProcessing(
       "[Scheduler] Using Browser Caption Engine (experimental)",
     );
 
+    // Parse stored template overrides JSON (set via Caption Studio advanced settings)
+    let parsedTemplateOverrides: Partial<import("@workspace/caption-templates").CaptionTemplate> | undefined;
+    if (captionCfg.templateOverrides) {
+      try { parsedTemplateOverrides = JSON.parse(captionCfg.templateOverrides); } catch { /* ignore malformed */ }
+    }
     const browserResult = await applyCaptionsBrowser(videoUrl, script, captionCfg.templateId, {
       subtitleUrl:          subtitleUrl ?? undefined,
       videoDurationSeconds: durationSeconds ?? undefined,
@@ -427,6 +432,8 @@ async function runCaptionProcessing(
       marginXPct:   captionCfg.marginX    != null
         ? (captionCfg.marginX / 1080) * 100  // px at 1080-width scale → % of VIDEO_WIDTH
         : undefined,
+      // Pass style overrides from Caption Studio advanced settings
+      templateOverrides: parsedTemplateOverrides,
     });
 
     if (browserResult.url) {

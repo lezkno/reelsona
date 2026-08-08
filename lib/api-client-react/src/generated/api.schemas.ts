@@ -541,6 +541,8 @@ export interface CaptionConfig {
   caption_engine: CaptionConfigEngine;
   /** @nullable — which browser template is active (null when caption_engine = "standard") */
   template_id?: string | null;
+  /** @nullable — JSON: Partial<CaptionTemplate> style overrides from Caption Studio advanced settings */
+  template_overrides?: string | null;
   updated_at: string;
 }
 
@@ -594,6 +596,8 @@ export interface CaptionConfigInput {
   caption_engine?: CaptionConfigEngine;
   /** @nullable */
   template_id?: string | null;
+  /** @nullable — JSON: Partial<CaptionTemplate> style overrides */
+  template_overrides?: string | null;
 }
 
 export type GetInstagramPostsParams = {
