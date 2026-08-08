@@ -42,9 +42,13 @@ const execFileAsync = promisify(execFile);
 
 const FONTS_DIR = path.join(__dirname, "../assets/fonts");
 
-/** Reference video dimensions — HeyGen portrait format */
-const VIDEO_WIDTH  = 1080;
-const VIDEO_HEIGHT = 1920;
+/**
+ * Default/fallback video dimensions — used only if ffprobe cannot determine
+ * the actual video size. The real dimensions are probed from every video before
+ * rendering so PNGs are always composited at native resolution.
+ */
+const VIDEO_WIDTH_DEFAULT  = 1080;
+const VIDEO_HEIGHT_DEFAULT = 1920;
 
 /** Word gap = N% of font-size */
 const WORD_GAP_FACTOR = 0.18;
@@ -115,13 +119,47 @@ export async function isBrowserEngineAvailable(): Promise<boolean> {
 
 export { BROWSER_CAPTION_TEMPLATES };
 
+// ── Video dimension probe ─────────────────────────────────────────────────────
+
+/**
+ * Probe the actual width × height of a local video file using ffprobe.
+ * Returns the video stream dimensions, or the HeyGen portrait defaults if
+ * the probe fails (e.g. corrupt file or ffprobe not available).
+ *
+ * WHY this matters: PNGs must be rendered at exactly the same dimensions as the
+ * source video. If we render at 1080×1920 but the video is 720×1280, the FFmpeg
+ * overlay clips the PNG at 720 × 1280 — text at y=83% of 1920 = 1593px falls
+ * entirely outside the 1280px frame and is invisible.
+ */
+async function probeVideoDimensions(
+  videoPath: string,
+): Promise<{ width: number; height: number }> {
+  try {
+    const { stdout } = await execFileAsync("ffprobe", [
+      "-v",            "quiet",
+      "-print_format", "json",
+      "-show_streams",
+      "-select_streams", "v:0",
+      videoPath,
+    ]);
+    const data   = JSON.parse(stdout) as { streams?: Array<{ width?: number; height?: number }> };
+    const stream = data.streams?.[0];
+    if (stream?.width && stream?.height) {
+      return { width: stream.width, height: stream.height };
+    }
+  } catch {
+    // ffprobe unavailable or unreadable — fall through to defaults
+  }
+  return { width: VIDEO_WIDTH_DEFAULT, height: VIDEO_HEIGHT_DEFAULT };
+}
+
 // ── Frame renderer ────────────────────────────────────────────────────────────
 
 /**
  * Build wrapped lines from a flat list of word indices.
  * Mirrors the CSS `flex-wrap: wrap` behaviour of the React preview:
  * words are packed greedily into lines; a new line starts when the next word
- * would exceed the available width (VIDEO_WIDTH − 2 × marginX).
+ * would exceed the available width (videoW − 2 × marginX).
  */
 function buildWrappedLines(
   measurements: number[],
@@ -152,26 +190,40 @@ function buildWrappedLines(
   return lines;
 }
 
+/**
+ * Render one caption cue as a transparent PNG at the given video dimensions.
+ *
+ * @param videoW  Actual source video width  (probed from the video file)
+ * @param videoH  Actual source video height (probed from the video file)
+ *
+ * WHY dynamic dimensions: the PNG must match the source video pixel-for-pixel.
+ * A 1080×1920 PNG overlaid on a 720×1280 video clips at 720×1280 — text at
+ * y=83% of 1920 = 1593px falls outside the 1280px frame and is invisible.
+ * By rendering at the actual video dimensions, positions and font sizes remain
+ * proportionally correct (scaleToHeight uses the actual height as reference).
+ */
 async function renderCueFrame(
   canvas: CanvasModule,
   template: CaptionTemplate,
   cue: CaptionCue,
+  videoW = VIDEO_WIDTH_DEFAULT,
+  videoH = VIDEO_HEIGHT_DEFAULT,
 ): Promise<Buffer> {
-  const cvs = canvas.createCanvas(VIDEO_WIDTH, VIDEO_HEIGHT);
+  const cvs = canvas.createCanvas(videoW, videoH);
   const ctx = cvs.getContext("2d");
 
   // Fully transparent background — the PNG is composited over the video
-  ctx.clearRect(0, 0, VIDEO_WIDTH, VIDEO_HEIGHT);
+  ctx.clearRect(0, 0, videoW, videoH);
 
-  const fontSize    = Math.round(scaleToHeight(template.fontSize,     VIDEO_HEIGHT));
-  const outlineW    = scaleToHeight(template.outlineWidth,   VIDEO_HEIGHT);
-  const shadowX     = scaleToHeight(template.shadowOffsetX,  VIDEO_HEIGHT);
-  const shadowY     = scaleToHeight(template.shadowOffsetY,  VIDEO_HEIGHT);
-  const shadowBlur  = scaleToHeight(template.shadowBlur,     VIDEO_HEIGHT);
-  const baselineY   = getBaselineY(template, VIDEO_HEIGHT);
-  const marginX     = getSafeMarginX(template, VIDEO_WIDTH);
+  const fontSize    = Math.round(scaleToHeight(template.fontSize,     videoH));
+  const outlineW    = scaleToHeight(template.outlineWidth,   videoH);
+  const shadowX     = scaleToHeight(template.shadowOffsetX,  videoH);
+  const shadowY     = scaleToHeight(template.shadowOffsetY,  videoH);
+  const shadowBlur  = scaleToHeight(template.shadowBlur,     videoH);
+  const baselineY   = getBaselineY(template, videoH);
+  const marginX     = getSafeMarginX(template, videoW);
   const wordGap     = Math.round(fontSize * WORD_GAP_FACTOR);
-  const availableW  = VIDEO_WIDTH - 2 * marginX;
+  const availableW  = videoW - 2 * marginX;
   // Line spacing: distance from one baseline to the next
   const lineSpacing = Math.round(fontSize * template.lineHeight);
 
@@ -196,7 +248,7 @@ async function renderCueFrame(
     // li=0 is the top line; li=(lines.length-1) is the bottom line at baselineY
     const lineY = baselineY - (lines.length - 1 - li) * lineSpacing;
     // Center each line within safe area
-    const lineX = Math.max(marginX, (VIDEO_WIDTH - lineWidth) / 2);
+    const lineX = Math.max(marginX, (videoW - lineWidth) / 2);
     let x = lineX;
 
     for (const wi of wordIndices) {
@@ -226,9 +278,9 @@ async function renderCueFrame(
           (template.backgroundMode === "active_word" && isActive));
 
       if (wantsBox) {
-        const padX = scaleToHeight(template.backgroundPaddingX, VIDEO_HEIGHT);
-        const padY = scaleToHeight(template.backgroundPaddingY, VIDEO_HEIGHT);
-        const r    = scaleToHeight(template.backgroundRadius,   VIDEO_HEIGHT);
+        const padX = scaleToHeight(template.backgroundPaddingX, videoH);
+        const padY = scaleToHeight(template.backgroundPaddingY, videoH);
+        const r    = scaleToHeight(template.backgroundRadius,   videoH);
         ctx.save();
         ctx.shadowColor = "transparent";
         ctx.fillStyle   = template.backgroundColor as string;
@@ -387,6 +439,14 @@ export async function applyCaptionsBrowser(
     await fs.writeFile(videoPath, Buffer.from(videoResp.data));
     logger.info("[BrowserEngine] Video downloaded");
 
+    // ── 3b. Probe actual video dimensions ────────────────────────────────
+    // CRITICAL: PNGs must be rendered at the source video's native resolution.
+    // Rendering at hardcoded 1080×1920 while the video is 720×1280 causes
+    // FFmpeg overlay to clip the PNG at 1280px — text at y=83% of 1920=1593px
+    // is invisible. Probing and matching ensures pixel-perfect compositing.
+    const videoDims = await probeVideoDimensions(videoPath);
+    logger.info(videoDims, "[BrowserEngine] Video dimensions probed");
+
     // ── 4. Gather word timings ────────────────────────────────────────────
     let wordTimings: WordTiming[] = [];
 
@@ -428,7 +488,7 @@ export async function applyCaptionsBrowser(
     for (let i = 0; i < cues.length; i++) {
       const cue    = cues[i];
       const endMs  = i + 1 < cues.length ? cues[i + 1].startMs : cue.endMs;
-      const png    = await renderCueFrame(canvas, template, cue);
+      const png    = await renderCueFrame(canvas, template, cue, videoDims.width, videoDims.height);
       const pngPath = path.join(tmpDir, `cue_${String(i).padStart(4, "0")}.png`);
       await fs.writeFile(pngPath, png);
       segments.push({
@@ -475,8 +535,9 @@ export async function applyCaptionsBrowser(
         const inLabel  = `[cap${i}]`;
         const outLabel = i < batch.length - 1 ? `[ov${i}]` : "[out]";
         extraInputs.push("-i", pngPath);
-        // Scale PNG from render resolution (1080×1920) to source video size
-        filterParts.push(`[${i + 1}:v]scale=${VIDEO_WIDTH}:${VIDEO_HEIGHT}${inLabel}`);
+        // PNG was rendered at videoDims.width × videoDims.height — scale is a no-op
+        // but we keep it explicit so any resize from a re-encode round-trip is corrected.
+        filterParts.push(`[${i + 1}:v]scale=${videoDims.width}:${videoDims.height}${inLabel}`);
         filterParts.push(
           `${prevLabel}${inLabel}overlay=0:0:enable='between(t,${relStart},${relEnd})'${outLabel}`,
         );

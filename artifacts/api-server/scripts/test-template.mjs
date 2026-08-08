@@ -23,8 +23,9 @@ const SUBTITLE_URL = process.env.TEST_SUBTITLE_URL || null;
 const OUTPUT       = `/tmp/template_test_${TEMPLATE_ID}.mp4`;
 const FONTS_DIR    = path.join(__dirname, "../src/assets/fonts");
 const DURATION_SECONDS = 61;
-const VIDEO_WIDTH  = 1080;
-const VIDEO_HEIGHT = 1920;
+// Video dimensions are probed dynamically — these are fallback defaults only
+const VIDEO_WIDTH_DEFAULT  = 1080;
+const VIDEO_HEIGHT_DEFAULT = 1920;
 const WORD_GAP_FACTOR = 0.18;
 const MAX_BATCH    = 30;
 
@@ -75,20 +76,25 @@ function buildWrappedLines(measurements, wordGap, availableW) {
   return lines;
 }
 
-async function renderCueFrame(canvas, template, cue) {
-  const cvs = canvas.createCanvas(VIDEO_WIDTH, VIDEO_HEIGHT);
+/**
+ * Render one cue frame at the actual video dimensions.
+ * videoW/videoH must match the source video — PNG composited at the same size.
+ */
+async function renderCueFrame(canvas, template, cue,
+  videoW = VIDEO_WIDTH_DEFAULT, videoH = VIDEO_HEIGHT_DEFAULT) {
+  const cvs = canvas.createCanvas(videoW, videoH);
   const ctx = cvs.getContext("2d");
-  ctx.clearRect(0, 0, VIDEO_WIDTH, VIDEO_HEIGHT);
+  ctx.clearRect(0, 0, videoW, videoH);
 
-  const fontSize    = Math.round(scaleToHeight(template.fontSize, VIDEO_HEIGHT));
-  const outlineW    = scaleToHeight(template.outlineWidth, VIDEO_HEIGHT);
-  const shadowX     = scaleToHeight(template.shadowOffsetX, VIDEO_HEIGHT);
-  const shadowY     = scaleToHeight(template.shadowOffsetY, VIDEO_HEIGHT);
-  const shadowBlur  = scaleToHeight(template.shadowBlur, VIDEO_HEIGHT);
-  const baselineY   = getBaselineY(template, VIDEO_HEIGHT);
-  const marginX     = getSafeMarginX(template, VIDEO_WIDTH);
+  const fontSize    = Math.round(scaleToHeight(template.fontSize, videoH));
+  const outlineW    = scaleToHeight(template.outlineWidth, videoH);
+  const shadowX     = scaleToHeight(template.shadowOffsetX, videoH);
+  const shadowY     = scaleToHeight(template.shadowOffsetY, videoH);
+  const shadowBlur  = scaleToHeight(template.shadowBlur, videoH);
+  const baselineY   = getBaselineY(template, videoH);
+  const marginX     = getSafeMarginX(template, videoW);
   const wordGap     = Math.round(fontSize * WORD_GAP_FACTOR);
-  const availableW  = VIDEO_WIDTH - 2 * marginX;
+  const availableW  = videoW - 2 * marginX;
   const lineSpacing = Math.round(fontSize * template.lineHeight);
 
   const displayWords = cue.words.map(w => formatWord(w.text, template));
@@ -105,7 +111,7 @@ async function renderCueFrame(canvas, template, cue) {
   for (let li = 0; li < lines.length; li++) {
     const { wordIndices, lineWidth } = lines[li];
     const lineY = baselineY - (lines.length - 1 - li) * lineSpacing;
-    const lineX = Math.max(marginX, (VIDEO_WIDTH - lineWidth) / 2);
+    const lineX = Math.max(marginX, (videoW - lineWidth) / 2);
     let x = lineX;
 
     for (const wi of wordIndices) {
@@ -127,9 +133,9 @@ async function renderCueFrame(canvas, template, cue) {
         (template.backgroundMode === "word" ||
          (template.backgroundMode === "active_word" && isActive));
       if (wantsBox) {
-        const padX = scaleToHeight(template.backgroundPaddingX, VIDEO_HEIGHT);
-        const padY = scaleToHeight(template.backgroundPaddingY, VIDEO_HEIGHT);
-        const r    = scaleToHeight(template.backgroundRadius,   VIDEO_HEIGHT);
+        const padX = scaleToHeight(template.backgroundPaddingX, videoH);
+        const padY = scaleToHeight(template.backgroundPaddingY, videoH);
+        const r    = scaleToHeight(template.backgroundRadius,   videoH);
         ctx.save();
         ctx.shadowColor = "transparent";
         ctx.fillStyle   = template.backgroundColor;
@@ -212,25 +218,26 @@ if (!wordTimings.length) {
 const cues = buildCaptionCues(wordTimings, template).slice(0, 400);
 console.log(`Cues: ${cues.length} (wordsPerLine=${template.wordsPerLine})`);
 
-// Render PNGs
+// Probe video dimensions BEFORE rendering PNGs — PNGs must match source resolution
+const { stdout: probeOut } = await execFileAsync("ffprobe", ["-v","quiet","-print_format","json","-show_streams", videoPath]);
+const vstream = JSON.parse(probeOut).streams.find(s => s.codec_type === "video");
+const VW = vstream?.width  ?? VIDEO_WIDTH_DEFAULT;
+const VH = vstream?.height ?? VIDEO_HEIGHT_DEFAULT;
+console.log(`Source: ${VW}×${VH} (PNGs will render at this resolution)`);
+
+// Render PNGs at actual video dimensions
 console.log("\nRendering PNGs...");
 const segments = [];
 for (let i = 0; i < cues.length; i++) {
   const cue = cues[i];
   const endMs = i + 1 < cues.length ? cues[i+1].startMs : cue.endMs;
-  const png = await renderCueFrame(canvasMod, template, cue);
+  const png = await renderCueFrame(canvasMod, template, cue, VW, VH);
   const pngPath = path.join(TMP_DIR, `cue_${String(i).padStart(4,"0")}.png`);
   await fs.writeFile(pngPath, png);
   segments.push({ pngPath, startSec: cue.startMs / 1000, endSec: endMs / 1000 });
   if (i % 30 === 0) process.stdout.write(`  ${i}/${cues.length}...\n`);
 }
 console.log(`✓ ${segments.length} PNGs rendered`);
-
-// Get source video resolution
-const { stdout: probeOut } = await execFileAsync("ffprobe", ["-v","quiet","-print_format","json","-show_streams", videoPath]);
-const vstream = JSON.parse(probeOut).streams.find(s => s.codec_type === "video");
-const VW = vstream.width, VH = vstream.height;
-console.log(`Source: ${VW}×${VH}`);
 
 // Batch-segment composite
 console.log("\nCompositing (batch-segment)...");
