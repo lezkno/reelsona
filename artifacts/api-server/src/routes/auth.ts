@@ -25,6 +25,7 @@ router.post("/auth/login", (req: Request, res: Response): void => {
     }
     // Development only: allow open access without password for first-time setup
     req.session.authenticated = true;
+    req.session.user = { username: "admin", role: "admin" };
     res.json({ ok: true, message: "Acceso concedido (modo desarrollo — configura ADMIN_PASSWORD para producción)" });
     return;
   }
@@ -35,6 +36,7 @@ router.post("/auth/login", (req: Request, res: Response): void => {
   }
 
   req.session.authenticated = true;
+  req.session.user = { username: "admin", role: "admin" };
   res.json({ ok: true });
 });
 
@@ -53,7 +55,10 @@ router.post("/auth/logout", (req: Request, res: Response): void => {
  */
 router.get("/auth/me", (req: Request, res: Response): void => {
   if (req.session?.authenticated) {
-    res.json({ authenticated: true });
+    res.json({
+      authenticated: true,
+      user: req.session.user ?? { username: "admin", role: "admin" },
+    });
     return;
   }
   res.status(401).json({ authenticated: false });

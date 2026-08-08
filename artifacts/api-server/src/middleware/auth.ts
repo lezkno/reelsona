@@ -1,9 +1,10 @@
 import type { RequestHandler } from "express";
 
-// Augment express-session to include our authenticated flag
+// Augment express-session to include our authenticated flag and user identity
 declare module "express-session" {
   interface SessionData {
     authenticated?: boolean;
+    user?: { username: string; role: string };
   }
 }
 

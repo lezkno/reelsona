@@ -7,8 +7,14 @@ import { customFetch } from "./custom-fetch";
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
+export interface AuthUser {
+  username: string;
+  role: string;
+}
+
 export interface AuthStatus {
   authenticated: boolean;
+  user?: AuthUser;
 }
 
 /** Check whether the current session is authenticated. */
