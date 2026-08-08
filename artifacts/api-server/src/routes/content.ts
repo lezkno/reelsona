@@ -53,6 +53,7 @@ const router = Router();
 
 interface VideoInfo {
   captionStatus: string | null;
+  videoStatus: string | null;
   videoUrl: string | null;
   captionedVideoUrl: string | null;
   thumbnailUrl: string | null;
@@ -81,6 +82,7 @@ function mapItem(
     video_url: videoInfo?.videoUrl ?? null,
     captioned_video_url: videoInfo?.captionedVideoUrl ?? null,
     thumbnail_url: videoInfo?.thumbnailUrl ?? null,
+    video_status: videoInfo?.videoStatus ?? null,
     created_at: item.createdAt.toISOString(),
     updated_at: item.updatedAt.toISOString(),
   };
@@ -102,6 +104,7 @@ async function fetchVideoInfos(videoIds: number[]): Promise<Map<number, VideoInf
     .select({
       id: videosTable.id,
       captionStatus: videosTable.captionStatus,
+      videoStatus: videosTable.status,
       videoUrl: videosTable.videoUrl,
       captionedVideoUrl: videosTable.captionedVideoUrl,
       thumbnailUrl: videosTable.thumbnailUrl,
@@ -113,6 +116,7 @@ async function fetchVideoInfos(videoIds: number[]): Promise<Map<number, VideoInf
       r.id,
       {
         captionStatus: r.captionStatus,
+        videoStatus: r.videoStatus,
         videoUrl: r.videoUrl,
         captionedVideoUrl: resolveCaptionedUrl(r.captionedVideoUrl),
         thumbnailUrl: r.thumbnailUrl,

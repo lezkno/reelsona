@@ -46,6 +46,8 @@ export interface ContentPlanItem {
    * @nullable
    */
   copy_status?: string | null;
+  /** @nullable */
+  video_status?: string | null;
   created_at: string;
   updated_at: string;
 }

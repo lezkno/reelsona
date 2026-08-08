@@ -25,7 +25,7 @@ const BASE_STEPS = [
 ] as const
 
 type StepKey = typeof BASE_STEPS[number]["key"]
-type PipelineMode = "generating" | "captioning" | "copy_generating" | "awaiting_publish" | "scripted_waiting" | "next" | "done"
+type PipelineMode = "generating" | "captioning" | "copy_generating" | "publishing" | "awaiting_publish" | "scripted_waiting" | "next" | "done"
 
 // ── Progress mapping ─────────────────────────────────────────────────────────
 // Returns a 0-based semantic step index using the full 6-step scale and an
@@ -79,7 +79,13 @@ function pickActiveItem(items: ContentPlanItem[]): { item: ContentPlanItem; mode
   )
   if (copyGenerating) return { item: copyGenerating, mode: "copy_generating" }
 
-  // Priority 4 — ready with terminal caption + copy, waiting to publish
+  // Priority 4 — video actively being published to Instagram (container uploading)
+  const publishing = mostRecent(
+    items.filter((i) => i.status === "ready" && i.video_status === "publishing")
+  )
+  if (publishing) return { item: publishing, mode: "publishing" }
+
+  // Priority 5 — ready with terminal caption + copy, waiting to publish
   const awaitingPublish = mostRecent(
     items.filter(
       (i) => i.status === "ready" &&
@@ -111,6 +117,7 @@ function getHeaderLabel(mode: PipelineMode, willAutoPublish: boolean | undefined
     case "generating":       return "Producción en curso"
     case "captioning":       return "Aplicando captions al video"
     case "copy_generating":  return "Generando descripción e IG copy"
+    case "publishing":       return "Publicando en Instagram..."
     case "awaiting_publish": return willAutoPublish
       ? "En cola para publicar automáticamente"
       : "Video listo — revisá y aprobá para publicar"
@@ -133,7 +140,8 @@ function getStepElapsedPercent(
   const activeKey: StepKey | null =
     mode === "generating"      ? "video"   :
     mode === "captioning"      ? "caption" :
-    mode === "copy_generating" ? "copy"    : null
+    mode === "copy_generating" ? "copy"    :
+    mode === "publishing"      ? "publish" : null
   if (activeKey !== stepKey) return null
   const step = BASE_STEPS.find((s) => s.key === stepKey)
   if (!step || step.estimatedMs === 0) return null
@@ -163,12 +171,12 @@ function ReviewModal({
 
   const handleApprove = () => {
     if (!item.video_id) return
+    onClose()   // close immediately so the pipeline shows the publishing step
     publishVideo.mutate(
       { id: item.video_id, data: {} },
       {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: getGetContentPlanQueryKey() })
-          onClose()
         },
       }
     )
@@ -265,7 +273,7 @@ export default function PipelineTimeline() {
 
   const displayStep = activeKey ? visibleSteps.findIndex((s) => s.key === activeKey) : -1
 
-  const isActivelyProcessing = mode === "generating" || mode === "captioning" || mode === "copy_generating"
+  const isActivelyProcessing = mode === "generating" || mode === "captioning" || mode === "copy_generating" || mode === "publishing"
   const isAwaitingReview     = mode === "awaiting_publish" && isManual
 
   const gridClass =
@@ -354,7 +362,9 @@ export default function PipelineTimeline() {
                 statusLabel = "Omitido (error)"
 
               if (s.key === "publish" && current)
-                statusLabel = willAutoPublish ? "En cola" : "Publicando..."
+                statusLabel = mode === "publishing"
+                  ? (stepElapsed ? fmtRemaining(stepElapsed.remainingSec) : "Subiendo a Instagram...")
+                  : willAutoPublish ? "En cola" : "Listo para publicar"
 
               if (isReview && current)
                 statusLabel = "Tocá para revisar"
