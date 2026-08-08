@@ -129,9 +129,10 @@ export async function runAutomationCycle(targetItemId?: number): Promise<{
     return { success: false, message: "No avatars configured" };
   }
 
-  // Load IG account
+  // Load IG account — only required when auto-publish is on.
+  // Script and video generation should work even without an IG account connected.
   const [igAccount] = await db.select().from(instagramAccountsTable).limit(1);
-  if (!igAccount) {
+  if (!igAccount && automation.autoPublish && targetItemId === undefined) {
     return { success: false, message: "Instagram account not connected" };
   }
 
@@ -195,7 +196,8 @@ export async function runAutomationCycle(targetItemId?: number): Promise<{
       );
     }
 
-    const voiceId = draft.voiceId ?? (await resolveVoiceId(avatarId));
+    // Always re-resolve from current voice_overrides — draft.voiceId may be stale.
+    const voiceId = (await resolveVoiceId(avatarId)) ?? draft.voiceId;
 
     await db
       .update(contentPlanItemsTable)
@@ -546,6 +548,14 @@ export async function pollAndPublishVideos(): Promise<void> {
 export async function publishVideoToInstagram(videoId: number, videoUrl?: string): Promise<void> {
   const [video] = await db.select().from(videosTable).where(eq(videosTable.id, videoId));
   if (!video) throw new Error("Video not found");
+
+  // Idempotency guard — if already published, skip silently.
+  // Prevents double-publish when both the immediate post-caption path and the
+  // auto-publish sweep run in the same or back-to-back scheduler cycles.
+  if (video.status === "published") {
+    logger.info({ videoId }, "[Publish] Video already published — skipping");
+    return;
+  }
 
   // Use captioned URL if available (Caption Studio layer), fallback to original.
   // Captioned files live in /tmp which is cleared on every server restart.

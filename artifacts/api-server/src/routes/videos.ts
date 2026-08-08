@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { videosTable, contentPlanItemsTable, avatarConfigTable, automationConfigTable } from "@workspace/db";
+import { videosTable, contentPlanItemsTable, avatarConfigTable, automationConfigTable, captionConfigTable } from "@workspace/db";
 import { eq, desc, and } from "drizzle-orm";
 import {
   GetVideosQueryParams,
@@ -160,7 +160,10 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
     return;
   }
 
-  // Load automation config (needed for captionsEnabled flag)
+  // Manual videos request captions whenever Caption Studio is configured,
+  // regardless of the automation captionsEnabled toggle (which only controls
+  // the automatic pipeline). null = captions requested; "disabled" = skip.
+  const [captionCfg] = await db.select().from(captionConfigTable).limit(1);
   const [automationCfg] = await db.select().from(automationConfigTable).limit(1);
 
   // Create video row — set captionStatus upfront so the pipeline UI knows
@@ -172,7 +175,7 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
       topic: item.topic,
       avatarId: item.avatarId,
       status: "generating",
-      captionStatus: automationCfg?.captionsEnabled ? null : "disabled",
+      captionStatus: captionCfg ? null : "disabled",
     })
     .returning();
 
