@@ -18,6 +18,7 @@ import {
 } from "@workspace/api-zod";
 import { generateVideo } from "../lib/heygen";
 import { publishVideoToInstagram, pickNextAvatar, resolveVoiceId } from "../lib/scheduler";
+import { objectStorageClient } from "../lib/objectStorage";
 
 const router = Router();
 
@@ -63,6 +64,42 @@ function mapVideo(v: typeof videosTable.$inferSelect) {
     scheduled_publish_at: v.scheduledPublishAt?.toISOString() ?? null,
   };
 }
+
+/**
+ * Proxy route — serve captioned videos stored in GCS through the API server.
+ * Replit buckets have "public access prevention" enforced, so makePublic() is
+ * not allowed. Instead, the caption engine stores the GCS object and returns a
+ * URL pointing here; this handler streams the bytes back to the requester.
+ * Works for both the in-app video player and Instagram's container download.
+ */
+// router.use strips the mount prefix, so req.path here is "/<objectName>"
+router.use("/captioned-objects", async (req, res, next): Promise<void> => {
+  if (req.method !== "GET") { next(); return; }
+  // req.path = "/captioned-videos/file.mp4" → strip leading slash
+  const objectName = req.path.replace(/^\//, ""); // e.g. "captioned-videos/file.mp4"
+  const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
+  if (!bucketId) {
+    res.status(500).json({ error: "Object storage not configured" });
+    return;
+  }
+  try {
+    const bucket = objectStorageClient.bucket(bucketId);
+    const file = bucket.file(objectName);
+    const [exists] = await file.exists();
+    if (!exists) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    const [metadata] = await file.getMetadata();
+    res.setHeader("Content-Type", (metadata.contentType as string) || "video/mp4");
+    if (metadata.size) res.setHeader("Content-Length", String(metadata.size));
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.setHeader("Accept-Ranges", "bytes");
+    file.createReadStream().pipe(res);
+  } catch {
+    res.status(500).json({ error: "Failed to serve video" });
+  }
+});
 
 router.get("/videos", async (req, res): Promise<void> => {
   const queryParsed = GetVideosQueryParams.safeParse(req.query);

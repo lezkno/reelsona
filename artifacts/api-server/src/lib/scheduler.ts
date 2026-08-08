@@ -569,10 +569,10 @@ export async function publishVideoToInstagram(videoId: number, videoUrl?: string
   if (video.captionedVideoUrl) {
     const captionedUrl = video.captionedVideoUrl;
 
-    if (captionedUrl.startsWith("https://storage.googleapis.com/")) {
-      // Stored in Object Storage — permanently available, use directly.
+    if (captionedUrl.startsWith("https://")) {
+      // Any full HTTPS URL (Object Storage proxy, GCS direct, etc.) — use directly.
       url = captionedUrl;
-      logger.info({ videoId, captionedUrl: url.slice(0, 80) }, "[Publish] Using captioned video from Object Storage");
+      logger.info({ videoId, captionedUrl: url.slice(0, 80) }, "[Publish] Using captioned video from HTTPS URL");
     } else {
       // Legacy: URL pointed to the dev server's /tmp directory.
       // Verify the file still exists on disk before using it.

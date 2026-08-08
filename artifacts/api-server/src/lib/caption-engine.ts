@@ -661,12 +661,17 @@ export async function applyCaptions(
     logger.info({ gcsObjectName }, "[CaptionEngine] Uploading captioned video to Object Storage...");
     const fileBuffer = await fs.readFile(outputPath);
     await gcsFile.save(fileBuffer, { contentType: "video/mp4" });
-    await gcsFile.makePublic();
+    // Note: do NOT call makePublic() — Replit buckets have public access prevention enforced.
+    // Instead, serve the file through the API server's /api/captioned-objects/* proxy route.
 
     // Clean up the local output file now that it's in GCS
     await fs.unlink(outputPath).catch(() => {});
 
-    const publicUrl = `https://storage.googleapis.com/${bucketId}/${gcsObjectName}`;
+    // Build a stable public URL through the API server proxy.
+    // REPLIT_DEV_DOMAIN is always set on Replit (dev and production deployments).
+    const domain = process.env.REPLIT_DEV_DOMAIN;
+    if (!domain) throw new Error("REPLIT_DEV_DOMAIN not set — cannot build captioned video URL");
+    const publicUrl = `https://${domain}/api/captioned-objects/${gcsObjectName}`;
     logger.info({ publicUrl }, "[CaptionEngine] Captioned video persisted to Object Storage");
     return { url: publicUrl };
   } catch (err) {
