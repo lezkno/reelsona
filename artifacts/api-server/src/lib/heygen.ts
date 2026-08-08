@@ -18,30 +18,29 @@ export interface HeyGenQuota {
   total: number | null;
 }
 
-/** Fetch remaining + total API credits for a given HeyGen key. */
+/**
+ * Fetch HeyGen quota info. HeyGen does not expose a public credits endpoint,
+ * so remaining/total are always null — but we still validate the key via /v2/avatars.
+ */
 export async function getHeyGenQuota(apiKey: string): Promise<HeyGenQuota> {
-  const client = getClient(apiKey);
-  try {
-    const res = await client.get("/v2/user/remaining.quota");
-    const data = res.data?.data ?? {};
-    const remaining = typeof data.remaining_quota === "number" ? data.remaining_quota : null;
-    // details array may hold per-type breakdowns with a total
-    const details: Array<{ remaining?: number; total?: number; type?: string }> = Array.isArray(data.details) ? data.details : [];
-    const credit = details.find((d) => d.type === "api_credit") ?? details[0] ?? {};
-    const total = typeof credit.total === "number" ? credit.total : null;
-    return { remaining, total };
-  } catch {
-    return { remaining: null, total: null };
-  }
+  // Intentionally returns nulls; real validation happens via validateHeyGenKey.
+  return { remaining: null, total: null };
 }
 
-/** Quick key-validity check (returns true when HeyGen responds with code 100 / HTTP 200). */
+/**
+ * Validate a HeyGen API key.
+ * Uses GET /v2/avatars — returns HTTP 200 for valid keys, 401 for invalid ones.
+ */
 export async function validateHeyGenKey(apiKey: string): Promise<boolean> {
   try {
     const client = getClient(apiKey);
-    const res = await client.get("/v2/user/remaining.quota");
-    return res.data?.code === 100 || res.status === 200;
-  } catch {
+    const res = await client.get("/v2/avatars");
+    // Valid key → 200; error field is null
+    return res.status === 200 && !res.data?.error?.message?.toLowerCase().includes("unauthorized");
+  } catch (err: any) {
+    // axios throws on 4xx/5xx — 401 means invalid key
+    if (err?.response?.status === 401) return false;
+    logger.warn({ err: String(err) }, "HeyGen key validation request failed");
     return false;
   }
 }

@@ -201,15 +201,12 @@ router.get("/heygen/account", async (req, res): Promise<void> => {
     return;
   }
 
-  const quota = await getHeyGenQuota(apiKey);
-  const connected = quota.remaining !== null || quota.total !== null
-    ? true
-    : await validateHeyGenKey(apiKey);
+  const connected = await validateHeyGenKey(apiKey);
 
   res.json({
     connected,
-    remaining_quota: quota.remaining,
-    total_quota: quota.total,
+    remaining_quota: null,
+    total_quota: null,
     key_source: dbKey ? "db" : "env",
   });
 });
@@ -225,10 +222,7 @@ router.post("/heygen/account/connect", async (req, res): Promise<void> => {
   const trimmedKey = api_key.trim();
 
   // Validate before saving
-  const quota = await getHeyGenQuota(trimmedKey);
-  const valid = quota.remaining !== null || quota.total !== null
-    ? true
-    : await validateHeyGenKey(trimmedKey);
+  const valid = await validateHeyGenKey(trimmedKey);
 
   if (!valid) {
     res.status(400).json({ error: "API Key inválida. Verificá que sea correcta en tu cuenta de HeyGen." });
@@ -243,7 +237,7 @@ router.post("/heygen/account/connect", async (req, res): Promise<void> => {
     await db.insert(settingsTable).values({ niche: "", heygenApiKey: trimmedKey });
   }
 
-  res.json({ connected: true, remaining_quota: quota.remaining, total_quota: quota.total, key_source: "db" });
+  res.json({ connected: true, remaining_quota: null, total_quota: null, key_source: "db" });
 });
 
 /** DELETE /heygen/account — remove the user-stored key (falls back to env var) */
