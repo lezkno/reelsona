@@ -110,7 +110,7 @@ export const BROWSER_CAPTION_TEMPLATES: CaptionTemplate[] = [
     fontFamily: "Oswald",
     fontSize: 80,
     fontWeight: 700,
-    uppercase: false,
+    uppercase: true,
     letterSpacing: 0.01,
     lineHeight: 1.3,
 

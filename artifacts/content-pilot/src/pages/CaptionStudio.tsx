@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react"
-import { useGetCaptionPresets, useGetCaptionConfig, useUpdateCaptionConfig, useGetAutomation, useUpdateAutomation, getGetAutomationQueryKey } from "@workspace/api-client-react"
+import { useGetCaptionPresets, useGetCaptionConfig, useUpdateCaptionConfig, useGetAutomation, useUpdateAutomation, getGetAutomationQueryKey, useGetVideos } from "@workspace/api-client-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -1002,9 +1002,16 @@ export default function CaptionStudio() {
   const queryClient = useQueryClient()
   const { data: presets } = useGetCaptionPresets()
   const { data: config, isLoading } = useGetCaptionConfig()
-  const { data: automation } = useGetAutomation()
+  const { data: automation } = useGetAutomation({ query: { refetchInterval: 10000 } as any })
+  const { data: videos } = useGetVideos({ query: { refetchInterval: 8000 } as any })
   const updateConfig = useUpdateCaptionConfig()
   const updateAutomation = useUpdateAutomation()
+
+  // Lock the UI while any video is actively being processed so the user can't
+  // change the template mid-render and get an inconsistent result.
+  const isVideoProcessing = (videos ?? []).some(
+    (v) => v.status === "generating" || (v as any).caption_status === "processing"
+  )
 
   const [local, setLocal] = useState<Partial<CaptionConfig>>({})
   const [captionsEnabled, setCaptionsEnabled] = useState(false)
@@ -1150,12 +1157,22 @@ export default function CaptionStudio() {
           </p>
         </div>
         {dirty && (
-          <Button onClick={handleSave} disabled={updateConfig.isPending} className="gap-2 px-8 shadow-lg shadow-primary/20">
+          <Button onClick={handleSave} disabled={updateConfig.isPending || isVideoProcessing} className="gap-2 px-8 shadow-lg shadow-primary/20">
             <Wand2 className="w-4 h-4" />
             {updateConfig.isPending ? "Guardando…" : "Guardar ajustes"}
           </Button>
         )}
       </div>
+
+      {/* Processing lock banner */}
+      {isVideoProcessing && (
+        <div className="flex items-center gap-3 rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
+          <Loader2 className="w-4 h-4 shrink-0 animate-spin" />
+          <span>
+            <strong>Video en proceso.</strong> No podés cambiar la plantilla ni los ajustes mientras un video se está generando o aplicando captions. Esperá a que termine.
+          </span>
+        </div>
+      )}
 
       {/* Enable / status banner */}
       <Card className={`border-2 ${captionsEnabled ? "border-primary/40 bg-primary/5" : "border-dashed"}`}>
@@ -1173,7 +1190,7 @@ export default function CaptionStudio() {
               </p>
             </div>
           </div>
-          <Switch checked={captionsEnabled} onCheckedChange={handleToggle} className="shrink-0" />
+          <Switch checked={captionsEnabled} onCheckedChange={handleToggle} disabled={isVideoProcessing} className="shrink-0" />
         </CardContent>
       </Card>
 
@@ -1192,7 +1209,7 @@ export default function CaptionStudio() {
                   preset={preset}
                   selected={local.caption_engine !== "browser_experimental" && local.preset_id === preset.id}
                   saving={savingPresetId === preset.id}
-                  onClick={() => applyPreset(preset)}
+                  onClick={() => !isVideoProcessing && applyPreset(preset)}
                 />
               ))}
             </div>
@@ -1227,7 +1244,7 @@ export default function CaptionStudio() {
                   template={tmpl}
                   selected={local.caption_engine === "browser_experimental" && local.template_id === tmpl.id}
                   saving={savingPresetId === tmpl.id}
-                  onClick={() => applyBrowserTemplate(tmpl)}
+                  onClick={() => !isVideoProcessing && applyBrowserTemplate(tmpl)}
                 />
               ))}
             </div>
@@ -1246,7 +1263,15 @@ export default function CaptionStudio() {
           <div>
             <h2 className="text-xl font-display font-bold mb-4">Ajustes avanzados</h2>
             <div className="relative">
-              {local.caption_engine === "browser_experimental" && (
+              {isVideoProcessing ? (
+                <div className="absolute inset-0 z-10 rounded-xl backdrop-blur-[2px] bg-background/70 flex flex-col items-center justify-center gap-2 pointer-events-auto">
+                  <Loader2 className="w-6 h-6 animate-spin text-amber-500" />
+                  <p className="text-sm font-semibold text-center px-6">Ajustes bloqueados</p>
+                  <p className="text-xs text-muted-foreground text-center px-8 leading-snug">
+                    Esperá a que el video termine de procesarse.
+                  </p>
+                </div>
+              ) : local.caption_engine === "browser_experimental" && (
                 <div className="absolute inset-0 z-10 rounded-xl backdrop-blur-[2px] bg-background/60 flex flex-col items-center justify-center gap-2 pointer-events-auto">
                   <span className="text-2xl">🎨</span>
                   <p className="text-sm font-semibold text-center px-6">Ajustes no disponibles con Browser Engine</p>
