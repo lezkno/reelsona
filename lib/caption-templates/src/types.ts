@@ -19,7 +19,7 @@ export interface CaptionTemplate {
   description: string;
 
   // ── Typography (all values at 1920px video height reference) ─────────────
-  fontFamily: string;          // bundled font: "Oswald" | "Poppins" | "Bangers"
+  fontFamily: string;          // bundled font: "Oswald" | "Poppins" | "Bangers" | "Montserrat"
   fontSize: number;            // px at 1920px height reference
   fontWeight: 400 | 700 | 800 | 900;
   uppercase: boolean;

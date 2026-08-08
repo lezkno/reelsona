@@ -82,10 +82,12 @@ async function _doLoadCanvas(): Promise<CanvasModule | null> {
 
     // Register all bundled fonts
     const fontFiles = [
-      { file: "Oswald-Bold.ttf",       family: "Oswald" },
-      { file: "Oswald.ttf",            family: "Oswald" },
-      { file: "Poppins-ExtraBold.ttf", family: "Poppins" },
-      { file: "Bangers-Regular.ttf",   family: "Bangers" },
+      { file: "Oswald-Bold.ttf",            family: "Oswald" },
+      { file: "Oswald.ttf",                 family: "Oswald" },
+      { file: "Poppins-ExtraBold.ttf",      family: "Poppins" },
+      { file: "Bangers-Regular.ttf",        family: "Bangers" },
+      { file: "Montserrat-Black.ttf",       family: "Montserrat" },
+      { file: "Montserrat-BlackItalic.ttf", family: "Montserrat" },
     ];
 
     for (const { file, family } of fontFiles) {

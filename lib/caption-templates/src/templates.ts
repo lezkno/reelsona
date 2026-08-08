@@ -145,18 +145,18 @@ export const BROWSER_CAPTION_TEMPLATES: CaptionTemplate[] = [
   },
 
   // ── Hormozi ──────────────────────────────────────────────────────────────────
-  // Popularized by Alex Hormozi: Poppins 800 ALL CAPS, 2 words per screen,
-  // active word in lime green #22C55E — his signature karaoke color.
+  // Popularized by Alex Hormozi: Montserrat Black 900 ALL CAPS, 2 words per
+  // screen, active word in lime green #22C55E — his signature karaoke color.
   // Heavy black outline. Sits center-frame, not bottom-third.
   {
     id: "hormozi",
     name: "Hormozi",
     description:
-      "Estilo Hormozi: Poppins 800, 2 palabras, activa en verde lima. El formato de captions más copiado en business/coaching en Reels y TikTok.",
+      "Estilo Hormozi: Montserrat Black 900, 2 palabras, activa en verde lima. El formato de captions más copiado en business/coaching en Reels y TikTok.",
 
-    fontFamily: "Poppins",
+    fontFamily: "Montserrat",
     fontSize: 115,
-    fontWeight: 800,
+    fontWeight: 900,
     uppercase: true,
     letterSpacing: 0.01,
     lineHeight: 1.15,
