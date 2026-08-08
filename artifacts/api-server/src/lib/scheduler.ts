@@ -473,10 +473,22 @@ export async function pollAndPublishVideos(): Promise<void> {
     .where(and(eq(videosTable.status, "ready"), isNull(videosTable.captionStatus)));
   for (const v of stuckVideos) {
     if (!v.videoUrl) continue;
-    logger.info({ videoId: v.id }, "[CaptionEngine] Recovery: re-processing stuck caption");
-    await runCaptionProcessing(v.id, v.videoUrl, v.contentPlanId ?? null, null, v.durationSeconds).catch((err) =>
-      logger.error({ videoId: v.id, err }, "[CaptionEngine] Recovery failed")
-    );
+    if (automation?.captionsEnabled) {
+      // Captions are still on — run (or re-run) caption processing
+      logger.info({ videoId: v.id }, "[CaptionEngine] Recovery: re-processing stuck caption");
+      await runCaptionProcessing(v.id, v.videoUrl, v.contentPlanId ?? null, null, v.durationSeconds).catch((err) =>
+        logger.error({ videoId: v.id, err }, "[CaptionEngine] Recovery failed")
+      );
+    } else {
+      // Captions have been disabled since this video was created — unblock it
+      // so the publish sweep can pick it up without waiting for caption processing.
+      logger.info({ videoId: v.id }, "[CaptionEngine] Recovery: captions now disabled — marking video as disabled to unblock publish");
+      await db
+        .update(videosTable)
+        .set({ captionStatus: "disabled", updatedAt: new Date() })
+        .where(eq(videosTable.id, v.id))
+        .catch((err) => logger.error({ videoId: v.id, err }, "[CaptionEngine] Recovery: failed to mark as disabled"));
+    }
   }
 
   // ── Recovery: videos stuck in "publishing" ───────────────────────────────
@@ -619,20 +631,28 @@ export async function pollAndPublishVideos(): Promise<void> {
         logger.info({ videoId: video.id }, "Video ready");
 
         // ── Caption Studio ────────────────────────────────────────────────────
-        // Use the per-video captionStatus snapshot (null = captions requested at
-        // creation time) rather than re-reading automation.captionsEnabled here.
-        // This ensures manual videos get captions even when automation is off,
-        // and prevents a live toggle from retroactively disabling in-flight work.
+        // Re-read automation.captionsEnabled at completion time so that toggling
+        // captions on/off in Caption Studio is respected immediately — even for
+        // videos that were already in the pipeline when the setting changed.
         if (video.captionStatus === null) {
-          await runCaptionProcessing(
-            video.id,
-            status.video_url,
-            video.contentPlanId ?? null,
-            status.subtitle_url,   // HeyGen word-level SRT (only available here)
-            status.duration ?? null
-          );
+          if (automation?.captionsEnabled) {
+            await runCaptionProcessing(
+              video.id,
+              status.video_url,
+              video.contentPlanId ?? null,
+              status.subtitle_url,   // HeyGen word-level SRT (only available here)
+              status.duration ?? null
+            );
+          } else {
+            // Captions disabled — skip Caption Studio and unblock publish
+            await db
+              .update(videosTable)
+              .set({ captionStatus: "disabled", updatedAt: new Date() })
+              .where(eq(videosTable.id, video.id));
+            logger.info({ videoId: video.id }, "[Scheduler] Captions disabled — skipping Caption Studio step");
+          }
         }
-        // captionStatus "disabled" was set at creation — no further action needed.
+        // captionStatus "disabled" was set at creation or above — no further action needed.
         // ─────────────────────────────────────────────────────────────────────
 
         // Auto-publish only when master switch + auto_publish are on AND captions
