@@ -30,7 +30,8 @@ const HIGHLIGHT_LABELS: Record<string, string> = {
   both: "Pop + Color (1 palabra en color de acento)",
   zoom: "Zoom In (1 palabra con zoom + fade)",
 }
-const FONT_OPTIONS = ["Poppins", "Oswald", "Bangers", "DejaVu Sans", "Montserrat", "Inter", "Arial"]
+// Only fonts bundled with the server FFmpeg renderer — ensures preview matches video output
+const FONT_OPTIONS = ["Oswald", "Poppins", "Bangers"]
 
 // ─── Preset Card ─────────────────────────────────────────────────────────────
 
@@ -50,26 +51,23 @@ function PresetCard({
   const useAccent   = preset.highlight_mode === "both" || preset.highlight_mode === "color"
 
   const outlineColor = preset.outline_color ?? "#000000"
-  const outlineShadow = `
-    -2px -2px 0 ${outlineColor},
-     2px -2px 0 ${outlineColor},
-    -2px  2px 0 ${outlineColor},
-     2px  2px 0 ${outlineColor},
-    -3px  0   0 ${outlineColor},
-     3px  0   0 ${outlineColor},
-     0   -3px 0 ${outlineColor},
-     0    3px 0 ${outlineColor}
-  `.trim()
+  const hasBg = !!preset.background_color
+  // Crisp stroke mirrors ASS libass output better than 8-shadow hack
+  const cardStrokeStyle: React.CSSProperties = hasBg ? {} : {
+    WebkitTextStroke: `2px ${outlineColor}`,
+    paintOrder: "stroke fill" as const,
+    textShadow: "1px 1px 0 rgba(0,0,0,0.6)",
+  }
 
   const wordStyle = (isActive: boolean, faded = false): React.CSSProperties => ({
-    fontFamily: `'${preset.font_family}', 'DejaVu Sans', sans-serif`,
+    fontFamily: `'${preset.font_family}', sans-serif`,
     fontWeight: 700,
     color: isActive && useAccent
       ? preset.active_word_color
       : faded
         ? `${preset.primary_color}88`
         : preset.primary_color,
-    textShadow: outlineShadow,
+    ...cardStrokeStyle,
     background: isActive && preset.background_color ? preset.background_color : "transparent",
     padding: preset.background_color ? "1px 6px" : "0",
     borderRadius: preset.background_color ? "4px" : "0",
@@ -81,19 +79,21 @@ function PresetCard({
 
   // Mirrors engine FUNCTION_WORDS — only pronouns, conjunctions, qualifiers
   const FUNCTION_WORDS_PREVIEW = PREVIEW_FUNCTION_WORDS
-  const dimLineStyle = (word: string, large: boolean): React.CSSProperties => ({
-    fontFamily: `'${preset.font_family}', 'Poppins', sans-serif`,
+  const dimLineStyle = (_word: string, large: boolean): React.CSSProperties => ({
+    fontFamily: `'${preset.font_family}', sans-serif`,
     fontWeight: 800,
     fontSize: large ? "clamp(15px, 5.5cqw, 26px)" : "clamp(9px, 3.2cqw, 15px)",
     color: large ? preset.active_word_color : preset.primary_color,
-    textShadow: outlineShadow,
+    WebkitTextStroke: `2px ${outlineColor}`,
+    paintOrder: "stroke fill" as const,
+    textShadow: "1px 1px 0 rgba(0,0,0,0.6)",
     display: "inline-block",
     lineHeight: 1.2,
   })
   const dimLines = [
-    ["They", "stop", "the", "scroll"],
-    ["boost", "watch", "time"],
-    ["viewers", "engaged"],
+    ["tu",    "marca"],
+    ["crece", "sola"],
+    ["desde", "hoy"],
   ]
 
   return (
@@ -220,6 +220,15 @@ const DIM_STATES = DIM_BLOCKS.flatMap((words, li) =>
   words.map((_, wi) => ({ li, wi }))
 )
 
+// Demo words — Spanish social media vocabulary, 12 words = 4 clean chunks of 3
+// (also works as 6×2, 3×4, or 12×1 depending on wordsPerLine)
+const DEMO_WORDS = [
+  "APRENDE", "ALGO",   "NUEVO",
+  "CRECE",   "MÁS",   "RÁPIDO",
+  "EMPIEZA", "SIN",   "PARAR",
+  "TU",      "MARCA", "VENDE",
+]
+
 // ── Phone frame wrapper ───────────────────────────────────────────────────────
 // Outer: 270px, padding 10px each side → screen 250px wide → height 444px
 // Scale factor vs real 1920px video: 444/1920 = 0.23125
@@ -282,7 +291,7 @@ function CaptionPreview({
   const marginX_px = Math.max(4, Math.round((config.margin_x ?? 60) * PREVIEW_SCALE))
 
   // Highlight / Pop cycling
-  const allWords = ["ESTO", "ES", "TU", "CAPTION", "DINÁMICO", "EN", "ACCIÓN", "HOY"]
+  const allWords = DEMO_WORDS
   const [activeIdx, setActiveIdx] = useState(0)
   const [dimTick, setDimTick] = useState(0)
   // Zoom-in animation: reset to false on word change, then snap to true to trigger transition
@@ -292,6 +301,9 @@ function CaptionPreview({
     const t = setInterval(() => setActiveIdx((a) => (a + 1) % allWords.length), 700)
     return () => clearInterval(t)
   }, [allWords.length])
+
+  // Reset cycling when wordsPerLine changes — ensures preview always starts on a clean chunk boundary
+  useEffect(() => { setActiveIdx(0) }, [wordsPerLine])
 
   useEffect(() => {
     if (!isZoomMode) return
@@ -309,16 +321,25 @@ function CaptionPreview({
     return () => clearTimeout(t)
   }, [isMixedMode, dimTick])
 
-  const outlineColor = config.outline_color ?? "#000000"
-  const outlineShadow = [
-    `-1px -1px 0 ${outlineColor}`, `1px -1px 0 ${outlineColor}`,
-    `-1px  1px 0 ${outlineColor}`, `1px  1px 0 ${outlineColor}`,
-    `-2px  0   0 ${outlineColor}`, `2px  0   0 ${outlineColor}`,
-    ` 0  -2px  0 ${outlineColor}`, `0   2px  0 ${outlineColor}`,
-  ].join(", ")
-
   // Proportionally accurate font sizes: scaled 1:1 to real video dimensions
   const rawSize  = config.font_size ?? 88
+
+  const outlineColor = config.outline_color ?? "#000000"
+  const hasBg = !!config.background_color
+  // Mirror ASS engine outline values scaled to preview dimensions:
+  // Normal/Highlight/Pop = Outline 7px, Mixed = 6px, Zoom = max(4, fontSize×6%) at PlayResY 1920
+  const rawOutlineASS = isMixedMode ? 6
+    : isZoomMode ? Math.max(4, Math.round(rawSize * 0.06))
+    : 7
+  const strokePx = hasBg ? 0 : +(rawOutlineASS * PREVIEW_SCALE).toFixed(1)
+  const shadowPx = hasBg ? 0 : +(2 * PREVIEW_SCALE).toFixed(1)
+  // WebkitTextStroke + paintOrder gives a crisp outward stroke matching libass rendering,
+  // much closer than the old 8-direction text-shadow blurry approximation.
+  const strokeStyle = (hasBg ? {} : {
+    WebkitTextStroke: `${strokePx}px ${outlineColor}`,
+    paintOrder: "stroke fill" as const,
+    textShadow: `${shadowPx}px ${shadowPx}px 0 rgba(0,0,0,0.75)`,
+  }) as React.CSSProperties
   const largePx  = Math.max(8, Math.round(rawSize * PREVIEW_SCALE))
   const smallPx  = Math.max(6, Math.round(rawSize * 0.68 * PREVIEW_SCALE))
   // Gap between stacked lines (mirrors engine: lineSpacing = largeSize * lsf)
@@ -367,7 +388,7 @@ function CaptionPreview({
                       fontWeight: 800,
                       fontSize: `${isFunc ? smallPx : largePx}px`,
                       color: isFunc ? primary : accent,
-                      textShadow: outlineShadow,
+                      ...strokeStyle,
                     }}>{wi > 0 ? ' ' : ''}{w}</span>
                   )
                 })}
@@ -387,7 +408,7 @@ function CaptionPreview({
             fontFamily: fontFam, fontWeight: 700,
             fontSize: `${largePx}px`,
             color: config.active_word_color ?? "#FFE600",
-            textShadow: outlineShadow,
+            ...strokeStyle,
             letterSpacing: "0.04em",
             lineHeight: 1.2,
             display: "inline-block",
@@ -407,7 +428,7 @@ function CaptionPreview({
             fontFamily: fontFam, fontWeight: 700,
             fontSize: `${largePx}px`,
             color: useAccent ? (config.active_word_color ?? "#FFE600") : (config.primary_color ?? "#FFFFFF"),
-            textShadow: outlineShadow,
+            ...strokeStyle,
             background: config.background_color ?? "transparent",
             padding: config.background_color ? "1px 8px" : "0",
             borderRadius: config.background_color ? "5px" : "0",
@@ -435,7 +456,7 @@ function CaptionPreview({
                   ? (config.active_word_color ?? "#FFE600")
                   : isFaded ? `${config.primary_color ?? "#FFFFFF"}88`
                   : (config.primary_color ?? "#FFFFFF"),
-                textShadow: outlineShadow,
+                ...strokeStyle,
                 background: isActive && config.background_color ? config.background_color : "transparent",
                 padding: isActive && config.background_color ? "1px 6px" : "0",
                 borderRadius: "4px",
@@ -660,6 +681,10 @@ export default function CaptionStudio() {
       auto_movement: preset.auto_movement,
       subtle_rotation: preset.subtle_rotation,
     }
+    // Some presets define their own words_per_line (e.g. Bold Stack = 2)
+    if (preset.words_per_line != null) {
+      update.words_per_line = preset.words_per_line
+    }
     setLocal((prev) => ({ ...prev, ...update }))
     setDirty(false)
     setSavingPresetId(preset.id)
@@ -846,7 +871,7 @@ export default function CaptionStudio() {
                     onValueChange={([v]) => set("words_per_line", v)}
                     className="mt-3"
                   />
-                  <p className="text-xs text-muted-foreground">Solo aplica en modo Highlight Line</p>
+                  <p className="text-xs text-muted-foreground">Aplica en modo Highlight y Dimidium</p>
                 </div>
 
                 <div className="space-y-2">
@@ -914,7 +939,10 @@ export default function CaptionStudio() {
               onXMarginChange={(x) => set("margin_x", x)}
             />
             <p className="text-xs text-muted-foreground mt-2 text-center">
-              Simula el efecto real — la palabra activa cambia cada 700ms
+              Posición, fuente, colores y outline reflejan el video final.
+              {local.highlight_mode === "zoom" && (
+                <><br /><span className="text-amber-500">⚡ Animación zoom: aproximada en preview.</span></>
+              )}
             </p>
           </div>
 

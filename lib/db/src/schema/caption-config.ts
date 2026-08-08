@@ -4,15 +4,15 @@ import { z } from "zod/v4";
 
 export const captionConfigTable = pgTable("caption_config", {
   id: serial("id").primaryKey(),
-  presetId: text("preset_id").notNull().default("bold"),
+  presetId: text("preset_id").notNull().default("viral"),
   position: text("position").notNull().default("bottom"), // top | center | bottom
   wordsPerLine: integer("words_per_line").notNull().default(3),
   primaryColor: text("primary_color").notNull().default("#FFFFFF"),
   activeWordColor: text("active_word_color").notNull().default("#FFE600"),
   outlineColor: text("outline_color").notNull().default("#000000"),
   backgroundColor: text("background_color"), // null = no bg
-  fontFamily: text("font_family").notNull().default("Montserrat"),
-  fontSize: integer("font_size").notNull().default(72),
+  fontFamily: text("font_family").notNull().default("Oswald"),
+  fontSize: integer("font_size").notNull().default(88),
   activeWordScale: real("active_word_scale").notNull().default(1.2),
   highlightMode: text("highlight_mode").notNull().default("color"), // color | scale | both
   autoScale: boolean("auto_scale").notNull().default(true),

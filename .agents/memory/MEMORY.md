@@ -4,3 +4,4 @@
 - [Caption engine architecture](caption-engine-arch.md) — HeyGen v3 returns subtitle_url (SRT) when caption param is set; FFmpeg+libass burns styled ASS captions; captioned videos served at /api/captioned/:file from /tmp/contentpilot-captioned/.
 - [Avatar rotation bug](avatar-rotation-bug.md) — Stored avatarId on content items must be validated against current selectedAvatarIds before use; if removed from selection, re-pick via pickNextAvatar.
 - [Per-avatar voice resolution](per-avatar-voice-resolution.md) — voice_overrides map (avatarId→voiceId) in avatar_config; Radix Select needs non-empty sentinel "avatar_default" for the default option.
+- [api-client-react composite tsconfig](api-client-react-composite.md) — lib/api-client-react uses composite:true; TypeScript reads dist/*.d.ts, not src. After editing src/generated/*.ts, must run `tsc -p tsconfig.json` in that lib to regenerate declarations.

@@ -13,7 +13,7 @@ export interface CaptionConfigInput {
   position?: CaptionConfigInputPosition;
   /**
      * @minimum 1
-     * @maximum 8
+     * @maximum 6
      */
   words_per_line?: number;
   primary_color?: string;
@@ -23,10 +23,25 @@ export interface CaptionConfigInput {
   background_color?: string | null;
   font_family?: string;
   /**
-     * @minimum 24
-     * @maximum 120
+     * @minimum 60
+     * @maximum 220
      */
   font_size?: number;
+  /**
+     * @minimum 1
+     * @maximum 3
+     */
+  line_spacing_factor?: number;
+  /**
+     * @minimum 5
+     * @maximum 97
+     */
+  y_position?: number;
+  /**
+     * @minimum 0
+     * @maximum 400
+     */
+  margin_x?: number;
   /**
      * @minimum 1
      * @maximum 2

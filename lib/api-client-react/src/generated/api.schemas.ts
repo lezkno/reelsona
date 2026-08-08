@@ -492,6 +492,8 @@ export interface CaptionPreset {
   highlight_mode: CaptionPresetHighlightMode;
   auto_movement: boolean;
   subtle_rotation: boolean;
+  /** When set, applying this preset also sets words_per_line */
+  words_per_line?: number | null;
 }
 
 export type CaptionConfigPosition = typeof CaptionConfigPosition[keyof typeof CaptionConfigPosition];

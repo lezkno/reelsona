@@ -19,6 +19,9 @@ export interface CaptionConfig {
   background_color?: string | null;
   font_family: string;
   font_size: number;
+  line_spacing_factor: number;
+  y_position: number;
+  margin_x: number;
   active_word_scale: number;
   highlight_mode: CaptionConfigHighlightMode;
   auto_scale: boolean;

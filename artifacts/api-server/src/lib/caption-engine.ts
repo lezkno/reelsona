@@ -786,6 +786,7 @@ export const CAPTION_PRESETS: {
   highlightMode: "color" | "scale" | "both" | "mixed" | "zoom";
   autoMovement: boolean;
   subtleRotation: boolean;
+  wordsPerLine?: number;
 }[] = [
   {
     id: "dimidium",
@@ -934,6 +935,37 @@ export const CAPTION_PRESETS: {
     fontSize: 150,
     activeWordScale: 1,
     highlightMode: "zoom",
+    autoMovement: false,
+    subtleRotation: false,
+  },
+  {
+    id: "bold_stack",
+    name: "Bold Stack",
+    description: "2 palabras en Poppins bold, activa en amarillo. El estilo más viral en TikTok e IG Reels.",
+    primaryColor: "#FFFFFF",
+    activeWordColor: "#FFE600",
+    outlineColor: "#000000",
+    backgroundColor: null,
+    fontFamily: "Poppins",
+    fontSize: 105,
+    activeWordScale: 1.2,
+    highlightMode: "color",
+    autoMovement: false,
+    subtleRotation: false,
+    wordsPerLine: 2,
+  },
+  {
+    id: "hot_box",
+    name: "Hot Box",
+    description: "Caja roja intensa en cada palabra. Alto contraste, máximo impacto para Reels de ventas.",
+    primaryColor: "#FFFFFF",
+    activeWordColor: "#FFFFFF",
+    outlineColor: "#7F1D1D",
+    backgroundColor: "rgba(220,38,38,0.92)",
+    fontFamily: "Oswald",
+    fontSize: 96,
+    activeWordScale: 1,
+    highlightMode: "scale",
     autoMovement: false,
     subtleRotation: false,
   },

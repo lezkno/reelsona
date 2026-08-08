@@ -746,7 +746,8 @@ export const GetCaptionPresetsResponseItem = zod.object({
   "active_word_scale": zod.number(),
   "highlight_mode": zod.enum(['color', 'scale', 'both', 'mixed', 'zoom']),
   "auto_movement": zod.boolean(),
-  "subtle_rotation": zod.boolean()
+  "subtle_rotation": zod.boolean(),
+  "words_per_line": zod.number().nullish()
 })
 export const GetCaptionPresetsResponse = zod.array(GetCaptionPresetsResponseItem)
 
@@ -779,9 +780,9 @@ export const GetCaptionConfigResponse = zod.object({
 /**
  * @summary Update caption studio configuration
  */
-export const updateCaptionConfigBodyWordsPerLineMax = 8;
+export const updateCaptionConfigBodyWordsPerLineMax = 6;
 
-export const updateCaptionConfigBodyFontSizeMin = 24;
+export const updateCaptionConfigBodyFontSizeMin = 60;
 export const updateCaptionConfigBodyFontSizeMax = 220;
 
 export const updateCaptionConfigBodyActiveWordScaleMax = 2;
