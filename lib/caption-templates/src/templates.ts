@@ -379,6 +379,54 @@ export const BROWSER_CAPTION_TEMPLATES: CaptionTemplate[] = [
     animationDuration: 100,
   },
 
+  // ── Hot Box ──────────────────────────────────────────────────────────────────
+  // Caja roja intensa en CADA palabra — el look clásico de ventas/urgencia.
+  // La palabra activa crece 1.18× (scale) para marcar cuál se está diciendo.
+  // Sin outline: la caja y la sombra garantizan el contraste en cualquier fondo.
+  {
+    id: "hot_box",
+    name: "Hot Box",
+    description:
+      "Caja roja intensa detrás de cada palabra. La activa crece ligeramente. Alto contraste, máximo impacto para Reels de ventas y urgencia.",
+
+    fontFamily: "Oswald",
+    fontSize: 96,
+    fontWeight: 700,
+    uppercase: true,
+    letterSpacing: 0.02,
+    lineHeight: 1.25,
+
+    wordsPerLine: 3,
+    yPercent: 82,
+    marginXPercent: 5,
+    textAlign: "center",
+
+    primaryColor: "#FFFFFF",
+    activeWordColor: "#FFFFFF",
+    inactiveOpacity: 0.72,
+
+    outlineColor: "#7F1D1D",
+    outlineWidth: 0,
+
+    shadowColor: "rgba(0,0,0,0.70)",
+    shadowOffsetX: 0,
+    shadowOffsetY: 4,
+    shadowBlur: 10,
+
+    // ── Red box behind every word ───────────────────────────────────────────
+    backgroundMode: "word",
+    backgroundColor: "rgba(220,38,38,0.94)",
+    backgroundPaddingX: 18,
+    backgroundPaddingY: 9,
+    backgroundRadius: 8,
+
+    highlightMode: "scale",
+    activeWordScale: 1.18,
+
+    animation: "zoom",
+    animationDuration: 140,
+  },
+
   // ── Dimigium ─────────────────────────────────────────────────────────────────
   // Bright-orange pill box on the active word only. The most recognisable viral
   // caption style on Reels/TikTok: white text on a coloured box, inactive words
