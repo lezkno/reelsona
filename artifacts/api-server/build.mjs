@@ -47,6 +47,7 @@ async function buildAll() {
       "isolated-vm",
       "lightningcss",
       "pg-native",
+      "connect-pg-simple",
       "oracledb",
       "mongodb-client-encryption",
       "nodemailer",
