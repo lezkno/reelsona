@@ -296,7 +296,7 @@ export default function Videos() {
                   {/* Play overlay (only in normal mode) */}
                   {!selectMode && hasPlayable && (
                     <button
-                      onClick={() => { setPreviewVideo(video); setPreviewFallback(false) }}
+                      onClick={() => setPreviewVideo(video)}
                       className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/40 transition-colors"
                       aria-label="Reproducir video"
                     >
