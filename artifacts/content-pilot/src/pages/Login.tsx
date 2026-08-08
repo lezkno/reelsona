@@ -11,6 +11,7 @@ interface LoginProps {
 }
 
 export default function Login({ onSuccess }: LoginProps) {
+  const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState<string | null>(null)
   const login = useLogin()
@@ -18,7 +19,7 @@ export default function Login({ onSuccess }: LoginProps) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
-    login.mutate({ password }, {
+    login.mutate({ username, password }, {
       onSuccess: () => {
         onSuccess()
       },
@@ -37,10 +38,22 @@ export default function Login({ onSuccess }: LoginProps) {
             <Lock className="w-6 h-6 text-primary" />
           </div>
           <CardTitle className="text-2xl font-display">ContentPilot</CardTitle>
-          <CardDescription>Introduce la contraseña de administrador para continuar</CardDescription>
+          <CardDescription>Inicia sesión para continuar</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="username">Usuario</Label>
+              <Input
+                id="username"
+                type="text"
+                placeholder="admin"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                autoFocus
+                autoComplete="username"
+              />
+            </div>
             <div className="space-y-2">
               <Label htmlFor="password">Contraseña</Label>
               <Input
@@ -49,14 +62,17 @@ export default function Login({ onSuccess }: LoginProps) {
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                autoFocus
                 autoComplete="current-password"
               />
             </div>
             {error && (
               <p className="text-sm text-destructive text-center">{error}</p>
             )}
-            <Button type="submit" className="w-full" disabled={login.isPending || !password}>
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={login.isPending || !username || !password}
+            >
               {login.isPending ? (
                 <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Entrando…</>
               ) : (

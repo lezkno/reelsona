@@ -1,43 +1,47 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
+import { db } from "@workspace/db";
+import { users } from "@workspace/db/schema";
+import { eq } from "drizzle-orm";
+import { verifyPassword } from "../lib/password";
 
 const router = Router();
 
 /**
  * POST /api/auth/login
- * Body: { password: string }
+ * Body: { username: string; password: string }
  *
- * Compares against ADMIN_PASSWORD env var.
- * If ADMIN_PASSWORD is not set, access is granted automatically
- * (first-time / development mode).
+ * Looks up the user in the DB and verifies the hashed password.
  */
-router.post("/auth/login", (req: Request, res: Response): void => {
-  const { password } = (req.body ?? {}) as { password?: string };
-  const adminPassword = process.env.ADMIN_PASSWORD;
+router.post("/auth/login", async (req: Request, res: Response): Promise<void> => {
+  const { username, password } = (req.body ?? {}) as {
+    username?: string;
+    password?: string;
+  };
 
-  if (!adminPassword) {
-    if (process.env.NODE_ENV === "production") {
-      // Production requires ADMIN_PASSWORD — refuse with an actionable error
-      res.status(503).json({
-        error: "ADMIN_PASSWORD no está configurada. Añadila como secreto en Replit antes de continuar.",
-      });
+  if (!username || !password) {
+    res.status(400).json({ error: "Se requieren usuario y contraseña" });
+    return;
+  }
+
+  try {
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(eq(users.username, username))
+      .limit(1);
+
+    if (!user || !verifyPassword(password, user.passwordHash)) {
+      res.status(401).json({ error: "Usuario o contraseña incorrectos" });
       return;
     }
-    // Development only: allow open access without password for first-time setup
+
     req.session.authenticated = true;
-    req.session.user = { username: "admin", role: "admin" };
-    res.json({ ok: true, message: "Acceso concedido (modo desarrollo — configura ADMIN_PASSWORD para producción)" });
-    return;
+    req.session.user = { username: user.username, role: user.role };
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: "Error interno del servidor" });
   }
-
-  if (!password || password !== adminPassword) {
-    res.status(401).json({ error: "Contraseña incorrecta" });
-    return;
-  }
-
-  req.session.authenticated = true;
-  req.session.user = { username: "admin", role: "admin" };
-  res.json({ ok: true });
 });
 
 /**
@@ -51,7 +55,7 @@ router.post("/auth/logout", (req: Request, res: Response): void => {
 
 /**
  * GET /api/auth/me
- * Returns { authenticated: true } when a valid session exists, 401 otherwise.
+ * Returns { authenticated: true, user } when a valid session exists, 401 otherwise.
  */
 router.get("/auth/me", (req: Request, res: Response): void => {
   if (req.session?.authenticated) {

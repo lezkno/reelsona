@@ -15,6 +15,7 @@ import Videos from "@/pages/Videos"
 import Settings from "@/pages/Settings"
 import Automation from "@/pages/Automation"
 import CaptionStudio from "@/pages/CaptionStudio"
+import UsersPage from "@/pages/Users"
 import Login from "@/pages/Login"
 import { useAuthStatus } from "@workspace/api-client-react"
 
@@ -40,6 +41,7 @@ function Router() {
         <Route path="/settings" component={Settings} />
         <Route path="/automation" component={Automation} />
         <Route path="/captions" component={CaptionStudio} />
+        <Route path="/users" component={UsersPage} />
         <Route component={NotFound} />
       </Switch>
     </Layout>

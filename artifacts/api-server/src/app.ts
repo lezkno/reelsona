@@ -7,6 +7,7 @@ import cookieParser from "cookie-parser";
 import { logger } from "./lib/logger";
 import { requireAuth } from "./middleware/auth";
 import authRouter from "./routes/auth";
+import usersRouter from "./routes/users";
 import router from "./routes";
 
 const PgSession = connectPgSimple(session);
@@ -78,6 +79,9 @@ app.use("/api", authRouter);
 
 // Require a valid session for all other /api routes
 app.use("/api", requireAuth);
+
+// Admin user management (requires auth, handled by requireAuth above)
+app.use("/api", usersRouter);
 
 // Main API router (all other routes)
 app.use("/api", router);
