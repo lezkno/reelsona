@@ -1,20 +1,17 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import {
-  useGetContentPlan, useGetAutomation, usePublishVideo,
+  useGetContentPlan, useGetAutomation, usePublishVideo, useUpdateContentItem,
   getGetContentPlanQueryKey, type ContentPlanItem,
 } from "@workspace/api-client-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { Card, CardContent } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
-import { Button } from "@/components/ui/button"
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
-} from "@/components/ui/dialog"
+import { VideoModal } from "@/components/VideoModal"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
 import {
   FileText, UserSquare2, Captions, Send, CheckCircle2,
-  Clock, AlertTriangle, Loader2, Play, Eye, Instagram,
+  Clock, AlertTriangle, Loader2, Play, Eye,
 } from "lucide-react"
 
 // ── Step definitions ─────────────────────────────────────────────────────────
@@ -135,7 +132,7 @@ function fmtRemaining(sec: number): string {
   return `~${Math.ceil(sec / 60)} min`
 }
 
-// ── Review Modal ─────────────────────────────────────────────────────────────
+// ── Review Modal (uses shared VideoModal) ────────────────────────────────────
 function ReviewModal({
   open, onClose, item,
 }: {
@@ -143,9 +140,9 @@ function ReviewModal({
   onClose: () => void
   item: ContentPlanItem
 }) {
-  const queryClient = useQueryClient()
-  const publishVideo = usePublishVideo()
-  const videoSrc = item.captioned_video_url ?? item.video_url ?? null
+  const queryClient   = useQueryClient()
+  const publishVideo  = usePublishVideo()
+  const updateItem    = useUpdateContentItem()
 
   const handleApprove = () => {
     if (!item.video_id) return
@@ -160,62 +157,49 @@ function ReviewModal({
     )
   }
 
+  const handleSaveCaption = useCallback(async (caption: string, hashtags: string) => {
+    await new Promise<void>((resolve, reject) =>
+      updateItem.mutate(
+        { id: item.id, data: { caption, hashtags } },
+        {
+          onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: getGetContentPlanQueryKey() })
+            resolve()
+          },
+          onError: reject,
+        }
+      )
+    )
+  }, [item.id, updateItem, queryClient])
+
+  const handleRegenerateCaption = useCallback(async () => {
+    const base = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? ""
+    const res = await fetch(`${base}/api/content/${item.id}/regenerate-caption`, {
+      method: "POST",
+      credentials: "include",
+    })
+    if (!res.ok) throw new Error("Error al regenerar caption")
+    return res.json() as Promise<{ caption: string; hashtags: string }>
+  }, [item.id])
+
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-sm sm:max-w-md p-0 overflow-hidden rounded-2xl">
-        {/* Violet header */}
-        <DialogHeader className="bg-violet-700 px-5 py-4">
-          <DialogTitle className="text-white flex items-center gap-2 text-lg">
-            <Eye className="w-5 h-5" />
-            Revisión Manual
-          </DialogTitle>
-          <p className="text-violet-200 text-sm mt-0.5 leading-snug">
-            Revisá el video antes de publicarlo en Instagram.
-          </p>
-        </DialogHeader>
-
-        {/* Video player */}
-        <div className="bg-black flex items-center justify-center" style={{ minHeight: 360 }}>
-          {videoSrc ? (
-            <video
-              src={videoSrc}
-              controls
-              playsInline
-              className="w-full max-h-[480px] object-contain"
-              style={{ aspectRatio: "9/16", maxWidth: 270 }}
-            />
-          ) : (
-            <div className="flex flex-col items-center gap-2 text-muted-foreground py-16">
-              <Play className="w-8 h-8 opacity-30" />
-              <p className="text-xs">Video no disponible</p>
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <DialogFooter className="px-5 py-4 flex flex-col sm:flex-row gap-2">
-          <Button
-            variant="outline"
-            onClick={onClose}
-            disabled={publishVideo.isPending}
-            className="w-full sm:w-auto"
-          >
-            Revisar después
-          </Button>
-          <Button
-            onClick={handleApprove}
-            disabled={publishVideo.isPending || !item.video_id}
-            className="w-full sm:w-auto gap-2 bg-violet-700 hover:bg-violet-800 text-white border-transparent"
-          >
-            {publishVideo.isPending ? (
-              <><Loader2 className="w-4 h-4 animate-spin" />Publicando...</>
-            ) : (
-              <><Instagram className="w-4 h-4" />Aprobar y Publicar en IG</>
-            )}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <VideoModal
+      open={open}
+      onClose={onClose}
+      title={item.topic}
+      subtitle="Revisá el video antes de publicarlo en Instagram."
+      headerIcon={Eye}
+      videoSrc={item.captioned_video_url}
+      fallbackSrc={item.video_url}
+      caption={item.caption}
+      hashtags={item.hashtags}
+      onSaveCaption={handleSaveCaption}
+      onRegenerateCaption={handleRegenerateCaption}
+      onApprove={handleApprove}
+      approveLabel="Aprobar y Publicar en IG"
+      isApproving={publishVideo.isPending}
+      dismissLabel="Revisar después"
+    />
   )
 }
 

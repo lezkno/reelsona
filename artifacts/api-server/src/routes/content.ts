@@ -25,7 +25,7 @@ import {
   DeleteContentItemParams,
   DeleteContentItemResponse,
 } from "@workspace/api-zod";
-import { generateScript, generateContentTopics } from "../lib/ai-scripts";
+import { generateScript, generateContentTopics, regenerateCaption } from "../lib/ai-scripts";
 import { runAutomationCycle } from "../lib/scheduler";
 
 /** Normalise a title for duplicate detection: lowercase, strip accents + punctuation */
@@ -444,6 +444,28 @@ router.patch("/content/:id", async (req, res): Promise<void> => {
   }
 
   res.json(UpdateContentItemResponse.parse(mapItem(updated)));
+});
+
+router.post("/content/:id/regenerate-caption", async (req, res): Promise<void> => {
+  const id = Number(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const [[item], [settings]] = await Promise.all([
+    db.select().from(contentPlanItemsTable).where(eq(contentPlanItemsTable.id, id)).limit(1),
+    db.select().from(settingsTable).limit(1),
+  ]);
+  if (!item) { res.status(404).json({ error: "Not found" }); return; }
+
+  const niche    = settings?.niche    ?? "marketing digital";
+  const tone     = settings?.tone     ?? "casual";
+  const language = settings?.language ?? "es";
+
+  const result = await regenerateCaption(
+    item.topic,
+    item.script ?? item.hook ?? item.topic,
+    niche, tone, language
+  );
+  res.json(result);
 });
 
 router.delete("/content/:id", async (req, res): Promise<void> => {

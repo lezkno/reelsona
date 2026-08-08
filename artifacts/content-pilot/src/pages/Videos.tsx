@@ -1,20 +1,79 @@
-import { useGetVideos, usePublishVideo, useScheduleVideo, useDeleteVideo, useRetryVideo, getGetVideosQueryKey } from "@workspace/api-client-react"
+import {
+  useGetVideos, usePublishVideo, useScheduleVideo, useDeleteVideo, useRetryVideo,
+  useGetContentItem, useUpdateContentItem,
+  getGetVideosQueryKey, getGetContentPlanQueryKey,
+} from "@workspace/api-client-react"
 import type { Video } from "@workspace/api-client-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
+import { VideoModal } from "@/components/VideoModal"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
-import { ExternalLink, Play, Clock, AlertTriangle, CheckCircle2, Instagram, CalendarClock, Send, Trash2, CheckSquare, Square, X, RotateCcw, Loader2 } from "lucide-react"
+import { ExternalLink, Play, Clock, AlertTriangle, CheckCircle2, Instagram, CalendarClock, Send, Trash2, CheckSquare, Square, X, RotateCcw, Loader2, Eye } from "lucide-react"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
 import { useToast } from "@/hooks/use-toast"
 import { useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
-import { getGetContentPlanQueryKey } from "@workspace/api-client-react"
+import { useState, useCallback } from "react"
+
+// ── Video preview modal with caption/hashtag editing ─────────────────────────
+function VideoPreviewModal({ video, onClose }: { video: Video | null; onClose: () => void }) {
+  const queryClient = useQueryClient()
+  const { data: contentItem } = useGetContentItem(
+    video?.content_plan_id ?? 0,
+    { query: { enabled: !!video?.content_plan_id } }
+  )
+  const updateItem = useUpdateContentItem()
+
+  const handleSaveCaption = useCallback(async (caption: string, hashtags: string) => {
+    if (!contentItem?.id) return
+    await new Promise<void>((resolve, reject) =>
+      updateItem.mutate(
+        { id: contentItem.id, data: { caption, hashtags } },
+        {
+          onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: getGetContentPlanQueryKey() })
+            resolve()
+          },
+          onError: reject,
+        }
+      )
+    )
+  }, [contentItem?.id, updateItem, queryClient])
+
+  const handleRegenerateCaption = useCallback(async () => {
+    if (!contentItem?.id) throw new Error("No item")
+    const base = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? ""
+    const res = await fetch(`${base}/api/content/${contentItem.id}/regenerate-caption`, {
+      method: "POST",
+      credentials: "include",
+    })
+    if (!res.ok) throw new Error("Error al regenerar caption")
+    return res.json() as Promise<{ caption: string; hashtags: string }>
+  }, [contentItem?.id])
+
+  return (
+    <VideoModal
+      open={!!video}
+      onClose={onClose}
+      title={video?.topic ?? `Video #${video?.id}`}
+      subtitle={video?.captioned_video_url ? "Con captions aplicados" : "Video generado por HeyGen"}
+      headerIcon={Eye}
+      videoSrc={video?.captioned_video_url}
+      fallbackSrc={video?.video_url}
+      thumbnailSrc={video?.thumbnail_url}
+      caption={contentItem?.caption}
+      hashtags={contentItem?.hashtags}
+      onSaveCaption={contentItem ? handleSaveCaption : undefined}
+      onRegenerateCaption={contentItem ? handleRegenerateCaption : undefined}
+      dismissLabel="Cerrar"
+    />
+  )
+}
 
 export default function Videos() {
   const { data: videos, isLoading } = useGetVideos({ status: 'all' })
@@ -28,7 +87,6 @@ export default function Videos() {
   const [scheduleDialog, setScheduleDialog] = useState<{ videoId: number; topic: string; current?: string } | null>(null)
   const [scheduleDatetime, setScheduleDatetime] = useState("")
   const [previewVideo, setPreviewVideo] = useState<Video | null>(null)
-  const [previewFallback, setPreviewFallback] = useState(false)
 
   // ── Publish confirmation ──────────────────────────────────────────────────
   const [publishConfirm, setPublishConfirm] = useState<Video | null>(null)
@@ -384,41 +442,8 @@ export default function Videos() {
         </div>
       )}
 
-      {/* ── Video preview dialog ─────────────────────────────────────────────── */}
-      <Dialog open={!!previewVideo} onOpenChange={(o) => { if (!o) setPreviewVideo(null) }}>
-        <DialogContent className="sm:max-w-sm p-0 overflow-hidden">
-          <DialogHeader className="px-4 pt-4 pb-2">
-            <DialogTitle className="text-base leading-snug line-clamp-2">
-              {previewVideo?.topic ?? `Video #${previewVideo?.id}`}
-            </DialogTitle>
-            <DialogDescription className="text-xs">
-              {previewVideo?.captioned_video_url ? "Con captions aplicados" : "Video generado por HeyGen"}
-            </DialogDescription>
-          </DialogHeader>
-          {previewVideo && (
-            <div className="w-full aspect-[9/16] overflow-hidden bg-black">
-              <video
-                key={`${previewVideo.id}-${previewFallback}`}
-                src={
-                  previewFallback || !previewVideo.captioned_video_url
-                    ? previewVideo.video_url ?? undefined
-                    : previewVideo.captioned_video_url
-                }
-                poster={previewVideo.thumbnail_url ?? undefined}
-                controls
-                playsInline
-                preload="auto"
-                onError={() => {
-                  if (!previewFallback && previewVideo.captioned_video_url && previewVideo.video_url) {
-                    setPreviewFallback(true)
-                  }
-                }}
-                className="w-full h-full object-cover"
-              />
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+      {/* ── Video preview modal ───────────────────────────────────────────────── */}
+      <VideoPreviewModal video={previewVideo} onClose={() => setPreviewVideo(null)} />
 
       {/* ── Publish confirmation dialog ──────────────────────────────────────── */}
       <AlertDialog open={!!publishConfirm} onOpenChange={(o) => { if (!o) setPublishConfirm(null) }}>
