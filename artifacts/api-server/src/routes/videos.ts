@@ -133,14 +133,15 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
       // Force voice re-resolution for the new avatar
       item.voiceId = null;
     }
-    if (!item.voiceId) {
-      const voiceId = await resolveVoiceId(item.avatarId!);
-      if (!voiceId) {
-        res.status(400).json({ error: "No se encontró ninguna voz disponible en HeyGen. Verificá tu cuenta de HeyGen." });
-        return;
-      }
-      item.voiceId = voiceId;
+    // Always re-resolve from current voice_overrides at generation time.
+    // The voiceId stored on the item may be stale (set before the user configured
+    // per-avatar overrides, or before they changed them). The override always wins.
+    const freshVoiceId = await resolveVoiceId(item.avatarId!);
+    if (!freshVoiceId && !item.voiceId) {
+      res.status(400).json({ error: "No se encontró ninguna voz disponible en HeyGen. Verificá tu cuenta de HeyGen." });
+      return;
     }
+    item.voiceId = freshVoiceId ?? item.voiceId;
     await db
       .update(contentPlanItemsTable)
       .set({ avatarId: item.avatarId, voiceId: item.voiceId, updatedAt: new Date() })
