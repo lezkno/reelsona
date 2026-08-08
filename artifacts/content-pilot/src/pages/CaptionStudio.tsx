@@ -24,11 +24,8 @@ import {
 } from "@workspace/caption-templates"
 import type { CaptionTemplate } from "@workspace/caption-templates"
 
-// Load Oswald & Bangers from Google Fonts for preview rendering
-const link = document.createElement("link")
-link.rel = "stylesheet"
-link.href = "https://fonts.googleapis.com/css2?family=Bangers&family=Montserrat:wght@900&family=Oswald:wght@400;700&family=Poppins:wght@400;800&display=swap"
-document.head.appendChild(link)
+// Caption preview fonts are self-hosted via @font-face in index.css (same TTFs as the API server).
+// No runtime injection needed.
 
 const POSITION_LABELS: Record<string, string> = { top: "Arriba", center: "Centro", bottom: "Abajo" }
 const HIGHLIGHT_LABELS: Record<string, string> = {
@@ -1317,7 +1314,7 @@ export default function CaptionStudio() {
               {BROWSER_CAPTION_TEMPLATES.map((tmpl) => (
                 <BrowserTemplateCard
                   key={tmpl.id}
-                  template={tmpl}
+                  template={allTmplOverrides[tmpl.id] ? { ...tmpl, ...allTmplOverrides[tmpl.id] } : tmpl}
                   selected={local.caption_engine === "browser_experimental" && local.template_id === tmpl.id}
                   saving={savingPresetId === tmpl.id}
                   onClick={() => !isVideoProcessing && applyBrowserTemplate(tmpl)}
