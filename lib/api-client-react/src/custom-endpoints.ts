@@ -23,7 +23,7 @@ export function useAuthStatus() {
     queryKey: ["auth", "me"],
     queryFn: () => customFetch<AuthStatus>("/api/auth/me"),
     retry: false,
-    staleTime: 1000 * 60 * 5, // 5 min
+    staleTime: 1000 * 60 * 5,
   });
 }
 
@@ -53,10 +53,6 @@ export interface RetryVideoResult {
   success: boolean;
 }
 
-/**
- * Retry a failed video: deletes the failed video row and resets the linked
- * content plan item back to 'scripted' so it can be regenerated.
- */
 export function useRetryVideo() {
   return useMutation({
     mutationFn: ({ id }: { id: number }) =>
@@ -71,8 +67,25 @@ export function useRetryVideo() {
 export interface AdminUser {
   id: number;
   username: string;
+  fullName: string | null;
+  email: string | null;
+  phone: string | null;
   role: string;
+  isActive: boolean;
+  notes: string | null;
+  lastLoginAt: string | null;
   createdAt: string;
+  updatedAt: string;
+}
+
+export interface UpdateAdminUserInput {
+  fullName?: string;
+  email?: string;
+  phone?: string;
+  role?: string;
+  isActive?: boolean;
+  notes?: string;
+  password?: string;
 }
 
 /** List all admin users. */
@@ -88,9 +101,31 @@ export function useAdminUsers() {
 export function useCreateAdminUser() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: { username: string; password: string; role?: string }) =>
+    mutationFn: (data: {
+      username: string;
+      password: string;
+      fullName?: string;
+      email?: string;
+      phone?: string;
+      role?: string;
+      notes?: string;
+    }) =>
       customFetch<AdminUser>("/api/users", {
         method: "POST",
+        body: JSON.stringify(data),
+        headers: { "Content-Type": "application/json" },
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin", "users"] }),
+  });
+}
+
+/** Update an admin user's fields. */
+export function useUpdateAdminUser() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...data }: { id: number } & UpdateAdminUserInput) =>
+      customFetch<AdminUser>(`/api/users/${id}`, {
+        method: "PATCH",
         body: JSON.stringify(data),
         headers: { "Content-Type": "application/json" },
       }),

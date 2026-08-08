@@ -10,8 +10,6 @@ const router = Router();
 /**
  * POST /api/auth/login
  * Body: { username: string; password: string }
- *
- * Looks up the user in the DB and verifies the hashed password.
  */
 router.post("/auth/login", async (req: Request, res: Response): Promise<void> => {
   const { username, password } = (req.body ?? {}) as {
@@ -36,6 +34,17 @@ router.post("/auth/login", async (req: Request, res: Response): Promise<void> =>
       return;
     }
 
+    if (!user.isActive) {
+      res.status(403).json({ error: "Usuario desactivado. Contacta al administrador." });
+      return;
+    }
+
+    // Update last login timestamp
+    await db
+      .update(users)
+      .set({ lastLoginAt: new Date(), updatedAt: new Date() })
+      .where(eq(users.id, user.id));
+
     req.session.authenticated = true;
     req.session.user = { username: user.username, role: user.role };
     res.json({ ok: true });
@@ -55,7 +64,6 @@ router.post("/auth/logout", (req: Request, res: Response): void => {
 
 /**
  * GET /api/auth/me
- * Returns { authenticated: true, user } when a valid session exists, 401 otherwise.
  */
 router.get("/auth/me", (req: Request, res: Response): void => {
   if (req.session?.authenticated) {

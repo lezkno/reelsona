@@ -1,6 +1,6 @@
 /**
  * Seeds the initial admin user from ADMIN_PASSWORD env var if no users exist.
- * Called once at server startup.
+ * Called once at server startup. Also applies any missing columns to existing tables.
  */
 import { db } from "@workspace/db";
 import { users } from "@workspace/db/schema";
@@ -9,16 +9,37 @@ import { hashPassword } from "./password";
 import { logger } from "./logger";
 
 export async function seedAdminUser(): Promise<void> {
-  // Ensure the users table exists (run CREATE TABLE IF NOT EXISTS)
+  // Create the table if it doesn't exist (full schema)
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS users (
-      id           SERIAL PRIMARY KEY,
-      username     VARCHAR(64) NOT NULL UNIQUE,
-      password_hash TEXT NOT NULL,
-      role         VARCHAR(32) NOT NULL DEFAULT 'admin',
-      created_at   TIMESTAMP NOT NULL DEFAULT NOW()
+      id            SERIAL PRIMARY KEY,
+      username      VARCHAR(64)  NOT NULL UNIQUE,
+      password_hash TEXT         NOT NULL,
+      full_name     VARCHAR(128),
+      email         VARCHAR(256),
+      phone         VARCHAR(32),
+      role          VARCHAR(32)  NOT NULL DEFAULT 'admin',
+      is_active     BOOLEAN      NOT NULL DEFAULT TRUE,
+      notes         TEXT,
+      last_login_at TIMESTAMP,
+      created_at    TIMESTAMP    NOT NULL DEFAULT NOW(),
+      updated_at    TIMESTAMP    NOT NULL DEFAULT NOW()
     )
   `);
+
+  // Apply any missing columns to tables that were created with the old schema
+  const alterations: string[] = [
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name     VARCHAR(128)",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS email         VARCHAR(256)",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS phone         VARCHAR(32)",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active     BOOLEAN NOT NULL DEFAULT TRUE",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS notes         TEXT",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMP",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at    TIMESTAMP NOT NULL DEFAULT NOW()",
+  ];
+  for (const stmt of alterations) {
+    await db.execute(sql.raw(stmt));
+  }
 
   const [existing] = await db.select({ id: users.id }).from(users).limit(1);
   if (existing) return; // already seeded
@@ -37,7 +58,12 @@ export async function seedAdminUser(): Promise<void> {
   }
 
   const passwordHash = hashPassword(password);
-  await db.insert(users).values({ username: "admin", passwordHash, role: "admin" });
+  await db.insert(users).values({
+    username: "admin",
+    passwordHash,
+    fullName: "Administrador",
+    role: "admin",
+  });
 
   logger.info(
     adminPassword
