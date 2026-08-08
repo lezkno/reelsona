@@ -191,6 +191,53 @@ export const BROWSER_CAPTION_TEMPLATES: CaptionTemplate[] = [
     animationDuration: 160,
   },
 
+  // ── Bangers (Cómic) ──────────────────────────────────────────────────────────
+  // Copia exacta del preset ASS "bangers":
+  //   fontFamily: Bangers, fontSize: 120, primaryColor: #FFFFFF,
+  //   activeWordColor: #FF3366, outlineColor: #000000, sin caja de fondo.
+  {
+    id: "bangers_comic",
+    name: "Bangers (Cómic)",
+    description:
+      "Fuente cómic, palabra activa en rosa vibrante #FF3366. Dinámico y divertido.",
+
+    fontFamily: "Bangers",
+    fontSize: 120,
+    fontWeight: 400,
+    uppercase: true,
+    letterSpacing: 0.04,
+    lineHeight: 1.2,
+
+    wordsPerLine: 3,
+    yPercent: 82,
+    marginXPercent: 5,
+    textAlign: "center",
+
+    primaryColor: "#FFFFFF",
+    activeWordColor: "#FF3366",
+    inactiveOpacity: 0.85,
+
+    outlineColor: "#000000",
+    outlineWidth: 8,
+
+    shadowColor: "rgba(0,0,0,0.55)",
+    shadowOffsetX: 2,
+    shadowOffsetY: 2,
+    shadowBlur: 6,
+
+    backgroundMode: "none",
+    backgroundColor: null,
+    backgroundPaddingX: 0,
+    backgroundPaddingY: 0,
+    backgroundRadius: 0,
+
+    highlightMode: "color",
+    activeWordScale: 1.0,
+
+    animation: "zoom",
+    animationDuration: 150,
+  },
+
   // ── Neon Glow ─────────────────────────────────────────────────────────────────
   // Bangers font with a saturated cyan glow. Active word flips to pure white
   // (the "hot centre" of a neon tube). No outline — the glow provides contrast.
