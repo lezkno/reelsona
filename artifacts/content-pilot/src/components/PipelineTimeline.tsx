@@ -1,115 +1,94 @@
 import { useState, useEffect } from "react"
-import { useGetContentPlan, useGetAutomation, type ContentPlanItem } from "@workspace/api-client-react"
+import {
+  useGetContentPlan, useGetAutomation, usePublishVideo,
+  getGetContentPlanQueryKey, type ContentPlanItem,
+} from "@workspace/api-client-react"
+import { useQueryClient } from "@tanstack/react-query"
 import { Card, CardContent } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
+import { Button } from "@/components/ui/button"
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from "@/components/ui/dialog"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
-import { FileText, UserSquare2, Captions, Send, CheckCircle2, Clock, AlertTriangle, Loader2 } from "lucide-react"
+import {
+  FileText, UserSquare2, Captions, Send, CheckCircle2,
+  Clock, AlertTriangle, Loader2, Play, Eye, Instagram,
+} from "lucide-react"
 
-/**
- * Production pipeline:
- * 1. Guion            — AI writes hook, script, CTA, caption and hashtags
- * 2. Video con Avatar — HeyGen renders the video
- * 3. Caption Studio   — FFmpeg burns styled captions (only shown when captionsEnabled)
- * 4. Publicar en IG   — the Reel is uploaded and published
- *
- * When captions are DISABLED globally, step 3 (Caption Studio) is hidden and
- * the pipeline shows only 3 steps.
- */
-const STEPS = [
-  { key: "script",  label: "Guion",           desc: "La IA escribe el guion y el hook",       icon: FileText,    estimatedMs: 60_000   },
-  { key: "video",   label: "Video con Avatar", desc: "HeyGen crea el video con tu avatar",     icon: UserSquare2, estimatedMs: 600_000  },
-  { key: "caption", label: "Caption Studio",   desc: "Se aplican captions animados al video",  icon: Captions,    estimatedMs: 150_000  },
-  { key: "publish", label: "Publicar en IG",   desc: "Se sube y publica el Reel",              icon: Send,        estimatedMs: 120_000  },
+// ── Step definitions ─────────────────────────────────────────────────────────
+const BASE_STEPS = [
+  { key: "script",  label: "Guion",           desc: "La IA escribe el guion y el hook",       icon: FileText,    estimatedMs: 60_000  },
+  { key: "video",   label: "Video con Avatar", desc: "HeyGen crea el video con tu avatar",     icon: UserSquare2, estimatedMs: 600_000 },
+  { key: "caption", label: "Caption Studio",   desc: "Se aplican captions animados al video",  icon: Captions,    estimatedMs: 150_000 },
+  { key: "review",  label: "Revisión Manual",  desc: "Aprobá el video antes de publicarlo",    icon: Eye,         estimatedMs: 0       },
+  { key: "publish", label: "Publicar en IG",   desc: "Se sube y publica el Reel",              icon: Send,        estimatedMs: 120_000 },
 ] as const
 
-type StepKey = typeof STEPS[number]["key"]
-
-/**
- * Pipeline display modes.
- *
- *  generating       → HeyGen is actively rendering the video
- *  captioning       → ready, but captions are pending/processing (null or "processing")
- *  awaiting_publish → ready, captions terminal (done/failed/disabled), waiting to publish
- *  scripted_waiting → script done, waiting for video to be generated
- *  next             → upcoming draft/scripted scheduled in the future
- *  done             → all done, showing the last published item
- */
+type StepKey = typeof BASE_STEPS[number]["key"]
 type PipelineMode = "generating" | "captioning" | "awaiting_publish" | "scripted_waiting" | "next" | "done"
 
-/**
- * Determine which step (0-based) is the current/active step and the overall % progress.
- *
- * caption_status values: null | "disabled" | "processing" | "done" | "failed"
- *
- * Step mapping (4-step pipeline):
- *  step 0 → Guion
- *  step 1 → Video
- *  step 2 → Caption Studio
- *  step 3 → Publicar
- *  step 4 → all done
- */
+// ── Progress mapping ─────────────────────────────────────────────────────────
+// Returns a 0-based semantic step index using the full 5-step scale and an
+// overall % for the macro progress bar.
+//   0=script  1=video  2=caption  3=review/publish  4=publish  5=done
 function getProgress(item: ContentPlanItem): { step: number; percent: number } {
   const cs = item.caption_status
-
   switch (item.status) {
-    case "draft":
-      return { step: 0, percent: 10 }
-
-    case "scripted":
-      return { step: 1, percent: 35 }
-
-    case "generating":
-      return { step: 1, percent: 55 }
-
+    case "draft":      return { step: 0, percent: 10 }
+    case "scripted":   return { step: 1, percent: 35 }
+    case "generating": return { step: 1, percent: 55 }
     case "ready": {
-      // Only terminal caption states unlock the publish step.
-      if (cs === "done" || cs === "failed" || cs === "disabled") {
-        return { step: 3, percent: 90 }
-      }
-      // null (pending) or "processing" → caption step is still in flight
-      return { step: 2, percent: 75 }
+      if (cs === "done" || cs === "failed" || cs === "disabled")
+        return { step: 3, percent: 80 }     // → review or publish depending on mode
+      return { step: 2, percent: 70 }       // caption in progress
     }
-
-    case "published":
-      return { step: 4, percent: 100 }
-
-    default:
-      return { step: -1, percent: 0 }
+    case "published":  return { step: 5, percent: 100 }
+    default:           return { step: -1, percent: 0 }
   }
 }
 
+/** Among multiple candidates, pick the one most recently touched (updated_at DESC). */
+function mostRecent(candidates: ContentPlanItem[]): ContentPlanItem | undefined {
+  return candidates.reduce<ContentPlanItem | undefined>((best, cur) => {
+    if (!best) return cur
+    return new Date(cur.updated_at) > new Date(best.updated_at) ? cur : best
+  }, undefined)
+}
+
 function pickActiveItem(items: ContentPlanItem[]): { item: ContentPlanItem; mode: PipelineMode } | null {
-  // Priority 1: video is actively rendering in HeyGen
-  const generating = items.find((i) => i.status === "generating")
+  // Priority 1 — video actively rendering in HeyGen
+  const generating = mostRecent(items.filter((i) => i.status === "generating"))
   if (generating) return { item: generating, mode: "generating" }
 
-  // Priority 2: ready but caption is still pending/processing
-  const captioning = items.find(
-    (i) => i.status === "ready" && (i.caption_status === null || i.caption_status === "processing")
+  // Priority 2 — ready but captions still pending / processing
+  const captioning = mostRecent(
+    items.filter((i) => i.status === "ready" && (i.caption_status === null || i.caption_status === "processing"))
   )
   if (captioning) return { item: captioning, mode: "captioning" }
 
-  // Priority 3: ready with terminal caption — waiting to be published
-  const awaitingPublish = items.find(
-    (i) =>
-      i.status === "ready" &&
-      (i.caption_status === "done" || i.caption_status === "failed" || i.caption_status === "disabled")
+  // Priority 3 — ready with terminal caption, waiting to publish
+  const awaitingPublish = mostRecent(
+    items.filter(
+      (i) => i.status === "ready" &&
+        (i.caption_status === "done" || i.caption_status === "failed" || i.caption_status === "disabled")
+    )
   )
   if (awaitingPublish) return { item: awaitingPublish, mode: "awaiting_publish" }
 
-  // Priority 4: scripted item (script done, video not yet started)
-  const scripted = items.find((i) => i.status === "scripted")
+  // Priority 4 — scripted (script done, video not yet started)
+  const scripted = mostRecent(items.filter((i) => i.status === "scripted"))
   if (scripted) return { item: scripted, mode: "scripted_waiting" }
 
-  // Priority 5: upcoming draft items scheduled in the future
+  // Priority 5 — next upcoming draft
   const upcoming = items
     .filter((i) => i.status === "draft" && i.scheduled_at)
     .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime())
   if (upcoming[0]) return { item: upcoming[0], mode: "next" }
 
-  // Priority 6: last published (summary state)
-  const lastPublished = [...items].reverse().find((i) => i.status === "published")
+  // Priority 6 — last published
+  const lastPublished = mostRecent(items.filter((i) => i.status === "published"))
   if (lastPublished) return { item: lastPublished, mode: "done" }
 
   return null
@@ -119,61 +98,134 @@ function getHeaderLabel(mode: PipelineMode, willAutoPublish: boolean | undefined
   switch (mode) {
     case "generating":       return "Producción en curso"
     case "captioning":       return "Aplicando captions al video"
-    case "awaiting_publish": return willAutoPublish ? "En cola para publicar automáticamente" : "Listo para publicar manualmente"
-    case "scripted_waiting": return willAutoPublish ? "Guion listo — el sistema generará el video" : "Guion listo — revisá y generá el video"
+    case "awaiting_publish": return willAutoPublish
+      ? "En cola para publicar automáticamente"
+      : "Video listo — revisá y aprobá para publicar"
+    case "scripted_waiting": return willAutoPublish
+      ? "Guion listo — el sistema generará el video"
+      : "Guion listo — revisá y generá el video"
     case "next":             return "Próximo video en cola"
     case "done":             return "Último video producido"
   }
 }
 
-/**
- * Calculate a 0–100 progress value for the currently active step, based on
- * how much time has elapsed since `item.updated_at` (which updates whenever
- * the content item changes status).
- *
- * Capped at 95 so the bar never reaches "done" before the step actually finishes.
- * Returns null when no step-level bar should be shown.
- */
+// ── Step elapsed-time progress bar ───────────────────────────────────────────
 function getStepElapsedPercent(
   stepKey: StepKey,
   item: ContentPlanItem,
   mode: PipelineMode,
-  nowMs: number
+  nowMs: number,
 ): { pct: number; remainingSec: number } | null {
-  // Only show the bar while something is actively running
   if (mode === "next" || mode === "done" || mode === "awaiting_publish" || mode === "scripted_waiting") return null
-
-  // Map mode → which step is active
-  const activeStepKey: StepKey | null =
+  const activeKey: StepKey | null =
     mode === "generating" ? "video" :
-    mode === "captioning" ? "caption" :
-    null
-
-  if (activeStepKey !== stepKey) return null
-
-  const step = STEPS.find((s) => s.key === stepKey)
-  if (!step) return null
-
-  const startMs = new Date(item.updated_at).getTime()
-  const elapsedMs = Math.max(0, nowMs - startMs)
+    mode === "captioning" ? "caption" : null
+  if (activeKey !== stepKey) return null
+  const step = BASE_STEPS.find((s) => s.key === stepKey)
+  if (!step || step.estimatedMs === 0) return null
+  const elapsedMs = Math.max(0, nowMs - new Date(item.updated_at).getTime())
   const pct = Math.min(95, (elapsedMs / step.estimatedMs) * 100)
   const remainingSec = Math.max(0, Math.round((step.estimatedMs - elapsedMs) / 1000))
-
   return { pct, remainingSec }
 }
 
-/** Format seconds as "~X min" or "~X seg" */
 function fmtRemaining(sec: number): string {
   if (sec <= 0) return "Finalizando..."
-  if (sec < 60) return `~${sec} seg`
+  if (sec < 60)  return `~${sec} seg`
   return `~${Math.ceil(sec / 60)} min`
 }
 
+// ── Review Modal ─────────────────────────────────────────────────────────────
+function ReviewModal({
+  open, onClose, item,
+}: {
+  open: boolean
+  onClose: () => void
+  item: ContentPlanItem
+}) {
+  const queryClient = useQueryClient()
+  const publishVideo = usePublishVideo()
+  const videoSrc = item.captioned_video_url ?? item.video_url ?? null
+
+  const handleApprove = () => {
+    if (!item.video_id) return
+    publishVideo.mutate(
+      { id: item.video_id, data: {} },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: getGetContentPlanQueryKey() })
+          onClose()
+        },
+      }
+    )
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-sm sm:max-w-md p-0 overflow-hidden rounded-2xl">
+        {/* Violet header */}
+        <DialogHeader className="bg-violet-700 px-5 py-4">
+          <DialogTitle className="text-white flex items-center gap-2 text-lg">
+            <Eye className="w-5 h-5" />
+            Revisión Manual
+          </DialogTitle>
+          <p className="text-violet-200 text-sm mt-0.5 leading-snug">
+            Revisá el video antes de publicarlo en Instagram.
+          </p>
+        </DialogHeader>
+
+        {/* Video player */}
+        <div className="bg-black flex items-center justify-center" style={{ minHeight: 360 }}>
+          {videoSrc ? (
+            <video
+              src={videoSrc}
+              controls
+              playsInline
+              className="w-full max-h-[480px] object-contain"
+              style={{ aspectRatio: "9/16", maxWidth: 270 }}
+            />
+          ) : (
+            <div className="flex flex-col items-center gap-2 text-muted-foreground py-16">
+              <Play className="w-8 h-8 opacity-30" />
+              <p className="text-xs">Video no disponible</p>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <DialogFooter className="px-5 py-4 flex flex-col sm:flex-row gap-2">
+          <Button
+            variant="outline"
+            onClick={onClose}
+            disabled={publishVideo.isPending}
+            className="w-full sm:w-auto"
+          >
+            Revisar después
+          </Button>
+          <Button
+            onClick={handleApprove}
+            disabled={publishVideo.isPending || !item.video_id}
+            className="w-full sm:w-auto gap-2 bg-violet-700 hover:bg-violet-800 text-white border-transparent"
+          >
+            {publishVideo.isPending ? (
+              <><Loader2 className="w-4 h-4 animate-spin" />Publicando...</>
+            ) : (
+              <><Instagram className="w-4 h-4" />Aprobar y Publicar en IG</>
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
 export default function PipelineTimeline() {
   const { data: items } = useGetContentPlan({ limit: 100 }, { query: { refetchInterval: 15000 } as any })
-  const { data: automation } = useGetAutomation({ query: { refetchInterval: 10000 } as any })
+  const { data: automation }  = useGetAutomation({ query: { refetchInterval: 10000 } as any })
+  const [reviewOpen, setReviewOpen] = useState(false)
 
-  // Tick every 5 s so the per-step elapsed bars update smoothly without hammering the API.
+  // Tick every 5 s for elapsed-time bars
   const [nowMs, setNowMs] = useState(() => Date.now())
   useEffect(() => {
     const id = setInterval(() => setNowMs(Date.now()), 5_000)
@@ -186,138 +238,184 @@ export default function PipelineTimeline() {
   const { item, mode } = active
   const { step, percent } = getProgress(item)
   const willAutoPublish = automation?.enabled && automation?.auto_publish
-
-  // Caption Studio step is shown only when captions are globally enabled.
-  // When captions are disabled, the step is hidden and the pipeline shows 3 steps.
   const captionsEnabled = automation?.captions_enabled ?? true
-  const visibleSteps = captionsEnabled ? STEPS : STEPS.filter((s) => s.key !== "caption")
+  const isManual = !willAutoPublish
 
-  // Remap step index when caption step is hidden (shift steps 3+ down by 1)
-  const displayStep = !captionsEnabled && step >= 2 ? step - 1 : step
+  // Build the visible steps for this mode:
+  //   auto   + captions:    script video caption         publish    (4 steps)
+  //   auto   + no captions: script video                 publish    (3 steps)
+  //   manual + captions:    script video caption review  publish    (5 steps)
+  //   manual + no captions: script video         review  publish    (4 steps)
+  const visibleSteps = BASE_STEPS.filter((s) => {
+    if (s.key === "caption" && !captionsEnabled) return false
+    if (s.key === "review"  && !isManual)        return false
+    return true
+  })
 
-  // Only show a spinner when something is actively processing — not when waiting.
+  // Map the semantic step index to the visible index.
+  // getProgress uses: 0=script 1=video 2=caption 3=review/publish 5=done
+  //
+  // When awaiting_publish in manual mode → step 3 should point to "review".
+  // When awaiting_publish in auto mode   → step 3 should point to "publish".
+  //
+  // We rely on the fact that visibleSteps.findIndex gives us the right slot.
+  const activeKey: StepKey | null =
+    step === 0 ? "script"  :
+    step === 1 ? "video"   :
+    step === 2 ? "caption" :
+    step === 3 ? (isManual ? "review" : "publish") :
+    step === 4 ? "publish" : null
+
+  const displayStep = activeKey ? visibleSteps.findIndex((s) => s.key === activeKey) : -1
+
   const isActivelyProcessing = mode === "generating" || mode === "captioning"
+  const isAwaitingReview     = mode === "awaiting_publish" && isManual
 
   return (
-    <Card className="border-primary/20 bg-gradient-to-r from-primary/5 to-transparent shrink-0">
-      <CardContent className="p-5">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 mb-4">
-          <div className="min-w-0">
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-0.5">
-              {getHeaderLabel(mode, willAutoPublish)}
-            </p>
-            <h3 className="font-display font-bold truncate">{item.topic}</h3>
-          </div>
-          <div className="flex items-center gap-3 shrink-0">
-            {item.scheduled_at && (
-              <span className="text-xs text-muted-foreground flex items-center gap-1">
-                <Clock className="w-3.5 h-3.5" />
-                {mode === "next" ? "Comienza el " : ""}
-                {format(new Date(item.scheduled_at), "EEE d MMM, HH:mm", { locale: es })}
+    <>
+      {item.video_id && (
+        <ReviewModal
+          open={reviewOpen}
+          onClose={() => setReviewOpen(false)}
+          item={item}
+        />
+      )}
+
+      <Card className="border-primary/20 bg-gradient-to-r from-primary/5 to-transparent shrink-0">
+        <CardContent className="p-5">
+          {/* Header row */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 mb-4">
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-0.5">
+                {getHeaderLabel(mode, willAutoPublish)}
+              </p>
+              <h3 className="font-display font-bold truncate">{item.topic}</h3>
+            </div>
+            <div className="flex items-center gap-3 shrink-0">
+              {item.scheduled_at && (
+                <span className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Clock className="w-3.5 h-3.5" />
+                  {mode === "next" ? "Comienza el " : ""}
+                  {format(new Date(item.scheduled_at), "EEE d MMM, HH:mm", { locale: es })}
+                </span>
+              )}
+              <span className={`text-lg font-bold font-display ${item.status === "failed" ? "text-destructive" : "text-primary"}`}>
+                {item.status === "failed" ? "Error" : `${percent}%`}
               </span>
-            )}
-            <span className={`text-lg font-bold font-display ${item.status === "failed" ? "text-destructive" : "text-primary"}`}>
-              {item.status === "failed" ? "Error" : `${percent}%`}
-            </span>
+            </div>
           </div>
-        </div>
 
-        <Progress value={percent} className="h-1.5 mb-4" />
+          <Progress value={percent} className="h-1.5 mb-4" />
 
-        <div className={`grid gap-2 ${visibleSteps.length === 3 ? "grid-cols-3" : "grid-cols-2 sm:grid-cols-4"}`}>
-          {visibleSteps.map((s, i) => {
-            const Icon = s.icon
-            const done    = displayStep > i
-            // "current" means this step is the active/next one — not for draft or failed items
-            const current = displayStep === i && mode !== "next" && mode !== "done" && item.status !== "draft" && item.status !== "failed"
-            const failed  = item.status === "failed"
-            // Spinner only when something is genuinely running
-            const showSpinner = current && isActivelyProcessing
+          {/* Step grid */}
+          <div className={`grid gap-2 ${
+            visibleSteps.length === 3 ? "grid-cols-3" :
+            visibleSteps.length === 4 ? "grid-cols-2 sm:grid-cols-4" :
+                                        "grid-cols-2 sm:grid-cols-5"
+          }`}>
+            {visibleSteps.map((s, i) => {
+              const Icon = s.icon
+              const done    = displayStep > i
+              const current = displayStep === i &&
+                mode !== "next" && mode !== "done" &&
+                item.status !== "draft" && item.status !== "failed"
+              const isReview     = s.key === "review"
+              const reviewActive = isReview && current && isAwaitingReview
 
-            // Per-step elapsed progress bar (only for the active step while running)
-            const stepElapsed = getStepElapsedPercent(s.key as StepKey, item, mode, nowMs)
+              // Spinner only for steps that are actively processing
+              const showSpinner = current && isActivelyProcessing
 
-            // ── Status label ──────────────────────────────────────────────
-            let statusLabel = done ? "Completado" : current ? "En espera..." : ""
+              // Per-step elapsed bar
+              const stepElapsed = getStepElapsedPercent(s.key as StepKey, item, mode, nowMs)
 
-            // Video step: distinguish rendering vs. queued
-            if (s.key === "video" && current) {
-              statusLabel = mode === "generating"
-                ? (stepElapsed ? fmtRemaining(stepElapsed.remainingSec) : "Renderizando...")
-                : "En espera de HeyGen"
-            }
+              // ── Status label ──────────────────────────────────────
+              let statusLabel = done ? "Completado" : !current ? "" : "En espera..."
 
-            // Caption step: distinguish null (queued) vs. processing
-            if (s.key === "caption" && current) {
-              if (item.caption_status === "processing") {
-                statusLabel = stepElapsed ? fmtRemaining(stepElapsed.remainingSec) : "Procesando..."
-              } else {
-                statusLabel = "En cola..."
-              }
-            }
-            if (s.key === "caption" && done && item.caption_status === "failed") {
-              statusLabel = "Omitido (error)"
-            }
+              if (s.key === "video" && current)
+                statusLabel = mode === "generating"
+                  ? (stepElapsed ? fmtRemaining(stepElapsed.remainingSec) : "Renderizando...")
+                  : "En espera de HeyGen"
 
-            // Publish step: be explicit about what's needed
-            if (s.key === "publish" && current) {
-              statusLabel = willAutoPublish ? "En cola para publicar" : "Publicar manualmente"
-            }
+              if (s.key === "caption" && current)
+                statusLabel = item.caption_status === "processing"
+                  ? (stepElapsed ? fmtRemaining(stepElapsed.remainingSec) : "Procesando...")
+                  : "En cola..."
 
-            // Pending steps: show eta
-            if (!done && !current) statusLabel = `est. ${
-              s.key === "script"  ? "~1 min"    :
-              s.key === "video"   ? "~5-15 min" :
-              s.key === "caption" ? "~2-5 min"  : "~2-5 min"
-            }`
+              if (s.key === "caption" && done && item.caption_status === "failed")
+                statusLabel = "Omitido (error)"
 
-            return (
-              <div
-                key={s.key}
-                className={`rounded-lg border p-3 transition-colors ${
-                  done    ? "bg-primary/10 border-primary/30" :
-                  current ? "border-primary bg-background shadow-sm" :
-                            "bg-muted/30 border-transparent"
-                }`}
-              >
-                <div className="flex items-center gap-2 mb-1">
-                  {failed && i === 0 ? (
-                    <AlertTriangle className="w-4 h-4 text-destructive" />
-                  ) : done ? (
-                    <CheckCircle2 className="w-4 h-4 text-primary" />
-                  ) : showSpinner ? (
-                    <Loader2 className="w-4 h-4 text-primary animate-spin" />
-                  ) : current ? (
-                    <Clock className="w-4 h-4 text-primary" />
-                  ) : (
-                    <Icon className="w-4 h-4 text-muted-foreground" />
-                  )}
-                  <span className={`text-xs font-bold ${done || current ? "text-foreground" : "text-muted-foreground"}`}>
-                    {i + 1}. {s.label}
-                  </span>
-                </div>
+              if (s.key === "publish" && current)
+                statusLabel = willAutoPublish ? "En cola" : "Publicando..."
 
-                <p className="text-[11px] text-muted-foreground leading-tight hidden sm:block">{s.desc}</p>
+              if (isReview && current)
+                statusLabel = "Tocá para revisar"
 
-                {/* Per-step elapsed progress bar — only while this step is actively running */}
-                {stepElapsed ? (
-                  <div className="mt-2 space-y-0.5">
-                    <div className="h-1 w-full rounded-full bg-primary/15 overflow-hidden">
-                      <div
-                        className="h-full rounded-full bg-primary transition-all duration-[5000ms] ease-linear"
-                        style={{ width: `${stepElapsed.pct}%` }}
-                      />
-                    </div>
-                    <p className="text-[10px] text-primary/70 font-medium">{statusLabel}</p>
+              if (!done && !current)
+                statusLabel = s.key === "video" ? "~5-15 min" :
+                              s.key === "script" || s.key === "caption" ? "~1-3 min" : ""
+
+              // ── Card styles ───────────────────────────────────────
+              // Review step gets a distinct violet treatment
+              const cardClass = isReview
+                ? reviewActive
+                  ? "bg-violet-700 border-violet-600 shadow-md shadow-violet-700/30 cursor-pointer ring-2 ring-violet-400/60 ring-offset-1 hover:bg-violet-600 transition-colors"
+                  : done
+                    ? "bg-violet-100 dark:bg-violet-900/30 border-violet-300/50 dark:border-violet-700/40"
+                    : "bg-muted/30 border-transparent"
+                : done    ? "bg-primary/10 border-primary/30"
+                : current ? "border-primary bg-background shadow-sm"
+                :           "bg-muted/30 border-transparent"
+
+              const textClass = reviewActive ? "text-white" : (done || current ? "text-foreground" : "text-muted-foreground")
+              const descClass = reviewActive ? "text-violet-200" : "text-muted-foreground"
+              const statusClass = reviewActive ? "text-violet-200 font-medium" : "text-muted-foreground/70"
+
+              return (
+                <div
+                  key={s.key}
+                  className={`rounded-lg border p-3 ${cardClass}`}
+                  onClick={reviewActive ? () => setReviewOpen(true) : undefined}
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    {item.status === "failed" && i === 0 ? (
+                      <AlertTriangle className="w-4 h-4 text-destructive" />
+                    ) : done ? (
+                      <CheckCircle2 className={`w-4 h-4 ${isReview ? "text-violet-500 dark:text-violet-400" : "text-primary"}`} />
+                    ) : showSpinner ? (
+                      <Loader2 className="w-4 h-4 text-primary animate-spin" />
+                    ) : reviewActive ? (
+                      <Play className="w-4 h-4 text-white" />
+                    ) : current ? (
+                      <Clock className="w-4 h-4 text-primary" />
+                    ) : (
+                      <Icon className="w-4 h-4 text-muted-foreground" />
+                    )}
+                    <span className={`text-xs font-bold ${textClass}`}>
+                      {i + 1}. {s.label}
+                    </span>
                   </div>
-                ) : (
-                  <p className="text-[10px] text-muted-foreground/70 mt-1">{statusLabel}</p>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      </CardContent>
-    </Card>
+
+                  <p className={`text-[11px] leading-tight hidden sm:block ${descClass}`}>{s.desc}</p>
+
+                  {stepElapsed ? (
+                    <div className="mt-2 space-y-0.5">
+                      <div className="h-1 w-full rounded-full bg-primary/15 overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-primary transition-all duration-[5000ms] ease-linear"
+                          style={{ width: `${stepElapsed.pct}%` }}
+                        />
+                      </div>
+                      <p className={`text-[10px] font-medium ${statusClass}`}>{statusLabel}</p>
+                    </div>
+                  ) : (
+                    <p className={`text-[10px] mt-1 ${statusClass}`}>{statusLabel}</p>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </CardContent>
+      </Card>
+    </>
   )
 }
