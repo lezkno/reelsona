@@ -2,7 +2,7 @@ import { useState, useEffect } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { Play, Loader2, Instagram, Sparkles, Check } from "lucide-react"
+import { Play, Loader2, Instagram, Sparkles, Check, ChevronUp } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 
 interface VideoModalProps {
@@ -29,8 +29,9 @@ interface VideoModalProps {
 /**
  * Unified video preview modal.
  *
- * Mobile: [video] → [header] → [caption/hashtags] → [footer]
- * Desktop: [video col left] | [header → caption/hashtags → footer right]
+ * Mobile:  full-screen — video fills all available space; collapsible bottom
+ *          panel shows title (always) and caption/hashtags (on tap).
+ * Desktop: [video col left 224px] | [header → caption/hashtags → footer right]
  */
 export function VideoModal({
   open,
@@ -55,6 +56,7 @@ export function VideoModal({
   const [localHashtags, setLocalHashtags] = useState(hashtags ?? "")
   const [isSaving, setIsSaving] = useState(false)
   const [isRegenerating, setIsRegenerating] = useState(false)
+  const [infoExpanded, setInfoExpanded] = useState(false)
 
   // Sync local state when the modal opens or props change
   useEffect(() => {
@@ -62,6 +64,7 @@ export function VideoModal({
       setLocalCaption(caption ?? "")
       setLocalHashtags(hashtags ?? "")
       setUseFallback(false)
+      setInfoExpanded(false)
     }
   }, [open, caption, hashtags])
 
@@ -90,33 +93,97 @@ export function VideoModal({
     } finally { setIsRegenerating(false) }
   }
 
-  // Reusable header markup — rendered in both mobile and desktop slots
-  const headerInner = (
-    <>
-      <DialogTitle className="text-white flex items-center gap-2 text-base font-bold leading-snug">
-        <Icon className="w-4 h-4 shrink-0" />
-        <span className="line-clamp-2">{title}</span>
-      </DialogTitle>
-      <p className="text-violet-200 text-xs mt-0.5 leading-snug">{subtitle}</p>
-    </>
+  // Caption + hashtags block — shared between mobile and desktop
+  const copySection = hasCopy && (
+    <div className="space-y-4">
+      <div className="space-y-1.5">
+        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+          Caption para Instagram
+        </p>
+        <Textarea
+          value={localCaption}
+          onChange={(e) => setLocalCaption(e.target.value)}
+          rows={4}
+          disabled={isRegenerating}
+          className="text-sm resize-none"
+          placeholder="Caption que se publicará junto al video..."
+        />
+      </div>
+
+      <div className="space-y-1.5">
+        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+          Hashtags
+        </p>
+        <Textarea
+          value={localHashtags}
+          onChange={(e) => setLocalHashtags(e.target.value)}
+          rows={3}
+          disabled={isRegenerating}
+          className="text-sm resize-none font-mono text-violet-700"
+          placeholder="#hashtag1 #hashtag2 ..."
+        />
+      </div>
+
+      <div className="flex items-center gap-2 flex-wrap">
+        {onRegenerateCaption && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRegenerate}
+            disabled={isRegenerating || isSaving}
+            className="gap-1.5 text-xs"
+          >
+            {isRegenerating ? (
+              <><Loader2 className="w-3.5 h-3.5 animate-spin" />Generando...</>
+            ) : (
+              <><Sparkles className="w-3.5 h-3.5 text-violet-600" />Regenerar con IA</>
+            )}
+          </Button>
+        )}
+
+        {onSaveCaption && isDirty && (
+          <Button
+            size="sm"
+            onClick={handleSave}
+            disabled={isSaving || isRegenerating}
+            className="gap-1.5 text-xs ml-auto bg-violet-700 hover:bg-violet-800 text-white"
+          >
+            {isSaving ? (
+              <><Loader2 className="w-3.5 h-3.5 animate-spin" />Guardando...</>
+            ) : (
+              <><Check className="w-3.5 h-3.5" />Guardar cambios</>
+            )}
+          </Button>
+        )}
+      </div>
+    </div>
   )
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      {/*
-        Layout:
-          mobile  → flex-col: video | header | copy | footer
-          desktop → flex-row: [video col w-56] | [header + copy + footer]
-        The DialogTitle is only in the desktop slot; on mobile we render
-        a visually identical div so there is exactly one DialogTitle in the DOM.
-      */}
-      <DialogContent className="p-0 rounded-2xl overflow-hidden w-[95vw] max-w-[95vw] sm:max-w-2xl flex flex-col sm:flex-row gap-0 max-h-[90dvh]">
-
-        {/* ── Video column ──────────────────────────────────────────────────── */}
-        {/* mobile: full-width, height capped; desktop: fixed w-56, stretches full height */}
-        <div className="relative bg-black shrink-0 sm:w-56 overflow-hidden
-                        max-h-[42vh] sm:max-h-none sm:self-stretch
-                        flex items-center justify-center">
+      <DialogContent
+        className="
+          p-0 overflow-hidden gap-0
+          flex flex-col sm:flex-row
+          /* mobile: full-screen, no border radius */
+          w-full max-w-full h-[100dvh] rounded-none
+          /* desktop: centered card */
+          sm:w-[95vw] sm:max-w-2xl sm:h-auto sm:max-h-[90dvh] sm:rounded-2xl
+        "
+      >
+        {/* ── Video panel ───────────────────────────────────────────────────── */}
+        {/*
+          Mobile:  fills all space above the bottom panel (flex-1)
+          Desktop: fixed 224px column that stretches full height
+        */}
+        <div
+          className="
+            relative bg-black overflow-hidden
+            flex-1 min-h-0
+            sm:flex-none sm:w-56 sm:self-stretch
+            flex items-center justify-center
+          "
+        >
           {src ? (
             <video
               key={src}
@@ -139,106 +206,97 @@ export function VideoModal({
           )}
         </div>
 
-        {/* ── Right column ─────────────────────────────────────────────────── */}
-        <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+        {/* ── Desktop right column ──────────────────────────────────────────── */}
+        <div className="hidden sm:flex flex-col flex-1 min-h-0 overflow-hidden">
 
-          {/* Violet header — desktop: uses DialogHeader/DialogTitle for a11y */}
-          <DialogHeader className="bg-violet-700 px-5 py-3 shrink-0 hidden sm:block rounded-none">
-            {headerInner}
-          </DialogHeader>
-          {/* Violet header — mobile: purely visual, no DialogTitle duplication */}
-          <div className="bg-violet-700 px-5 py-3 shrink-0 sm:hidden">
-            <p className="text-white text-sm font-bold flex items-center gap-2 leading-snug line-clamp-2">
+          <DialogHeader className="bg-violet-700 px-5 py-3 shrink-0 rounded-none">
+            <DialogTitle className="text-white flex items-center gap-2 text-base font-bold leading-snug">
               <Icon className="w-4 h-4 shrink-0" />
-              {title}
-            </p>
+              <span className="line-clamp-2">{title}</span>
+            </DialogTitle>
             <p className="text-violet-200 text-xs mt-0.5 leading-snug">{subtitle}</p>
-          </div>
+          </DialogHeader>
 
-          {/* Caption + hashtags ─────────────────────────────────────────────── */}
           {hasCopy && (
-            <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-4">
-
-              <div className="space-y-1.5">
-                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                  Caption para Instagram
-                </p>
-                <Textarea
-                  value={localCaption}
-                  onChange={(e) => setLocalCaption(e.target.value)}
-                  rows={4}
-                  disabled={isRegenerating}
-                  className="text-sm resize-none"
-                  placeholder="Caption que se publicará junto al video..."
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                  Hashtags
-                </p>
-                <Textarea
-                  value={localHashtags}
-                  onChange={(e) => setLocalHashtags(e.target.value)}
-                  rows={3}
-                  disabled={isRegenerating}
-                  className="text-sm resize-none font-mono text-violet-700"
-                  placeholder="#hashtag1 #hashtag2 ..."
-                />
-              </div>
-
-              {/* Regenerate + Save row */}
-              <div className="flex items-center gap-2 flex-wrap">
-                {onRegenerateCaption && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleRegenerate}
-                    disabled={isRegenerating || isSaving}
-                    className="gap-1.5 text-xs"
-                  >
-                    {isRegenerating ? (
-                      <><Loader2 className="w-3.5 h-3.5 animate-spin" />Generando...</>
-                    ) : (
-                      <><Sparkles className="w-3.5 h-3.5 text-violet-600" />Regenerar con IA</>
-                    )}
-                  </Button>
-                )}
-
-                {onSaveCaption && isDirty && (
-                  <Button
-                    size="sm"
-                    onClick={handleSave}
-                    disabled={isSaving || isRegenerating}
-                    className="gap-1.5 text-xs ml-auto bg-violet-700 hover:bg-violet-800 text-white"
-                  >
-                    {isSaving ? (
-                      <><Loader2 className="w-3.5 h-3.5 animate-spin" />Guardando...</>
-                    ) : (
-                      <><Check className="w-3.5 h-3.5" />Guardar cambios</>
-                    )}
-                  </Button>
-                )}
-              </div>
+            <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4">
+              {copySection}
             </div>
           )}
 
-          {/* Footer ────────────────────────────────────────────────────────── */}
-          <div className={`px-5 py-4 flex gap-2 flex-col sm:flex-row items-stretch sm:items-center${hasCopy ? " border-t" : " mt-auto"}`}>
-            <Button
-              variant="outline"
-              onClick={onClose}
-              disabled={isApproving}
-              className="w-full sm:w-auto"
-            >
+          <div className={`px-5 py-4 flex gap-2 items-center${hasCopy ? " border-t" : " mt-auto"}`}>
+            <Button variant="outline" onClick={onClose} disabled={isApproving} className="w-auto">
               {dismissLabel}
             </Button>
-
             {onApprove && (
               <Button
                 onClick={onApprove}
                 disabled={isApproving}
-                className="w-full sm:w-auto gap-2 bg-violet-700 hover:bg-violet-800 text-white border-transparent sm:ml-auto"
+                className="gap-2 bg-violet-700 hover:bg-violet-800 text-white border-transparent ml-auto"
+              >
+                {isApproving ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" />Publicando...</>
+                ) : (
+                  <><Instagram className="w-4 h-4" />{approveLabel}</>
+                )}
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* ── Mobile bottom panel ───────────────────────────────────────────── */}
+        {/*
+          Always shows a compact handle bar with title + chevron.
+          Tapping the bar expands a scrollable panel with caption/hashtags.
+          Footer buttons (Cerrar / Publicar) are always visible below the handle.
+        */}
+        <div className="sm:hidden shrink-0 bg-white flex flex-col">
+
+          {/* Handle — always visible, tappable to expand */}
+          <button
+            type="button"
+            className="w-full px-4 py-3.5 flex items-center gap-2.5 text-left border-t border-gray-100 active:bg-gray-50 transition-colors"
+            onClick={() => setInfoExpanded((v) => !v)}
+            aria-expanded={infoExpanded}
+          >
+            <Icon className="w-4 h-4 text-violet-600 shrink-0" />
+            <span className="flex-1 text-sm font-semibold text-gray-900 truncate">{title}</span>
+            {hasCopy && (
+              <ChevronUp
+                className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${
+                  infoExpanded ? "rotate-0" : "rotate-180"
+                }`}
+              />
+            )}
+          </button>
+
+          {/* Expandable copy section */}
+          {hasCopy && (
+            <div
+              className={`overflow-hidden transition-all duration-300 ease-in-out ${
+                infoExpanded ? "max-h-[55vh]" : "max-h-0"
+              }`}
+            >
+              <div className="overflow-y-auto max-h-[55vh] px-4 pt-1 pb-4 border-t border-gray-100">
+                {copySection}
+              </div>
+            </div>
+          )}
+
+          {/* Footer — always visible */}
+          <div className="px-4 py-3 flex gap-2 border-t border-gray-100">
+            <Button
+              variant="outline"
+              onClick={onClose}
+              disabled={isApproving}
+              className="flex-1"
+            >
+              {dismissLabel}
+            </Button>
+            {onApprove && (
+              <Button
+                onClick={onApprove}
+                disabled={isApproving}
+                className="flex-1 gap-2 bg-violet-700 hover:bg-violet-800 text-white border-transparent"
               >
                 {isApproving ? (
                   <><Loader2 className="w-4 h-4 animate-spin" />Publicando...</>
@@ -250,6 +308,7 @@ export function VideoModal({
           </div>
 
         </div>
+
       </DialogContent>
     </Dialog>
   )
