@@ -197,10 +197,15 @@ function extractWordTimings(blocks: SRTBlock[]): WordTiming[] {
 // ─── Font mapping ─────────────────────────────────────────────────────────────
 
 function resolveFontName(fontFamily: string): string {
+  // Return the FAMILY name (not the full name with weight suffix).
+  // libass uses Bold=-1 (set in every ASS style) to select the bold/extrabold
+  // variant automatically — e.g. "Poppins" + Bold → libass picks Poppins ExtraBold.
+  // Passing the full name "Poppins ExtraBold" with Bold=-1 causes libass to apply
+  // synthetic bold on top of an already-extrabold font, making it look too heavy.
   const map: Record<string, string> = {
     Oswald: "Oswald",
     Bangers: "Bangers",
-    Poppins: "Poppins ExtraBold",
+    Poppins: "Poppins",
     "DejaVu Sans": "DejaVu Sans",
     "DejaVu Serif": "DejaVu Serif",
     Montserrat: "DejaVu Sans",
@@ -352,18 +357,38 @@ function buildPopASS(
 // Keep this list SHORT: the fewer words here, the more yellow/large the output,
 // which matches the Dimidium reference style.
 const FUNCTION_WORDS = new Set([
+  // ── English ──────────────────────────────────────────────────────────────
   // Personal pronouns
   "i","me","my","you","your","he","him","his","she","her","it","its",
   "we","us","our","they","them","their",
+  // Articles & determiners
+  "a","an","the","this","that","these","those",
   // Conjunctions
-  "and","but","or","so","yet","nor",
-  // Relative / question words (unstressed)
-  "that","which","who",
-  // Common qualifiers that are typically unstressed
-  "more","most","very","just","also","too","even","only",
-  // Spanish equivalents
-  "yo","me","mi","tú","te","él","ella","nosotros","ellos","se","nos",
+  "and","but","or","so","yet","nor","because","when","if","as",
+  "that","which","who","while","although","though",
+  // Prepositions
+  "in","on","at","to","for","of","by","with","from","into","up","out",
+  "about","over","under","after","before","between","through","without",
+  // Common qualifiers
+  "more","most","very","just","also","too","even","only","not","no",
+  "is","are","was","were","be","been","being","have","has","had",
+  "do","does","did","will","would","could","should","may","might",
+  // ── Spanish ──────────────────────────────────────────────────────────────
+  // Artículos
+  "el","la","los","las","un","una","unos","unas","al","del",
+  // Pronombres personales
+  "yo","me","mi","tú","tu","te","él","ella","nosotros","ellos","se","nos",
+  "le","les","lo","la","los","las",
+  // Preposiciones comunes (las más frecuentes)
+  "a","de","en","con","por","para","sobre","bajo","entre","desde",
+  "hasta","hacia","sin","tras","ante","según","durante","mediante",
+  // Conjunciones y conectores
   "y","e","o","pero","sino","aunque","también","más","solo","muy",
+  "que","cuando","porque","como","si","ya","ni","pues","así","tan",
+  // Determinantes y demostrativos frecuentes
+  "este","esta","estos","estas","ese","esa","esos","esas","su","sus",
+  // Verbos auxiliares comunes
+  "es","son","fue","era","han","hay","ser","estar","ha","he","había",
 ]);
 
 function isEmphasisWord(raw: string): boolean {

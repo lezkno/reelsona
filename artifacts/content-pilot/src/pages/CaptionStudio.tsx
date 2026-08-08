@@ -180,26 +180,38 @@ function PresetCard({
 // Dimidium function-word list for preview (same logic as engine)
 // Mirrors the engine FUNCTION_WORDS — only the most common unstressed words.
 // Everything else (nouns, verbs, adjectives) is large + accent color.
+// Must stay in sync with FUNCTION_WORDS in caption-engine.ts
 const PREVIEW_FUNCTION_WORDS = new Set([
-  // English pronouns
+  // ── English ──────────────────────────────────────────────────────────────
   "i","me","my","you","your","he","him","his","she","her","it","its",
   "we","us","our","they","them","their",
-  // Conjunctions / qualifiers
-  "and","but","or","so","yet","nor","that","which","who",
-  "more","most","very","just","also","too","even","only",
-  // Spanish pronouns
-  "yo","me","mi","tú","te","él","ella","nosotros","ellos","se","nos",
-  // Spanish conjunctions / qualifiers
+  "a","an","the","this","that","these","those",
+  "and","but","or","so","yet","nor","because","when","if","as",
+  "which","who","while","although","though",
+  "in","on","at","to","for","of","by","with","from","into","up","out",
+  "about","over","under","after","before","between","through","without",
+  "more","most","very","just","also","too","even","only","not","no",
+  "is","are","was","were","be","been","being","have","has","had",
+  "do","does","did","will","would","could","should","may","might",
+  // ── Spanish ──────────────────────────────────────────────────────────────
+  "el","la","los","las","un","una","unos","unas","al","del",
+  "yo","me","mi","tú","tu","te","él","ella","nosotros","ellos","se","nos",
+  "le","les","lo",
+  "a","de","en","con","por","para","sobre","bajo","entre","desde",
+  "hasta","hacia","sin","tras","ante","según","durante","mediante",
   "y","e","o","pero","sino","aunque","también","más","solo","muy",
+  "que","cuando","porque","como","si","ya","ni","pues","así","tan",
+  "este","esta","estos","estas","ese","esa","esos","esas","su","sus",
+  "es","son","fue","era","han","hay","ser","estar","ha","he","había",
 ])
 
-// Dimidium demo blocks — short Spanish words so they don't wrap in the
-// narrow preview container (2-3 short words per visual line, like a real Reel).
+// Dimidium demo blocks — mix of content words (yellow/large) and function words
+// (white/small) to accurately represent how real Spanish Reel scripts look.
 const DIM_BLOCKS = [
-  ["así",  "se",  "viraliza"],
-  ["tu",   "marca"],
-  ["con",  "ia"],
-  ["hoy",  "mismo"],
+  ["esto",  "es",  "lo"],
+  ["que",   "necesitas"],
+  ["para",  "crecer"],
+  ["en",    "redes"],
 ]
 
 // Flat list of states: (lineIdx, wordIdx within line)
