@@ -1028,7 +1028,7 @@ export default function CaptionStudio() {
                 <PresetCard
                   key={preset.id}
                   preset={preset}
-                  selected={local.preset_id === preset.id}
+                  selected={local.caption_engine !== "browser_experimental" && local.preset_id === preset.id}
                   saving={savingPresetId === preset.id}
                   onClick={() => applyPreset(preset)}
                 />
