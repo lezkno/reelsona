@@ -29,3 +29,12 @@ Browser engine branch runs **before** the `const style: CaptionStyle = {` block.
 ## Diagnostic endpoint
 `GET /api/captions/browser/preview-frame?templateId=authority_bold` returns a raw 1080×1920 PNG. Use to verify canvas works in the deployed environment before enabling for users.
 `GET /api/captions/browser/status` returns `{ available: boolean, error? }`.
+
+## Known bug: loadCanvas() race condition (fixed)
+The original `loadCanvas()` used a boolean flag `_loadAttempted`. If two callers raced (e.g. status endpoint + scheduler), the second caller saw `_loadAttempted=true` but `_canvasModule=null` and returned null — false negative. **Fix:** replaced with a Promise singleton `_loadPromise` so all concurrent callers await the same underlying import.
+
+## ASS fallback colors (fixed)
+When the browser engine fails, the ASS fallback uses `captionCfg.primaryColor` / `activeWordColor` from the DB. If the previous preset had both colors as `#FFFFFF`, the fallback output is all-white text. **Fix:** `applyBrowserTemplate()` in CaptionStudio now also saves the template's `primaryColor`, `activeWordColor`, and `outlineColor` to the DB alongside `caption_engine` + `template_id`.
+
+## Error visibility (improved)
+Pino's pretty-printer truncates JSON fields for long strings; the `error` field in the scheduler WARN was invisible. **Fix:** error string is now embedded in the WARN message body itself: `[BrowserEngine] Failed (${error}) — falling back...`. Also added `logger.info` checkpoints inside `applyCaptionsBrowser` before every early-exit path to make future tracing easier.

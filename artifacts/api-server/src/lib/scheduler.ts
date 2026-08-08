@@ -403,9 +403,10 @@ async function runCaptionProcessing(
     }
 
     // Browser engine failed — log warning, fall through to standard ASS engine as safety net
+    // Include error text in the message itself so pino's pretty-printer doesn't truncate it.
     logger.warn(
-      { videoId, error: browserResult.error },
-      "[BrowserEngine] Failed — falling back to standard ASS/FFmpeg engine",
+      { videoId },
+      `[BrowserEngine] Failed (${browserResult.error ?? "unknown error"}) — falling back to standard ASS/FFmpeg engine`,
     );
   }
 

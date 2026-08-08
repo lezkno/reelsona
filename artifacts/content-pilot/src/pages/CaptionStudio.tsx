@@ -936,11 +936,17 @@ export default function CaptionStudio() {
     setDirty(true)
   }
 
-  // Auto-save when a Browser Template is selected
+  // Auto-save when a Browser Template is selected.
+  // Also syncs the legacy ASS colors with the template's palette so that if the
+  // browser engine falls back to ASS, the output still uses the right colors.
   const applyBrowserTemplate = (template: CaptionTemplate) => {
     const update: Partial<CaptionConfig> = {
-      caption_engine: "browser_experimental",
-      template_id:    template.id,
+      caption_engine:    "browser_experimental",
+      template_id:       template.id,
+      // Mirror template colors → ASS fallback will use teal highlight, not all-white
+      primary_color:     template.primaryColor,
+      active_word_color: template.activeWordColor,
+      outline_color:     template.outlineColor,
     }
     setLocal((prev) => ({ ...prev, ...update }))
     setDirty(false)

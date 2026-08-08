@@ -56,17 +56,25 @@ const MAX_CUES = 400;
 
 type CanvasModule = typeof import("@napi-rs/canvas");
 
-let _canvasModule: CanvasModule | null = null;
-let _loadAttempted = false;
+/**
+ * Promise singleton — all concurrent callers share the same load attempt.
+ * Using a flag + null module caused a race condition: a second caller that
+ * arrived while the first was still awaiting `import(...)` would see
+ * _loadAttempted=true but _canvasModule=null and immediately return null,
+ * marking the engine as unavailable even though the load was in flight.
+ */
+let _loadPromise: Promise<CanvasModule | null> | null = null;
 
 async function loadCanvas(): Promise<CanvasModule | null> {
-  if (_loadAttempted) return _canvasModule;
-  _loadAttempted = true;
+  if (_loadPromise !== null) return _loadPromise;
+  _loadPromise = _doLoadCanvas();
+  return _loadPromise;
+}
 
+async function _doLoadCanvas(): Promise<CanvasModule | null> {
   try {
     // Dynamic import — if native binary is missing this throws and we fall back
     const mod = await import("@napi-rs/canvas");
-    _canvasModule = mod;
 
     // Register all bundled fonts
     const fontFiles = [
@@ -90,9 +98,10 @@ async function loadCanvas(): Promise<CanvasModule | null> {
     logger.info("[BrowserEngine] @napi-rs/canvas loaded ✓");
     return mod;
   } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
     logger.warn(
       { err },
-      "[BrowserEngine] @napi-rs/canvas unavailable — browser render disabled, standard engine will be used as fallback"
+      `[BrowserEngine] @napi-rs/canvas unavailable (${msg}) — browser render disabled, standard engine will be used as fallback`
     );
     return null;
   }
@@ -274,20 +283,24 @@ export async function applyCaptionsBrowser(
   templateId: string,
   opts?: { subtitleUrl?: string; videoDurationSeconds?: number },
 ): Promise<CaptionResult> {
+  logger.info({ templateId }, "[BrowserEngine] applyCaptionsBrowser invoked");
+
   // ── 1. Ensure canvas is available ────────────────────────────────────────
   const canvas = await loadCanvas();
+  logger.info({ canvasAvailable: !!canvas }, "[BrowserEngine] canvas check");
   if (!canvas) {
-    return {
-      url: null,
-      error:
-        "[BrowserEngine] @napi-rs/canvas not available — fallback to standard ASS engine",
-    };
+    const err = "[BrowserEngine] @napi-rs/canvas not available — fallback to standard ASS engine";
+    logger.warn(err);
+    return { url: null, error: err };
   }
 
   // ── 2. Resolve template ───────────────────────────────────────────────────
   const template = getBrowserTemplate(templateId);
+  logger.info({ templateFound: !!template, templateId }, "[BrowserEngine] template check");
   if (!template) {
-    return { url: null, error: `[BrowserEngine] Unknown template id: "${templateId}"` };
+    const err = `[BrowserEngine] Unknown template id: "${templateId}"`;
+    logger.warn(err);
+    return { url: null, error: err };
   }
 
   const runId  = `browser_${Date.now()}`;
