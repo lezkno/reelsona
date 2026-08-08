@@ -45,7 +45,7 @@ export interface CaptionStyle {
   fontSize: number;
   lineSpacingFactor: number;   // multiplier: 1.0 = tightest, 2.0 = very spaced
   activeWordScale: number;     // unused in v3 (scale overrides cause ASS issues)
-  highlightMode: "color" | "scale" | "both" | "mixed";
+  highlightMode: "color" | "scale" | "both" | "mixed" | "zoom";
   autoScale: boolean;
   autoMovement: boolean;
   subtleRotation: boolean;
@@ -345,6 +345,58 @@ function buildPopASS(
   return `${header}\n${dialogues.join("\n")}`;
 }
 
+// ─── Rendering mode: ZOOM IN (one word at a time, scale+fade animation) ──────
+//
+// Each word gets its own Dialogue. It starts at 60% scale / 50% transparent
+// and animates to 100% scale / fully opaque over ~200 ms using ASS \t() tags.
+// Positioned with alignment=5 (middle-center) so the scale anchor is centered.
+
+function buildZoomASS(
+  wordTimings: WordTiming[],
+  config: CaptionStyle,
+  videoWidth: number,
+  videoHeight: number
+): string {
+  const fontName      = resolveFontName(config.fontFamily);
+  const cx            = Math.round(videoWidth / 2);
+  const cy            = Math.round(videoHeight * (config.yPosition / 100));
+  const primaryColor  = hexToAss(config.primaryColor);
+  const accentColor   = hexToAss(config.activeWordColor);
+  const outlineColor  = hexToAss(config.outlineColor);
+  const letterSpacing = +(config.fontSize * 0.04).toFixed(1);
+  const outlineWidth  = Math.max(4, Math.round(config.fontSize * 0.06));
+
+  const header = `[Script Info]
+ScriptType: v4.00+
+PlayResX: ${videoWidth}
+PlayResY: ${videoHeight}
+ScaledBorderAndShadow: yes
+WrapStyle: 0
+YCbCr Matrix: TV.709
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Caption,${fontName},${config.fontSize},${primaryColor},${accentColor},${outlineColor},&H00000000,-1,0,0,0,100,100,${letterSpacing},0,1,${outlineWidth},2,5,0,0,0,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`;
+
+  // If accent differs from primary, tag it; otherwise the style primary handles it
+  const useAccentTag = config.activeWordColor.toUpperCase() !== config.primaryColor.toUpperCase();
+  const colorPrefix  = useAccentTag ? `\\c${accentColor}` : "";
+  const ANIM_MS      = 200;  // zoom duration ms
+
+  const dialogues = wordTimings.map((w) => {
+    const word    = w.text;  // preserve natural case — no forced uppercase
+    const animDur = Math.min(ANIM_MS, Math.round((w.end - w.start) * 0.5));
+    // Start: 60% scale, 50% transparent. Animate to 100% / fully opaque.
+    const tag = `{${colorPrefix}\\pos(${cx},${cy})\\fscx60\\fscy60\\alpha&H80&\\t(0,${animDur},1,\\fscx100\\fscy100\\alpha&H00&)}`;
+    return `Dialogue: 0,${msToAssTime(w.start)},${msToAssTime(w.end)},Caption,,0,0,0,,${tag}${word}`;
+  });
+
+  return `${header}\n${dialogues.join("\n")}`;
+}
+
 // ─── Rendering mode: DIMIDIUM (mixed sizes + line stacking) ──────────────────
 //
 // Inspired by the "Dimidium" caption app style seen in reference video.
@@ -555,6 +607,8 @@ function buildASS(
     return buildDimidiumASS(blocks, config, videoWidth, videoHeight);
   } else if (config.highlightMode === "color") {
     return buildHighlightLineASS(wordTimings, config, videoWidth, videoHeight);
+  } else if (config.highlightMode === "zoom") {
+    return buildZoomASS(wordTimings, config, videoWidth, videoHeight);
   } else {
     return buildPopASS(wordTimings, config, videoWidth, videoHeight);
   }
@@ -714,8 +768,9 @@ export async function applyCaptions(
 // ─── Presets ──────────────────────────────────────────────────────────────────
 //
 // Visual vocabulary of Caption Studio.
-// highlightMode "color"      → Highlight Line (show N words, accent active)
+// highlightMode "color"        → Highlight Line (show N words, accent active)
 // highlightMode "scale"/"both" → Pop (one word at a time, big)
+// highlightMode "zoom"         → Zoom In (one word, scale+fade animation)
 
 export const CAPTION_PRESETS: {
   id: string;
@@ -728,7 +783,7 @@ export const CAPTION_PRESETS: {
   fontFamily: string;
   fontSize: number;
   activeWordScale: number;
-  highlightMode: "color" | "scale" | "both" | "mixed";
+  highlightMode: "color" | "scale" | "both" | "mixed" | "zoom";
   autoMovement: boolean;
   subtleRotation: boolean;
 }[] = [
@@ -864,6 +919,21 @@ export const CAPTION_PRESETS: {
     fontSize: 72,
     activeWordScale: 1.1,
     highlightMode: "color",
+    autoMovement: false,
+    subtleRotation: false,
+  },
+  {
+    id: "zoomin",
+    name: "Zoom In",
+    description: "Una palabra a la vez con animación de zoom + fade. Efecto cinematográfico de alto impacto.",
+    primaryColor: "#FFE600",
+    activeWordColor: "#FFE600",
+    outlineColor: "#000000",
+    backgroundColor: null,
+    fontFamily: "Oswald",
+    fontSize: 150,
+    activeWordScale: 1,
+    highlightMode: "zoom",
     autoMovement: false,
     subtleRotation: false,
   },

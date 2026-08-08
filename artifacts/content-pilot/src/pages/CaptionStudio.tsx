@@ -28,6 +28,7 @@ const HIGHLIGHT_LABELS: Record<string, string> = {
   color: "Highlight Line (3 palabras, activa en color)",
   scale: "Pop (1 palabra a la vez, grande)",
   both: "Pop + Color (1 palabra en color de acento)",
+  zoom: "Zoom In (1 palabra con zoom + fade)",
 }
 const FONT_OPTIONS = ["Poppins", "Oswald", "Bangers", "DejaVu Sans", "Montserrat", "Inter", "Arial"]
 
@@ -45,7 +46,7 @@ function PresetCard({
   onClick: () => void
 }) {
   const isMixedMode = preset.highlight_mode === "mixed"
-  const isPopMode   = preset.highlight_mode === "scale" || preset.highlight_mode === "both"
+  const isPopMode   = preset.highlight_mode === "scale" || preset.highlight_mode === "both" || preset.highlight_mode === "zoom"
   const useAccent   = preset.highlight_mode === "both" || preset.highlight_mode === "color"
 
   const outlineColor = preset.outline_color ?? "#000000"
@@ -267,6 +268,7 @@ function CaptionPreview({
   onXMarginChange?: (x: number) => void
 }) {
   const isMixedMode  = config.highlight_mode === "mixed"
+  const isZoomMode   = config.highlight_mode === "zoom"
   const isPopMode    = config.highlight_mode === "scale" || config.highlight_mode === "both"
   const useAccent    = config.highlight_mode === "both" || config.highlight_mode === "color"
   const wordsPerLine = config.words_per_line ?? 3
@@ -283,11 +285,20 @@ function CaptionPreview({
   const allWords = ["ESTO", "ES", "TU", "CAPTION", "DINÁMICO", "EN", "ACCIÓN", "HOY"]
   const [activeIdx, setActiveIdx] = useState(0)
   const [dimTick, setDimTick] = useState(0)
+  // Zoom-in animation: reset to false on word change, then snap to true to trigger transition
+  const [zoomed, setZoomed] = useState(true)
 
   useEffect(() => {
     const t = setInterval(() => setActiveIdx((a) => (a + 1) % allWords.length), 700)
     return () => clearInterval(t)
   }, [allWords.length])
+
+  useEffect(() => {
+    if (!isZoomMode) return
+    setZoomed(false)
+    const t = setTimeout(() => setZoomed(true), 30)
+    return () => clearTimeout(t)
+  }, [isZoomMode, activeIdx])
 
   useEffect(() => {
     if (!isMixedMode) return
@@ -344,6 +355,27 @@ function CaptionPreview({
               })}
             </div>
           ))}
+        </div>
+      )
+    }
+
+    if (isZoomMode) {
+      const word = allWords[activeIdx]
+      return (
+        <div className="absolute left-0 right-0 flex justify-center"
+          style={{ top: baseY_px - largePx * 1.2, height: largePx * 2.4, alignItems: "center", display: "flex" }}>
+          <span style={{
+            fontFamily: fontFam, fontWeight: 700,
+            fontSize: `${largePx}px`,
+            color: config.active_word_color ?? "#FFE600",
+            textShadow: outlineShadow,
+            letterSpacing: "0.04em",
+            lineHeight: 1.2,
+            display: "inline-block",
+            transform: zoomed ? "scale(1)" : "scale(0.6)",
+            opacity: zoomed ? 1 : 0.35,
+            transition: "transform 0.2s ease-out, opacity 0.2s ease-out",
+          }}>{word}</span>
         </div>
       )
     }
