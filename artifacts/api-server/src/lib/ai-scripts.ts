@@ -8,6 +8,84 @@ function getClient(): OpenAI {
   });
 }
 
+// ── Language-aware prompt helpers ─────────────────────────────────────────────
+
+/** Returns a per-language style instruction injected at the top of every prompt. */
+function getLanguageInstruction(language: string): string {
+  const l = language.toLowerCase().trim();
+  if (l.startsWith("es") || l === "español")
+    return `IMPORTANTE: Usa español neutro (sin voseo, sin modismos regionales). Tutea al espectador ("tú", "te", "tu"), no uses "vos" ni conjugaciones del voseo. El contenido debe ser comprensible para cualquier hispanohablante.`;
+  if (l.startsWith("en") || l === "english" || l === "inglés")
+    return `IMPORTANT: Write entirely in clear, natural English. Use second person ("you"). Keep it conversational and accessible to any English-speaking audience.`;
+  if (l.startsWith("pt") || l === "português" || l === "portuguese")
+    return `IMPORTANTE: Use português neutro e natural. Use segunda pessoa ("você"). O conteúdo deve ser compreensível para qualquer falante de português.`;
+  if (l.startsWith("fr") || l === "français" || l === "french")
+    return `IMPORTANT : Rédigez entièrement en français naturel et courant. Utilisez le tutoiement ou le vouvoiement selon le ton choisi. Le contenu doit être compréhensible pour tout francophone.`;
+  if (l.startsWith("de") || l === "deutsch" || l === "german")
+    return `WICHTIG: Schreiben Sie vollständig auf natürlichem, klarem Deutsch. Verwenden Sie "du" oder "Sie" je nach Ton. Der Inhalt sollte für alle deutschsprachigen Zuschauer verständlich sein.`;
+  if (l.startsWith("it") || l === "italiano" || l === "italian")
+    return `IMPORTANTE: Scrivi interamente in italiano naturale e scorrevole. Usa il "tu" per rivolgerti allo spettatore. Il contenuto deve essere comprensibile per qualsiasi italofono.`;
+  return `IMPORTANT: Write the entire content in ${language}. Keep it natural and conversational for native speakers.`;
+}
+
+/** Returns AI-avatar disclosure CTAs translated to the given language. */
+function getAvatarCTAs(language: string): string[] {
+  const l = language.toLowerCase().trim();
+
+  if (l.startsWith("en") || l === "english" || l === "inglés") return [
+    "Follow me and I'll show you how to create an AI avatar just like this one.",
+    "Can you imagine having your own AI avatar? Follow me and I'll show you how.",
+    "I'm an avatar created with artificial intelligence. Follow me and learn how to build yours.",
+    "Everything you see here is artificial intelligence in action. Follow me and discover how to use it in your business.",
+    "Wondering how this is made? Follow me — I'll explain everything about AI avatars.",
+    "This entire video was made with artificial intelligence. Follow me to learn how to use it too.",
+    "I'm a digital avatar generated with AI. Follow me for more content like this.",
+    "This was built with artificial intelligence. Follow me and I'll help you create something like this for your business.",
+  ];
+
+  if (l.startsWith("pt") || l === "português" || l === "portuguese") return [
+    "Me siga e te ensino a criar um avatar de inteligência artificial como este.",
+    "Consegue imaginar ter seu próprio avatar de inteligência artificial? Me siga e te conto como.",
+    "Sou um avatar criado com inteligência artificial. Me siga e aprenda a criar o seu.",
+    "Isso que você vê é inteligência artificial em ação. Me siga e descubra como usá-la no seu negócio.",
+    "Se você se pergunta como isso é feito, me siga — explico tudo sobre avatares de inteligência artificial.",
+    "Todo este vídeo foi criado com inteligência artificial. Me siga para aprender a usá-la também.",
+  ];
+
+  if (l.startsWith("fr") || l === "français" || l === "french") return [
+    "Abonnez-vous et je vous montre comment créer un avatar d'intelligence artificielle comme celui-ci.",
+    "Vous imaginez avoir votre propre avatar IA ? Abonnez-vous et je vous explique tout.",
+    "Je suis un avatar créé avec l'intelligence artificielle. Suivez-moi et apprenez à créer le vôtre.",
+    "Tout ce que vous voyez ici est de l'IA en action. Abonnez-vous pour découvrir comment l'utiliser.",
+  ];
+
+  if (l.startsWith("de") || l === "deutsch" || l === "german") return [
+    "Folge mir und ich zeige dir, wie du einen KI-Avatar wie diesen erstellen kannst.",
+    "Kannst du dir vorstellen, deinen eigenen KI-Avatar zu haben? Folge mir und ich erkläre alles.",
+    "Ich bin ein Avatar, der mit künstlicher Intelligenz erstellt wurde. Folge mir und lerne, deinen eigenen zu bauen.",
+    "Alles, was du hier siehst, ist KI in Aktion. Folge mir und entdecke, wie du sie in deinem Business nutzt.",
+  ];
+
+  if (l.startsWith("it") || l === "italiano" || l === "italian") return [
+    "Seguimi e ti insegno a creare un avatar di intelligenza artificiale come questo.",
+    "Ti immagini avere il tuo avatar di intelligenza artificiale? Seguimi e ti spiego come.",
+    "Sono un avatar creato con l'intelligenza artificiale. Seguimi e scopri come creare il tuo.",
+    "Quello che vedi è intelligenza artificiale in azione. Seguimi e scopri come usarla nel tuo business.",
+  ];
+
+  // Default: Spanish
+  return [
+    "Sígueme y te enseño a crear un avatar de inteligencia artificial como este.",
+    "¿Te imaginas tener tu propio avatar de inteligencia artificial? Sígueme y te cuento cómo.",
+    "Soy un avatar creado con inteligencia artificial. Sígueme y aprende a crear el tuyo.",
+    "Esto que ves es inteligencia artificial en acción. Sígueme y descubre cómo usarla en tu negocio.",
+    "Si te preguntas cómo se hace esto, sígueme — te explico todo sobre los avatares de inteligencia artificial.",
+    "Todo lo que ves en este video es inteligencia artificial. Sígueme para aprender a usarla tú también.",
+    "Soy un avatar digital generado con inteligencia artificial. Sígueme para más contenido como este.",
+    "Este video fue creado con inteligencia artificial. Sígueme y te ayudo a crear algo así para tu negocio.",
+  ];
+}
+
 export interface ScriptOutput {
   topic: string;
   hook: string;
@@ -28,9 +106,12 @@ export async function generateScript(
   const client = getClient();
   const wordCount = Math.round((durationSeconds / 60) * 130); // ~130 wpm for video
 
+  const avatarCTAs = getAvatarCTAs(language);
+  const ctaList = avatarCTAs.map((c) => `   - "${c}"`).join("\n");
+
   const prompt = `Eres un experto en creación de contenido para Instagram Reels.
 
-IMPORTANTE: Usa español neutro (sin voseo, sin modismos regionales). Tutea al espectador ("tú", "te", "tu"), no uses "vos" ni conjugaciones del voseo como "seguime", "guardá", "comentá", "hacé". El contenido debe ser comprensible para cualquier hispanohablante.
+${getLanguageInstruction(language)}
 
 Crea un guion de video para un Reel de Instagram con estas especificaciones:
 - Nicho: ${niche}
@@ -40,16 +121,9 @@ Crea un guion de video para un Reel de Instagram con estas especificaciones:
 - Duración aproximada: ${durationSeconds} segundos (~${wordCount} palabras)
 
 REGLAS OBLIGATORIAS para el campo "script":
-1. El guion DEBE terminar con una llamada a la acción clara y directa hablada por el avatar (ej: "Sígueme para más tips como este", "Guarda este video y ponlo en práctica hoy", "Comenta abajo si te pasó esto").
+1. El guion DEBE terminar con una llamada a la acción clara y directa hablada por el avatar.
 2. La ÚLTIMA oración del guion SIEMPRE debe ser una de estas frases — elige UNA distinta cada vez (varía, no repitas siempre la misma):
-   - "Sígueme y te enseño a crear un avatar de inteligencia artificial como este."
-   - "¿Te imaginas tener tu propio avatar de inteligencia artificial? Sígueme y te cuento cómo."
-   - "Soy un avatar creado con inteligencia artificial. Sígueme y aprende a crear el tuyo."
-   - "Esto que ves es inteligencia artificial en acción. Sígueme y descubre cómo usarla en tu negocio."
-   - "Si te preguntas cómo se hace esto, sígueme — te explico todo sobre los avatares de inteligencia artificial."
-   - "Todo lo que ves en este video es inteligencia artificial. Sígueme para aprender a usarla tú también."
-   - "Soy un avatar digital generado con inteligencia artificial. Sígueme para más contenido como este."
-   - "Este video fue creado con inteligencia artificial. Sígueme y te ayudo a crear algo así para tu negocio."
+${ctaList}
 3. El hook debe ser la primera frase del guion (ya incluida dentro de "script").
 4. Sin indicaciones de escena, sin corchetes, sin asteriscos — solo texto hablado corrido.
 5. El tono debe sentirse conversacional, no como un comercial.
@@ -96,6 +170,8 @@ export async function regenerateCaption(
 
   const prompt = `Eres un experto en copywriting para Instagram Reels. Tu trabajo es escribir la descripción del post (caption) para acompañar el video.
 
+${getLanguageInstruction(language)}
+
 Nicho: ${niche}
 Tono: ${tone}
 Idioma: ${language}
@@ -107,10 +183,10 @@ ${script}
 """
 
 REGLAS ESTRICTAS:
-1. El caption debe tener 3-5 oraciones. Primera oración: hook que llame la atención y haga querer ver el video (puede empezar con emoji). Segunda/tercera: complementa o amplía lo más valioso del video. Última oración OBLIGATORIA: un llamado a la acción claro y específico (ej: "Guardá este video para cuando lo necesites 📌", "Seguime para más tips como este", "Comentá 👇 si ya lo usabas", "Compartí esto con alguien que lo necesite").
-2. Usa español neutro (tutea con "tú" o imperativos directos, nunca "vos" ni voseo).
+1. El caption debe tener 3-5 oraciones. Primera oración: hook que llame la atención y haga querer ver el video (puede empezar con emoji). Segunda/tercera: complementa o amplía lo más valioso del video. Última oración OBLIGATORIA: un llamado a la acción claro y específico.
+2. ${getLanguageInstruction(language)}
 3. El caption debe sentirse escrito por una persona real, no por una IA.
-4. Los hashtags: 10-15, mezcla entre específicos al tema (alcance medio) y amplios (#ia, #emprendedores, etc). Sin espacios entre ellos.
+4. Los hashtags: 10-15, mezcla entre específicos al tema (alcance medio) y amplios. Sin espacios entre ellos.
 
 Devuelve SOLO un JSON válido con esta estructura exacta:
 {
@@ -194,7 +270,7 @@ export async function generateContentTopics(
 
   const prompt = `Eres un estratega de contenido para Instagram Reels especializado en crecimiento orgánico.
 
-IMPORTANTE: Usa español neutro (sin voseo, sin modismos regionales). Tutea al espectador ("tú", "te"). Todo debe sonar natural cuando lo dice un avatar en video.
+${getLanguageInstruction(language)}
 
 Genera un plan de contenido con EXACTAMENTE ${total} temas únicos para:
 - Nicho: ${niche}

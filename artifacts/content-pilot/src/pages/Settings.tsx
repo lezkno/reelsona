@@ -17,6 +17,29 @@ import { useToast } from "@/hooks/use-toast"
 import { useEffect, useState } from "react"
 import { Save, CheckCircle2, XCircle, Loader2, Link2, Link2Off, Eye, EyeOff, RefreshCw } from "lucide-react"
 
+// ── Supported script languages ────────────────────────────────────────────────
+const LANGUAGES = [
+  { code: "es", label: "🇪🇸 Español" },
+  { code: "en", label: "🇺🇸 English" },
+  { code: "pt", label: "🇧🇷 Português" },
+  { code: "fr", label: "🇫🇷 Français" },
+  { code: "de", label: "🇩🇪 Deutsch" },
+  { code: "it", label: "🇮🇹 Italiano" },
+]
+
+/** Normalize legacy values ("es-ES", "en-US", "español"…) to a canonical code. */
+function normalizeLanguage(value: string | null | undefined): string {
+  if (!value) return "es"
+  const v = value.toLowerCase().trim()
+  if (v.startsWith("es") || v === "español") return "es"
+  if (v.startsWith("en") || v === "english" || v === "inglés") return "en"
+  if (v.startsWith("pt") || v === "português") return "pt"
+  if (v.startsWith("fr") || v === "français") return "fr"
+  if (v.startsWith("de") || v === "deutsch") return "de"
+  if (v.startsWith("it") || v === "italiano") return "it"
+  return "es"
+}
+
 // ── HeyGen integration card ───────────────────────────────────────────────────
 
 function HeyGenIntegrationCard() {
@@ -407,11 +430,22 @@ export default function Settings() {
             </div>
             <div className="space-y-2">
               <Label>Idioma de los Guiones</Label>
-              <Input
-                value={formData.language || 'es-ES'}
-                onChange={e => handleChange('language', e.target.value)}
-                placeholder="es-ES, en-US, etc."
-              />
+              <Select
+                value={normalizeLanguage(formData.language)}
+                onValueChange={(v) => handleChange('language', v)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Seleccioná un idioma" />
+                </SelectTrigger>
+                <SelectContent>
+                  {LANGUAGES.map(l => (
+                    <SelectItem key={l.code} value={l.code}>{l.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                La IA generará guiones, captions y temas de contenido en este idioma.
+              </p>
             </div>
           </div>
         </CardContent>
