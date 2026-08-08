@@ -102,11 +102,11 @@ function HeyGenIntegrationCard() {
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-center gap-3">
             {/* HeyGen brand mark */}
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-600 to-violet-800 flex items-center justify-center shrink-0 shadow-sm">
-              <svg viewBox="0 0 24 24" className="w-5 h-5 fill-white" aria-hidden>
-                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/>
-              </svg>
-            </div>
+            <img
+              src="/content-pilot/heygen-logo.png"
+              alt="HeyGen"
+              className="w-10 h-10 rounded-xl shrink-0 object-cover"
+            />
             <div>
               <CardTitle className="text-base">HeyGen</CardTitle>
               <CardDescription className="text-xs mt-0.5">Generación de videos con avatares de IA</CardDescription>
