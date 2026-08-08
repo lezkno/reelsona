@@ -142,3 +142,49 @@ export function useDeleteAdminUser() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["admin", "users"] }),
   });
 }
+
+// ── HeyGen account integration ────────────────────────────────────────────────
+
+export interface HeyGenAccountStatus {
+  connected: boolean;
+  remaining_quota: number | null;
+  total_quota: number | null;
+  /** Where the key came from: "db" = user-stored, "env" = server env var, "none" = not set */
+  key_source: "db" | "env" | "none";
+  error?: string;
+}
+
+export const HEYGEN_ACCOUNT_QUERY_KEY = ["heygen", "account"] as const;
+
+/** Fetch HeyGen connection status and remaining API credits. */
+export function useHeyGenAccount() {
+  return useQuery<HeyGenAccountStatus>({
+    queryKey: HEYGEN_ACCOUNT_QUERY_KEY,
+    queryFn: () => customFetch<HeyGenAccountStatus>("/api/heygen/account"),
+    staleTime: 1000 * 60 * 2,   // 2 minutes — quota changes slowly
+    retry: false,
+  });
+}
+
+/** Save a HeyGen API key (validates before saving). */
+export function useConnectHeyGen() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ api_key }: { api_key: string }) =>
+      customFetch<HeyGenAccountStatus>("/api/heygen/account/connect", {
+        method: "POST",
+        body: JSON.stringify({ api_key }),
+        headers: { "Content-Type": "application/json" },
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: HEYGEN_ACCOUNT_QUERY_KEY }),
+  });
+}
+
+/** Remove the user-stored HeyGen API key (falls back to env var if set). */
+export function useDisconnectHeyGen() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => customFetch<{ ok: boolean }>("/api/heygen/account", { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: HEYGEN_ACCOUNT_QUERY_KEY }),
+  });
+}

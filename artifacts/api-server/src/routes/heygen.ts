@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { avatarConfigTable } from "@workspace/db";
+import { avatarConfigTable, settingsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import {
   GetHeyGenAvatarsResponse,
@@ -12,7 +12,7 @@ import {
   UpdateAvatarConfigBody,
   UpdateAvatarConfigResponse,
 } from "@workspace/api-zod";
-import { listAvatars, listVoices, listAvatarGroups, listGroupLooks } from "../lib/heygen";
+import { listAvatars, listVoices, listAvatarGroups, listGroupLooks, getHeyGenQuota, validateHeyGenKey } from "../lib/heygen";
 
 const router = Router();
 
@@ -182,6 +182,77 @@ router.put("/heygen/avatar-config", async (req, res): Promise<void> => {
       last_used_avatar_id: config.lastUsedAvatarId ?? null,
     })
   );
+});
+
+// ── HeyGen account / integration ─────────────────────────────────────────────
+
+/** GET /heygen/account — connection status + remaining quota */
+router.get("/heygen/account", async (req, res): Promise<void> => {
+  const [settings] = await db
+    .select({ heygenApiKey: settingsTable.heygenApiKey })
+    .from(settingsTable)
+    .limit(1);
+
+  const dbKey = settings?.heygenApiKey ?? null;
+  const apiKey = dbKey ?? process.env.HEYGEN_API_KEY ?? null;
+
+  if (!apiKey) {
+    res.json({ connected: false, remaining_quota: null, total_quota: null, key_source: "none" });
+    return;
+  }
+
+  const quota = await getHeyGenQuota(apiKey);
+  const connected = quota.remaining !== null || quota.total !== null
+    ? true
+    : await validateHeyGenKey(apiKey);
+
+  res.json({
+    connected,
+    remaining_quota: quota.remaining,
+    total_quota: quota.total,
+    key_source: dbKey ? "db" : "env",
+  });
+});
+
+/** POST /heygen/account/connect — validate + persist a new API key */
+router.post("/heygen/account/connect", async (req, res): Promise<void> => {
+  const { api_key } = req.body ?? {};
+  if (!api_key || typeof api_key !== "string" || !api_key.trim()) {
+    res.status(400).json({ error: "api_key es requerida" });
+    return;
+  }
+
+  const trimmedKey = api_key.trim();
+
+  // Validate before saving
+  const quota = await getHeyGenQuota(trimmedKey);
+  const valid = quota.remaining !== null || quota.total !== null
+    ? true
+    : await validateHeyGenKey(trimmedKey);
+
+  if (!valid) {
+    res.status(400).json({ error: "API Key inválida. Verificá que sea correcta en tu cuenta de HeyGen." });
+    return;
+  }
+
+  // Persist to settings
+  const [existing] = await db.select().from(settingsTable).limit(1);
+  if (existing) {
+    await db.update(settingsTable).set({ heygenApiKey: trimmedKey }).where(eq(settingsTable.id, existing.id));
+  } else {
+    await db.insert(settingsTable).values({ niche: "", heygenApiKey: trimmedKey });
+  }
+
+  res.json({ connected: true, remaining_quota: quota.remaining, total_quota: quota.total, key_source: "db" });
+});
+
+/** DELETE /heygen/account — remove the user-stored key (falls back to env var) */
+router.delete("/heygen/account", async (req, res): Promise<void> => {
+  const [existing] = await db.select().from(settingsTable).limit(1);
+  if (existing) {
+    await db.update(settingsTable).set({ heygenApiKey: null }).where(eq(settingsTable.id, existing.id));
+  }
+  res.json({ ok: true });
 });
 
 export default router;

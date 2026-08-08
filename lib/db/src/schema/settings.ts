@@ -12,6 +12,7 @@ export const settingsTable = pgTable("settings", {
   videoDurationSeconds: integer("video_duration_seconds").notNull().default(60),
   includeCaptions: boolean("include_captions").notNull().default(true),
   watermarkText: text("watermark_text"),
+  heygenApiKey: text("heygen_api_key"),
 });
 
 export const insertSettingsSchema = createInsertSchema(settingsTable).omit({ id: true });

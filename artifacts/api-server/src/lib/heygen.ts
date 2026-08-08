@@ -3,13 +3,47 @@ import { logger } from "./logger";
 
 const HEYGEN_BASE_URL = "https://api.heygen.com";
 
-function getClient() {
-  const apiKey = process.env.HEYGEN_API_KEY;
-  if (!apiKey) throw new Error("HEYGEN_API_KEY is not set");
+function getClient(apiKey?: string) {
+  const key = apiKey ?? process.env.HEYGEN_API_KEY;
+  if (!key) throw new Error("HEYGEN_API_KEY is not set");
   return axios.create({
     baseURL: HEYGEN_BASE_URL,
-    headers: { "X-Api-Key": apiKey, "Content-Type": "application/json" },
+    headers: { "X-Api-Key": key, "Content-Type": "application/json" },
+    timeout: 15000,
   });
+}
+
+export interface HeyGenQuota {
+  remaining: number | null;
+  total: number | null;
+}
+
+/** Fetch remaining + total API credits for a given HeyGen key. */
+export async function getHeyGenQuota(apiKey: string): Promise<HeyGenQuota> {
+  const client = getClient(apiKey);
+  try {
+    const res = await client.get("/v2/user/remaining.quota");
+    const data = res.data?.data ?? {};
+    const remaining = typeof data.remaining_quota === "number" ? data.remaining_quota : null;
+    // details array may hold per-type breakdowns with a total
+    const details: Array<{ remaining?: number; total?: number; type?: string }> = Array.isArray(data.details) ? data.details : [];
+    const credit = details.find((d) => d.type === "api_credit") ?? details[0] ?? {};
+    const total = typeof credit.total === "number" ? credit.total : null;
+    return { remaining, total };
+  } catch {
+    return { remaining: null, total: null };
+  }
+}
+
+/** Quick key-validity check (returns true when HeyGen responds with code 100 / HTTP 200). */
+export async function validateHeyGenKey(apiKey: string): Promise<boolean> {
+  try {
+    const client = getClient(apiKey);
+    const res = await client.get("/v2/user/remaining.quota");
+    return res.data?.code === 100 || res.status === 200;
+  } catch {
+    return false;
+  }
 }
 
 export interface HeyGenAvatar {

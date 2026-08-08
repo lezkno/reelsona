@@ -1,5 +1,6 @@
 - [Instagram OAuth setup gotchas](instagram-oauth-setup.md) — "Invalid redirect_uri" can mean wrong Instagram App ID; redirect_uri must match in 3 places; open OAuth in new tab from Replit iframe.
 - [HeyGen API quirks](heygen-api-quirks.md) — voices use `preview_audio` (not `_url`); group looks mix two field shapes; dump a raw response before writing schemas.
+- [HeyGen account integration](heygen-account-integration.md) — API key stored in settings.heygen_api_key (DB) with env var fallback; quota via GET /v2/user/remaining.quota; custom hooks in lib/api-client-react/src/custom-endpoints.ts.
 - [HeyGen v3 migration](heygen-v3-migration.md) — v2 API deprecated (sunset Oct 2026); v3 uses flat payload with top-level `type: "avatar"` for all avatar types; no more `talking_photo` character type; engine and expressiveness fields control quality.
 - [Caption engine architecture](caption-engine-arch.md) — HeyGen v3 returns subtitle_url (SRT) when caption param is set; FFmpeg+libass burns styled ASS captions; captioned videos served at /api/captioned/:file from /tmp/contentpilot-captioned/.
 - [Avatar rotation bug](avatar-rotation-bug.md) — Stored avatarId on content items must be validated against current selectedAvatarIds before use; if removed from selection, re-pick via pickNextAvatar.
