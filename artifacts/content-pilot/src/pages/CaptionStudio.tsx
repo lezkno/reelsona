@@ -312,6 +312,13 @@ function TemplateCaptionPreview({ template }: { template: CaptionTemplate }) {
 }
 
 // ─── Browser Template Card ────────────────────────────────────────────────────
+// The preview uses a CSS-scaled 250×444 mini-frame (same pixel values as
+// TemplateCaptionPreview) so the card thumbnail is a pixel-perfect miniature
+// of the phone preview — no separate CARD_H scaling needed.
+
+const PHONE_SCREEN_W = 250  // px — matches PhoneFrame screen width (270 outer − 2×10 padding)
+const CARD_PREVIEW_H = 220  // px — h-[220px] on the card preview container
+const CARD_SCALE     = CARD_PREVIEW_H / PHONE_SCREEN_H  // ≈ 0.495
 
 function BrowserTemplateCard({
   template,
@@ -324,18 +331,16 @@ function BrowserTemplateCard({
   saving: boolean
   onClick: () => void
 }) {
-  // CARD_H must match the h-[Xpx] on the preview container below — this guarantees
-  // scaleToHeight produces font sizes that are proportionally correct in the card.
-  const CARD_H   = 220
-  const scaledFS = Math.round(scaleToHeight(template.fontSize,    CARD_H))
-  const scaledOW = +scaleToHeight(template.outlineWidth,  CARD_H).toFixed(1)
-  const scaledSX = +scaleToHeight(template.shadowOffsetX, CARD_H).toFixed(1)
-  const scaledSY = +scaleToHeight(template.shadowOffsetY, CARD_H).toFixed(1)
-  const scaledBl = +scaleToHeight(template.shadowBlur,    CARD_H).toFixed(1)
-  // Same yPercent-based positioning as TemplateCaptionPreview
-  const baselineY = getBaselineY(template, CARD_H)
+  // Use PHONE_SCREEN_H for all scaling — identical to TemplateCaptionPreview.
+  // A CSS transform shrinks the 250×444 frame to fit the card thumbnail area.
+  const scaledFS = Math.round(scaleToHeight(template.fontSize,    PHONE_SCREEN_H))
+  const scaledOW = +scaleToHeight(template.outlineWidth,  PHONE_SCREEN_H).toFixed(1)
+  const scaledSX = +scaleToHeight(template.shadowOffsetX, PHONE_SCREEN_H).toFixed(1)
+  const scaledSY = +scaleToHeight(template.shadowOffsetY, PHONE_SCREEN_H).toFixed(1)
+  const scaledBl = +scaleToHeight(template.shadowBlur,    PHONE_SCREEN_H).toFixed(1)
+  const baselineY = getBaselineY(template, PHONE_SCREEN_H)
 
-  const demoWords = DEMO_WORDS.slice(0, Math.min(template.wordsPerLine, 3))
+  const demoWords = DEMO_WORDS.slice(0, template.wordsPerLine)
 
   return (
     <button
@@ -347,30 +352,47 @@ function BrowserTemplateCard({
           : "border-border hover:border-violet-400/40 hover:scale-[1.005]"
       }`}
     >
-      {/* Visual preview — fixed h-[220px] so CARD_H matches actual rendered height */}
-      <div
-        className="h-[220px] relative overflow-hidden select-none"
+      {/* Outer crop window — fixed height, clips the scaled mini-frame */}
+      <div className="h-[220px] relative overflow-hidden select-none"
         style={{ background: "linear-gradient(to bottom, #1a1a2e 0%, #16213e 60%, #0f3460 100%)" }}
       >
-        {/* Same bottom-anchor technique as TemplateCaptionPreview */}
-        <div
-          className="absolute left-0 right-0 flex items-end justify-center"
-          style={{
-            top:          0,
-            height:       baselineY,
-            paddingLeft:  `${template.marginXPercent}%`,
-            paddingRight: `${template.marginXPercent}%`,
-          }}
-        >
-          <div className="flex flex-wrap justify-center items-end gap-x-1 gap-y-0.5">
-            {demoWords.map((word, i) => (
-              <span
-                key={i}
-                style={buildWordStyle(template, i === 1, scaledFS, scaledOW, scaledSX, scaledSY, scaledBl) as React.CSSProperties}
-              >
-                {template.uppercase ? word.toUpperCase() : word}
-              </span>
-            ))}
+        {/* Mini video frame: 250×444, CSS-scaled to CARD_PREVIEW_H.
+            Uses the same pixel values as TemplateCaptionPreview → pixel-perfect WYSIWYG. */}
+        <div style={{
+          position:        "absolute",
+          top:             0,
+          left:            "50%",
+          marginLeft:      -(PHONE_SCREEN_W / 2),
+          width:           PHONE_SCREEN_W,
+          height:          PHONE_SCREEN_H,
+          transformOrigin: "top center",
+          transform:       `scale(${CARD_SCALE})`,
+          background:      "linear-gradient(160deg, #1a1a2e 0%, #16213e 55%, #0f3460 100%)",
+        }}>
+          {/* Bottom gradient — matches TemplateCaptionPreview */}
+          <div className="absolute bottom-0 left-0 right-0 h-44 pointer-events-none"
+            style={{ background: "linear-gradient(to top, rgba(0,0,0,0.75) 0%, transparent 100%)" }} />
+
+          {/* Caption words — identical positioning to TemplateCaptionPreview */}
+          <div
+            className="absolute left-0 right-0 flex items-end justify-center"
+            style={{
+              top:          0,
+              height:       baselineY,
+              paddingLeft:  `${template.marginXPercent}%`,
+              paddingRight: `${template.marginXPercent}%`,
+            }}
+          >
+            <div className="flex flex-wrap justify-center items-end gap-x-1 gap-y-0.5">
+              {demoWords.map((word, i) => (
+                <span
+                  key={i}
+                  style={buildWordStyle(template, i === 1, scaledFS, scaledOW, scaledSX, scaledSY, scaledBl) as React.CSSProperties}
+                >
+                  {template.uppercase ? word.toUpperCase() : word}
+                </span>
+              ))}
+            </div>
           </div>
         </div>
       </div>
