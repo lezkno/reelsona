@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react"
-import { useGetCaptionPresets, useGetCaptionConfig, useUpdateCaptionConfig, useGetAutomation, useUpdateAutomation } from "@workspace/api-client-react"
+import { useGetCaptionPresets, useGetCaptionConfig, useUpdateCaptionConfig, useGetAutomation, useUpdateAutomation, getGetAutomationQueryKey } from "@workspace/api-client-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -1116,12 +1116,15 @@ export default function CaptionStudio() {
   const handleToggle = (enabled: boolean) => {
     setCaptionsEnabled(enabled)
     updateAutomation.mutate({ data: { captions_enabled: enabled } }, {
-      onSuccess: () => toast({
-        title: enabled ? "Captions activados" : "Captions desactivados",
-        description: enabled
-          ? "Los próximos videos recibirán captions dinámicos antes de publicarse."
-          : "Los videos se publicarán con el video original de HeyGen.",
-      }),
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: getGetAutomationQueryKey() })
+        toast({
+          title: enabled ? "Captions activados" : "Captions desactivados",
+          description: enabled
+            ? "Los próximos videos recibirán captions dinámicos antes de publicarse."
+            : "Los videos se publicarán con el video original de HeyGen.",
+        })
+      },
       onError: () => {
         setCaptionsEnabled(!enabled)
         toast({ title: "Error", description: "No se pudo actualizar.", variant: "destructive" })

@@ -3,21 +3,22 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
-import { FileText, UserSquare2, Send, CheckCircle2, Clock, AlertTriangle, Loader2 } from "lucide-react"
+import { FileText, UserSquare2, Captions, Send, CheckCircle2, Clock, AlertTriangle, Loader2 } from "lucide-react"
 
 /**
- * Production pipeline (3 visible steps):
- * 1. Guion          — AI writes hook, script, CTA, caption and hashtags
- * 2. Video con Avatar — HeyGen renders the video (caption processing is a
- *    background sub-step shown as part of this step, not a separate stage)
- * 3. Publicar en IG  — the Reel is uploaded and published
+ * Production pipeline:
+ * 1. Guion            — AI writes hook, script, CTA, caption and hashtags
+ * 2. Video con Avatar — HeyGen renders the video
+ * 3. Caption Studio   — FFmpeg burns styled captions (only shown when captionsEnabled)
+ * 4. Publicar en IG   — the Reel is uploaded and published
  *
- * Caption Studio runs automatically between Video and Publicar when
- * captions_enabled is active — it is not surfaced as a separate pipeline step.
+ * When captions are DISABLED globally, step 3 (Caption Studio) is hidden and
+ * the pipeline shows only 3 steps.
  */
 const STEPS = [
   { key: "script",  label: "Guion",           desc: "La IA escribe el guion y el hook",       eta: "~1 min",    icon: FileText    },
   { key: "video",   label: "Video con Avatar", desc: "HeyGen crea el video con tu avatar",     eta: "~5-15 min", icon: UserSquare2 },
+  { key: "caption", label: "Caption Studio",   desc: "Se aplican captions animados al video",  eta: "~2-5 min",  icon: Captions    },
   { key: "publish", label: "Publicar en IG",   desc: "Se sube y publica el Reel",              eta: "~2-5 min",  icon: Send        },
 ] as const
 
@@ -25,8 +26,8 @@ const STEPS = [
  * Pipeline display modes.
  *
  *  generating       → HeyGen is actively rendering the video
- *  captioning       → ready, captions pending/processing (runs in background)
- *  awaiting_publish → ready, captions terminal (done/failed/disabled)
+ *  captioning       → ready, but captions are pending/processing (null or "processing")
+ *  awaiting_publish → ready, captions terminal (done/failed/disabled), waiting to publish
  *  scripted_waiting → script done, waiting for video to be generated
  *  next             → upcoming draft/scripted scheduled in the future
  *  done             → all done, showing the last published item
@@ -34,15 +35,16 @@ const STEPS = [
 type PipelineMode = "generating" | "captioning" | "awaiting_publish" | "scripted_waiting" | "next" | "done"
 
 /**
- * Map item status → (step index, % progress) for the 3-step pipeline.
- *
- * Step indices:
- *  0 → Guion
- *  1 → Video con Avatar  (covers caption processing as a sub-step)
- *  2 → Publicar en IG
- *  3 → all done (published)
+ * Determine which step (0-based) is the current/active step and the overall % progress.
  *
  * caption_status values: null | "disabled" | "processing" | "done" | "failed"
+ *
+ * Step mapping (4-step pipeline):
+ *  step 0 → Guion
+ *  step 1 → Video
+ *  step 2 → Caption Studio
+ *  step 3 → Publicar
+ *  step 4 → all done
  */
 function getProgress(item: ContentPlanItem): { step: number; percent: number } {
   const cs = item.caption_status
@@ -58,16 +60,16 @@ function getProgress(item: ContentPlanItem): { step: number; percent: number } {
       return { step: 1, percent: 55 }
 
     case "ready": {
-      // Caption in-flight → Video step is still "active" (finalizing video)
-      if (cs === null || cs === "processing") {
-        return { step: 1, percent: 75 }
+      // Only terminal caption states unlock the publish step.
+      if (cs === "done" || cs === "failed" || cs === "disabled") {
+        return { step: 3, percent: 90 }
       }
-      // Captions done / failed / disabled → ready to publish
-      return { step: 2, percent: 90 }
+      // null (pending) or "processing" → caption step is still in flight
+      return { step: 2, percent: 75 }
     }
 
     case "published":
-      return { step: 3, percent: 100 }
+      return { step: 4, percent: 100 }
 
     default:
       return { step: -1, percent: 0 }
@@ -123,7 +125,7 @@ function getHeaderLabel(mode: PipelineMode, willAutoPublish: boolean | undefined
 
 export default function PipelineTimeline() {
   const { data: items } = useGetContentPlan({ limit: 100 }, { query: { refetchInterval: 15000 } as any })
-  const { data: automation } = useGetAutomation()
+  const { data: automation } = useGetAutomation({ query: { refetchInterval: 10000 } as any })
 
   const active = items ? pickActiveItem(items) : null
   if (!active) return null
@@ -131,6 +133,14 @@ export default function PipelineTimeline() {
   const { item, mode } = active
   const { step, percent } = getProgress(item)
   const willAutoPublish = automation?.enabled && automation?.auto_publish
+
+  // Caption Studio step is shown only when captions are globally enabled.
+  // When captions are disabled, the step is hidden and the pipeline shows 3 steps.
+  const captionsEnabled = automation?.captions_enabled ?? true
+  const visibleSteps = captionsEnabled ? STEPS : STEPS.filter((s) => s.key !== "caption")
+
+  // Remap step index when caption step is hidden (shift steps 3+ down by 1)
+  const displayStep = !captionsEnabled && step >= 2 ? step - 1 : step
 
   // Only show a spinner when something is actively processing — not when waiting.
   const isActivelyProcessing = mode === "generating" || mode === "captioning"
@@ -161,12 +171,12 @@ export default function PipelineTimeline() {
 
         <Progress value={percent} className="h-1.5 mb-4" />
 
-        <div className="grid grid-cols-3 gap-2">
-          {STEPS.map((s, i) => {
+        <div className={`grid gap-2 ${visibleSteps.length === 3 ? "grid-cols-3" : "grid-cols-2 sm:grid-cols-4"}`}>
+          {visibleSteps.map((s, i) => {
             const Icon = s.icon
-            const done    = step > i
-            // "current" is the active/next step — not for draft or failed items
-            const current = step === i && mode !== "next" && mode !== "done" && item.status !== "draft" && item.status !== "failed"
+            const done    = displayStep > i
+            // "current" means this step is the active/next one — not for draft or failed items
+            const current = displayStep === i && mode !== "next" && mode !== "done" && item.status !== "draft" && item.status !== "failed"
             const failed  = item.status === "failed"
             // Spinner only when something is genuinely running
             const showSpinner = current && isActivelyProcessing
@@ -174,15 +184,17 @@ export default function PipelineTimeline() {
             // ── Status label ──────────────────────────────────────────────
             let statusLabel = done ? "Completado" : current ? "En espera..." : s.eta
 
-            // Video step: distinguish rendering vs. caption processing vs. queued
+            // Video step: distinguish rendering vs. queued
             if (s.key === "video" && current) {
-              if (mode === "generating") {
-                statusLabel = "Renderizando..."
-              } else if (mode === "captioning") {
-                statusLabel = item.caption_status === "processing" ? "Aplicando captions..." : "Finalizando video..."
-              } else {
-                statusLabel = "En espera de HeyGen"
-              }
+              statusLabel = mode === "generating" ? "Renderizando..." : "En espera de HeyGen"
+            }
+
+            // Caption step: distinguish null (queued) vs. processing
+            if (s.key === "caption" && current) {
+              statusLabel = item.caption_status === "processing" ? "Procesando..." : "En cola..."
+            }
+            if (s.key === "caption" && done && item.caption_status === "failed") {
+              statusLabel = "Omitido (error)"
             }
 
             // Publish step: be explicit about what's needed
