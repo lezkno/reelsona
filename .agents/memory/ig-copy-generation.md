@@ -34,5 +34,13 @@ In `pollAndPublishVideos`, a JOIN query finds `content_plan_items.status='ready'
 ## Frontend (PipelineTimeline)
 New step key `"copy"`, new mode `"copy_generating"`. Step is always visible (no condition to hide it). `pickActiveItem` priority 3 = captions terminal + copy null/generating. Uses violet accent (same as review step) when active. Grid expanded to handle up to 6 columns.
 
+## Auto-publish gate
+Auto-publish must NOT fire before copy is done. Three-point fix:
+1. `processGeneratingVideos`: skips direct auto-publish for plan-linked items (`noCopyPending = !video.contentPlanId`); lets `runCopyGeneration` fire it instead.
+2. `pollAndPublishVideos` sweep: LEFT JOINs `content_plan_items` and adds `OR(contentPlanId IS NULL, copyStatus IN ('done','failed'))` guard.
+3. `runCopyGeneration`: after try/catch, reads automation config and calls `publishVideoToInstagram` fire-and-forget if auto_publish on and video still ready.
+
+**Why:** caption processing triggers copy fire-and-forget (~10s). Without the gate, the next scheduler minute-tick would auto-publish before copy finished, sending the post with no description.
+
 ## api-zod schemas
 `copy_status` added to all 5 content item response Zod schemas in `lib/api-zod/src/generated/api.ts` and to the TypeScript type in `generated/types/contentPlanItem.ts`. Field added to `mapItem()` in `content.ts`.

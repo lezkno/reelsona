@@ -13,7 +13,7 @@ import {
 } from "@workspace/db";
 import { applyCaptions, CAPTION_DIR, type CaptionStyle } from "./caption-engine";
 import { applyCaptionsBrowser } from "./browser-caption-engine";
-import { eq, and, lte, inArray, isNull } from "drizzle-orm";
+import { eq, and, lte, inArray, isNull, or } from "drizzle-orm";
 import { logger } from "./logger";
 import { generateScript, regenerateCaption } from "./ai-scripts";
 import { generateVideo, getVideoStatus, listVoices, getAvatarDefaultVoiceId } from "./heygen";
@@ -526,6 +526,25 @@ async function runCopyGeneration(contentItemId: number): Promise<void> {
       .where(eq(contentPlanItemsTable.id, contentItemId))
       .catch(() => {});
   }
+
+  // ── Trigger auto-publish if configured ───────────────────────────────────
+  // processGeneratingVideos skips direct auto-publish for plan-linked items so
+  // copy can generate first. Fire it here once copy is terminal (done or failed).
+  if (item?.videoId) {
+    const [automation] = await db.select().from(automationConfigTable).limit(1);
+    if (automation?.enabled && automation?.autoPublish) {
+      const [video] = await db.select().from(videosTable).where(eq(videosTable.id, item.videoId));
+      const captionTerminal =
+        video?.captionStatus === "done" ||
+        video?.captionStatus === "failed" ||
+        video?.captionStatus === "disabled";
+      if (video?.status === "ready" && captionTerminal) {
+        publishVideoToInstagram(item.videoId).catch((err) =>
+          logger.error({ videoId: item.videoId, err }, "[CopyEngine] Auto-publish failed after copy generation")
+        );
+      }
+    }
+  }
 }
 
 export async function pollAndPublishVideos(): Promise<void> {
@@ -633,24 +652,32 @@ export async function pollAndPublishVideos(): Promise<void> {
   }
 
   // ── Auto-publish all ready videos when automation + auto_publish are on ──
+  // Only publish when both caption AND copy are in a terminal state so the
+  // Instagram description is ready before the post goes live.
   if (automation?.enabled && automation?.autoPublish) {
     const readyVideos = await db
-      .select()
+      .select({ id: videosTable.id, scheduledPublishAt: videosTable.scheduledPublishAt })
       .from(videosTable)
+      .leftJoin(contentPlanItemsTable, eq(contentPlanItemsTable.id, videosTable.contentPlanId))
       .where(
         and(
           eq(videosTable.status, "ready"),
-          inArray(videosTable.captionStatus as any, ["done", "failed", "disabled"])
+          inArray(videosTable.captionStatus as any, ["done", "failed", "disabled"]),
+          // copy must be terminal OR video has no linked content plan
+          or(
+            isNull(videosTable.contentPlanId),
+            inArray(contentPlanItemsTable.copyStatus as any, ["done", "failed"])
+          )
         )
       );
 
     for (const video of readyVideos) {
       if (video.scheduledPublishAt) continue; // handled above (or not yet due)
       try {
-        logger.info({ videoId: video.id }, "[Scheduler] Publishing stalled ready video");
+        logger.info({ id: video.id }, "[Scheduler] Publishing stalled ready video");
         await publishVideoToInstagram(video.id);
       } catch (err) {
-        logger.error({ videoId: video.id, err }, "[Scheduler] Failed to publish stalled video");
+        logger.error({ id: video.id, err }, "[Scheduler] Failed to publish stalled video");
       }
     }
   }
@@ -751,13 +778,16 @@ export async function pollAndPublishVideos(): Promise<void> {
         // ─────────────────────────────────────────────────────────────────────
 
         // Auto-publish only when master switch + auto_publish are on AND captions
-        // are in a terminal state. If captions are still processing (null), the
-        // auto-publish sweep in pollAndPublishVideos will handle it later.
+        // are in a terminal state AND there is no pending copy generation.
+        // If this video has a content plan item, runCopyGeneration will trigger
+        // auto-publish once copy is ready (~10 sec). Skip direct publish here
+        // so the copy step completes first.
         const captionTerminal =
           video.captionStatus === "done" ||
           video.captionStatus === "failed" ||
           video.captionStatus === "disabled";
-        if (automation?.enabled && automation?.autoPublish && status.video_url && captionTerminal) {
+        const noCopyPending = !video.contentPlanId; // plan-linked items: copy handles publish
+        if (automation?.enabled && automation?.autoPublish && status.video_url && captionTerminal && noCopyPending) {
           await publishVideoToInstagram(video.id);
         }
       } else if (status.status === "failed") {
