@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react"
 import { useGetContentPlan, useGetAutomation, type ContentPlanItem } from "@workspace/api-client-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
@@ -16,11 +17,13 @@ import { FileText, UserSquare2, Captions, Send, CheckCircle2, Clock, AlertTriang
  * the pipeline shows only 3 steps.
  */
 const STEPS = [
-  { key: "script",  label: "Guion",           desc: "La IA escribe el guion y el hook",       eta: "~1 min",    icon: FileText    },
-  { key: "video",   label: "Video con Avatar", desc: "HeyGen crea el video con tu avatar",     eta: "~5-15 min", icon: UserSquare2 },
-  { key: "caption", label: "Caption Studio",   desc: "Se aplican captions animados al video",  eta: "~2-5 min",  icon: Captions    },
-  { key: "publish", label: "Publicar en IG",   desc: "Se sube y publica el Reel",              eta: "~2-5 min",  icon: Send        },
+  { key: "script",  label: "Guion",           desc: "La IA escribe el guion y el hook",       icon: FileText,    estimatedMs: 60_000   },
+  { key: "video",   label: "Video con Avatar", desc: "HeyGen crea el video con tu avatar",     icon: UserSquare2, estimatedMs: 600_000  },
+  { key: "caption", label: "Caption Studio",   desc: "Se aplican captions animados al video",  icon: Captions,    estimatedMs: 150_000  },
+  { key: "publish", label: "Publicar en IG",   desc: "Se sube y publica el Reel",              icon: Send,        estimatedMs: 120_000  },
 ] as const
+
+type StepKey = typeof STEPS[number]["key"]
 
 /**
  * Pipeline display modes.
@@ -123,9 +126,59 @@ function getHeaderLabel(mode: PipelineMode, willAutoPublish: boolean | undefined
   }
 }
 
+/**
+ * Calculate a 0–100 progress value for the currently active step, based on
+ * how much time has elapsed since `item.updated_at` (which updates whenever
+ * the content item changes status).
+ *
+ * Capped at 95 so the bar never reaches "done" before the step actually finishes.
+ * Returns null when no step-level bar should be shown.
+ */
+function getStepElapsedPercent(
+  stepKey: StepKey,
+  item: ContentPlanItem,
+  mode: PipelineMode,
+  nowMs: number
+): { pct: number; remainingSec: number } | null {
+  // Only show the bar while something is actively running
+  if (mode === "next" || mode === "done" || mode === "awaiting_publish" || mode === "scripted_waiting") return null
+
+  // Map mode → which step is active
+  const activeStepKey: StepKey | null =
+    mode === "generating" ? "video" :
+    mode === "captioning" ? "caption" :
+    null
+
+  if (activeStepKey !== stepKey) return null
+
+  const step = STEPS.find((s) => s.key === stepKey)
+  if (!step) return null
+
+  const startMs = new Date(item.updated_at).getTime()
+  const elapsedMs = Math.max(0, nowMs - startMs)
+  const pct = Math.min(95, (elapsedMs / step.estimatedMs) * 100)
+  const remainingSec = Math.max(0, Math.round((step.estimatedMs - elapsedMs) / 1000))
+
+  return { pct, remainingSec }
+}
+
+/** Format seconds as "~X min" or "~X seg" */
+function fmtRemaining(sec: number): string {
+  if (sec <= 0) return "Finalizando..."
+  if (sec < 60) return `~${sec} seg`
+  return `~${Math.ceil(sec / 60)} min`
+}
+
 export default function PipelineTimeline() {
   const { data: items } = useGetContentPlan({ limit: 100 }, { query: { refetchInterval: 15000 } as any })
   const { data: automation } = useGetAutomation({ query: { refetchInterval: 10000 } as any })
+
+  // Tick every 5 s so the per-step elapsed bars update smoothly without hammering the API.
+  const [nowMs, setNowMs] = useState(() => Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 5_000)
+    return () => clearInterval(id)
+  }, [])
 
   const active = items ? pickActiveItem(items) : null
   if (!active) return null
@@ -181,17 +234,26 @@ export default function PipelineTimeline() {
             // Spinner only when something is genuinely running
             const showSpinner = current && isActivelyProcessing
 
+            // Per-step elapsed progress bar (only for the active step while running)
+            const stepElapsed = getStepElapsedPercent(s.key as StepKey, item, mode, nowMs)
+
             // ── Status label ──────────────────────────────────────────────
-            let statusLabel = done ? "Completado" : current ? "En espera..." : s.eta
+            let statusLabel = done ? "Completado" : current ? "En espera..." : ""
 
             // Video step: distinguish rendering vs. queued
             if (s.key === "video" && current) {
-              statusLabel = mode === "generating" ? "Renderizando..." : "En espera de HeyGen"
+              statusLabel = mode === "generating"
+                ? (stepElapsed ? fmtRemaining(stepElapsed.remainingSec) : "Renderizando...")
+                : "En espera de HeyGen"
             }
 
             // Caption step: distinguish null (queued) vs. processing
             if (s.key === "caption" && current) {
-              statusLabel = item.caption_status === "processing" ? "Procesando..." : "En cola..."
+              if (item.caption_status === "processing") {
+                statusLabel = stepElapsed ? fmtRemaining(stepElapsed.remainingSec) : "Procesando..."
+              } else {
+                statusLabel = "En cola..."
+              }
             }
             if (s.key === "caption" && done && item.caption_status === "failed") {
               statusLabel = "Omitido (error)"
@@ -201,6 +263,13 @@ export default function PipelineTimeline() {
             if (s.key === "publish" && current) {
               statusLabel = willAutoPublish ? "En cola para publicar" : "Publicar manualmente"
             }
+
+            // Pending steps: show eta
+            if (!done && !current) statusLabel = `est. ${
+              s.key === "script"  ? "~1 min"    :
+              s.key === "video"   ? "~5-15 min" :
+              s.key === "caption" ? "~2-5 min"  : "~2-5 min"
+            }`
 
             return (
               <div
@@ -227,8 +296,23 @@ export default function PipelineTimeline() {
                     {i + 1}. {s.label}
                   </span>
                 </div>
+
                 <p className="text-[11px] text-muted-foreground leading-tight hidden sm:block">{s.desc}</p>
-                <p className="text-[10px] text-muted-foreground/70 mt-1">{statusLabel}</p>
+
+                {/* Per-step elapsed progress bar — only while this step is actively running */}
+                {stepElapsed ? (
+                  <div className="mt-2 space-y-0.5">
+                    <div className="h-1 w-full rounded-full bg-primary/15 overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-primary transition-all duration-[5000ms] ease-linear"
+                        style={{ width: `${stepElapsed.pct}%` }}
+                      />
+                    </div>
+                    <p className="text-[10px] text-primary/70 font-medium">{statusLabel}</p>
+                  </div>
+                ) : (
+                  <p className="text-[10px] text-muted-foreground/70 mt-1">{statusLabel}</p>
+                )}
               </div>
             )
           })}
