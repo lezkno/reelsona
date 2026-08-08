@@ -11,7 +11,7 @@ import { format } from "date-fns"
 import { es } from "date-fns/locale"
 import {
   FileText, UserSquare2, Captions, Send, CheckCircle2,
-  Clock, AlertTriangle, Loader2, Play, Eye,
+  Clock, AlertTriangle, Loader2, Play, Eye, Sparkles,
 } from "lucide-react"
 
 // ── Step definitions ─────────────────────────────────────────────────────────
@@ -19,30 +19,34 @@ const BASE_STEPS = [
   { key: "script",  label: "Guion",           desc: "La IA escribe el guion y el hook",       icon: FileText,    estimatedMs: 60_000  },
   { key: "video",   label: "Video con Avatar", desc: "HeyGen crea el video con tu avatar",     icon: UserSquare2, estimatedMs: 600_000 },
   { key: "caption", label: "Caption Studio",   desc: "Se aplican captions animados al video",  icon: Captions,    estimatedMs: 150_000 },
+  { key: "copy",    label: "Descripción e IG", desc: "La IA genera descripción y hashtags",    icon: Sparkles,    estimatedMs: 15_000  },
   { key: "review",  label: "Revisión Manual",  desc: "Aprobá el video antes de publicarlo",    icon: Eye,         estimatedMs: 0       },
   { key: "publish", label: "Publicar en IG",   desc: "Se sube y publica el Reel",              icon: Send,        estimatedMs: 120_000 },
 ] as const
 
 type StepKey = typeof BASE_STEPS[number]["key"]
-type PipelineMode = "generating" | "captioning" | "awaiting_publish" | "scripted_waiting" | "next" | "done"
+type PipelineMode = "generating" | "captioning" | "copy_generating" | "awaiting_publish" | "scripted_waiting" | "next" | "done"
 
 // ── Progress mapping ─────────────────────────────────────────────────────────
-// Returns a 0-based semantic step index using the full 5-step scale and an
+// Returns a 0-based semantic step index using the full 6-step scale and an
 // overall % for the macro progress bar.
-//   0=script  1=video  2=caption  3=review/publish  4=publish  5=done
+//   0=script  1=video  2=caption  3=copy  4=review/publish  5=done
 function getProgress(item: ContentPlanItem): { step: number; percent: number } {
   const cs = item.caption_status
+  const copyDone = item.copy_status === "done" || item.copy_status === "failed"
   switch (item.status) {
-    case "draft":      return { step: 0, percent: 10 }
-    case "scripted":   return { step: 1, percent: 35 }
-    case "generating": return { step: 1, percent: 55 }
+    case "draft":      return { step: 0, percent: 8  }
+    case "scripted":   return { step: 1, percent: 30 }
+    case "generating": return { step: 1, percent: 50 }
     case "ready": {
-      if (cs === "done" || cs === "failed" || cs === "disabled")
-        return { step: 3, percent: 80 }     // → review or publish depending on mode
-      return { step: 2, percent: 70 }       // caption in progress
+      if (cs === "done" || cs === "failed" || cs === "disabled") {
+        if (copyDone) return { step: 4, percent: 83 }  // → review or publish
+        return { step: 3, percent: 75 }                 // copy in progress
+      }
+      return { step: 2, percent: 65 }                   // caption in progress
     }
     case "published":  return { step: 5, percent: 100 }
-    default:           return { step: -1, percent: 0 }
+    default:           return { step: -1, percent: 0  }
   }
 }
 
@@ -65,26 +69,37 @@ function pickActiveItem(items: ContentPlanItem[]): { item: ContentPlanItem; mode
   )
   if (captioning) return { item: captioning, mode: "captioning" }
 
-  // Priority 3 — ready with terminal caption, waiting to publish
+  // Priority 3 — captions terminal but copy not yet generated
+  const copyGenerating = mostRecent(
+    items.filter(
+      (i) => i.status === "ready" &&
+        (i.caption_status === "done" || i.caption_status === "failed" || i.caption_status === "disabled") &&
+        (i.copy_status === null || i.copy_status === "generating")
+    )
+  )
+  if (copyGenerating) return { item: copyGenerating, mode: "copy_generating" }
+
+  // Priority 4 — ready with terminal caption + copy, waiting to publish
   const awaitingPublish = mostRecent(
     items.filter(
       (i) => i.status === "ready" &&
-        (i.caption_status === "done" || i.caption_status === "failed" || i.caption_status === "disabled")
+        (i.caption_status === "done" || i.caption_status === "failed" || i.caption_status === "disabled") &&
+        (i.copy_status === "done" || i.copy_status === "failed")
     )
   )
   if (awaitingPublish) return { item: awaitingPublish, mode: "awaiting_publish" }
 
-  // Priority 4 — scripted (script done, video not yet started)
+  // Priority 5 — scripted (script done, video not yet started)
   const scripted = mostRecent(items.filter((i) => i.status === "scripted"))
   if (scripted) return { item: scripted, mode: "scripted_waiting" }
 
-  // Priority 5 — next upcoming draft
+  // Priority 6 — next upcoming draft
   const upcoming = items
     .filter((i) => i.status === "draft" && i.scheduled_at)
     .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime())
   if (upcoming[0]) return { item: upcoming[0], mode: "next" }
 
-  // Priority 6 — last published
+  // Priority 7 — last published
   const lastPublished = mostRecent(items.filter((i) => i.status === "published"))
   if (lastPublished) return { item: lastPublished, mode: "done" }
 
@@ -95,6 +110,7 @@ function getHeaderLabel(mode: PipelineMode, willAutoPublish: boolean | undefined
   switch (mode) {
     case "generating":       return "Producción en curso"
     case "captioning":       return "Aplicando captions al video"
+    case "copy_generating":  return "Generando descripción e IG copy"
     case "awaiting_publish": return willAutoPublish
       ? "En cola para publicar automáticamente"
       : "Video listo — revisá y aprobá para publicar"
@@ -115,8 +131,9 @@ function getStepElapsedPercent(
 ): { pct: number; remainingSec: number } | null {
   if (mode === "next" || mode === "done" || mode === "awaiting_publish" || mode === "scripted_waiting") return null
   const activeKey: StepKey | null =
-    mode === "generating" ? "video" :
-    mode === "captioning" ? "caption" : null
+    mode === "generating"      ? "video"   :
+    mode === "captioning"      ? "caption" :
+    mode === "copy_generating" ? "copy"    : null
   if (activeKey !== stepKey) return null
   const step = BASE_STEPS.find((s) => s.key === stepKey)
   if (!step || step.estimatedMs === 0) return null
@@ -226,34 +243,36 @@ export default function PipelineTimeline() {
   const isManual = !willAutoPublish
 
   // Build the visible steps for this mode:
-  //   auto   + captions:    script video caption         publish    (4 steps)
-  //   auto   + no captions: script video                 publish    (3 steps)
-  //   manual + captions:    script video caption review  publish    (5 steps)
-  //   manual + no captions: script video         review  publish    (4 steps)
+  //   auto   + captions:    script video caption copy         publish    (5 steps)
+  //   auto   + no captions: script video         copy         publish    (4 steps)
+  //   manual + captions:    script video caption copy review  publish    (6 steps)
+  //   manual + no captions: script video         copy review  publish    (5 steps)
   const visibleSteps = BASE_STEPS.filter((s) => {
     if (s.key === "caption" && !captionsEnabled) return false
     if (s.key === "review"  && !isManual)        return false
     return true
   })
 
-  // Map the semantic step index to the visible index.
-  // getProgress uses: 0=script 1=video 2=caption 3=review/publish 5=done
-  //
-  // When awaiting_publish in manual mode → step 3 should point to "review".
-  // When awaiting_publish in auto mode   → step 3 should point to "publish".
-  //
-  // We rely on the fact that visibleSteps.findIndex gives us the right slot.
+  // Map the semantic step index to the visible key.
+  // getProgress uses: 0=script 1=video 2=caption 3=copy 4=review/publish 5=done
   const activeKey: StepKey | null =
     step === 0 ? "script"  :
     step === 1 ? "video"   :
     step === 2 ? "caption" :
-    step === 3 ? (isManual ? "review" : "publish") :
-    step === 4 ? "publish" : null
+    step === 3 ? "copy"    :
+    step === 4 ? (isManual ? "review" : "publish") :
+    step === 5 ? "publish" : null
 
   const displayStep = activeKey ? visibleSteps.findIndex((s) => s.key === activeKey) : -1
 
-  const isActivelyProcessing = mode === "generating" || mode === "captioning"
+  const isActivelyProcessing = mode === "generating" || mode === "captioning" || mode === "copy_generating"
   const isAwaitingReview     = mode === "awaiting_publish" && isManual
+
+  const gridClass =
+    visibleSteps.length === 3 ? "grid-cols-3" :
+    visibleSteps.length === 4 ? "grid-cols-2 sm:grid-cols-4" :
+    visibleSteps.length === 5 ? "grid-cols-2 sm:grid-cols-5" :
+                                "grid-cols-2 sm:grid-cols-6"
 
   return (
     <>
@@ -292,11 +311,7 @@ export default function PipelineTimeline() {
           <Progress value={percent} className="h-1.5 mb-4" />
 
           {/* Step grid */}
-          <div className={`grid gap-2 ${
-            visibleSteps.length === 3 ? "grid-cols-3" :
-            visibleSteps.length === 4 ? "grid-cols-2 sm:grid-cols-4" :
-                                        "grid-cols-2 sm:grid-cols-5"
-          }`}>
+          <div className={`grid gap-2 ${gridClass}`}>
             {visibleSteps.map((s, i) => {
               const Icon = s.icon
               const done    = displayStep > i
@@ -304,7 +319,9 @@ export default function PipelineTimeline() {
                 mode !== "next" && mode !== "done" &&
                 item.status !== "draft" && item.status !== "failed"
               const isReview     = s.key === "review"
+              const isCopy       = s.key === "copy"
               const reviewActive = isReview && current && isAwaitingReview
+              const copyActive   = isCopy && mode === "copy_generating"
 
               // Spinner only for steps that are actively processing
               const showSpinner = current && isActivelyProcessing
@@ -328,6 +345,14 @@ export default function PipelineTimeline() {
               if (s.key === "caption" && done && item.caption_status === "failed")
                 statusLabel = "Omitido (error)"
 
+              if (isCopy && current)
+                statusLabel = item.copy_status === "generating"
+                  ? (stepElapsed ? fmtRemaining(stepElapsed.remainingSec) : "Generando...")
+                  : "En cola..."
+
+              if (isCopy && done && item.copy_status === "failed")
+                statusLabel = "Omitido (error)"
+
               if (s.key === "publish" && current)
                 statusLabel = willAutoPublish ? "En cola" : "Publicando..."
 
@@ -335,24 +360,40 @@ export default function PipelineTimeline() {
                 statusLabel = "Tocá para revisar"
 
               if (!done && !current)
-                statusLabel = s.key === "video" ? "~5-15 min" :
-                              s.key === "script" || s.key === "caption" ? "~1-3 min" : ""
+                statusLabel = s.key === "video"   ? "~5-15 min" :
+                              s.key === "script"  ? "~1-3 min"  :
+                              s.key === "caption" ? "~1-3 min"  :
+                              s.key === "copy"    ? "~10 seg"   : ""
 
               // ── Card styles ───────────────────────────────────────
-              // Review step gets a distinct violet treatment
+              const copyCardClass = copyActive
+                ? "bg-violet-50 dark:bg-violet-950/30 border-violet-400/60 shadow-sm ring-1 ring-violet-400/30"
+                : done
+                  ? "bg-primary/10 border-primary/30"
+                  : current
+                    ? "border-primary bg-background shadow-sm"
+                    : "bg-muted/30 border-transparent"
+
               const cardClass = isReview
                 ? reviewActive
                   ? "bg-violet-700 border-violet-600 shadow-md shadow-violet-700/30 cursor-pointer ring-2 ring-violet-400/60 ring-offset-1 hover:bg-violet-600 transition-colors"
                   : done
                     ? "bg-violet-100 dark:bg-violet-900/30 border-violet-300/50 dark:border-violet-700/40"
                     : "bg-muted/30 border-transparent"
+                : isCopy ? copyCardClass
                 : done    ? "bg-primary/10 border-primary/30"
                 : current ? "border-primary bg-background shadow-sm"
                 :           "bg-muted/30 border-transparent"
 
-              const textClass = reviewActive ? "text-white" : (done || current ? "text-foreground" : "text-muted-foreground")
-              const descClass = reviewActive ? "text-violet-200" : "text-muted-foreground"
-              const statusClass = reviewActive ? "text-violet-200 font-medium" : "text-muted-foreground/70"
+              const textClass   = reviewActive ? "text-white"
+                                : copyActive   ? "text-violet-700 dark:text-violet-300"
+                                : (done || current ? "text-foreground" : "text-muted-foreground")
+              const descClass   = reviewActive ? "text-violet-200"
+                                : copyActive   ? "text-violet-500/80 dark:text-violet-400/80"
+                                : "text-muted-foreground"
+              const statusClass = reviewActive ? "text-violet-200 font-medium"
+                                : copyActive   ? "text-violet-500 dark:text-violet-400 font-medium"
+                                : "text-muted-foreground/70"
 
               return (
                 <div
@@ -364,9 +405,9 @@ export default function PipelineTimeline() {
                     {item.status === "failed" && i === 0 ? (
                       <AlertTriangle className="w-4 h-4 text-destructive" />
                     ) : done ? (
-                      <CheckCircle2 className={`w-4 h-4 ${isReview ? "text-violet-500 dark:text-violet-400" : "text-primary"}`} />
+                      <CheckCircle2 className={`w-4 h-4 ${isReview ? "text-violet-500 dark:text-violet-400" : isCopy ? "text-violet-500 dark:text-violet-400" : "text-primary"}`} />
                     ) : showSpinner ? (
-                      <Loader2 className="w-4 h-4 text-primary animate-spin" />
+                      <Loader2 className={`w-4 h-4 animate-spin ${copyActive ? "text-violet-500" : "text-primary"}`} />
                     ) : reviewActive ? (
                       <Play className="w-4 h-4 text-white" />
                     ) : current ? (
@@ -383,9 +424,9 @@ export default function PipelineTimeline() {
 
                   {stepElapsed ? (
                     <div className="mt-2 space-y-0.5">
-                      <div className="h-1 w-full rounded-full bg-primary/15 overflow-hidden">
+                      <div className={`h-1 w-full rounded-full overflow-hidden ${copyActive ? "bg-violet-200/50 dark:bg-violet-800/30" : "bg-primary/15"}`}>
                         <div
-                          className="h-full rounded-full bg-primary transition-all duration-[5000ms] ease-linear"
+                          className={`h-full rounded-full transition-all duration-[5000ms] ease-linear ${copyActive ? "bg-violet-500" : "bg-primary"}`}
                           style={{ width: `${stepElapsed.pct}%` }}
                         />
                       </div>

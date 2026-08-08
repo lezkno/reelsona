@@ -15,6 +15,8 @@ export const contentPlanItemsTable = pgTable("content_plan_items", {
   scheduledAt: timestamp("scheduled_at"),
   status: text("status").notNull().default("draft"),
   videoId: integer("video_id"),
+  /** null = not yet started, 'generating' = AI running, 'done' = saved, 'failed' = error */
+  copyStatus: text("copy_status"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

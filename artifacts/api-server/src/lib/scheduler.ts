@@ -15,7 +15,7 @@ import { applyCaptions, CAPTION_DIR, type CaptionStyle } from "./caption-engine"
 import { applyCaptionsBrowser } from "./browser-caption-engine";
 import { eq, and, lte, inArray, isNull } from "drizzle-orm";
 import { logger } from "./logger";
-import { generateScript } from "./ai-scripts";
+import { generateScript, regenerateCaption } from "./ai-scripts";
 import { generateVideo, getVideoStatus, listVoices, getAvatarDefaultVoiceId } from "./heygen";
 import { createReelContainer, checkContainerStatus, publishContainer, getPermalink } from "./instagram-api";
 
@@ -404,6 +404,12 @@ async function runCaptionProcessing(
         .set({ captionedVideoUrl: browserResult.url, captionStatus: "done", updatedAt: new Date() })
         .where(eq(videosTable.id, videoId));
       logger.info({ videoId }, "[BrowserEngine] Captioned video ready ✓");
+      // Trigger IG copy generation (fire-and-forget)
+      if (contentPlanId) {
+        runCopyGeneration(contentPlanId).catch((err) =>
+          logger.error({ videoId, contentPlanId, err }, "[CopyEngine] Failed to start copy generation (browser engine path)")
+        );
+      }
       return;
     }
 
@@ -459,9 +465,92 @@ async function runCaptionProcessing(
       .set({ captionStatus: "failed", updatedAt: new Date() })
       .where(eq(videosTable.id, videoId)).catch(() => {});
   }
+
+  // ── Trigger IG copy generation after captions (success or fail) ──────────
+  if (contentPlanId) {
+    runCopyGeneration(contentPlanId).catch((err) =>
+      logger.error({ videoId, contentPlanId, err }, "[CopyEngine] Failed to start copy generation after captions")
+    );
+  }
+}
+
+/**
+ * Auto-generate the Instagram description (caption) and hashtags for a content
+ * plan item after its video is ready.  Runs after Caption Studio completes (or
+ * is disabled) so the copy is tightly related to the final rendered video.
+ *
+ * Uses an atomic claim (null → generating) so concurrent ticks / manual runs
+ * cannot start a second generation for the same item.
+ */
+async function runCopyGeneration(contentItemId: number): Promise<void> {
+  // Claim atomically: only run if copy_status is still null
+  const claimed = await db
+    .update(contentPlanItemsTable)
+    .set({ copyStatus: "generating", updatedAt: new Date() })
+    .where(and(eq(contentPlanItemsTable.id, contentItemId), isNull(contentPlanItemsTable.copyStatus)))
+    .returning({ id: contentPlanItemsTable.id });
+
+  if (claimed.length === 0) {
+    logger.info({ contentItemId }, "[CopyEngine] Copy already started or done — skipping");
+    return;
+  }
+
+  try {
+    const [item] = await db.select().from(contentPlanItemsTable).where(eq(contentPlanItemsTable.id, contentItemId));
+    if (!item) throw new Error("Content item not found");
+
+    const [settings] = await db.select().from(settingsTable).limit(1);
+    const niche    = settings?.niche    || "general";
+    const tone     = settings?.tone     || "profesional";
+    const language = settings?.language || "es";
+
+    const result = await regenerateCaption(
+      item.topic,
+      item.script ?? item.topic,
+      niche,
+      tone,
+      language
+    );
+
+    await db
+      .update(contentPlanItemsTable)
+      .set({ caption: result.caption, hashtags: result.hashtags, copyStatus: "done", updatedAt: new Date() })
+      .where(eq(contentPlanItemsTable.id, contentItemId));
+
+    logger.info({ contentItemId }, "[CopyEngine] Description & hashtags generated ✓");
+  } catch (err) {
+    logger.error({ contentItemId, err }, "[CopyEngine] Failed to generate copy");
+    await db
+      .update(contentPlanItemsTable)
+      .set({ copyStatus: "failed", updatedAt: new Date() })
+      .where(eq(contentPlanItemsTable.id, contentItemId))
+      .catch(() => {});
+  }
 }
 
 export async function pollAndPublishVideos(): Promise<void> {
+  // ── Recovery: content items in "ready" state with null copy_status ────────
+  // Handles server restarts or items created before copy generation was added.
+  // Finds content items whose video has a terminal caption_status but whose
+  // copy hasn't been generated yet, and triggers generation for each.
+  const copyPendingItems = await db
+    .select({ itemId: contentPlanItemsTable.id })
+    .from(contentPlanItemsTable)
+    .innerJoin(videosTable, eq(videosTable.id, contentPlanItemsTable.videoId))
+    .where(
+      and(
+        eq(contentPlanItemsTable.status, "ready"),
+        isNull(contentPlanItemsTable.copyStatus),
+        inArray(videosTable.captionStatus as any, ["done", "failed", "disabled"])
+      )
+    );
+  for (const { itemId } of copyPendingItems) {
+    logger.info({ itemId }, "[CopyEngine] Recovery: triggering copy generation for item with null copy_status");
+    runCopyGeneration(itemId).catch((err) =>
+      logger.error({ itemId, err }, "[CopyEngine] Recovery: failed to generate copy")
+    );
+  }
+
   // ── Recovery: videos stuck in "ready" with captionStatus=null ─────────────
   // These are videos that completed in HeyGen but caption processing never ran
   // (e.g. server restarted mid-processing, or captionConfig was missing).
@@ -650,6 +739,12 @@ export async function pollAndPublishVideos(): Promise<void> {
               .set({ captionStatus: "disabled", updatedAt: new Date() })
               .where(eq(videosTable.id, video.id));
             logger.info({ videoId: video.id }, "[Scheduler] Captions disabled — skipping Caption Studio step");
+            // Trigger copy generation directly since captions won't fire it
+            if (video.contentPlanId) {
+              runCopyGeneration(video.contentPlanId).catch((err) =>
+                logger.error({ videoId: video.id, contentPlanId: video.contentPlanId, err }, "[CopyEngine] Failed to start copy generation (captions disabled)")
+              );
+            }
           }
         }
         // captionStatus "disabled" was set at creation or above — no further action needed.

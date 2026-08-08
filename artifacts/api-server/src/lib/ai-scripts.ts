@@ -94,24 +94,23 @@ export async function regenerateCaption(
 ): Promise<RegenerateCaptionOutput> {
   const client = getClient();
 
-  const prompt = `Eres un experto en marketing para Instagram.
-
-Dado el siguiente guion de un Reel de Instagram, genera un caption atractivo y hashtags relevantes.
+  const prompt = `Eres un experto en copywriting para Instagram Reels. Tu trabajo es escribir la descripción del post (caption) para acompañar el video.
 
 Nicho: ${niche}
 Tono: ${tone}
 Idioma: ${language}
 Tema: ${topic}
 
-Guion del video:
+Guion del video (úsalo como base para que el caption esté directamente relacionado con lo que dice el video):
 """
 ${script}
 """
 
-REGLAS:
-- El caption debe tener 2-3 oraciones que complementen el video, generen curiosidad o incentiven la interacción.
-- Usa español neutro (tutea al espectador con "tú", no uses "vos" ni voseo).
-- Los hashtags deben ser 10-15, específicos al tema y con buen alcance.
+REGLAS ESTRICTAS:
+1. El caption debe tener 3-5 oraciones. Primera oración: hook que llame la atención y haga querer ver el video (puede empezar con emoji). Segunda/tercera: complementa o amplía lo más valioso del video. Última oración OBLIGATORIA: un llamado a la acción claro y específico (ej: "Guardá este video para cuando lo necesites 📌", "Seguime para más tips como este", "Comentá 👇 si ya lo usabas", "Compartí esto con alguien que lo necesite").
+2. Usa español neutro (tutea con "tú" o imperativos directos, nunca "vos" ni voseo).
+3. El caption debe sentirse escrito por una persona real, no por una IA.
+4. Los hashtags: 10-15, mezcla entre específicos al tema (alcance medio) y amplios (#ia, #emprendedores, etc). Sin espacios entre ellos.
 
 Devuelve SOLO un JSON válido con esta estructura exacta:
 {

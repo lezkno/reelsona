@@ -41,6 +41,11 @@ export interface ContentPlanItem {
   captioned_video_url?: string | null;
   /** @nullable */
   thumbnail_url?: string | null;
+  /**
+   * AI copy generation state: null=not started, generating, done, failed
+   * @nullable
+   */
+  copy_status?: string | null;
   created_at: string;
   updated_at: string;
 }

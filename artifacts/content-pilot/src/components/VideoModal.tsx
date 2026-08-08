@@ -110,7 +110,7 @@ export function VideoModal({
         The DialogTitle is only in the desktop slot; on mobile we render
         a visually identical div so there is exactly one DialogTitle in the DOM.
       */}
-      <DialogContent className="p-0 rounded-2xl overflow-hidden w-full max-w-sm sm:max-w-xl flex flex-col sm:flex-row gap-0 max-h-[90dvh]">
+      <DialogContent className="p-0 rounded-2xl overflow-hidden w-[95vw] max-w-[95vw] sm:max-w-2xl flex flex-col sm:flex-row gap-0 max-h-[90dvh]">
 
         {/* ── Video column ──────────────────────────────────────────────────── */}
         {/* mobile: full-width, height capped; desktop: fixed w-56, stretches full height */}

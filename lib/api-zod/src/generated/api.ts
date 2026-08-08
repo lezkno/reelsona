@@ -276,6 +276,7 @@ export const GetContentPlanResponseItem = zod.object({
   "status": zod.enum(['draft', 'scripted', 'generating', 'ready', 'published', 'failed']),
   "video_id": zod.number().nullish(),
   "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish().describe('Caption Studio processing state for the associated video'),
+  "copy_status": zod.union([zod.literal('generating'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish().describe('AI copy generation state for Instagram description and hashtags'),
   "video_url": zod.string().nullish(),
   "captioned_video_url": zod.string().nullish(),
   "thumbnail_url": zod.string().nullish(),
@@ -313,6 +314,7 @@ export const GenerateContentPlanResponseItem = zod.object({
   "status": zod.enum(['draft', 'scripted', 'generating', 'ready', 'published', 'failed']),
   "video_id": zod.number().nullish(),
   "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish().describe('Caption Studio processing state for the associated video'),
+  "copy_status": zod.union([zod.literal('generating'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish(),
   "created_at": zod.string(),
   "updated_at": zod.string()
 })
@@ -346,6 +348,7 @@ export const CreateContentItemResponse = zod.object({
   "status": zod.enum(['draft', 'scripted', 'generating', 'ready', 'published', 'failed']),
   "video_id": zod.number().nullish(),
   "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish().describe('Caption Studio processing state for the associated video'),
+  "copy_status": zod.union([zod.literal('generating'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish(),
   "created_at": zod.string(),
   "updated_at": zod.string()
 })
@@ -406,6 +409,7 @@ export const GetContentItemResponse = zod.object({
   "status": zod.enum(['draft', 'scripted', 'generating', 'ready', 'published', 'failed']),
   "video_id": zod.number().nullish(),
   "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish().describe('Caption Studio processing state for the associated video'),
+  "copy_status": zod.union([zod.literal('generating'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish(),
   "created_at": zod.string(),
   "updated_at": zod.string()
 })
@@ -444,6 +448,7 @@ export const UpdateContentItemResponse = zod.object({
   "status": zod.enum(['draft', 'scripted', 'generating', 'ready', 'published', 'failed']),
   "video_id": zod.number().nullish(),
   "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish().describe('Caption Studio processing state for the associated video'),
+  "copy_status": zod.union([zod.literal('generating'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish(),
   "created_at": zod.string(),
   "updated_at": zod.string()
 })

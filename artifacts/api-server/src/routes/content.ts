@@ -77,6 +77,7 @@ function mapItem(
     status: item.status,
     video_id: item.videoId ?? null,
     caption_status: captionStatus ?? null,
+    copy_status: item.copyStatus ?? null,
     video_url: videoInfo?.videoUrl ?? null,
     captioned_video_url: videoInfo?.captionedVideoUrl ?? null,
     thumbnail_url: videoInfo?.thumbnailUrl ?? null,
