@@ -206,14 +206,14 @@ function TemplateCaptionPreview({ template }: { template: CaptionTemplate }) {
   const activeInChunk = activeIdx - chunkStart
 
   // Scale all 1920-reference values to preview dimensions
-  const sc           = scaleToHeight(1, PHONE_SCREEN_H)               // scale factor
   const scaledFS     = Math.round(scaleToHeight(template.fontSize,     PHONE_SCREEN_H))
   const scaledOW     = +scaleToHeight(template.outlineWidth,   PHONE_SCREEN_H).toFixed(1)
   const scaledSX     = +scaleToHeight(template.shadowOffsetX,  PHONE_SCREEN_H).toFixed(1)
   const scaledSY     = +scaleToHeight(template.shadowOffsetY,  PHONE_SCREEN_H).toFixed(1)
   const scaledBlur   = +scaleToHeight(template.shadowBlur,     PHONE_SCREEN_H).toFixed(1)
+  // baselineY = where the BOTTOM of the text block should sit, in preview pixels.
+  // Same formula as CaptionPreview: baseY_px = PHONE_SCREEN_H * (yPercent / 100)
   const baselineY    = getBaselineY(template, PHONE_SCREEN_H)
-  const safeMarginX  = getSafeMarginX(template, PREVIEW_WIDTH_PX)
 
   return (
     <PhoneFrame>
@@ -232,13 +232,18 @@ function TemplateCaptionPreview({ template }: { template: CaptionTemplate }) {
         <div className="absolute top-0 left-0 right-0 h-16 pointer-events-none"
           style={{ background: "linear-gradient(to bottom, rgba(0,0,0,0.5) 0%, transparent 100%)" }} />
 
-        {/* Caption words — same contract as the canvas backend */}
-        <div className="absolute z-10"
+        {/* Caption words — bottom-anchored at baselineY, same technique as CaptionPreview:
+            container spans top=0..baselineY with items-end so the text bottom edge
+            sits exactly at baselineY regardless of font size. */}
+        <div
+          className="absolute left-0 right-0 z-10 flex items-end justify-center"
           style={{
-            top:   Math.max(0, baselineY - scaledFS * 1.4),
-            left:  safeMarginX,
-            right: safeMarginX,
-          }}>
+            top:           0,
+            height:        baselineY,
+            paddingLeft:   `${template.marginXPercent}%`,
+            paddingRight:  `${template.marginXPercent}%`,
+          }}
+        >
           <div className="flex flex-wrap justify-center items-end gap-x-1 gap-y-0.5">
             {chunk.map((word, i) => {
               const isActive = i === activeInChunk
@@ -1205,8 +1210,8 @@ export default function CaptionStudio() {
           </div>
         </div>
 
-        {/* Right: live preview + pipeline */}
-        <div className="space-y-6">
+        {/* Right: live preview + pipeline — sticky on desktop so it stays visible while scrolling */}
+        <div className="space-y-6 lg:sticky lg:top-6 lg:self-start">
           <div>
             <h2 className="text-xl font-display font-bold mb-4">Vista previa</h2>
             {local.caption_engine === "browser_experimental" && local.template_id
