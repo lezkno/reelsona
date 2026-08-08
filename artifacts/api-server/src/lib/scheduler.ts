@@ -255,9 +255,11 @@ export async function runAutomationCycle(targetItemId?: number): Promise<{
     // Voice must be re-resolved for the new avatar
     contentItem.voiceId = null;
   }
-  if (!contentItem.voiceId) {
-    contentItem.voiceId = await resolveVoiceId(contentItem.avatarId);
-  }
+  // Always re-resolve voice from current overrides at generation time.
+  // The voiceId stored on the item may be stale (set before the user configured
+  // per-avatar overrides). The override map always wins over the cached value.
+  const freshVoiceId = await resolveVoiceId(contentItem.avatarId);
+  contentItem.voiceId = freshVoiceId ?? contentItem.voiceId;
   if (contentItem.avatarId && contentItem.voiceId) {
     await db
       .update(contentPlanItemsTable)
