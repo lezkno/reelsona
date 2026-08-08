@@ -237,6 +237,16 @@ export async function runAutomationCycle(targetItemId?: number): Promise<{
       })
       .where(eq(contentPlanItemsTable.id, draft.id));
 
+    // Advance lastUsedAvatarId immediately so the next scripting cycle picks a
+    // DIFFERENT avatar. Without this update, consecutive scripting cycles all
+    // read the same lastUsedAvatarId (set at video-generation time) and can
+    // assign the same avatar repeatedly regardless of rotation strategy.
+    await db
+      .update(avatarConfigTable)
+      .set({ lastUsedAvatarId: avatarId, updatedAt: new Date() })
+      .where(eq(avatarConfigTable.id, avatarCfg.id));
+    avatarCfg.lastUsedAvatarId = avatarId; // keep in-memory ref consistent
+
     contentItem = {
       ...draft,
       status: "scripted",
@@ -248,7 +258,7 @@ export async function runAutomationCycle(targetItemId?: number): Promise<{
       caption: scriptResult.caption,
       hashtags: scriptResult.hashtags,
     };
-    logger.info({ itemId: draft.id }, "Script generated for draft item");
+    logger.info({ itemId: draft.id, avatarId }, "Script generated for draft item");
   }
 
   if (!contentItem) {
@@ -277,6 +287,12 @@ export async function runAutomationCycle(targetItemId?: number): Promise<{
       avatarCfg.rotationStrategy,
       (avatarCfg.avatarUsageCount as Record<string, number>) ?? {}
     );
+    // Advance lastUsedAvatarId so the next cycle picks differently
+    await db
+      .update(avatarConfigTable)
+      .set({ lastUsedAvatarId: contentItem.avatarId, updatedAt: new Date() })
+      .where(eq(avatarConfigTable.id, avatarCfg.id));
+    avatarCfg.lastUsedAvatarId = contentItem.avatarId;
     // Voice must be re-resolved for the new avatar
     contentItem.voiceId = null;
   }

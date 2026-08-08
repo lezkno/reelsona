@@ -3,6 +3,7 @@ import {
   useHeyGenAccount, useConnectHeyGen, useDisconnectHeyGen,
   HEYGEN_ACCOUNT_QUERY_KEY,
 } from "@workspace/api-client-react"
+import heygenLogoUrl from "@/assets/heygen-logo.png"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -103,7 +104,7 @@ function HeyGenIntegrationCard() {
           <div className="flex items-center gap-3">
             {/* HeyGen brand mark */}
             <img
-              src="/content-pilot/heygen-logo.png"
+              src={heygenLogoUrl}
               alt="HeyGen"
               className="w-10 h-10 rounded-xl shrink-0 object-cover"
             />
