@@ -41,10 +41,20 @@ Crea un guion de video para un Reel de Instagram con estas especificaciones:
 
 REGLAS OBLIGATORIAS para el campo "script":
 1. El guion DEBE terminar con una llamada a la acción clara y directa hablada por el avatar (ej: "Sígueme para más tips como este", "Guarda este video y ponlo en práctica hoy", "Comenta abajo si te pasó esto").
-2. La ÚLTIMA oración del guion SIEMPRE debe ser: "Este video fue creado con inteligencia artificial. Sígueme para más contenido como este." — exactamente así, integrado de forma natural en el cierre.
+2. La ÚLTIMA oración del guion SIEMPRE debe ser una de estas frases — elige UNA distinta cada vez (varía, no repitas siempre la misma):
+   - "Sígueme y te enseño a crear un avatar de inteligencia artificial como este."
+   - "¿Te imaginas tener tu propio avatar de inteligencia artificial? Sígueme y te cuento cómo."
+   - "Soy un avatar creado con inteligencia artificial. Sígueme y aprende a crear el tuyo."
+   - "Esto que ves es inteligencia artificial en acción. Sígueme y descubre cómo usarla en tu negocio."
+   - "Si te preguntas cómo se hace esto, sígueme — te explico todo sobre los avatares de inteligencia artificial."
+   - "Todo lo que ves en este video es inteligencia artificial. Sígueme para aprender a usarla tú también."
+   - "Soy un avatar digital generado con inteligencia artificial. Sígueme para más contenido como este."
+   - "Este video fue creado con inteligencia artificial. Sígueme y te ayudo a crear algo así para tu negocio."
 3. El hook debe ser la primera frase del guion (ya incluida dentro de "script").
 4. Sin indicaciones de escena, sin corchetes, sin asteriscos — solo texto hablado corrido.
 5. El tono debe sentirse conversacional, no como un comercial.
+6. NUNCA uses abreviaturas que el avatar leería mal: escribe "inteligencia artificial" (no "IA" ni "AI"), "retorno de inversión" (no "ROI"), "indicadores clave" (no "KPIs"), "director ejecutivo" (no "CEO"), etc. — todo debe sonar natural cuando se lee en voz alta.
+7. NUNCA uses diminutivos, jerga o frases incompletas. Las oraciones deben ser completas y claras para que el avatar las lea correctamente.
 
 Devuelve SOLO un JSON válido con esta estructura exacta:
 {
