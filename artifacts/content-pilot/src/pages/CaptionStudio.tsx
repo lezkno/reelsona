@@ -311,6 +311,15 @@ function TemplateCaptionPreview({ template }: { template: CaptionTemplate }) {
   )
 }
 
+// ─── Shared phone/preview dimension constants ─────────────────────────────────
+// Declared here (before BrowserTemplateCard) so every component that references
+// them — BrowserTemplateCard, TemplateCaptionPreview, CaptionPreview — can do so
+// without a forward-reference TypeScript error.
+
+const PHONE_SCREEN_H = 444   // px — video area height inside the phone mock
+const REAL_VIDEO_H   = 1920  // px — ASS PlayResY / HeyGen output height
+const PREVIEW_SCALE  = PHONE_SCREEN_H / REAL_VIDEO_H  // ≈ 0.231
+
 // ─── Browser Template Card ────────────────────────────────────────────────────
 // The preview uses a CSS-scaled 250×444 mini-frame (same pixel values as
 // TemplateCaptionPreview) so the card thumbnail is a pixel-perfect miniature
@@ -486,10 +495,7 @@ const DEMO_WORDS = [
 
 // ── Phone frame wrapper ───────────────────────────────────────────────────────
 // Outer: 270px, padding 10px each side → screen 250px wide → height 444px
-// Scale factor vs real 1920px video: 444/1920 = 0.23125
-const PHONE_SCREEN_H = 444   // px — video area height inside the mock
-const REAL_VIDEO_H   = 1920  // px — ASS PlayResY
-const PREVIEW_SCALE  = PHONE_SCREEN_H / REAL_VIDEO_H  // ≈ 0.231
+// PHONE_SCREEN_H / REAL_VIDEO_H / PREVIEW_SCALE declared above (before BrowserTemplateCard).
 
 function PhoneFrame({ children }: { children: React.ReactNode }) {
   return (
@@ -907,6 +913,15 @@ export default function CaptionStudio() {
   const [captionsEnabled, setCaptionsEnabled] = useState(false)
   const [dirty, setDirty] = useState(false)
   const [savingPresetId, setSavingPresetId] = useState<string | null>(null)
+  // null = checking, true = available, false = unavailable
+  const [browserEngineAvailable, setBrowserEngineAvailable] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    fetch("/api/captions/browser/status")
+      .then((r) => r.json())
+      .then((d: { available: boolean }) => setBrowserEngineAvailable(d.available))
+      .catch(() => setBrowserEngineAvailable(false))
+  }, [])
 
   useEffect(() => {
     if (config && Object.keys(local).length === 0) setLocal(config)
@@ -1084,6 +1099,16 @@ export default function CaptionStudio() {
               <Badge variant="outline" className="border-violet-400/50 text-violet-600 dark:text-violet-400 text-[10px]">
                 🔬 Browser Engine
               </Badge>
+              {/* Canvas availability dot — fetched once on mount */}
+              {browserEngineAvailable === null && (
+                <span className="w-2 h-2 rounded-full bg-zinc-400 animate-pulse" title="Verificando motor canvas…" />
+              )}
+              {browserEngineAvailable === true && (
+                <span className="w-2 h-2 rounded-full bg-emerald-500" title="Canvas (Skia) disponible ✓" />
+              )}
+              {browserEngineAvailable === false && (
+                <span className="w-2 h-2 rounded-full bg-amber-400" title="Canvas no disponible — se usará fallback ASS/FFmpeg" />
+              )}
             </div>
             <p className="text-sm text-muted-foreground mb-4">
               Preview y render final usan la misma definición de plantilla. El look que ves es exactamente lo que queda en el MP4.
