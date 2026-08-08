@@ -149,13 +149,12 @@ function AddUserDialog() {
 function EditUserDialog({ user, selfUsername }: { user: AdminUser; selfUsername?: string }) {
   const [open, setOpen] = useState(false)
   const isSelf = user.username === selfUsername
-  const [form, setForm] = useState<UpdateAdminUserInput & { password: string }>({
+  const [form, setForm] = useState<UpdateAdminUserInput>({
     fullName: user.fullName ?? "",
     email: user.email ?? "",
     phone: user.phone ?? "",
     notes: user.notes ?? "",
     isActive: user.isActive,
-    password: "",
   })
   const [error, setError] = useState<string | null>(null)
   const update = useUpdateAdminUser()
@@ -175,7 +174,6 @@ function EditUserDialog({ user, selfUsername }: { user: AdminUser; selfUsername?
       notes: form.notes || undefined,
     }
     if (!isSelf) payload.isActive = form.isActive
-    if (form.password) payload.password = form.password
 
     update.mutate(
       { id: user.id, ...payload },
@@ -226,11 +224,6 @@ function EditUserDialog({ user, selfUsername }: { user: AdminUser; selfUsername?
             <Textarea id="e-notes" placeholder="Notas visibles solo para administradores…"
               value={form.notes ?? ""} onChange={set("notes")} rows={2} className="resize-none" />
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="e-password">Nueva contraseña <span className="text-muted-foreground">(dejar vacío = no cambiar)</span></Label>
-            <Input id="e-password" type="password" placeholder="Mín. 6 caracteres"
-              value={form.password} onChange={set("password")} autoComplete="new-password" />
-          </div>
           {!isSelf && (
             <div className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
               <div>
@@ -248,6 +241,95 @@ function EditUserDialog({ user, selfUsername }: { user: AdminUser; selfUsername?
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
             <Button type="submit" disabled={update.isPending}>
               {update.isPending ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Guardando…</> : "Guardar cambios"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ── Change password dialog ────────────────────────────────────────────────────
+
+function ChangePasswordDialog({ user }: { user: AdminUser }) {
+  const [open, setOpen] = useState(false)
+  const [password, setPassword] = useState("")
+  const [confirm, setConfirm] = useState("")
+  const [error, setError] = useState<string | null>(null)
+  const update = useUpdateAdminUser()
+  const { toast } = useToast()
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    setError(null)
+    if (password !== confirm) {
+      setError("Las contraseñas no coinciden")
+      return
+    }
+    update.mutate(
+      { id: user.id, password },
+      {
+        onSuccess: () => {
+          toast({ title: "Contraseña actualizada", description: `La contraseña de @${user.username} fue cambiada.` })
+          setOpen(false)
+          setPassword("")
+          setConfirm("")
+        },
+        onError: (err: any) => setError(err?.data?.error ?? err?.message ?? "Error al cambiar contraseña"),
+      }
+    )
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setPassword(""); setConfirm(""); setError(null) } }}>
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground" title="Cambiar contraseña">
+          <KeyRound className="w-3.5 h-3.5" />
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Cambiar contraseña</DialogTitle>
+          <DialogDescription>
+            Nueva contraseña para <strong>@{user.username}</strong>
+            {user.fullName ? ` (${user.fullName})` : ""}.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4 py-1">
+          <div className="space-y-1.5">
+            <Label htmlFor="cp-new">Nueva contraseña</Label>
+            <Input
+              id="cp-new"
+              type="password"
+              placeholder="Mínimo 6 caracteres"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="new-password"
+              minLength={6}
+              required
+              autoFocus
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="cp-confirm">Confirmar contraseña</Label>
+            <Input
+              id="cp-confirm"
+              type="password"
+              placeholder="Repite la contraseña"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              autoComplete="new-password"
+              minLength={6}
+              required
+            />
+          </div>
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
+            <Button type="submit" disabled={update.isPending || !password || !confirm}>
+              {update.isPending
+                ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Guardando…</>
+                : "Cambiar contraseña"}
             </Button>
           </DialogFooter>
         </form>
@@ -439,6 +521,7 @@ export default function Users() {
                     <td className="px-3 py-3.5">
                       <div className="flex items-center gap-0.5">
                         <EditUserDialog user={user} selfUsername={selfUsername} />
+                        <ChangePasswordDialog user={user} />
                         <DeleteUserButton user={user} selfUsername={selfUsername} />
                       </div>
                     </td>
