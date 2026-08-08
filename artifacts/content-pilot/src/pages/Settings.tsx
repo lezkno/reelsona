@@ -20,10 +20,14 @@ export default function Settings() {
   const { toast } = useToast()
 
   const [formData, setFormData] = useState<SettingsInput | null>(null)
-  
+  // Keep the raw keywords string while the user is typing so commas don't
+  // disappear mid-edit. We only parse to an array on blur.
+  const [keywordsRaw, setKeywordsRaw] = useState<string>("")
+
   useEffect(() => {
     if (settings && !formData) {
       setFormData(settings)
+      setKeywordsRaw(settings.topic_keywords?.join(", ") ?? "")
     }
   }, [settings, formData])
 
@@ -33,8 +37,11 @@ export default function Settings() {
   }
 
   const handleKeywordsChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value
-    handleChange('topic_keywords', val.split(',').map(k => k.trim()).filter(Boolean))
+    setKeywordsRaw(e.target.value)
+  }
+
+  const handleKeywordsBlur = () => {
+    handleChange('topic_keywords', keywordsRaw.split(',').map(k => k.trim()).filter(Boolean))
   }
 
   const handleSave = () => {
@@ -110,9 +117,10 @@ export default function Settings() {
 
           <div className="space-y-2">
             <Label>Palabras Clave (separadas por coma)</Label>
-            <Input 
-              value={formData.topic_keywords?.join(', ') || ''} 
+            <Input
+              value={keywordsRaw}
               onChange={handleKeywordsChange}
+              onBlur={handleKeywordsBlur}
               placeholder="ahorro, inversión, bolsa, libertad financiera..."
             />
           </div>
