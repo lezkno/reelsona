@@ -236,7 +236,9 @@ function buildASSHeader(
   const outlineColor = hexToAss(config.outlineColor);
   const backColor    = config.backgroundColor ? rgbaToAss(config.backgroundColor) : "&H00000000";
   const borderStyle  = config.backgroundColor ? 3 : 1;
-  const outlineWidth = borderStyle === 3 ? 0 : 5;   // thick outline for no-bg styles
+  // Match preview CSS text-shadow (2px at 444px preview = ~8.7 ASS pts at 1920px).
+  // Use 7 (smooth ASS outline renders more prominently than blocky CSS shadow).
+  const outlineWidth = borderStyle === 3 ? 0 : 7;
   const shadowDepth  = borderStyle === 3 ? 0 : 2;
   // Match preview's CSS letterSpacing: "0.04em" = 0.04 × fontSize ASS units
   const letterSpacing = +(config.fontSize * 0.04).toFixed(1);
@@ -280,7 +282,8 @@ function buildHighlightLineASS(
   const accentColor  = hexToAss(config.activeWordColor);
   const primaryColor = hexToAss(config.primaryColor);
   // Faded version of primary color (50% alpha = &H80)
-  const fadedColor   = hexToAss(config.primaryColor, 0x60);
+  // Match preview CSS `${primary}88`: 0x88 hex = 53.3% opacity → ASS alpha = 0xFF - 0x88 = 0x77
+  const fadedColor   = hexToAss(config.primaryColor, 0x77);
 
   const dialogues: string[] = [];
 
@@ -409,7 +412,9 @@ function buildDimidiumASS(
   const accentColor  = hexToAss(config.activeWordColor);    // yellow
   const primaryColor = hexToAss(config.primaryColor);       // white
   const outlineColor = hexToAss(config.outlineColor);
-  const outlineW = 4;
+  // Match preview CSS shadow: 2px at preview scale ≈ 8.7 ASS pts; use 6 here
+  // (smooth ASS outline reads heavier on small function-word text than CSS shadow)
+  const outlineW = 6;
   const shadowD  = 2;
 
   const header = `[Script Info]
