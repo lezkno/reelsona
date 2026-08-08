@@ -177,17 +177,6 @@ export default function Settings() {
             <p className="text-xs text-muted-foreground">La IA ajustará el largo del guion para que se lea en este tiempo aprox.</p>
           </div>
 
-          <div className="flex items-center justify-between p-4 bg-muted/40 rounded-lg border">
-            <div className="space-y-0.5">
-              <Label>Subtítulos Integrados</Label>
-              <p className="text-sm text-muted-foreground">HeyGen quemará los subtítulos en el video.</p>
-            </div>
-            <Switch 
-              checked={formData.include_captions} 
-              onCheckedChange={v => handleChange('include_captions', v)} 
-            />
-          </div>
-
           <div className="space-y-2">
             <Label>Texto de Marca de Agua (Opcional)</Label>
             <Input 
