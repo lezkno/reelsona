@@ -16,15 +16,40 @@ function getClient(apiKey?: string) {
 export interface HeyGenQuota {
   remaining: number | null;
   total: number | null;
+  /** Breakdown by credit type from /v2/user/remaining_quota details */
+  details: {
+    api: number | null;
+    generative_credit: number | null;
+    plan_credit: number | null;
+    instant_avatars: number | null;
+  } | null;
 }
 
 /**
- * Fetch HeyGen quota info. HeyGen does not expose a public credits endpoint,
- * so remaining/total are always null — but we still validate the key via /v2/avatars.
+ * Fetch remaining API credits from GET /v2/user/remaining_quota.
+ * Response: { data: { remaining_quota, details: { api, generative_credit, plan_credit, instant_avatars } } }
  */
 export async function getHeyGenQuota(apiKey: string): Promise<HeyGenQuota> {
-  // Intentionally returns nulls; real validation happens via validateHeyGenKey.
-  return { remaining: null, total: null };
+  try {
+    const client = getClient(apiKey);
+    const res = await client.get("/v2/user/remaining_quota");
+    const data = res.data?.data ?? {};
+    const remaining = typeof data.remaining_quota === "number" ? data.remaining_quota : null;
+    const d = data.details ?? {};
+    return {
+      remaining,
+      total: null, // HeyGen doesn't expose plan total
+      details: {
+        api: typeof d.api === "number" ? d.api : null,
+        generative_credit: typeof d.generative_credit === "number" ? d.generative_credit : null,
+        plan_credit: typeof d.plan_credit === "number" ? d.plan_credit : null,
+        instant_avatars: typeof d.instant_avatars === "number" ? d.instant_avatars : null,
+      },
+    };
+  } catch (err: any) {
+    logger.warn({ err: String(err) }, "Failed to fetch HeyGen quota");
+    return { remaining: null, total: null, details: null };
+  }
 }
 
 /**

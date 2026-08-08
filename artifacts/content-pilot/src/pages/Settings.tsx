@@ -233,58 +233,72 @@ function HeyGenIntegrationCard() {
           )}
         </div>
 
-        {/* ── Credit usage bar ── */}
+        {/* ── Credit breakdown ── */}
         {isConnected && (
-          <div className="space-y-2 pt-1 border-t">
+          <div className="space-y-3 pt-3 border-t">
             <div className="flex items-center justify-between">
-              <Label className="text-sm">Créditos del Plan</Label>
-              {hasQuota && (
-                <span className="text-xs font-semibold tabular-nums">
-                  {remaining!.toLocaleString()}
-                  {hasTotal && <> / {total!.toLocaleString()}</>}
-                  <span className="text-muted-foreground font-normal"> restantes</span>
-                </span>
-              )}
+              <Label className="text-sm">Créditos Disponibles</Label>
+              {isRefetching && <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />}
             </div>
 
             {isLoading ? (
-              <Skeleton className="h-3 w-full rounded-full" />
-            ) : hasQuota && hasTotal ? (
-              <div className="space-y-1.5">
-                <div className="relative h-3 w-full rounded-full bg-muted overflow-hidden">
-                  {/* used (consumed) fill */}
-                  <div
-                    className={`absolute inset-y-0 left-0 rounded-full transition-all duration-700 ${
-                      remainingPct! < 20
-                        ? "bg-destructive"
-                        : remainingPct! < 50
-                          ? "bg-amber-500"
-                          : "bg-emerald-500"
-                    }`}
-                    style={{ width: `${remainingPct!}%` }}
-                  />
+              <div className="space-y-2">
+                <Skeleton className="h-8 w-32" />
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-3/4" />
+              </div>
+            ) : account?.details ? (
+              <div className="space-y-3">
+                {/* Total remaining — big number */}
+                {hasQuota && (
+                  <div className="flex items-baseline gap-2">
+                    <span className={`text-3xl font-bold tabular-nums ${
+                      remaining! < 100 ? "text-destructive" : remaining! < 500 ? "text-amber-500" : "text-emerald-600 dark:text-emerald-400"
+                    }`}>
+                      {remaining!.toLocaleString()}
+                    </span>
+                    <span className="text-sm text-muted-foreground">créditos totales restantes</span>
+                  </div>
+                )}
+
+                {/* Per-type breakdown grid */}
+                <div className="grid grid-cols-2 gap-2">
+                  {([
+                    { key: "api",               label: "API",             icon: "⚡" },
+                    { key: "generative_credit", label: "Generativo",      icon: "🎬" },
+                    { key: "plan_credit",       label: "Plan",            icon: "📦" },
+                    { key: "instant_avatars",   label: "Instant Avatars", icon: "🤖" },
+                  ] as const).map(({ key, label, icon }) => {
+                    const val = account.details![key]
+                    if (val === null) return null
+                    return (
+                      <div key={key} className="flex items-center gap-2 rounded-lg bg-muted/50 border px-3 py-2">
+                        <span className="text-base leading-none">{icon}</span>
+                        <div className="min-w-0">
+                          <p className="text-[11px] text-muted-foreground leading-none mb-0.5">{label}</p>
+                          <p className="text-sm font-semibold tabular-nums">{val.toLocaleString()}</p>
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
-                <div className="flex justify-between text-[11px] text-muted-foreground">
-                  <span>{used!.toLocaleString()} créditos usados</span>
-                  <span>{total!.toLocaleString()} en el plan</span>
-                </div>
-                {remainingPct! < 20 && (
+
+                {hasQuota && remaining! < 100 && (
                   <p className="text-xs text-destructive font-medium">
-                    ⚠ Quedan pocos créditos. Recargá tu plan en HeyGen.
+                    ⚠ Quedan menos de 100 créditos. Recargá tu plan en HeyGen.
                   </p>
                 )}
               </div>
             ) : hasQuota ? (
-              /* No total — just show remaining */
-              <div className="space-y-1">
-                <p className="text-sm font-semibold">{remaining!.toLocaleString()} créditos disponibles</p>
-                <p className="text-xs text-muted-foreground">
-                  El total del plan no está disponible en tu cuenta.
-                </p>
+              <div className="flex items-baseline gap-2">
+                <span className="text-3xl font-bold tabular-nums text-emerald-600 dark:text-emerald-400">
+                  {remaining!.toLocaleString()}
+                </span>
+                <span className="text-sm text-muted-foreground">créditos restantes</span>
               </div>
             ) : (
               <p className="text-xs text-muted-foreground italic">
-                No se pudo obtener la información de créditos de tu cuenta.
+                No se pudo obtener la información de créditos.
               </p>
             )}
           </div>

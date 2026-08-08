@@ -145,10 +145,18 @@ export function useDeleteAdminUser() {
 
 // ── HeyGen account integration ────────────────────────────────────────────────
 
+export interface HeyGenQuotaDetails {
+  api: number | null;
+  generative_credit: number | null;
+  plan_credit: number | null;
+  instant_avatars: number | null;
+}
+
 export interface HeyGenAccountStatus {
   connected: boolean;
   remaining_quota: number | null;
   total_quota: number | null;
+  details: HeyGenQuotaDetails | null;
   /** Where the key came from: "db" = user-stored, "env" = server env var, "none" = not set */
   key_source: "db" | "env" | "none";
   error?: string;

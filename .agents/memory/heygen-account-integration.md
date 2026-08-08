@@ -14,10 +14,11 @@ Priority: DB key → `process.env.HEYGEN_API_KEY` env var → throws.
 - `DELETE /heygen/account` — sets `heygen_api_key = null` in DB (falls back to env)
 
 ## Quota endpoint
-HeyGen does NOT expose a public credits/quota API — `GET /v2/user/remaining.quota` returns 404.
+`GET /v2/user/remaining_quota` (underscore, NOT dot — `/v2/user/remaining.quota` returns 404).
+Response: `{ data: { remaining_quota: number, details: { api, generative_credit, plan_credit, instant_avatars } } }`
+`details` is a flat **object**, not an array.
 **Validation endpoint**: `GET /v2/avatars` → HTTP 200 = valid key, HTTP 401 = invalid key.
-`getHeyGenQuota(key)` always returns `{ remaining: null, total: null }` (no public endpoint exists).
-`validateHeyGenKey(key)` uses `/v2/avatars` to confirm the key works.
+`getHeyGenQuota(key)` returns `{ remaining, total: null, details }` — HeyGen has no plan total endpoint.
 
 ## React hooks (lib/api-client-react/src/custom-endpoints.ts)
 - `useHeyGenAccount()` — GET /heygen/account, staleTime 2 min, no retry
