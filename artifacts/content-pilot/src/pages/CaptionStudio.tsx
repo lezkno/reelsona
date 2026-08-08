@@ -191,8 +191,23 @@ function PresetCard({
 
 const PREVIEW_WIDTH_PX = 250   // approximate screen width inside the phone mock
 
-function TemplateCaptionPreview({ template }: { template: CaptionTemplate }) {
+function TemplateCaptionPreview({
+  template,
+  yOverride,
+  marginXOverride,
+  onYPositionChange,
+  onXMarginChange,
+}: {
+  template: CaptionTemplate
+  /** y_position override in % (0–100). When set, overrides template.yPercent. */
+  yOverride?: number
+  /** margin_x override in pixels at 1080-width scale. When set, overrides template.marginXPercent. */
+  marginXOverride?: number
+  onYPositionChange?: (y: number) => void
+  onXMarginChange?: (x: number) => void
+}) {
   const [activeIdx, setActiveIdx] = useState(0)
+  const [isDragging, setIsDragging] = useState(false)
 
   useEffect(() => {
     const t = setInterval(() => setActiveIdx((a) => (a + 1) % DEMO_WORDS.length), 700)
@@ -206,14 +221,18 @@ function TemplateCaptionPreview({ template }: { template: CaptionTemplate }) {
   const activeInChunk = activeIdx - chunkStart
 
   // Scale all 1920-reference values to preview dimensions
-  const scaledFS     = Math.round(scaleToHeight(template.fontSize,     PHONE_SCREEN_H))
-  const scaledOW     = +scaleToHeight(template.outlineWidth,   PHONE_SCREEN_H).toFixed(1)
-  const scaledSX     = +scaleToHeight(template.shadowOffsetX,  PHONE_SCREEN_H).toFixed(1)
-  const scaledSY     = +scaleToHeight(template.shadowOffsetY,  PHONE_SCREEN_H).toFixed(1)
-  const scaledBlur   = +scaleToHeight(template.shadowBlur,     PHONE_SCREEN_H).toFixed(1)
-  // baselineY = where the BOTTOM of the text block should sit, in preview pixels.
-  // Same formula as CaptionPreview: baseY_px = PHONE_SCREEN_H * (yPercent / 100)
-  const baselineY    = getBaselineY(template, PHONE_SCREEN_H)
+  const scaledFS   = Math.round(scaleToHeight(template.fontSize,    PHONE_SCREEN_H))
+  const scaledOW   = +scaleToHeight(template.outlineWidth,  PHONE_SCREEN_H).toFixed(1)
+  const scaledSX   = +scaleToHeight(template.shadowOffsetX, PHONE_SCREEN_H).toFixed(1)
+  const scaledSY   = +scaleToHeight(template.shadowOffsetY, PHONE_SCREEN_H).toFixed(1)
+  const scaledBlur = +scaleToHeight(template.shadowBlur,    PHONE_SCREEN_H).toFixed(1)
+
+  // Effective position: user override takes precedence over template default
+  const effectiveYPct       = yOverride       ?? template.yPercent
+  const effectiveMarginXPx  = marginXOverride ?? Math.round(template.marginXPercent * 1080 / 100)
+  // Convert to preview-space pixels
+  const baselineY  = Math.round(PHONE_SCREEN_H * effectiveYPct / 100)
+  const marginX_px = Math.round(effectiveMarginXPx * PREVIEW_SCALE)
 
   return (
     <PhoneFrame>
@@ -232,16 +251,14 @@ function TemplateCaptionPreview({ template }: { template: CaptionTemplate }) {
         <div className="absolute top-0 left-0 right-0 h-16 pointer-events-none"
           style={{ background: "linear-gradient(to bottom, rgba(0,0,0,0.5) 0%, transparent 100%)" }} />
 
-        {/* Caption words — bottom-anchored at baselineY, same technique as CaptionPreview:
-            container spans top=0..baselineY with items-end so the text bottom edge
-            sits exactly at baselineY regardless of font size. */}
+        {/* Caption words — bottom-anchored at baselineY */}
         <div
           className="absolute left-0 right-0 z-10 flex items-end justify-center"
           style={{
-            top:           0,
-            height:        baselineY,
-            paddingLeft:   `${template.marginXPercent}%`,
-            paddingRight:  `${template.marginXPercent}%`,
+            top:          0,
+            height:       baselineY,
+            paddingLeft:  marginX_px,
+            paddingRight: marginX_px,
           }}
         >
           <div className="flex flex-wrap justify-center items-end gap-x-1 gap-y-0.5">
@@ -258,6 +275,63 @@ function TemplateCaptionPreview({ template }: { template: CaptionTemplate }) {
             })}
           </div>
         </div>
+
+        {/* ── DRAG OVERLAY — same as CaptionPreview ── */}
+        <div
+          className="absolute inset-0 z-40"
+          style={{ cursor: isDragging ? "grabbing" : "move", touchAction: "none" }}
+          onPointerDown={(e) => {
+            e.preventDefault()
+            setIsDragging(true)
+            e.currentTarget.setPointerCapture(e.pointerId)
+          }}
+          onPointerMove={(e) => {
+            if (!isDragging) return
+            const rect = e.currentTarget.getBoundingClientRect()
+            const pctY = Math.max(10, Math.min(97, ((e.clientY - rect.top) / rect.height) * 100))
+            onYPositionChange?.(Math.round(pctY * 10) / 10)
+            const pxX = Math.max(0, Math.min(400, (e.clientX - rect.left) / PREVIEW_SCALE))
+            onXMarginChange?.(Math.round(pxX))
+          }}
+          onPointerUp={() => setIsDragging(false)}
+          onPointerLeave={() => setIsDragging(false)}
+        />
+
+        {/* Horizontal guide line */}
+        <div className="absolute left-0 right-0 z-41 pointer-events-none transition-all duration-75"
+          style={{
+            top: baselineY - 1,
+            borderTop: isDragging
+              ? "1.5px dashed rgba(255,255,255,0.85)"
+              : "1px dashed rgba(255,255,255,0.18)",
+          }}
+        />
+        {/* Vertical guide line */}
+        <div className="absolute top-0 bottom-0 z-41 pointer-events-none transition-all duration-75"
+          style={{
+            left: marginX_px - 1,
+            borderLeft: isDragging
+              ? "1.5px dashed rgba(255,255,255,0.85)"
+              : "1px dashed rgba(255,255,255,0.18)",
+          }}
+        />
+        {/* Crosshair grip */}
+        <div className="absolute z-41 pointer-events-none"
+          style={{ left: marginX_px - 6, top: baselineY - 6 }}>
+          <div className="w-3 h-3 rounded-full border border-white/50 bg-white/20" />
+        </div>
+        {/* Badge while dragging */}
+        {isDragging && (
+          <div className="absolute z-42 pointer-events-none flex gap-1"
+            style={{ left: marginX_px + 4, top: baselineY - 22 }}>
+            <span className="text-white text-[8px] font-medium bg-black/75 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+              ← {Math.round(effectiveMarginXPx)}px
+            </span>
+            <span className="text-white text-[8px] font-medium bg-black/75 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+              ↕ {Math.round(effectiveYPct)}%
+            </span>
+          </div>
+        )}
 
         {/* Instagram UI overlay */}
         <div className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-3 pt-2 pb-1">
@@ -1297,7 +1371,15 @@ export default function CaptionStudio() {
               ? (() => {
                   const activeTmpl = BROWSER_CAPTION_TEMPLATES.find((t) => t.id === local.template_id)
                   return activeTmpl
-                    ? <TemplateCaptionPreview template={activeTmpl} />
+                    ? (
+                      <TemplateCaptionPreview
+                        template={activeTmpl}
+                        yOverride={local.y_position ?? undefined}
+                        marginXOverride={local.margin_x ?? undefined}
+                        onYPositionChange={(y) => set("y_position", y)}
+                        onXMarginChange={(x) => set("margin_x", x)}
+                      />
+                    )
                     : (
                       <CaptionPreview
                         config={local}

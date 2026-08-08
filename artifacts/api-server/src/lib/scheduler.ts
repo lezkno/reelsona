@@ -391,6 +391,11 @@ async function runCaptionProcessing(
     const browserResult = await applyCaptionsBrowser(videoUrl, script, captionCfg.templateId, {
       subtitleUrl:          subtitleUrl ?? undefined,
       videoDurationSeconds: durationSeconds ?? undefined,
+      // Pass user drag overrides so position set in Caption Studio is honoured in the render
+      yPositionPct: captionCfg.yPosition  ?? undefined,
+      marginXPct:   captionCfg.marginX    != null
+        ? (captionCfg.marginX / 1080) * 100  // px at 1080-width scale → % of VIDEO_WIDTH
+        : undefined,
     });
 
     if (browserResult.url) {

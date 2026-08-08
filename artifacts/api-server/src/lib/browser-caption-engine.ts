@@ -318,7 +318,14 @@ export async function applyCaptionsBrowser(
   videoUrl: string,
   script: string | null,
   templateId: string,
-  opts?: { subtitleUrl?: string; videoDurationSeconds?: number },
+  opts?: {
+    subtitleUrl?: string;
+    videoDurationSeconds?: number;
+    /** Override template.yPercent (0–100). Set from caption_config.y_position when user dragged. */
+    yPositionPct?: number;
+    /** Override template.marginXPercent (% of VIDEO_WIDTH). Converted from caption_config.margin_x. */
+    marginXPct?: number;
+  },
 ): Promise<CaptionResult> {
   logger.info({ templateId }, "[BrowserEngine] applyCaptionsBrowser invoked");
 
@@ -332,12 +339,26 @@ export async function applyCaptionsBrowser(
   }
 
   // ── 2. Resolve template ───────────────────────────────────────────────────
-  const template = getBrowserTemplate(templateId);
-  logger.info({ templateFound: !!template, templateId }, "[BrowserEngine] template check");
-  if (!template) {
+  const baseTemplate = getBrowserTemplate(templateId);
+  logger.info({ templateFound: !!baseTemplate, templateId }, "[BrowserEngine] template check");
+  if (!baseTemplate) {
     const err = `[BrowserEngine] Unknown template id: "${templateId}"`;
     logger.warn(err);
     return { url: null, error: err };
+  }
+
+  // Apply user position overrides (drag-to-position from Caption Studio)
+  const template: CaptionTemplate = {
+    ...baseTemplate,
+    ...(opts?.yPositionPct !== undefined && { yPercent:       opts.yPositionPct }),
+    ...(opts?.marginXPct   !== undefined && { marginXPercent: opts.marginXPct   }),
+  };
+
+  if (opts?.yPositionPct !== undefined || opts?.marginXPct !== undefined) {
+    logger.info(
+      { yPercent: template.yPercent, marginXPercent: template.marginXPercent },
+      "[BrowserEngine] Position overrides applied",
+    );
   }
 
   const runId  = `browser_${Date.now()}`;
