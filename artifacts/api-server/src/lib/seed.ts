@@ -29,6 +29,9 @@ export async function seedAdminUser(): Promise<void> {
 
   // Apply any missing columns to tables that were created with the old schema
   const alterations: string[] = [
+    // Caption Engine feature flag (browser_experimental vs standard)
+    "ALTER TABLE caption_config ADD COLUMN IF NOT EXISTS caption_engine TEXT NOT NULL DEFAULT 'standard'",
+    "ALTER TABLE caption_config ADD COLUMN IF NOT EXISTS template_id   TEXT",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name     VARCHAR(128)",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS email         VARCHAR(256)",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS phone         VARCHAR(32)",

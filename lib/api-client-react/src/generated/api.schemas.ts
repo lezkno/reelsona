@@ -516,6 +516,8 @@ export const CaptionConfigHighlightMode = {
   zoom: 'zoom',
 } as const;
 
+export type CaptionConfigEngine = 'standard' | 'browser_experimental';
+
 export interface CaptionConfig {
   preset_id: string;
   position: CaptionConfigPosition;
@@ -535,6 +537,10 @@ export interface CaptionConfig {
   auto_scale: boolean;
   auto_movement: boolean;
   subtle_rotation: boolean;
+  /** Browser Caption Engine feature flag */
+  caption_engine: CaptionConfigEngine;
+  /** @nullable — which browser template is active (null when caption_engine = "standard") */
+  template_id?: string | null;
   updated_at: string;
 }
 
@@ -585,6 +591,9 @@ export interface CaptionConfigInput {
   auto_scale?: boolean;
   auto_movement?: boolean;
   subtle_rotation?: boolean;
+  caption_engine?: CaptionConfigEngine;
+  /** @nullable */
+  template_id?: string | null;
 }
 
 export type GetInstagramPostsParams = {

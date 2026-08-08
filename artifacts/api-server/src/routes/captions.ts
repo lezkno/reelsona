@@ -9,6 +9,7 @@ import {
   UpdateCaptionConfigResponse,
 } from "@workspace/api-zod";
 import { CAPTION_PRESETS } from "../lib/caption-engine";
+import { renderDiagnosticFrame, isBrowserEngineAvailable } from "../lib/browser-caption-engine";
 
 const router = Router();
 
@@ -31,6 +32,8 @@ function mapConfig(c: typeof captionConfigTable.$inferSelect) {
     auto_scale: c.autoScale,
     auto_movement: c.autoMovement,
     subtle_rotation: c.subtleRotation,
+    caption_engine: (c.captionEngine ?? "standard") as "standard" | "browser_experimental",
+    template_id: c.templateId ?? null,
     updated_at: c.updatedAt.toISOString(),
   };
 }
@@ -75,23 +78,26 @@ router.put("/captions/config", async (req, res): Promise<void> => {
     updatedAt: new Date(),
   };
 
-  if (d.preset_id !== undefined) updates.presetId = d.preset_id;
-  if (d.position !== undefined) updates.position = d.position;
-  if (d.words_per_line !== undefined) updates.wordsPerLine = d.words_per_line;
-  if (d.primary_color !== undefined) updates.primaryColor = d.primary_color;
-  if (d.active_word_color !== undefined) updates.activeWordColor = d.active_word_color;
-  if (d.outline_color !== undefined) updates.outlineColor = d.outline_color;
-  if (d.background_color !== undefined) updates.backgroundColor = d.background_color;
-  if (d.font_family !== undefined) updates.fontFamily = d.font_family;
-  if (d.font_size !== undefined) updates.fontSize = d.font_size;
+  if (d.preset_id         !== undefined) updates.presetId         = d.preset_id;
+  if (d.position          !== undefined) updates.position         = d.position;
+  if (d.words_per_line    !== undefined) updates.wordsPerLine      = d.words_per_line;
+  if (d.primary_color     !== undefined) updates.primaryColor      = d.primary_color;
+  if (d.active_word_color !== undefined) updates.activeWordColor   = d.active_word_color;
+  if (d.outline_color     !== undefined) updates.outlineColor      = d.outline_color;
+  if (d.background_color  !== undefined) updates.backgroundColor   = d.background_color;
+  if (d.font_family       !== undefined) updates.fontFamily        = d.font_family;
+  if (d.font_size         !== undefined) updates.fontSize          = d.font_size;
   if (d.line_spacing_factor !== undefined) updates.lineSpacingFactor = d.line_spacing_factor;
-  if (d.y_position !== undefined) updates.yPosition = d.y_position;
-  if (d.margin_x   !== undefined) updates.marginX   = d.margin_x;
-  if (d.active_word_scale !== undefined) updates.activeWordScale = d.active_word_scale;
-  if (d.highlight_mode !== undefined) updates.highlightMode = d.highlight_mode;
-  if (d.auto_scale !== undefined) updates.autoScale = d.auto_scale;
-  if (d.auto_movement !== undefined) updates.autoMovement = d.auto_movement;
-  if (d.subtle_rotation !== undefined) updates.subtleRotation = d.subtle_rotation;
+  if (d.y_position        !== undefined) updates.yPosition         = d.y_position;
+  if (d.margin_x          !== undefined) updates.marginX           = d.margin_x;
+  if (d.active_word_scale !== undefined) updates.activeWordScale   = d.active_word_scale;
+  if (d.highlight_mode    !== undefined) updates.highlightMode     = d.highlight_mode;
+  if (d.auto_scale        !== undefined) updates.autoScale         = d.auto_scale;
+  if (d.auto_movement     !== undefined) updates.autoMovement      = d.auto_movement;
+  if (d.subtle_rotation   !== undefined) updates.subtleRotation    = d.subtle_rotation;
+  // Browser Caption Engine fields
+  if (d.caption_engine    !== undefined) updates.captionEngine     = d.caption_engine;
+  if (d.template_id       !== undefined) updates.templateId        = d.template_id;
 
   const [existing] = await db.select().from(captionConfigTable).limit(1);
   let config;
@@ -106,6 +112,51 @@ router.put("/captions/config", async (req, res): Promise<void> => {
   }
 
   res.json(UpdateCaptionConfigResponse.parse(mapConfig(config)));
+});
+
+// ── Browser Engine diagnostic ─────────────────────────────────────────────────
+
+/**
+ * GET /api/captions/browser/preview-frame?templateId=<id>
+ *
+ * Returns a PNG sample frame for a browser template, rendered using @napi-rs/canvas.
+ * Useful for verifying the canvas renderer works on this server before activating it.
+ * If canvas is unavailable, returns 503 with a JSON error body.
+ */
+router.get("/captions/browser/preview-frame", async (req, res): Promise<void> => {
+  const templateId = typeof req.query.templateId === "string" ? req.query.templateId : "";
+  if (!templateId) {
+    res.status(400).json({ error: "templateId query param is required" });
+    return;
+  }
+
+  const result = await renderDiagnosticFrame(templateId);
+
+  if (!result.ok) {
+    res.status(503).json({
+      error: result.reason,
+      canvasAvailable: false,
+    });
+    return;
+  }
+
+  res.setHeader("Content-Type", "image/png");
+  res.setHeader("Content-Disposition", `inline; filename="preview-${templateId}.png"`);
+  res.end(result.png);
+});
+
+/**
+ * GET /api/captions/browser/status
+ * Returns whether @napi-rs/canvas is available for rendering.
+ */
+router.get("/captions/browser/status", async (_req, res): Promise<void> => {
+  const available = await isBrowserEngineAvailable();
+  res.json({
+    available,
+    message: available
+      ? "Browser caption engine (canvas) is available"
+      : "Browser caption engine not available — standard ASS/FFmpeg engine will be used as fallback",
+  });
 });
 
 export default router;

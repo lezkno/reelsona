@@ -12,6 +12,7 @@ import {
   captionConfigTable,
 } from "@workspace/db";
 import { applyCaptions, CAPTION_DIR, type CaptionStyle } from "./caption-engine";
+import { applyCaptionsBrowser } from "./browser-caption-engine";
 import { eq, and, lte, inArray, isNull } from "drizzle-orm";
 import { logger } from "./logger";
 import { generateScript } from "./ai-scripts";
@@ -378,6 +379,37 @@ async function runCaptionProcessing(
     script = item?.script ?? null;
   }
 
+  // ── Browser Caption Engine (experimental) ────────────────────────────────
+  // When captionEngine = "browser_experimental" and a templateId is set,
+  // attempt the canvas-based render first. On failure → fall through to ASS.
+  if (captionCfg.captionEngine === "browser_experimental" && captionCfg.templateId) {
+    logger.info(
+      { videoId, templateId: captionCfg.templateId },
+      "[Scheduler] Using Browser Caption Engine (experimental)",
+    );
+
+    const browserResult = await applyCaptionsBrowser(videoUrl, script, captionCfg.templateId, {
+      subtitleUrl:          subtitleUrl ?? undefined,
+      videoDurationSeconds: durationSeconds ?? undefined,
+    });
+
+    if (browserResult.url) {
+      await db
+        .update(videosTable)
+        .set({ captionedVideoUrl: browserResult.url, captionStatus: "done", updatedAt: new Date() })
+        .where(eq(videosTable.id, videoId));
+      logger.info({ videoId }, "[BrowserEngine] Captioned video ready ✓");
+      return;
+    }
+
+    // Browser engine failed — log warning, fall through to standard ASS engine as safety net
+    logger.warn(
+      { videoId, error: browserResult.error },
+      "[BrowserEngine] Failed — falling back to standard ASS/FFmpeg engine",
+    );
+  }
+
+  // ── Standard ASS/FFmpeg engine ────────────────────────────────────────────
   const style: CaptionStyle = {
     presetId: captionCfg.presetId,
     position: captionCfg.position as CaptionStyle["position"],

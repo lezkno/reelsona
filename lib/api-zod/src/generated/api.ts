@@ -773,6 +773,9 @@ export const GetCaptionConfigResponse = zod.object({
   "auto_scale": zod.boolean(),
   "auto_movement": zod.boolean(),
   "subtle_rotation": zod.boolean(),
+  // Browser Caption Engine feature flag
+  "caption_engine": zod.enum(['standard', 'browser_experimental']),
+  "template_id": zod.string().nullish(),
   "updated_at": zod.string()
 })
 
@@ -806,7 +809,10 @@ export const UpdateCaptionConfigBody = zod.object({
   "highlight_mode": zod.enum(['color', 'scale', 'both', 'mixed', 'zoom']).optional(),
   "auto_scale": zod.boolean().optional(),
   "auto_movement": zod.boolean().optional(),
-  "subtle_rotation": zod.boolean().optional()
+  "subtle_rotation": zod.boolean().optional(),
+  // Browser Caption Engine feature flag
+  "caption_engine": zod.enum(['standard', 'browser_experimental']).optional(),
+  "template_id": zod.string().nullish()
 })
 
 export const UpdateCaptionConfigResponse = zod.object({
@@ -827,6 +833,8 @@ export const UpdateCaptionConfigResponse = zod.object({
   "auto_scale": zod.boolean(),
   "auto_movement": zod.boolean(),
   "subtle_rotation": zod.boolean(),
+  "caption_engine": zod.enum(['standard', 'browser_experimental']),
+  "template_id": zod.string().nullish(),
   "updated_at": zod.string()
 })
 

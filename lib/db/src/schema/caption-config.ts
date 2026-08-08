@@ -21,6 +21,9 @@ export const captionConfigTable = pgTable("caption_config", {
   marginX: real("margin_x").notNull().default(60),
   autoMovement: boolean("auto_movement").notNull().default(false),
   subtleRotation: boolean("subtle_rotation").notNull().default(false),
+  // Browser Caption Engine feature flag
+  captionEngine: text("caption_engine").notNull().default("standard"), // "standard" | "browser_experimental"
+  templateId: text("template_id"),                                     // null when captionEngine = "standard"
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 

@@ -15,6 +15,14 @@ import { CheckCircle2, Wand2, AlertCircle, Sparkles, Loader2,
 import type { CaptionConfig, CaptionPreset } from "@workspace/api-client-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { getGetCaptionConfigQueryKey } from "@workspace/api-client-react"
+import {
+  BROWSER_CAPTION_TEMPLATES,
+  buildWordStyle,
+  scaleToHeight,
+  getBaselineY,
+  getSafeMarginX,
+} from "@workspace/caption-templates"
+import type { CaptionTemplate } from "@workspace/caption-templates"
 
 // Load Oswald & Bangers from Google Fonts for preview rendering
 const link = document.createElement("link")
@@ -169,6 +177,212 @@ function PresetCard({
           </Badge>
           <Badge variant="outline" className="text-[9px] py-0 px-1.5" style={{ fontFamily: preset.font_family }}>
             {preset.font_family}
+          </Badge>
+        </div>
+      </div>
+    </button>
+  )
+}
+
+// ─── Browser Template Preview ────────────────────────────────────────────────
+// Renders captions using the same CaptionTemplate definition as the backend
+// canvas renderer — true WYSIWYG: font, size, stroke, shadow, position, colors
+// all come from the shared template object, not from the legacy CaptionConfig.
+
+const PREVIEW_WIDTH_PX = 250   // approximate screen width inside the phone mock
+
+function TemplateCaptionPreview({ template }: { template: CaptionTemplate }) {
+  const [activeIdx, setActiveIdx] = useState(0)
+
+  useEffect(() => {
+    const t = setInterval(() => setActiveIdx((a) => (a + 1) % DEMO_WORDS.length), 700)
+    return () => clearInterval(t)
+  }, [])
+
+  useEffect(() => { setActiveIdx(0) }, [template.wordsPerLine])
+
+  const chunkStart    = Math.floor(activeIdx / template.wordsPerLine) * template.wordsPerLine
+  const chunk         = DEMO_WORDS.slice(chunkStart, chunkStart + template.wordsPerLine)
+  const activeInChunk = activeIdx - chunkStart
+
+  // Scale all 1920-reference values to preview dimensions
+  const sc           = scaleToHeight(1, PHONE_SCREEN_H)               // scale factor
+  const scaledFS     = Math.round(scaleToHeight(template.fontSize,     PHONE_SCREEN_H))
+  const scaledOW     = +scaleToHeight(template.outlineWidth,   PHONE_SCREEN_H).toFixed(1)
+  const scaledSX     = +scaleToHeight(template.shadowOffsetX,  PHONE_SCREEN_H).toFixed(1)
+  const scaledSY     = +scaleToHeight(template.shadowOffsetY,  PHONE_SCREEN_H).toFixed(1)
+  const scaledBlur   = +scaleToHeight(template.shadowBlur,     PHONE_SCREEN_H).toFixed(1)
+  const baselineY    = getBaselineY(template, PHONE_SCREEN_H)
+  const safeMarginX  = getSafeMarginX(template, PREVIEW_WIDTH_PX)
+
+  return (
+    <PhoneFrame>
+      <div className="w-full h-full relative overflow-hidden select-none"
+        style={{ background: "linear-gradient(160deg, #1a1a2e 0%, #16213e 55%, #0f3460 100%)" }}>
+
+        {/* Subtle avatar silhouette */}
+        <div className="absolute inset-0 flex items-center justify-center opacity-10">
+          <div className="w-24 h-32 bg-white/30" style={{ borderRadius: "50% 50% 45% 45%" }} />
+        </div>
+
+        {/* Bottom gradient */}
+        <div className="absolute bottom-0 left-0 right-0 h-44 pointer-events-none"
+          style={{ background: "linear-gradient(to top, rgba(0,0,0,0.75) 0%, transparent 100%)" }} />
+        {/* Top gradient */}
+        <div className="absolute top-0 left-0 right-0 h-16 pointer-events-none"
+          style={{ background: "linear-gradient(to bottom, rgba(0,0,0,0.5) 0%, transparent 100%)" }} />
+
+        {/* Caption words — same contract as the canvas backend */}
+        <div className="absolute z-10"
+          style={{
+            top:   Math.max(0, baselineY - scaledFS * 1.4),
+            left:  safeMarginX,
+            right: safeMarginX,
+          }}>
+          <div className="flex flex-wrap justify-center items-end gap-x-1 gap-y-0.5">
+            {chunk.map((word, i) => {
+              const isActive = i === activeInChunk
+              return (
+                <span
+                  key={`${chunkStart}-${i}`}
+                  style={buildWordStyle(template, isActive, scaledFS, scaledOW, scaledSX, scaledSY, scaledBlur) as React.CSSProperties}
+                >
+                  {template.uppercase ? word.toUpperCase() : word}
+                </span>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* Instagram UI overlay */}
+        <div className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-3 pt-2 pb-1">
+          <ChevronLeft size={18} className="text-white drop-shadow" />
+          <span className="text-white text-[11px] font-semibold tracking-wide drop-shadow">Reels</span>
+          <Clapperboard size={16} className="text-white drop-shadow" />
+        </div>
+        <div className="absolute right-2 z-20 flex flex-col items-center gap-3.5" style={{ bottom: 52 }}>
+          <div className="relative mb-1">
+            <div className="w-8 h-8 rounded-full border-2 border-white"
+              style={{ background: "linear-gradient(135deg, #833ab4, #fd1d1d, #fcb045)" }} />
+            <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 rounded-full bg-[#0095f6] border border-black flex items-center justify-center">
+              <Plus size={9} className="text-white" strokeWidth={3} />
+            </div>
+          </div>
+          <div className="flex flex-col items-center gap-0.5 mt-1">
+            <Heart size={22} className="text-white drop-shadow fill-white" />
+            <span className="text-white text-[9px] font-medium drop-shadow">47.2K</span>
+          </div>
+          <div className="flex flex-col items-center gap-0.5">
+            <MessageCircle size={22} className="text-white drop-shadow" />
+            <span className="text-white text-[9px] font-medium drop-shadow">1.8K</span>
+          </div>
+        </div>
+        <div className="absolute left-2 right-14 z-20" style={{ bottom: 50 }}>
+          <div className="flex items-center gap-1.5 mb-1">
+            <div className="w-6 h-6 rounded-full border border-white/80"
+              style={{ background: "linear-gradient(135deg, #833ab4, #fd1d1d, #fcb045)" }} />
+            <span className="text-white text-[10px] font-bold drop-shadow">tu_cuenta</span>
+          </div>
+          <p className="text-white text-[8.5px] leading-tight line-clamp-2 drop-shadow opacity-90">
+            ✨ Así funciona la automatización con IA para hacer crecer tu marca
+          </p>
+          <div className="flex items-center gap-1 mt-1">
+            <Music2 size={8} className="text-white drop-shadow" />
+            <span className="text-white text-[7.5px] opacity-80 drop-shadow">Audio original · tu_cuenta</span>
+          </div>
+        </div>
+        <div className="absolute bottom-0 left-0 right-0 z-20 flex items-center justify-around bg-black/90"
+          style={{ height: 44, borderTop: "0.5px solid rgba(255,255,255,0.15)" }}>
+          <Home size={20} className="text-white/70" />
+          <Search size={20} className="text-white/70" />
+          <div className="w-8 h-6 rounded-md border-2 border-white/80 flex items-center justify-center">
+            <Plus size={13} className="text-white" strokeWidth={2.5} />
+          </div>
+          <Clapperboard size={20} className="text-white" />
+          <User size={20} className="text-white/70" />
+        </div>
+      </div>
+    </PhoneFrame>
+  )
+}
+
+// ─── Browser Template Card ────────────────────────────────────────────────────
+
+function BrowserTemplateCard({
+  template,
+  selected,
+  saving,
+  onClick,
+}: {
+  template: CaptionTemplate
+  selected: boolean
+  saving: boolean
+  onClick: () => void
+}) {
+  // Preview at ~60% scale inside the card (card is smaller than the live preview)
+  const CARD_H   = PHONE_SCREEN_H * 0.6
+  const scaledFS = Math.round(scaleToHeight(template.fontSize,    CARD_H))
+  const scaledOW = +scaleToHeight(template.outlineWidth,  CARD_H).toFixed(1)
+  const scaledSX = +scaleToHeight(template.shadowOffsetX, CARD_H).toFixed(1)
+  const scaledSY = +scaleToHeight(template.shadowOffsetY, CARD_H).toFixed(1)
+  const scaledBl = +scaleToHeight(template.shadowBlur,    CARD_H).toFixed(1)
+
+  const demoWords = DEMO_WORDS.slice(0, Math.min(template.wordsPerLine, 3))
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`relative w-full rounded-xl overflow-hidden border-2 transition-all text-left ${
+        selected
+          ? "border-violet-500 ring-2 ring-violet-500/30 shadow-lg scale-[1.01]"
+          : "border-border hover:border-violet-400/40 hover:scale-[1.005]"
+      }`}
+    >
+      {/* Visual preview */}
+      <div
+        className="aspect-[9/16] flex flex-col items-center justify-end pb-5 px-3 select-none"
+        style={{ background: "linear-gradient(to bottom, #1a1a2e 0%, #16213e 60%, #0f3460 100%)" }}
+      >
+        <div className="flex flex-wrap justify-center items-end gap-x-1 gap-y-0.5">
+          {demoWords.map((word, i) => (
+            <span
+              key={i}
+              style={buildWordStyle(template, i === 1, scaledFS, scaledOW, scaledSX, scaledSY, scaledBl) as React.CSSProperties}
+            >
+              {template.uppercase ? word.toUpperCase() : word}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* Selected indicator */}
+      {selected && (
+        <div className="absolute top-2 right-2 w-6 h-6 rounded-full bg-violet-500 text-white flex items-center justify-center shadow">
+          {saving
+            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            : <CheckCircle2 className="w-4 h-4" />
+          }
+        </div>
+      )}
+
+      {/* BETA badge */}
+      <div className="absolute top-2 left-2">
+        <span className="text-[8px] font-bold bg-violet-600/85 text-white px-1.5 py-0.5 rounded-sm uppercase tracking-wider backdrop-blur-sm">
+          BETA
+        </span>
+      </div>
+
+      {/* Info panel */}
+      <div className="p-3 border-t bg-card">
+        <p className="font-bold text-sm leading-tight">{template.name}</p>
+        <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{template.description}</p>
+        <div className="flex gap-1 mt-2 flex-wrap">
+          <Badge variant="outline" className="text-[9px] py-0 px-1.5 border-violet-400/50 text-violet-600 dark:text-violet-400">
+            🎨 Canvas
+          </Badge>
+          <Badge variant="outline" className="text-[9px] py-0 px-1.5" style={{ fontFamily: template.fontFamily }}>
+            {template.fontFamily}
           </Badge>
         </div>
       </div>
@@ -666,6 +880,31 @@ export default function CaptionStudio() {
     setDirty(true)
   }
 
+  // Auto-save when a Browser Template is selected
+  const applyBrowserTemplate = (template: CaptionTemplate) => {
+    const update: Partial<CaptionConfig> = {
+      caption_engine: "browser_experimental",
+      template_id:    template.id,
+    }
+    setLocal((prev) => ({ ...prev, ...update }))
+    setDirty(false)
+    setSavingPresetId(template.id)
+    updateConfig.mutate({ data: update as any }, {
+      onSuccess: () => {
+        setSavingPresetId(null)
+        queryClient.invalidateQueries({ queryKey: getGetCaptionConfigQueryKey() })
+        toast({
+          title: `Plantilla "${template.name}" activada`,
+          description: "Los próximos videos usarán el Browser Caption Engine (experimental).",
+        })
+      },
+      onError: () => {
+        setSavingPresetId(null)
+        toast({ title: "Error", description: "No se pudo activar la plantilla.", variant: "destructive" })
+      },
+    })
+  }
+
   // Auto-save immediately when a preset is selected
   const applyPreset = (preset: CaptionPreset) => {
     const update: Partial<CaptionConfig> = {
@@ -685,6 +924,9 @@ export default function CaptionStudio() {
     if (preset.words_per_line != null) {
       update.words_per_line = preset.words_per_line
     }
+    // Switch back to standard engine when selecting a standard preset
+    update.caption_engine = "standard"
+    update.template_id    = null
     setLocal((prev) => ({ ...prev, ...update }))
     setDirty(false)
     setSavingPresetId(preset.id)
@@ -792,6 +1034,40 @@ export default function CaptionStudio() {
                 />
               ))}
             </div>
+          </div>
+
+          {/* ── Experimental Browser Engine Templates ─────────────────────── */}
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <h2 className="text-xl font-display font-bold">Plantillas Experimentales</h2>
+              <Badge variant="outline" className="border-violet-400/50 text-violet-600 dark:text-violet-400 text-[10px]">
+                🔬 Browser Engine
+              </Badge>
+            </div>
+            <p className="text-sm text-muted-foreground mb-4">
+              Preview y render final usan la misma definición de plantilla. El look que ves es exactamente lo que queda en el MP4.
+              Motor: Canvas 2D (Skia) — no ASS, no drawtext.
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+              {BROWSER_CAPTION_TEMPLATES.map((tmpl) => (
+                <BrowserTemplateCard
+                  key={tmpl.id}
+                  template={tmpl}
+                  selected={local.caption_engine === "browser_experimental" && local.template_id === tmpl.id}
+                  saving={savingPresetId === tmpl.id}
+                  onClick={() => applyBrowserTemplate(tmpl)}
+                />
+              ))}
+            </div>
+            {local.caption_engine === "browser_experimental" && (
+              <div className="mt-3 p-3 rounded-lg bg-violet-500/10 border border-violet-500/20 text-sm text-violet-700 dark:text-violet-300 flex items-start gap-2">
+                <span className="mt-0.5 shrink-0">🎨</span>
+                <span>
+                  <strong>Browser Engine activo.</strong> Fallback automático al motor estándar ASS/FFmpeg si el render falla.
+                  Para volver al motor estándar, seleccioná cualquier preset de arriba.
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Advanced config */}
@@ -933,14 +1209,33 @@ export default function CaptionStudio() {
         <div className="space-y-6">
           <div>
             <h2 className="text-xl font-display font-bold mb-4">Vista previa</h2>
-            <CaptionPreview
-              config={local}
-              onYPositionChange={(y) => set("y_position", y)}
-              onXMarginChange={(x) => set("margin_x", x)}
-            />
+            {local.caption_engine === "browser_experimental" && local.template_id
+              ? (() => {
+                  const activeTmpl = BROWSER_CAPTION_TEMPLATES.find((t) => t.id === local.template_id)
+                  return activeTmpl
+                    ? <TemplateCaptionPreview template={activeTmpl} />
+                    : (
+                      <CaptionPreview
+                        config={local}
+                        onYPositionChange={(y) => set("y_position", y)}
+                        onXMarginChange={(x) => set("margin_x", x)}
+                      />
+                    )
+                })()
+              : (
+                <CaptionPreview
+                  config={local}
+                  onYPositionChange={(y) => set("y_position", y)}
+                  onXMarginChange={(x) => set("margin_x", x)}
+                />
+              )
+            }
             <p className="text-xs text-muted-foreground mt-2 text-center">
-              Posición, fuente, colores y outline reflejan el video final.
-              {local.highlight_mode === "zoom" && (
+              {local.caption_engine === "browser_experimental"
+                ? <>Preview usa la misma definición de plantilla que el render final. <span className="text-violet-500 font-medium">WYSIWYG.</span></>
+                : "Posición, fuente, colores y outline reflejan el video final."
+              }
+              {local.highlight_mode === "zoom" && local.caption_engine !== "browser_experimental" && (
                 <><br /><span className="text-amber-500">⚡ Animación zoom: aproximada en preview.</span></>
               )}
             </p>
@@ -952,9 +1247,15 @@ export default function CaptionStudio() {
               <p className="text-sm font-bold font-display">Flujo del pipeline</p>
               {[
                 { label: "HeyGen termina", status: "done", note: "video_url guardado" },
-                { label: "Caption Engine", status: captionsEnabled ? "active" : "skip", note: captionsEnabled ? "quema captions con FFmpeg" : "desactivado" },
-                { label: "Video con captions", status: captionsEnabled ? "active" : "skip", note: captionsEnabled ? "estilo seleccionado aplicado" : "—" },
-                { label: "Fallback", status: "info", note: "usa video original si falla el render" },
+                { label: "Caption Engine", status: captionsEnabled ? "active" : "skip",
+                  note: captionsEnabled
+                    ? (local.caption_engine === "browser_experimental"
+                        ? `Browser Engine: ${BROWSER_CAPTION_TEMPLATES.find((t) => t.id === local.template_id)?.name ?? "canvas render"}`
+                        : "motor estándar ASS/FFmpeg")
+                    : "desactivado"
+                },
+                { label: "Video con captions", status: captionsEnabled ? "active" : "skip", note: captionsEnabled ? "plantilla aplicada al MP4" : "—" },
+                { label: "Fallback", status: "info", note: local.caption_engine === "browser_experimental" ? "ASS/FFmpeg si falla canvas" : "video original de HeyGen si falla el render" },
                 { label: "Publica en Instagram", status: "done", note: "con la mejor URL disponible" },
               ].map((step, i) => (
                 <div key={i} className="flex items-start gap-2">
