@@ -87,8 +87,8 @@ export interface HeyGenVoice {
   is_clone?: boolean;
 }
 
-export async function listAvatars(): Promise<HeyGenAvatar[]> {
-  const client = getClient();
+export async function listAvatars(apiKey?: string): Promise<HeyGenAvatar[]> {
+  const client = getClient(apiKey);
   const res = await client.get("/v2/avatars");
   const avatars: HeyGenAvatar[] = res.data?.data?.avatars ?? [];
   return avatars;
@@ -109,14 +109,14 @@ export interface HeyGenGroupLook {
   motion_preview_url?: string | null;
 }
 
-export async function listAvatarGroups(): Promise<HeyGenAvatarGroup[]> {
-  const client = getClient();
+export async function listAvatarGroups(apiKey?: string): Promise<HeyGenAvatarGroup[]> {
+  const client = getClient(apiKey);
   const res = await client.get("/v2/avatar_group.list", { params: { include_public: false } });
   return res.data?.data?.avatar_group_list ?? [];
 }
 
-export async function listGroupLooks(groupId: string): Promise<HeyGenGroupLook[]> {
-  const client = getClient();
+export async function listGroupLooks(groupId: string, apiKey?: string): Promise<HeyGenGroupLook[]> {
+  const client = getClient(apiKey);
   const res = await client.get(`/v2/avatar_group/${groupId}/avatars`);
   return res.data?.data?.avatar_list ?? [];
 }
@@ -124,16 +124,16 @@ export async function listGroupLooks(groupId: string): Promise<HeyGenGroupLook[]
 // Map of look/avatar id (including tp: prefix) -> its group's default voice in HeyGen
 let defaultVoiceMap: { map: Map<string, string>; at: number } | null = null;
 
-export async function getAvatarDefaultVoiceId(avatarId: string): Promise<string | null> {
+export async function getAvatarDefaultVoiceId(avatarId: string, apiKey?: string): Promise<string | null> {
   if (!defaultVoiceMap || Date.now() - defaultVoiceMap.at > 10 * 60 * 1000) {
-    const client = getClient();
+    const client = getClient(apiKey);
     const res = await client.get("/v2/avatar_group.list", { params: { include_public: false } });
     const groups: any[] = res.data?.data?.avatar_group_list ?? [];
     const map = new Map<string, string>();
     const results = await Promise.allSettled(
       groups.map(async (g) => {
         if (!g.default_voice_id) return;
-        const looks = await listGroupLooks(g.id);
+        const looks = await listGroupLooks(g.id, apiKey);
         for (const l of looks as any[]) {
           if (l.avatar_id) map.set(l.avatar_id, g.default_voice_id);
           else if (l.id) map.set(`tp:${l.id}`, g.default_voice_id);
@@ -149,8 +149,8 @@ export async function getAvatarDefaultVoiceId(avatarId: string): Promise<string 
   return defaultVoiceMap?.map.get(avatarId) ?? null;
 }
 
-export async function listVoices(): Promise<HeyGenVoice[]> {
-  const client = getClient();
+export async function listVoices(apiKey?: string): Promise<HeyGenVoice[]> {
+  const client = getClient(apiKey);
   const res = await client.get("/v2/voices");
   const voices: HeyGenVoice[] = res.data?.data?.voices ?? [];
   return voices;
@@ -163,12 +163,12 @@ const lookEngineCache = new Map<string, { engines: string[]; at: number }>();
  * Fetch the engines a specific look supports.
  * Returns ["avatar_iv"] as a safe fallback on error.
  */
-export async function getLookSupportedEngines(lookId: string): Promise<string[]> {
+export async function getLookSupportedEngines(lookId: string, apiKey?: string): Promise<string[]> {
   const cached = lookEngineCache.get(lookId);
   if (cached && Date.now() - cached.at < 30 * 60 * 1000) return cached.engines;
 
   try {
-    const client = getClient();
+    const client = getClient(apiKey);
     const res = await client.get(`/v3/avatars/looks/${lookId}`);
     const engines: string[] = res.data?.data?.supported_api_engines ?? ["avatar_iv"];
     lookEngineCache.set(lookId, { engines, at: Date.now() });
@@ -221,8 +221,8 @@ export interface VideoStatus {
  *     engine (default) + expressiveness: "high" → most natural result for
  *     photo-based avatars without requiring video matting.
  */
-export async function generateVideo(params: GenerateVideoParams): Promise<string> {
-  const client = getClient();
+export async function generateVideo(params: GenerateVideoParams, apiKey?: string): Promise<string> {
+  const client = getClient(apiKey);
 
   // Strip our internal "tp:" marker — HeyGen v3 just wants the raw look ID
   const isPhotoAvatar = params.avatar_id.startsWith("tp:");
@@ -231,7 +231,7 @@ export async function generateVideo(params: GenerateVideoParams): Promise<string
   // Dynamically check which engines this look supports.
   // Avatar V is available for both video avatars AND eligible digital_twin (photo) looks —
   // the tp: heuristic alone is not enough; we must check supported_api_engines per look.
-  const supportedEngines = await getLookSupportedEngines(rawAvatarId);
+  const supportedEngines = await getLookSupportedEngines(rawAvatarId, apiKey);
   const supportsAvatarV = supportedEngines.includes("avatar_v");
 
   logger.info(
@@ -297,8 +297,8 @@ export async function generateVideo(params: GenerateVideoParams): Promise<string
  * Poll video status via HeyGen API v3 (GET /v3/videos/{video_id}).
  * Replaces the deprecated v1 video_status.get endpoint.
  */
-export async function getVideoStatus(videoId: string): Promise<VideoStatus> {
-  const client = getClient();
+export async function getVideoStatus(videoId: string, apiKey?: string): Promise<VideoStatus> {
+  const client = getClient(apiKey);
   const res = await client.get(`/v3/videos/${videoId}`);
   const data = res.data?.data;
   return {

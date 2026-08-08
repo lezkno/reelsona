@@ -13,7 +13,7 @@ import {
 } from "@workspace/db";
 import { applyCaptions, CAPTION_DIR, type CaptionStyle } from "./caption-engine";
 import { applyCaptionsBrowser } from "./browser-caption-engine";
-import { eq, and, lte, inArray, isNull, or } from "drizzle-orm";
+import { eq, and, lte, inArray, isNull, isNotNull, or } from "drizzle-orm";
 import { logger } from "./logger";
 import { generateScript, regenerateCaption } from "./ai-scripts";
 import { generateVideo, getVideoStatus, listVoices, getAvatarDefaultVoiceId } from "./heygen";
@@ -21,6 +21,20 @@ import { createReelContainer, checkContainerStatus, publishContainer, getPermali
 
 /** Sentinel stored in preferred_voice_id meaning "use the avatar's own HeyGen default voice" (legacy, kept for backwards compat). */
 export const AVATAR_DEFAULT_VOICE = "avatar_default";
+
+/**
+ * Resolve the HeyGen API key for background scheduler jobs.
+ * Picks the first settings row that has a key (user-supplied).
+ * Falls back to the HEYGEN_API_KEY env var if none is stored.
+ */
+async function resolveHeyGenApiKey(): Promise<string | undefined> {
+  const [row] = await db
+    .select({ heygenApiKey: settingsTable.heygenApiKey })
+    .from(settingsTable)
+    .where(isNotNull(settingsTable.heygenApiKey))
+    .limit(1);
+  return row?.heygenApiKey ?? process.env.HEYGEN_API_KEY ?? undefined;
+}
 
 /**
  * In-process mutex: tracks video IDs actively being published in this process.
@@ -37,7 +51,7 @@ const activePublishes = new Set<number>();
  * 2. HeyGen's own default voice for this avatar's group (getAvatarDefaultVoiceId)
  * 3. null — caller must handle missing voice explicitly; no auto-pick
  */
-export async function resolveVoiceId(avatarId: string | null): Promise<string | null> {
+export async function resolveVoiceId(avatarId: string | null, apiKey?: string): Promise<string | null> {
   const [avatarCfg] = await db.select().from(avatarConfigTable).limit(1);
 
   // 1. Check per-avatar override first
@@ -53,7 +67,7 @@ export async function resolveVoiceId(avatarId: string | null): Promise<string | 
   // 2. Use HeyGen's own default voice for this avatar
   if (avatarId) {
     try {
-      const def = await getAvatarDefaultVoiceId(avatarId);
+      const def = await getAvatarDefaultVoiceId(avatarId, apiKey);
       if (def) {
         logger.debug({ avatarId, voiceId: def }, "Using HeyGen default voice for avatar");
         return def;
@@ -125,11 +139,12 @@ export async function runAutomationCycle(targetItemId?: number): Promise<{
     return { success: false, message: "Automation disabled" };
   }
 
-  // Load settings
+  // Load settings (scoped to automation owner if possible, else first available)
   const [settings] = await db.select().from(settingsTable).limit(1);
   if (!settings?.niche) {
     return { success: false, message: "Niche not configured" };
   }
+  const heygenApiKey = settings.heygenApiKey ?? process.env.HEYGEN_API_KEY ?? undefined;
 
   // Load avatar config
   const [avatarCfg] = await db.select().from(avatarConfigTable).limit(1);
@@ -205,7 +220,7 @@ export async function runAutomationCycle(targetItemId?: number): Promise<{
     }
 
     // Always re-resolve from current voice_overrides — draft.voiceId may be stale.
-    const voiceId = (await resolveVoiceId(avatarId)) ?? draft.voiceId;
+    const voiceId = (await resolveVoiceId(avatarId, heygenApiKey)) ?? draft.voiceId;
 
     await db
       .update(contentPlanItemsTable)
@@ -268,7 +283,7 @@ export async function runAutomationCycle(targetItemId?: number): Promise<{
   // Always re-resolve voice from current overrides at generation time.
   // The voiceId stored on the item may be stale (set before the user configured
   // per-avatar overrides). The override map always wins over the cached value.
-  const freshVoiceId = await resolveVoiceId(contentItem.avatarId);
+  const freshVoiceId = await resolveVoiceId(contentItem.avatarId, heygenApiKey);
   contentItem.voiceId = freshVoiceId ?? contentItem.voiceId;
   if (contentItem.avatarId && contentItem.voiceId) {
     await db
@@ -315,7 +330,7 @@ export async function runAutomationCycle(targetItemId?: number): Promise<{
       voice_id: contentItem.voiceId,
       title: contentItem.topic,
       captionsEnabled: automation.captionsEnabled ?? false,
-    });
+    }, heygenApiKey);
 
     await db
       .update(videosTable)
@@ -683,6 +698,7 @@ export async function pollAndPublishVideos(): Promise<void> {
   }
 
   // ── Poll HeyGen for videos still generating ───────────────────────────────
+  const pollApiKey = await resolveHeyGenApiKey();
   const generatingVideos = await db
     .select()
     .from(videosTable)
@@ -724,7 +740,7 @@ export async function pollAndPublishVideos(): Promise<void> {
     }
 
     try {
-      const status = await getVideoStatus(video.heygenVideoId);
+      const status = await getVideoStatus(video.heygenVideoId, pollApiKey);
       if (status.status === "completed" && status.video_url) {
         await db
           .update(videosTable)
@@ -808,7 +824,7 @@ export async function pollAndPublishVideos(): Promise<void> {
       let markFailed = false;
 
       if (httpStatus === 401) {
-        userMsg = "API key de HeyGen inválida — verificá HEYGEN_API_KEY en los ajustes";
+        userMsg = "API key de HeyGen inválida — conectá tu cuenta en Configuración → Integraciones";
         markFailed = true; // Permanent — won't self-heal on retry
       } else if (httpStatus === 402) {
         userMsg = "Créditos de HeyGen insuficientes — recargá tu cuenta en heygen.com";

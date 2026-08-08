@@ -4,7 +4,7 @@ import type { RequestHandler } from "express";
 declare module "express-session" {
   interface SessionData {
     authenticated?: boolean;
-    user?: { username: string; role: string };
+    user?: { username: string; role: string; userId: number };
   }
 }
 
@@ -28,6 +28,11 @@ export const requireAuth: RequestHandler = (req, res, next): void => {
     return;
   }
   if (req.session?.authenticated) {
+    // Back-fill userId = 1 for sessions created before multi-user was added.
+    // Forces a fresh login on next request after the current session expires.
+    if (req.session.user && !req.session.user.userId) {
+      req.session.user.userId = 1;
+    }
     next();
     return;
   }

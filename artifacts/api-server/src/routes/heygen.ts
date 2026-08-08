@@ -1,7 +1,20 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { avatarConfigTable, settingsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, isNotNull } from "drizzle-orm";
+
+/** Resolve the HeyGen API key for the currently logged-in user.
+ *  Looks up the user's own settings row; falls back to the env var. */
+async function getUserHeyGenKey(userId: number): Promise<string | undefined> {
+  const [settings] = await db
+    .select({ heygenApiKey: settingsTable.heygenApiKey })
+    .from(settingsTable)
+    .where(eq(settingsTable.userId, userId))
+    .limit(1);
+  // Only use the user's own key — no platform-level fallback here.
+  // The scheduler uses resolveHeyGenApiKey() which may still fall back to the env var.
+  return settings?.heygenApiKey ?? undefined;
+}
 import {
   GetHeyGenAvatarsResponse,
   GetHeyGenVoicesResponse,
@@ -17,7 +30,8 @@ import { listAvatars, listVoices, listAvatarGroups, listGroupLooks, getHeyGenQuo
 const router = Router();
 
 router.get("/heygen/avatars", async (req, res): Promise<void> => {
-  const avatars = await listAvatars();
+  const apiKey = await getUserHeyGenKey(req.session.user!.userId);
+  const avatars = await listAvatars(apiKey);
   const mapped = avatars.map((a) => ({
     avatar_id: a.avatar_id,
     avatar_name: a.avatar_name,
@@ -30,7 +44,8 @@ router.get("/heygen/avatars", async (req, res): Promise<void> => {
 });
 
 router.get("/heygen/voices", async (req, res): Promise<void> => {
-  const voices = await listVoices();
+  const apiKey = await getUserHeyGenKey(req.session.user!.userId);
+  const voices = await listVoices(apiKey);
   const mapped = voices.map((v) => ({
     voice_id: v.voice_id,
     name: v.name,
@@ -43,7 +58,8 @@ router.get("/heygen/voices", async (req, res): Promise<void> => {
 });
 
 router.get("/heygen/avatar-groups", async (req, res): Promise<void> => {
-  const groups = await listAvatarGroups();
+  const apiKey = await getUserHeyGenKey(req.session.user!.userId);
+  const groups = await listAvatarGroups(apiKey);
   const mapped = groups.map((g) => ({
     id: g.id,
     name: g.name,
@@ -55,14 +71,15 @@ router.get("/heygen/avatar-groups", async (req, res): Promise<void> => {
 });
 
 router.get("/heygen/avatar-groups/:id/looks", async (req, res): Promise<void> => {
+  const apiKey = await getUserHeyGenKey(req.session.user!.userId);
   const groupId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-  const groups = await listAvatarGroups();
+  const groups = await listAvatarGroups(apiKey);
   const group = groups.find((g) => g.id === groupId);
   if (!group) {
     res.status(404).json({ error: "Avatar no encontrado" });
     return;
   }
-  const looks = await listGroupLooks(groupId);
+  const looks = await listGroupLooks(groupId, apiKey);
   // Looks come in two shapes: video avatars ({avatar_id, avatar_name, preview_image_url})
   // and talking photos ({id, name, image_url}). Prefix talking photos with "tp:" so
   // video generation uses the right character type.
@@ -85,11 +102,11 @@ type FlatLook = { id: string; name: string; image_url: string | null; group_name
 let looksCache: { data: FlatLook[]; at: number } | null = null;
 let looksFetch: Promise<FlatLook[]> | null = null;
 
-async function fetchAllLooks(): Promise<FlatLook[]> {
-  const groups = await listAvatarGroups();
+async function fetchAllLooks(apiKey?: string): Promise<FlatLook[]> {
+  const groups = await listAvatarGroups(apiKey);
   const all: FlatLook[] = [];
   const results = await Promise.allSettled(
-    groups.map(async (g) => ({ group: g, looks: await listGroupLooks(g.id) }))
+    groups.map(async (g) => ({ group: g, looks: await listGroupLooks(g.id, apiKey) }))
   );
   const anyFailed = results.some((r) => r.status === "rejected");
   for (const r of results) {
@@ -112,13 +129,14 @@ async function fetchAllLooks(): Promise<FlatLook[]> {
 }
 
 router.get("/heygen/looks", async (req, res): Promise<void> => {
+  const apiKey = await getUserHeyGenKey(req.session.user!.userId);
   if (looksCache && Date.now() - looksCache.at < 5 * 60 * 1000) {
     res.json(GetHeyGenAllLooksResponse.parse(looksCache.data));
     return;
   }
   // Single-flight: coalesce concurrent refreshes (each one is ~20 HeyGen calls)
   if (!looksFetch) {
-    looksFetch = fetchAllLooks().finally(() => { looksFetch = null; });
+    looksFetch = fetchAllLooks(apiKey).finally(() => { looksFetch = null; });
   }
   const all = await looksFetch;
   res.json(GetHeyGenAllLooksResponse.parse(all));
@@ -186,18 +204,20 @@ router.put("/heygen/avatar-config", async (req, res): Promise<void> => {
 
 // ── HeyGen account / integration ─────────────────────────────────────────────
 
-/** GET /heygen/account — connection status + remaining quota */
+/** GET /heygen/account — connection status + remaining quota (scoped to logged-in user) */
 router.get("/heygen/account", async (req, res): Promise<void> => {
+  const userId = req.session.user!.userId;
   const [settings] = await db
     .select({ heygenApiKey: settingsTable.heygenApiKey })
     .from(settingsTable)
+    .where(eq(settingsTable.userId, userId))
     .limit(1);
 
   const dbKey = settings?.heygenApiKey ?? null;
   const apiKey = dbKey ?? process.env.HEYGEN_API_KEY ?? null;
 
   if (!apiKey) {
-    res.json({ connected: false, remaining_quota: null, total_quota: null, key_source: "none" });
+    res.json({ connected: false, remaining_quota: null, total_quota: null, details: null, key_source: "none" });
     return;
   }
 
@@ -213,7 +233,7 @@ router.get("/heygen/account", async (req, res): Promise<void> => {
   });
 });
 
-/** POST /heygen/account/connect — validate + persist a new API key */
+/** POST /heygen/account/connect — validate + persist a new API key for the logged-in user */
 router.post("/heygen/account/connect", async (req, res): Promise<void> => {
   const { api_key } = req.body ?? {};
   if (!api_key || typeof api_key !== "string" || !api_key.trim()) {
@@ -225,27 +245,28 @@ router.post("/heygen/account/connect", async (req, res): Promise<void> => {
 
   // Validate before saving
   const valid = await validateHeyGenKey(trimmedKey);
-
   if (!valid) {
     res.status(400).json({ error: "API Key inválida. Verificá que sea correcta en tu cuenta de HeyGen." });
     return;
   }
 
-  // Persist to settings
-  const [existing] = await db.select().from(settingsTable).limit(1);
+  // Persist to the logged-in user's settings row
+  const userId = req.session.user!.userId;
+  const [existing] = await db.select().from(settingsTable).where(eq(settingsTable.userId, userId)).limit(1);
   if (existing) {
     await db.update(settingsTable).set({ heygenApiKey: trimmedKey }).where(eq(settingsTable.id, existing.id));
   } else {
-    await db.insert(settingsTable).values({ niche: "", heygenApiKey: trimmedKey });
+    await db.insert(settingsTable).values({ niche: "", userId, heygenApiKey: trimmedKey });
   }
 
   const quota = await getHeyGenQuota(trimmedKey);
   res.json({ connected: true, remaining_quota: quota.remaining, total_quota: null, details: quota.details, key_source: "db" });
 });
 
-/** DELETE /heygen/account — remove the user-stored key (falls back to env var) */
+/** DELETE /heygen/account — remove the current user's stored key */
 router.delete("/heygen/account", async (req, res): Promise<void> => {
-  const [existing] = await db.select().from(settingsTable).limit(1);
+  const userId = req.session.user!.userId;
+  const [existing] = await db.select().from(settingsTable).where(eq(settingsTable.userId, userId)).limit(1);
   if (existing) {
     await db.update(settingsTable).set({ heygenApiKey: null }).where(eq(settingsTable.id, existing.id));
   }

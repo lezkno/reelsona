@@ -1,35 +1,39 @@
 ---
 name: HeyGen account integration
-description: How the HeyGen API key and credit quota are stored and exposed in ContentPilot.
+description: How the HeyGen API key and credit quota are stored and exposed in ContentPilot — per-user BYOK architecture.
 ---
 
-## Storage
-`settings.heygen_api_key TEXT` — user-stored key via settings page UI.
-Priority: DB key → `process.env.HEYGEN_API_KEY` env var → throws.
-`getClient(apiKey?: string)` in `heygen.ts` now accepts optional key; all existing callers pass no arg (use env).
+## Storage (per-user)
+`settings.heygen_api_key TEXT` — per-user key, stored on the user's own `settings` row.
+`settings.user_id INTEGER NOT NULL UNIQUE` — FK to `users.id`; every settings row is owned by one user.
+Key resolution priority for user-facing routes: DB (user's own row) only — no env var fallback.
+Key resolution for scheduler background jobs: first settings row with a key → env var `HEYGEN_API_KEY`.
+
+## Per-user settings architecture
+- `settings` table now has `user_id` (unique) — one row per user.
+- Session stores `{ username, role, userId: number }` — `userId` is the numeric `users.id`.
+- All settings routes (GET/PUT `/settings`) and HeyGen account routes scope queries with `WHERE user_id = req.session.user.userId`.
+- Scheduler uses `resolveHeyGenApiKey()` (first row with a key + env var fallback).
 
 ## API routes (artifacts/api-server/src/routes/heygen.ts)
-- `GET /heygen/account` — returns `{ connected, remaining_quota, total_quota, key_source: "db"|"env"|"none" }`
-- `POST /heygen/account/connect` — validates key via HeyGen, saves to DB settings row
-- `DELETE /heygen/account` — sets `heygen_api_key = null` in DB (falls back to env)
+- `GET /heygen/account` — returns `{ connected, remaining_quota, total_quota, details, key_source: "db"|"env"|"none" }` for the logged-in user
+- `POST /heygen/account/connect` — validates key, saves to logged-in user's settings row
+- `DELETE /heygen/account` — clears `heygen_api_key` from logged-in user's settings row
 
 ## Quota endpoint
 `GET /v2/user/remaining_quota` (underscore, NOT dot — `/v2/user/remaining.quota` returns 404).
 Response: `{ data: { remaining_quota: number, details: { api, generative_credit, plan_credit, instant_avatars } } }`
-`details` is a flat **object**, not an array.
+`details` is a flat object, not an array.
 **Validation endpoint**: `GET /v2/avatars` → HTTP 200 = valid key, HTTP 401 = invalid key.
 `getHeyGenQuota(key)` returns `{ remaining, total: null, details }` — HeyGen has no plan total endpoint.
 
+## HeyGen function signatures
+All exported heygen.ts functions (`listAvatars`, `listVoices`, `listAvatarGroups`, `listGroupLooks`, `getAvatarDefaultVoiceId`, `getLookSupportedEngines`, `generateVideo`, `getVideoStatus`) accept an optional `apiKey?: string` param passed through to `getClient(apiKey)`.
+
 ## React hooks (lib/api-client-react/src/custom-endpoints.ts)
-- `useHeyGenAccount()` — GET /heygen/account, staleTime 2 min, no retry
-- `useConnectHeyGen()` — POST /heygen/account/connect mutation
-- `useDisconnectHeyGen()` — DELETE /heygen/account mutation
+- `useHeyGenAccount()` — GET /heygen/account
+- `useConnectHeyGen()` — POST /heygen/account/connect
+- `useDisconnectHeyGen()` — DELETE /heygen/account
 - `HEYGEN_ACCOUNT_QUERY_KEY` exported for manual invalidation
 
-## Settings UI
-New "Integraciones" section at top of `artifacts/content-pilot/src/pages/Settings.tsx` above the content/tone cards.
-- `HeyGenIntegrationCard` component — standalone, handles connect/disconnect/refresh.
-- Credit bar: green when >50%, amber 20–50%, red <20% remaining.
-- `key_source === "env"` shows read-only label (can't change from UI).
-
-**Why:** Key stored in DB allows runtime changes without redeploying. Env var is the fallback for servers where the key is injected at deploy time (e.g. Replit Secrets).
+**Why:** BYOK so platform owner doesn't pay for user HeyGen usage. Env var `HEYGEN_API_KEY` is only a fallback for scheduler background jobs; remove it from Replit Secrets (Settings → Secrets) to go fully BYOK.

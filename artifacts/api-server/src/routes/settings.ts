@@ -20,9 +20,10 @@ function mapSettings(s: typeof settingsTable.$inferSelect) {
 }
 
 router.get("/settings", async (req, res): Promise<void> => {
-  let [settings] = await db.select().from(settingsTable).limit(1);
+  const userId = req.session.user!.userId;
+  let [settings] = await db.select().from(settingsTable).where(eq(settingsTable.userId, userId)).limit(1);
   if (!settings) {
-    [settings] = await db.insert(settingsTable).values({ niche: "" }).returning();
+    [settings] = await db.insert(settingsTable).values({ niche: "", userId }).returning();
   }
   res.json(GetSettingsResponse.parse(mapSettings(settings)));
 });
@@ -34,7 +35,8 @@ router.put("/settings", async (req, res): Promise<void> => {
     return;
   }
 
-  const [existing] = await db.select().from(settingsTable).limit(1);
+  const userId = req.session.user!.userId;
+  const [existing] = await db.select().from(settingsTable).where(eq(settingsTable.userId, userId)).limit(1);
   const updates: Partial<typeof settingsTable.$inferInsert> = {};
   const d = parsed.data;
   if (d.niche !== undefined) updates.niche = d.niche;
@@ -50,7 +52,7 @@ router.put("/settings", async (req, res): Promise<void> => {
   if (existing) {
     [settings] = await db.update(settingsTable).set(updates).where(eq(settingsTable.id, existing.id)).returning();
   } else {
-    [settings] = await db.insert(settingsTable).values(updates).returning();
+    [settings] = await db.insert(settingsTable).values({ ...updates, userId }).returning();
   }
 
   res.json(UpdateSettingsResponse.parse(mapSettings(settings)));

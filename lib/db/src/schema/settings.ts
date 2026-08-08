@@ -1,9 +1,10 @@
-import { pgTable, serial, text, integer, boolean } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, boolean, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
 export const settingsTable = pgTable("settings", {
   id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
   niche: text("niche").notNull().default(""),
   nicheDescription: text("niche_description"),
   topicKeywords: text("topic_keywords").array().notNull().default([]),

@@ -46,7 +46,7 @@ router.post("/auth/login", async (req: Request, res: Response): Promise<void> =>
       .where(eq(users.id, user.id));
 
     req.session.authenticated = true;
-    req.session.user = { username: user.username, role: user.role };
+    req.session.user = { username: user.username, role: user.role, userId: user.id };
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: "Error interno del servidor" });
@@ -69,7 +69,7 @@ router.get("/auth/me", (req: Request, res: Response): void => {
   if (req.session?.authenticated) {
     res.json({
       authenticated: true,
-      user: req.session.user ?? { username: "admin", role: "admin" },
+      user: req.session.user ?? { username: "admin", role: "admin", userId: 1 },
     });
     return;
   }
