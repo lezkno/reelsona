@@ -244,6 +244,10 @@ router.post("/videos/:id/publish", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Video is not ready for publishing" });
     return;
   }
+  if (video.captionStatus === null || video.captionStatus === "processing") {
+    res.status(400).json({ error: "Video captions are still processing — please wait before publishing" });
+    return;
+  }
 
   // If custom caption provided, update content item
   if (bodyParsed.success && bodyParsed.data.caption && video.contentPlanId) {

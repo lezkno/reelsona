@@ -217,7 +217,12 @@ export default function Videos() {
 
                   <div className="absolute top-3 left-3">
                     {video.status === 'generating' && <Badge variant="warning" className="shadow-lg"><Clock className="w-3 h-3 mr-1"/> Generando</Badge>}
-                    {video.status === 'ready' && <Badge variant="success" className="shadow-lg"><CheckCircle2 className="w-3 h-3 mr-1"/> Listo</Badge>}
+                    {video.status === 'ready' && (video.caption_status === null || video.caption_status === 'processing') && (
+                      <Badge variant="warning" className="shadow-lg"><Clock className="w-3 h-3 mr-1"/> Aplicando captions…</Badge>
+                    )}
+                    {video.status === 'ready' && (video.caption_status === 'done' || video.caption_status === 'failed' || video.caption_status === 'disabled') && (
+                      <Badge variant="success" className="shadow-lg"><CheckCircle2 className="w-3 h-3 mr-1"/> Listo</Badge>
+                    )}
                     {video.status === 'published' && <Badge className="shadow-lg bg-blue-500 hover:bg-blue-600"><ExternalLink className="w-3 h-3 mr-1"/> Publicado</Badge>}
                     {video.status === 'failed' && <Badge variant="destructive" className="shadow-lg"><AlertTriangle className="w-3 h-3 mr-1"/> Error</Badge>}
                   </div>
@@ -254,7 +259,7 @@ export default function Videos() {
                     {video.topic || `Video #${video.id}`}
                   </h4>
 
-                  {!selectMode && video.status === 'ready' && (
+                  {!selectMode && video.status === 'ready' && (video.caption_status === 'done' || video.caption_status === 'failed' || video.caption_status === 'disabled') && (
                     <div className="flex flex-col gap-1.5 mb-3">
                       <Button
                         size="sm"
