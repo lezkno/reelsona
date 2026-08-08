@@ -7,6 +7,7 @@ import cookieParser from "cookie-parser";
 import { logger } from "./lib/logger";
 import { requireAuth } from "./middleware/auth";
 import authRouter from "./routes/auth";
+import captionedRouter from "./routes/captioned";
 import usersRouter from "./routes/users";
 import router from "./routes";
 
@@ -76,6 +77,9 @@ app.use(
 // Auth routes bypass the requireAuth guard (handled inside requireAuth itself,
 // but mounting here first makes the intent explicit)
 app.use("/api", authRouter);
+
+// Captioned video streaming — public, no auth required (files are ephemeral /tmp)
+app.use("/api", captionedRouter);
 
 // Require a valid session for all other /api routes
 app.use("/api", requireAuth);
