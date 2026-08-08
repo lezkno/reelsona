@@ -22,6 +22,13 @@ import { createReelContainer, checkContainerStatus, publishContainer, getPermali
 export const AVATAR_DEFAULT_VOICE = "avatar_default";
 
 /**
+ * In-process mutex: tracks video IDs actively being published in this process.
+ * Prevents the recovery scheduler from re-entering publishVideoToInstagram for a
+ * video that an ongoing request is still polling, which would cause duplicate posts.
+ */
+const activePublishes = new Set<number>();
+
+/**
  * Resolve the effective voice for a given avatar.
  *
  * Resolution order:
@@ -295,6 +302,8 @@ export async function runAutomationCycle(targetItemId?: number): Promise<{
       // null = caption pending (will be processed after HeyGen completes)
       // "disabled" = captions are off, skip the step entirely
       captionStatus: automation.captionsEnabled ? null : "disabled",
+      // Start the timeout clock at submission, not at first poll
+      generatingStartedAt: new Date(),
     })
     .returning();
 
@@ -431,6 +440,36 @@ export async function pollAndPublishVideos(): Promise<void> {
       logger.error({ videoId: v.id, err }, "[CaptionEngine] Recovery failed")
     );
   }
+
+  // ── Recovery: videos stuck in "publishing" ───────────────────────────────
+  // Handles server restarts that interrupted the Instagram publish flow.
+  const publishingStuck = await db
+    .select()
+    .from(videosTable)
+    .where(eq(videosTable.status, "publishing"));
+  for (const v of publishingStuck) {
+    if (v.igContainerId) {
+      // Container already created — resume polling it
+      logger.info({ videoId: v.id, igContainerId: v.igContainerId }, "[Publish] Recovery: resuming stuck publishing video");
+      await publishVideoToInstagram(v.id).catch((err) =>
+        logger.error({ videoId: v.id, err }, "[Publish] Recovery failed for stuck publishing video")
+      );
+    } else {
+      // Crashed before the Instagram container was created.
+      // Mark as failed (not back to ready) to avoid an infinite retry loop:
+      // resetting to ready + auto-publish would restart the same cycle
+      // repeatedly without making progress.  The user can retry via the UI.
+      await db
+        .update(videosTable)
+        .set({
+          status: "failed",
+          errorMessage: "Publicación interrumpida antes de crear el contenedor. Reintenta manualmente.",
+          updatedAt: new Date(),
+        })
+        .where(eq(videosTable.id, v.id));
+      logger.warn({ videoId: v.id }, "[Publish] Marked stuck publishing video (no container) as failed — user must retry");
+    }
+  }
   // ── Publish videos whose scheduled_publish_at has passed ─────────────────
   const now = new Date();
   const scheduledDue = await db
@@ -483,8 +522,41 @@ export async function pollAndPublishVideos(): Promise<void> {
     .from(videosTable)
     .where(eq(videosTable.status, "generating"));
 
+  const pollTimeoutMs = Number(process.env.HEYGEN_POLL_TIMEOUT_MINUTES ?? 60) * 60 * 1000;
+
   for (const video of generatingVideos) {
     if (!video.heygenVideoId) continue;
+
+    // ── Track polling attempts and generation start time ──────────────────
+    const now = new Date();
+    const startedAt = video.generatingStartedAt ?? now;
+    const newAttempts = (video.pollAttempts ?? 0) + 1;
+
+    await db
+      .update(videosTable)
+      .set({
+        pollAttempts: newAttempts,
+        generatingStartedAt: video.generatingStartedAt ?? now,
+        updatedAt: now,
+      })
+      .where(eq(videosTable.id, video.id));
+
+    // ── Timeout check ─────────────────────────────────────────────────────
+    const ageMs = now.getTime() - startedAt.getTime();
+    if (ageMs > pollTimeoutMs) {
+      const timeoutMinutes = Math.round(pollTimeoutMs / 60000);
+      const timeoutMsg = `Video atascado: HeyGen no respondió en ${timeoutMinutes} minutos (${newAttempts} intentos)`;
+      await db
+        .update(videosTable)
+        .set({ status: "failed", errorMessage: timeoutMsg, updatedAt: now })
+        .where(eq(videosTable.id, video.id));
+      if (video.contentPlanId) {
+        await db.update(contentPlanItemsTable).set({ status: "failed", updatedAt: now }).where(eq(contentPlanItemsTable.id, video.contentPlanId));
+      }
+      logger.warn({ videoId: video.id, ageMs, attempts: newAttempts }, timeoutMsg);
+      continue;
+    }
+
     try {
       const status = await getVideoStatus(video.heygenVideoId);
       if (status.status === "completed" && status.video_url) {
@@ -525,37 +597,110 @@ export async function pollAndPublishVideos(): Promise<void> {
         // captionStatus "disabled" was set at creation — no further action needed.
         // ─────────────────────────────────────────────────────────────────────
 
-        // Auto-publish only when both the master switch and auto_publish are on
-        if (automation?.enabled && automation?.autoPublish && status.video_url) {
+        // Auto-publish only when master switch + auto_publish are on AND captions
+        // are in a terminal state. If captions are still processing (null), the
+        // auto-publish sweep in pollAndPublishVideos will handle it later.
+        const captionTerminal =
+          video.captionStatus === "done" ||
+          video.captionStatus === "failed" ||
+          video.captionStatus === "disabled";
+        if (automation?.enabled && automation?.autoPublish && status.video_url && captionTerminal) {
           await publishVideoToInstagram(video.id);
         }
       } else if (status.status === "failed") {
+        const heygenError = status.error ?? "Error desconocido en HeyGen";
         await db
           .update(videosTable)
-          .set({ status: "failed", errorMessage: status.error ?? "Unknown error", updatedAt: new Date() })
+          .set({ status: "failed", errorMessage: heygenError, updatedAt: new Date() })
           .where(eq(videosTable.id, video.id));
 
         if (video.contentPlanId) {
           await db.update(contentPlanItemsTable).set({ status: "failed", updatedAt: new Date() }).where(eq(contentPlanItemsTable.id, video.contentPlanId));
         }
       }
-    } catch (err) {
-      logger.error({ videoId: video.id, err }, "Error polling video status");
+    } catch (err: any) {
+      // ── Classify HeyGen HTTP errors ──────────────────────────────────────
+      const httpStatus: number | undefined = err?.response?.status ?? err?.status;
+      let userMsg: string;
+      let markFailed = false;
+
+      if (httpStatus === 401) {
+        userMsg = "API key de HeyGen inválida — verificá HEYGEN_API_KEY en los ajustes";
+        markFailed = true; // Permanent — won't self-heal on retry
+      } else if (httpStatus === 402) {
+        userMsg = "Créditos de HeyGen insuficientes — recargá tu cuenta en heygen.com";
+        markFailed = true; // Permanent — won't self-heal on retry
+      } else if (httpStatus === 429) {
+        userMsg = "Rate limit de HeyGen — el sistema reintentará en el próximo ciclo";
+        markFailed = false; // Transient — will retry
+      } else if (httpStatus !== undefined && httpStatus >= 500) {
+        userMsg = `Error del servidor HeyGen (${httpStatus}) — el sistema reintentará automáticamente`;
+        markFailed = false; // Transient — will retry
+      } else {
+        userMsg = err instanceof Error ? err.message : String(err);
+        markFailed = false;
+      }
+
+      if (markFailed) {
+        await db
+          .update(videosTable)
+          .set({ status: "failed", errorMessage: userMsg, updatedAt: new Date() })
+          .where(eq(videosTable.id, video.id));
+        if (video.contentPlanId) {
+          await db.update(contentPlanItemsTable).set({ status: "failed", updatedAt: new Date() }).where(eq(contentPlanItemsTable.id, video.contentPlanId));
+        }
+        logger.error({ videoId: video.id, httpStatus }, userMsg);
+      } else {
+        logger.warn({ videoId: video.id, httpStatus, err }, `Transient polling error (will retry): ${userMsg}`);
+      }
     }
   }
 }
 
 export async function publishVideoToInstagram(videoId: number, videoUrl?: string): Promise<void> {
-  const [video] = await db.select().from(videosTable).where(eq(videosTable.id, videoId));
-  if (!video) throw new Error("Video not found");
+  // In-process mutex: prevent the recovery scheduler from re-entering this function
+  // for a video already being actively published (would cause duplicate posts).
+  if (activePublishes.has(videoId)) {
+    logger.info({ videoId }, "[Publish] Already publishing in this process — skipping concurrent call");
+    return;
+  }
+  activePublishes.add(videoId);
+  try {
+    await _publishVideoToInstagramInner(videoId, videoUrl);
+  } finally {
+    activePublishes.delete(videoId);
+  }
+}
 
-  // Idempotency guard — if already published, skip silently.
-  // Prevents double-publish when both the immediate post-caption path and the
-  // auto-publish sweep run in the same or back-to-back scheduler cycles.
-  if (video.status === "published") {
+async function _publishVideoToInstagramInner(videoId: number, videoUrl?: string): Promise<void> {
+  const [initial] = await db.select().from(videosTable).where(eq(videosTable.id, videoId));
+  if (!initial) throw new Error("Video not found");
+
+  // Idempotency guard — skip if already published.
+  if (initial.status === "published") {
     logger.info({ videoId }, "[Publish] Video already published — skipping");
     return;
   }
+
+  // Atomically claim: transition current status → publishing using optimistic locking.
+  // WHERE status = initial.status ensures only one concurrent request succeeds.
+  // The recovery path (status already "publishing") skips this and continues below.
+  if (initial.status !== "publishing") {
+    const claimed = await db
+      .update(videosTable)
+      .set({ status: "publishing", updatedAt: new Date() })
+      .where(and(eq(videosTable.id, videoId), eq(videosTable.status, initial.status)))
+      .returning({ id: videosTable.id });
+    if (claimed.length === 0) {
+      // Another concurrent request claimed it first — bail out safely.
+      logger.info({ videoId, prevStatus: initial.status }, "[Publish] Video already claimed by concurrent request — skipping");
+      return;
+    }
+  }
+
+  // Re-read with fresh data after the status transition.
+  const [video] = await db.select().from(videosTable).where(eq(videosTable.id, videoId));
+  if (!video) throw new Error("Video disappeared after claim");
 
   // Use captioned URL if available (Caption Studio layer), fallback to original.
   // Captioned files live in /tmp which is cleared on every server restart.
@@ -630,8 +775,21 @@ export async function publishVideoToInstagram(videoId: number, videoUrl?: string
     caption = [item?.caption, item?.hashtags].filter(Boolean).join("\n\n");
   }
 
-  // Create container
-  const containerId = await createReelContainer(igAccount.accessToken, igAccount.igUserId, url, caption);
+  // Create container (or resume existing one from a previous attempt)
+  let containerId: string;
+  if (video.igContainerId) {
+    // Server restarted after container was created — resume polling it
+    containerId = video.igContainerId;
+    logger.info({ videoId, containerId }, "[Publish] Resuming existing Instagram container");
+  } else {
+    containerId = await createReelContainer(igAccount.accessToken, igAccount.igUserId, url, caption);
+    // Persist the container ID BEFORE polling so a crash/restart can resume
+    await db
+      .update(videosTable)
+      .set({ igContainerId: containerId, updatedAt: new Date() })
+      .where(eq(videosTable.id, videoId));
+    logger.info({ videoId, containerId }, "[Publish] Created Instagram container");
+  }
 
   // Poll container status
   let attempts = 0;

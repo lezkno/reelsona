@@ -2,6 +2,7 @@ import { Route, Switch, Router as WouterRouter } from "wouter"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { Toaster } from "@/components/ui/toaster"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { Loader2 } from "lucide-react"
 
 import { Layout } from "@/components/layout/Layout"
 import NotFound from "@/pages/not-found"
@@ -14,6 +15,8 @@ import Videos from "@/pages/Videos"
 import Settings from "@/pages/Settings"
 import Automation from "@/pages/Automation"
 import CaptionStudio from "@/pages/CaptionStudio"
+import Login from "@/pages/Login"
+import { useAuthStatus } from "@workspace/api-client-react"
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -43,12 +46,33 @@ function Router() {
   )
 }
 
+/** Checks session status and renders Login or the app accordingly. */
+function AuthGuard({ children }: { children: React.ReactNode }) {
+  const { data, isLoading, refetch } = useAuthStatus()
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  if (!data?.authenticated) {
+    return <Login onSuccess={() => refetch()} />
+  }
+
+  return <>{children}</>
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
-          <Router />
+          <AuthGuard>
+            <Router />
+          </AuthGuard>
         </WouterRouter>
         <Toaster />
       </TooltipProvider>

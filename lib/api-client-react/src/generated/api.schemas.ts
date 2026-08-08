@@ -244,6 +244,12 @@ export interface ContentPlanItem {
      * @nullable
      */
   caption_status?: ContentPlanItemCaptionStatus;
+  /** @nullable — URL of the generated video (joined from videos table) */
+  video_url?: string | null;
+  /** @nullable — thumbnail for the generated video */
+  thumbnail_url?: string | null;
+  /** @nullable — captioned video URL when caption processing is done */
+  captioned_video_url?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -311,6 +317,7 @@ export const VideoStatus = {
   pending: 'pending',
   generating: 'generating',
   ready: 'ready',
+  publishing: 'publishing',
   published: 'published',
   failed: 'failed',
 } as const;
@@ -359,6 +366,8 @@ export interface Video {
   updated_at: string;
   /** @nullable */
   published_at?: string | null;
+  /** @nullable */
+  scheduled_publish_at?: string | null;
 }
 
 export interface VideoGenerateInput {
@@ -465,6 +474,7 @@ export const CaptionPresetHighlightMode = {
   scale: 'scale',
   both: 'both',
   mixed: 'mixed',
+  zoom: 'zoom',
 } as const;
 
 export interface CaptionPreset {
@@ -501,6 +511,7 @@ export const CaptionConfigHighlightMode = {
   scale: 'scale',
   both: 'both',
   mixed: 'mixed',
+  zoom: 'zoom',
 } as const;
 
 export interface CaptionConfig {
@@ -514,6 +525,9 @@ export interface CaptionConfig {
   background_color?: string | null;
   font_family: string;
   font_size: number;
+  line_spacing_factor: number;
+  y_position: number;
+  margin_x: number;
   active_word_scale: number;
   highlight_mode: CaptionConfigHighlightMode;
   auto_scale: boolean;

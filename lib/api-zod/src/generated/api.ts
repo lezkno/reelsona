@@ -468,7 +468,7 @@ export const DeleteContentItemResponse = zod.object({
 export const getVideosQueryStatusDefault = `all`;
 
 export const GetVideosQueryParams = zod.object({
-  "status": zod.enum(['pending', 'generating', 'ready', 'published', 'failed', 'all']).default(getVideosQueryStatusDefault)
+  "status": zod.enum(['pending', 'generating', 'ready', 'publishing', 'published', 'failed', 'all']).default(getVideosQueryStatusDefault)
 })
 
 export const GetVideosResponseItem = zod.object({
@@ -477,7 +477,7 @@ export const GetVideosResponseItem = zod.object({
   "heygen_video_id": zod.string().nullish(),
   "topic": zod.string().nullish(),
   "avatar_id": zod.string().nullish(),
-  "status": zod.enum(['pending', 'generating', 'ready', 'published', 'failed']),
+  "status": zod.enum(['pending', 'generating', 'ready', 'publishing', 'published', 'failed']),
   "video_url": zod.string().nullish(),
   "thumbnail_url": zod.string().nullish(),
   "ig_media_id": zod.string().nullish(),
@@ -507,7 +507,7 @@ export const GenerateVideoResponse = zod.object({
   "heygen_video_id": zod.string().nullish(),
   "topic": zod.string().nullish(),
   "avatar_id": zod.string().nullish(),
-  "status": zod.enum(['pending', 'generating', 'ready', 'published', 'failed']),
+  "status": zod.enum(['pending', 'generating', 'ready', 'publishing', 'published', 'failed']),
   "video_url": zod.string().nullish(),
   "thumbnail_url": zod.string().nullish(),
   "ig_media_id": zod.string().nullish(),
@@ -536,7 +536,7 @@ export const GetVideoResponse = zod.object({
   "heygen_video_id": zod.string().nullish(),
   "topic": zod.string().nullish(),
   "avatar_id": zod.string().nullish(),
-  "status": zod.enum(['pending', 'generating', 'ready', 'published', 'failed']),
+  "status": zod.enum(['pending', 'generating', 'ready', 'publishing', 'published', 'failed']),
   "video_url": zod.string().nullish(),
   "thumbnail_url": zod.string().nullish(),
   "ig_media_id": zod.string().nullish(),
@@ -570,7 +570,7 @@ export const PublishVideoResponse = zod.object({
   "heygen_video_id": zod.string().nullish(),
   "topic": zod.string().nullish(),
   "avatar_id": zod.string().nullish(),
-  "status": zod.enum(['pending', 'generating', 'ready', 'published', 'failed']),
+  "status": zod.enum(['pending', 'generating', 'ready', 'publishing', 'published', 'failed']),
   "video_url": zod.string().nullish(),
   "thumbnail_url": zod.string().nullish(),
   "ig_media_id": zod.string().nullish(),
@@ -602,7 +602,7 @@ export const ScheduleVideoResponse = zod.object({
   "heygen_video_id": zod.string().nullish(),
   "topic": zod.string().nullish(),
   "avatar_id": zod.string().nullish(),
-  "status": zod.enum(['pending', 'generating', 'ready', 'published', 'failed']),
+  "status": zod.enum(['pending', 'generating', 'ready', 'publishing', 'published', 'failed']),
   "video_url": zod.string().nullish(),
   "thumbnail_url": zod.string().nullish(),
   "ig_media_id": zod.string().nullish(),

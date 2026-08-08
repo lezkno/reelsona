@@ -1,0 +1,34 @@
+import type { RequestHandler } from "express";
+
+// Augment express-session to include our authenticated flag
+declare module "express-session" {
+  interface SessionData {
+    authenticated?: boolean;
+  }
+}
+
+/**
+ * Protect all /api routes.
+ * Skipped paths (no auth required):
+ *   - /healthz
+ *   - /auth/*  (login, logout, me)
+ */
+export const requireAuth: RequestHandler = (req, res, next): void => {
+  // /captioned-objects/* must be public: Instagram fetches captioned video
+  // files directly when creating media containers and cannot supply a browser
+  // session cookie. The videos router mounts this handler under /captioned-objects
+  // (no /videos prefix) so the effective path under /api is /captioned-objects/*.
+  if (
+    req.path === "/healthz" ||
+    req.path.startsWith("/auth/") ||
+    req.path.startsWith("/captioned-objects/")
+  ) {
+    next();
+    return;
+  }
+  if (req.session?.authenticated) {
+    next();
+    return;
+  }
+  res.status(401).json({ error: "Unauthorized" });
+};

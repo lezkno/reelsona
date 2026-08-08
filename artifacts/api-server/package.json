@@ -11,14 +11,17 @@
   },
   "dependencies": {
     "@google-cloud/storage": "^7.21.0",
+    "@types/express-session": "^1.19.0",
     "@types/node-cron": "^3.0.11",
     "@workspace/api-zod": "workspace:*",
     "@workspace/db": "workspace:*",
     "axios": "^1.19.0",
+    "connect-pg-simple": "^10.0.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
     "drizzle-orm": "catalog:",
     "express": "^5.2.1",
+    "express-session": "^1.19.0",
     "google-auth-library": "^11.0.0",
     "node-cron": "^4.6.0",
     "openai": "^6.49.0",
@@ -26,6 +29,7 @@
     "pino-http": "^10.5.0"
   },
   "devDependencies": {
+    "@types/connect-pg-simple": "^7.0.3",
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",

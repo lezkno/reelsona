@@ -19,6 +19,10 @@ export const videosTable = pgTable("videos", {
   scheduledPublishAt: timestamp("scheduled_publish_at"),
   captionedVideoUrl: text("captioned_video_url"),
   captionStatus: text("caption_status").default("disabled"), // disabled | processing | done | failed
+  // Production safety fields
+  pollAttempts: integer("poll_attempts").default(0).notNull(),
+  generatingStartedAt: timestamp("generating_started_at"),
+  igContainerId: text("ig_container_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

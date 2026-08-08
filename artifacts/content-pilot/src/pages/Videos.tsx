@@ -1,13 +1,14 @@
-import { useGetVideos, usePublishVideo, useScheduleVideo, useDeleteVideo, getGetVideosQueryKey } from "@workspace/api-client-react"
+import { useGetVideos, usePublishVideo, useScheduleVideo, useDeleteVideo, useRetryVideo, getGetVideosQueryKey } from "@workspace/api-client-react"
 import type { Video } from "@workspace/api-client-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog"
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
-import { ExternalLink, Play, Clock, AlertTriangle, CheckCircle2, Instagram, CalendarClock, Send, Trash2, CheckSquare, Square, X } from "lucide-react"
+import { ExternalLink, Play, Clock, AlertTriangle, CheckCircle2, Instagram, CalendarClock, Send, Trash2, CheckSquare, Square, X, RotateCcw, Loader2 } from "lucide-react"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
 import { useToast } from "@/hooks/use-toast"
@@ -20,6 +21,7 @@ export default function Videos() {
   const publishVideo = usePublishVideo()
   const scheduleVideo = useScheduleVideo()
   const deleteVideo = useDeleteVideo()
+  const retryVideo = useRetryVideo()
   const { toast } = useToast()
   const queryClient = useQueryClient()
 
@@ -27,6 +29,9 @@ export default function Videos() {
   const [scheduleDatetime, setScheduleDatetime] = useState("")
   const [previewVideo, setPreviewVideo] = useState<Video | null>(null)
   const [previewFallback, setPreviewFallback] = useState(false)
+
+  // ── Publish confirmation ──────────────────────────────────────────────────
+  const [publishConfirm, setPublishConfirm] = useState<Video | null>(null)
 
   // ── Delete state ──────────────────────────────────────────────────────────
   const [selectMode, setSelectMode] = useState(false)
@@ -59,8 +64,30 @@ export default function Videos() {
 
   const askDelete = (ids: number[], label: string) => setConfirmDelete({ ids, label })
 
+  // ── Retry ─────────────────────────────────────────────────────────────────
+  const handleRetry = (video: Video) => {
+    retryVideo.mutate({ id: video.id }, {
+      onSuccess: () => {
+        toast({ title: "Reintentando", description: "El ítem volvió al estado 'Guión listo'. Podés generarlo de nuevo." })
+        queryClient.invalidateQueries({ queryKey: getGetVideosQueryKey() })
+        queryClient.invalidateQueries({ queryKey: getGetContentPlanQueryKey() })
+      },
+      onError: () => {
+        toast({ title: "Error", description: "No se pudo reintentar el video.", variant: "destructive" })
+      }
+    })
+  }
+
   // ── Publish / schedule ────────────────────────────────────────────────────
-  const handlePublish = (id: number) => {
+  /** Opens the confirmation dialog before publishing */
+  const handlePublish = (video: Video) => {
+    setPublishConfirm(video)
+  }
+
+  const handlePublishConfirmed = () => {
+    if (!publishConfirm) return
+    const id = publishConfirm.id
+    setPublishConfirm(null)
     publishVideo.mutate({ id, data: {} }, {
       onSuccess: () => {
         toast({ title: "Publicando", description: "El video se está publicando en Instagram." })
@@ -168,6 +195,7 @@ export default function Videos() {
           {videos.map((video) => {
             const isSelected = selected.has(video.id)
             const hasPlayable = !!(video.captioned_video_url || video.video_url)
+            const captionStatus = (video as any).caption_status as string | null
 
             return (
               <Card
@@ -186,6 +214,11 @@ export default function Videos() {
                         <div className="flex flex-col items-center gap-2">
                           <div className="w-8 h-8 rounded-full border-2 border-secondary border-t-transparent animate-spin" />
                           <span className="text-xs font-bold uppercase tracking-wider">Renderizando</span>
+                        </div>
+                      ) : video.status === 'publishing' ? (
+                        <div className="flex flex-col items-center gap-2">
+                          <Loader2 className="w-8 h-8 animate-spin text-blue-400" />
+                          <span className="text-xs font-bold uppercase tracking-wider">Publicando</span>
                         </div>
                       ) : (
                         <Play className="w-12 h-12 opacity-50" />
@@ -215,13 +248,17 @@ export default function Videos() {
                     </button>
                   )}
 
+                  {/* Main status badge */}
                   <div className="absolute top-3 left-3">
                     {video.status === 'generating' && <Badge variant="warning" className="shadow-lg"><Clock className="w-3 h-3 mr-1"/> Generando</Badge>}
-                    {video.status === 'ready' && (video.caption_status === null || video.caption_status === 'processing') && (
+                    {video.status === 'ready' && (captionStatus === null || captionStatus === 'processing') && (
                       <Badge variant="warning" className="shadow-lg"><Clock className="w-3 h-3 mr-1"/> Aplicando captions…</Badge>
                     )}
-                    {video.status === 'ready' && (video.caption_status === 'done' || video.caption_status === 'failed' || video.caption_status === 'disabled') && (
+                    {video.status === 'ready' && (captionStatus === 'done' || captionStatus === 'failed' || captionStatus === 'disabled') && (
                       <Badge variant="success" className="shadow-lg"><CheckCircle2 className="w-3 h-3 mr-1"/> Listo</Badge>
+                    )}
+                    {video.status === 'publishing' && (
+                      <Badge className="shadow-lg bg-blue-500 hover:bg-blue-600"><Loader2 className="w-3 h-3 mr-1 animate-spin"/> Publicando…</Badge>
                     )}
                     {video.status === 'published' && <Badge className="shadow-lg bg-blue-500 hover:bg-blue-600"><ExternalLink className="w-3 h-3 mr-1"/> Publicado</Badge>}
                     {video.status === 'failed' && <Badge variant="destructive" className="shadow-lg"><AlertTriangle className="w-3 h-3 mr-1"/> Error</Badge>}
@@ -259,12 +296,46 @@ export default function Videos() {
                     {video.topic || `Video #${video.id}`}
                   </h4>
 
-                  {!selectMode && video.status === 'ready' && (video.caption_status === 'done' || video.caption_status === 'failed' || video.caption_status === 'disabled') && (
+                  {/* Error message for failed videos */}
+                  {video.status === 'failed' && (video as any).error_message && (
+                    <p className="text-[11px] text-destructive mb-2 line-clamp-3 leading-relaxed">
+                      {(video as any).error_message}
+                    </p>
+                  )}
+
+                  {/* Caption status badge */}
+                  {video.status !== 'published' && video.status !== 'failed' && captionStatus && (
+                    <div className="mb-2">
+                      {captionStatus === 'processing' && (
+                        <Badge variant="outline" className="text-[10px] gap-1 text-yellow-600 border-yellow-300 bg-yellow-50">
+                          <Clock className="w-3 h-3" /> Aplicando captions
+                        </Badge>
+                      )}
+                      {captionStatus === 'done' && (
+                        <Badge variant="outline" className="text-[10px] gap-1 text-green-700 border-green-300 bg-green-50">
+                          <CheckCircle2 className="w-3 h-3" /> Captions listos
+                        </Badge>
+                      )}
+                      {captionStatus === 'failed' && (
+                        <Badge variant="outline" className="text-[10px] gap-1 text-destructive border-destructive/30 bg-destructive/5">
+                          <AlertTriangle className="w-3 h-3" /> Captions fallaron
+                        </Badge>
+                      )}
+                      {captionStatus === 'disabled' && (
+                        <Badge variant="outline" className="text-[10px] gap-1 text-muted-foreground">
+                          Sin captions
+                        </Badge>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Action buttons */}
+                  {!selectMode && video.status === 'ready' && (captionStatus === 'done' || captionStatus === 'failed' || captionStatus === 'disabled') && (
                     <div className="flex flex-col gap-1.5 mb-3">
                       <Button
                         size="sm"
                         className="w-full bg-gradient-to-r from-[#833ab4] via-[#fd1d1d] to-[#fcb045] hover:opacity-90 border-0 text-white gap-1.5 text-xs"
-                        onClick={() => handlePublish(video.id)}
+                        onClick={() => handlePublish(video)}
                         disabled={publishVideo.isPending}
                       >
                         <Instagram className="w-3.5 h-3.5" /> Publicar ahora
@@ -282,6 +353,20 @@ export default function Videos() {
                         {video.scheduled_publish_at ? "Cambiar horario" : "Programar"}
                       </Button>
                     </div>
+                  )}
+
+                  {/* Retry button for failed videos */}
+                  {!selectMode && video.status === 'failed' && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="w-full text-xs gap-1.5 mb-3"
+                      onClick={() => handleRetry(video)}
+                      disabled={retryVideo.isPending}
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      {retryVideo.isPending ? "Reintentando…" : "Reintentar generación"}
+                    </Button>
                   )}
 
                   <div className="text-xs text-muted-foreground mt-auto pt-2 border-t flex justify-between items-center">
@@ -334,6 +419,41 @@ export default function Videos() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* ── Publish confirmation dialog ──────────────────────────────────────── */}
+      <AlertDialog open={!!publishConfirm} onOpenChange={(o) => { if (!o) setPublishConfirm(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Instagram className="w-5 h-5" /> Publicar en Instagram
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm text-muted-foreground">
+                <p className="font-medium text-foreground line-clamp-2">{publishConfirm?.topic ?? `Video #${publishConfirm?.id}`}</p>
+                {publishConfirm && (
+                  <p>
+                    {(publishConfirm as any).caption_status === 'done'
+                      ? "✅ Este video tiene captions quemados aplicados."
+                      : (publishConfirm as any).caption_status === 'disabled'
+                      ? "ℹ️ Este video se publicará sin captions."
+                      : "⚠️ Los captions de este video fallaron — se publicará sin captions."}
+                  </p>
+                )}
+                <p>¿Confirmar publicación? Esta acción no se puede deshacer.</p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handlePublishConfirmed}
+              className="bg-gradient-to-r from-[#833ab4] via-[#fd1d1d] to-[#fcb045] text-white border-0 hover:opacity-90"
+            >
+              Publicar ahora
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* ── Confirm delete dialog ────────────────────────────────────────────── */}
       <Dialog open={!!confirmDelete} onOpenChange={(o) => { if (!o) setConfirmDelete(null) }}>

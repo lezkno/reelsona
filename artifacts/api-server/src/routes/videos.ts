@@ -77,6 +77,17 @@ router.use("/captioned-objects", async (req, res, next): Promise<void> => {
   if (req.method !== "GET") { next(); return; }
   // req.path = "/captioned-videos/file.mp4" → strip leading slash
   const objectName = req.path.replace(/^\//, ""); // e.g. "captioned-videos/file.mp4"
+  // Security: only serve objects in the captioned-videos/ namespace.
+  // Reject empty names, path traversal, and any other bucket paths.
+  if (
+    !objectName ||
+    objectName.includes("..") ||
+    !objectName.startsWith("captioned-videos/") ||
+    objectName.split("/").some((part) => part === "")
+  ) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
   const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
   if (!bucketId) {
     res.status(500).json({ error: "Object storage not configured" });
@@ -213,6 +224,8 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
       avatarId: item.avatarId,
       status: "generating",
       captionStatus: captionCfg ? null : "disabled",
+      // Start the timeout clock at submission, not at first poll
+      generatingStartedAt: new Date(),
     })
     .returning();
 
@@ -306,6 +319,37 @@ router.post("/videos/:id/publish", async (req, res): Promise<void> => {
 
   const [updated] = await db.select().from(videosTable).where(eq(videosTable.id, video.id)).limit(1);
   res.json(PublishVideoResponse.parse(mapVideo(updated ?? video)));
+});
+
+/**
+ * POST /api/videos/:id/retry
+ * Retry a failed video: deletes the failed video row and resets the linked
+ * content plan item back to "scripted" so the user can regenerate it.
+ */
+router.post("/videos/:id/retry", async (req, res): Promise<void> => {
+  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const id = Number(raw);
+  if (!id || isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const [video] = await db.select().from(videosTable).where(eq(videosTable.id, id)).limit(1);
+  if (!video) { res.status(404).json({ error: "Video not found" }); return; }
+  if (video.status !== "failed") {
+    res.status(400).json({ error: "Solo se pueden reintentar videos en estado fallido" });
+    return;
+  }
+
+  // Detach from content plan item and reset to scripted so it can be regenerated
+  if (video.contentPlanId) {
+    await db
+      .update(contentPlanItemsTable)
+      .set({ videoId: null, status: "scripted", updatedAt: new Date() })
+      .where(eq(contentPlanItemsTable.id, video.contentPlanId));
+  }
+
+  // Delete the failed video row; a fresh one will be created on next generate
+  await db.delete(videosTable).where(eq(videosTable.id, id));
+
+  res.json({ success: true });
 });
 
 router.delete("/videos/:id", async (req, res): Promise<void> => {
