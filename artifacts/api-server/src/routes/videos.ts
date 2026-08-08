@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { videosTable, contentPlanItemsTable, avatarConfigTable, automationConfigTable, captionConfigTable } from "@workspace/db";
+import { videosTable, contentPlanItemsTable, avatarConfigTable, automationConfigTable, captionConfigTable, settingsTable } from "@workspace/db";
 import { eq, desc, and } from "drizzle-orm";
 import {
   GetVideosQueryParams,
@@ -161,6 +161,19 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
     return;
   }
 
+  // Resolve the user's HeyGen API key from their settings row
+  const userId = req.session.user!.userId;
+  const [userSettings] = await db
+    .select({ heygenApiKey: settingsTable.heygenApiKey })
+    .from(settingsTable)
+    .where(eq(settingsTable.userId, userId))
+    .limit(1);
+  const heygenApiKey = userSettings?.heygenApiKey ?? undefined;
+  if (!heygenApiKey) {
+    res.status(400).json({ error: "No hay una API key de HeyGen configurada. Conectá tu cuenta en Configuración → Integraciones." });
+    return;
+  }
+
   // Ensure avatar/voice are set AND that the stored avatarId is still in the active selection.
   // If the user removed the previously assigned avatar, re-pick from the current list.
   {
@@ -178,13 +191,18 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
         avatarCfg.rotationStrategy,
         (avatarCfg.avatarUsageCount as Record<string, number>) ?? {}
       );
+      // Advance lastUsedAvatarId so next generation picks a different avatar
+      await db
+        .update(avatarConfigTable)
+        .set({ lastUsedAvatarId: item.avatarId, updatedAt: new Date() })
+        .where(eq(avatarConfigTable.id, avatarCfg.id));
       // Force voice re-resolution for the new avatar
       item.voiceId = null;
     }
     // Always re-resolve from current voice_overrides at generation time.
     // The voiceId stored on the item may be stale (set before the user configured
     // per-avatar overrides, or before they changed them). The override always wins.
-    const freshVoiceId = await resolveVoiceId(item.avatarId!);
+    const freshVoiceId = await resolveVoiceId(item.avatarId!, heygenApiKey);
     if (!freshVoiceId && !item.voiceId) {
       res.status(400).json({ error: "No se encontró ninguna voz disponible en HeyGen. Verificá tu cuenta de HeyGen." });
       return;
@@ -234,14 +252,14 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
     .set({ videoId: videoRow.id, updatedAt: new Date() })
     .where(eq(contentPlanItemsTable.id, item.id));
 
-  // Fire and forget video generation
+  // Fire and forget video generation — pass the user's own HeyGen key
   generateVideo({
     script: item.script,
     avatar_id: item.avatarId!,
     voice_id: item.voiceId!,
     title: item.topic,
     captionsEnabled: automationCfg?.captionsEnabled ?? false,
-  })
+  }, heygenApiKey)
     .then(async (heygenVideoId) => {
       await db.update(videosTable).set({ heygenVideoId, updatedAt: new Date() }).where(eq(videosTable.id, videoRow.id));
       // Update avatar usage
