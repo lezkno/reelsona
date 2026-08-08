@@ -8,8 +8,8 @@ import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { useQueryClient } from "@tanstack/react-query"
 import { useToast } from "@/hooks/use-toast"
-import { useState, useEffect, useRef } from "react"
-import { Users, Save, CheckCircle2, Image as ImageIcon, Play, Square, Eye, EyeOff, X, Plus, ExternalLink, Video, Camera, AlertTriangle, Mic } from "lucide-react"
+import { useState, useEffect, useRef, useMemo } from "react"
+import { Users, Save, CheckCircle2, Image as ImageIcon, Play, Square, Eye, EyeOff, X, Plus, ExternalLink, Video, Camera, AlertTriangle, Mic, RefreshCw } from "lucide-react"
 
 const HIDDEN_KEY = "contentpilot_hidden_avatar_groups"
 function loadHidden(): Set<string> { try { return new Set(JSON.parse(localStorage.getItem(HIDDEN_KEY) ?? "[]")) } catch { return new Set() } }
@@ -313,6 +313,35 @@ export default function Avatars() {
     })
   }
 
+  /** Apply one voice to ALL selected looks at once */
+  const handleGlobalVoiceChange = (voiceId: string) => {
+    setVoiceOverrides((prev) => {
+      const next = { ...prev }
+      for (const id of selectedIds) {
+        if (voiceId === LOOK_DEFAULT_VOICE_SENTINEL) {
+          delete next[id]
+        } else {
+          next[id] = voiceId
+        }
+      }
+      return next
+    })
+  }
+
+  /** If ALL selected looks share the same voice, return it; otherwise "mixed" */
+  const globalVoiceValue = useMemo(() => {
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0) return LOOK_DEFAULT_VOICE_SENTINEL
+    const first = voiceOverrides[ids[0]] ?? LOOK_DEFAULT_VOICE_SENTINEL
+    return ids.every((id) => (voiceOverrides[id] ?? LOOK_DEFAULT_VOICE_SENTINEL) === first) ? first : "mixed"
+  }, [selectedIds, voiceOverrides])
+
+  /** Force a re-sync from the server (resets the initialized guard) */
+  const handleRefreshConfig = () => {
+    configInitialized.current = false
+    queryClient.invalidateQueries({ queryKey: getGetAvatarConfigQueryKey() })
+  }
+
   const handleSave = () => {
     if (selectedIds.size === 0) {
       toast({ title: "Atención", description: "Debes seleccionar al menos un look.", variant: "destructive" })
@@ -384,7 +413,7 @@ export default function Avatars() {
         </div>
       </div>
 
-      {/* Rotation strategy */}
+      {/* Rotation strategy + global voice */}
       <Card className="bg-muted/30 border-dashed">
         <CardContent className="p-6">
           <div className="flex flex-col sm:flex-row gap-6 items-start">
@@ -392,23 +421,62 @@ export default function Avatars() {
               <Users className="w-8 h-8" />
             </div>
             <div className="flex-1">
-              <h3 className="text-xl font-bold font-display">Estrategia de Rotación</h3>
+              <h3 className="text-xl font-bold font-display">Rotación y Voz</h3>
               <p className="text-muted-foreground text-sm max-w-xl mt-1">
-                ContentPilot rota entre los looks seleccionados automáticamente para darle variedad a tu feed.
+                Elegí cómo rotar los looks y qué voz usar en todos los videos.
               </p>
             </div>
-            <div className="w-full sm:w-64 shrink-0">
-              <Label className="mb-2 block">Método de rotación</Label>
-              <Select value={strategy} onValueChange={(v) => setStrategy(v as AvatarConfigRotationStrategy)}>
-                <SelectTrigger className="bg-background">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={AvatarConfigRotationStrategy.sequential}>Secuencial (1, 2, 3, 1...)</SelectItem>
-                  <SelectItem value={AvatarConfigRotationStrategy.random}>Aleatorio</SelectItem>
-                  <SelectItem value={AvatarConfigRotationStrategy.performance}>Por Rendimiento (IA)</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="flex flex-col sm:flex-row gap-4 shrink-0 w-full sm:w-auto">
+              {/* Global voice selector */}
+              <div className="w-full sm:w-64">
+                <Label className="mb-2 block flex items-center gap-1.5">
+                  <Mic className="w-3.5 h-3.5 text-primary" />
+                  Voz para todos los looks
+                </Label>
+                <Select
+                  value={globalVoiceValue === "mixed" ? "" : globalVoiceValue}
+                  onValueChange={handleGlobalVoiceChange}
+                >
+                  <SelectTrigger className="bg-background">
+                    <SelectValue placeholder={globalVoiceValue === "mixed" ? "Voces distintas por look" : "Voz por defecto"} />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-64">
+                    <SelectItem value={LOOK_DEFAULT_VOICE_SENTINEL}>Voz por defecto (HeyGen)</SelectItem>
+                    {spanishVoices.map((v) => (
+                      <SelectItem key={v.voice_id} value={v.voice_id}>
+                        {v.name}
+                        {v.is_cloned ? " · clonada" : ""}
+                        {v.gender === "male" ? " · masc." : v.gender === "female" ? " · fem." : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  Cambia la voz en todos los looks de una vez. También podés asignar voces individuales abriendo cada avatar.
+                </p>
+              </div>
+
+              {/* Rotation strategy */}
+              <div className="w-full sm:w-52">
+                <Label className="mb-2 block">Método de rotación</Label>
+                <Select value={strategy} onValueChange={(v) => setStrategy(v as AvatarConfigRotationStrategy)}>
+                  <SelectTrigger className="bg-background">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={AvatarConfigRotationStrategy.sequential}>Secuencial (1, 2, 3…)</SelectItem>
+                    <SelectItem value={AvatarConfigRotationStrategy.random}>Aleatorio</SelectItem>
+                    <SelectItem value={AvatarConfigRotationStrategy.performance}>Por Rendimiento (IA)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <button
+                  type="button"
+                  onClick={handleRefreshConfig}
+                  className="mt-2 flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <RefreshCw className="w-3 h-3" /> Recargar configuración
+                </button>
+              </div>
             </div>
           </div>
         </CardContent>
