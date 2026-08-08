@@ -208,14 +208,14 @@ export const BROWSER_CAPTION_TEMPLATES: CaptionTemplate[] = [
     letterSpacing: 0.04,
     lineHeight: 1.2,
 
-    wordsPerLine: 3,
+    wordsPerLine: 1,
     yPercent: 82,
     marginXPercent: 5,
     textAlign: "center",
 
-    primaryColor: "#FFFFFF",
+    primaryColor: "#FF3366",   // única palabra visible = siempre el color activo
     activeWordColor: "#FF3366",
-    inactiveOpacity: 0.85,
+    inactiveOpacity: 1.0,
 
     outlineColor: "#000000",
     outlineWidth: 8,
