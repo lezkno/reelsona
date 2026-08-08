@@ -642,6 +642,7 @@ export async function applyCaptionsBrowser(
  */
 export async function renderDiagnosticFrame(
   templateId: string,
+  words?: string[],
 ): Promise<
   | { ok: true; png: Buffer; template: CaptionTemplate }
   | { ok: false; reason: string }
@@ -656,13 +657,13 @@ export async function renderDiagnosticFrame(
     return { ok: false, reason: `Unknown template: "${templateId}"` };
   }
 
-  // Demo cue: 3 words, middle one active
+  // Demo cue — caller can override words (useful for overflow tests)
   const demoCue: CaptionCue = {
     index:           1,
     startMs:         0,
     endMs:           1000,
-    words:           [{ text: "TU" }, { text: "MARCA" }, { text: "VENDE" }],
-    activeWordIndex: 1,
+    words:           (words ?? ["TU", "MARCA", "VENDE"]).map(t => ({ text: t })),
+    activeWordIndex: 0,
   };
 
   try {

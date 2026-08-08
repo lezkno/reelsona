@@ -130,7 +130,11 @@ router.get("/captions/browser/preview-frame", async (req, res): Promise<void> =>
     return;
   }
 
-  const result = await renderDiagnosticFrame(templateId);
+  // Optional ?words=WORD1,WORD2 for overflow/custom tests
+  const wordsParam = typeof req.query.words === "string" ? req.query.words : undefined;
+  const testWords  = wordsParam ? wordsParam.split(",").map(w => w.trim()).filter(Boolean) : undefined;
+
+  const result = await renderDiagnosticFrame(templateId, testWords);
 
   if (!result.ok) {
     res.status(503).json({
