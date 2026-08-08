@@ -222,25 +222,44 @@ async function renderCueFrame(
   const shadowBlur  = scaleToHeight(template.shadowBlur,     videoH);
   const baselineY   = getBaselineY(template, videoH);
   const marginX     = getSafeMarginX(template, videoW);
-  const wordGap     = Math.round(fontSize * WORD_GAP_FACTOR);
   const availableW  = videoW - 2 * marginX;
-  // Line spacing: distance from one baseline to the next
-  const lineSpacing = Math.round(fontSize * template.lineHeight);
 
   // Format words (apply uppercase if template requires it)
   const displayWords = cue.words.map((w) => formatWord(w.text, template));
 
-  // Pre-measure all words
-  const measurements: number[] = displayWords.map((word, i) => {
-    const isActive   = i === cue.activeWordIndex;
-    const wordScale  = isActive && template.highlightMode === "scale" ? template.activeWordScale : 1.0;
-    const wordFontSz = Math.round(fontSize * wordScale);
-    ctx.font = `${template.fontWeight} ${wordFontSz}px '${template.fontFamily}'`;
-    return ctx.measureText(word).width;
-  });
+  /**
+   * Measure all words at `fontSize` first, then auto-scale the font down if
+   * any single word is wider than availableW.  This prevents long words like
+   * "AUTOMÁTICAMENTE" from overflowing the right edge of the frame.
+   *
+   * The scale is applied uniformly to the entire cue so the relative sizes of
+   * active vs inactive words are preserved.
+   */
+  const measureWords = (fs: number): number[] =>
+    displayWords.map((word, i) => {
+      const isActive   = i === cue.activeWordIndex;
+      const wordScale  = isActive && template.highlightMode === "scale" ? template.activeWordScale : 1.0;
+      const wordFontSz = Math.round(fs * wordScale);
+      ctx.font = `${template.fontWeight} ${wordFontSz}px '${template.fontFamily}'`;
+      return ctx.measureText(word).width;
+    });
+
+  let measurements = measureWords(fontSize);
+  const maxWordW   = measurements.length > 0 ? Math.max(...measurements) : 0;
+
+  // If the widest word overflows, scale the whole cue down to fit
+  let effectiveFontSize = fontSize;
+  if (maxWordW > availableW && maxWordW > 0) {
+    effectiveFontSize = Math.max(Math.floor(fontSize * (availableW / maxWordW)), 1);
+    measurements      = measureWords(effectiveFontSize);
+  }
+
+  // Word-gap and line-spacing use the final (possibly scaled-down) font size
+  const wordGapScaled = Math.round(effectiveFontSize * WORD_GAP_FACTOR);
+  const lineSpacing   = Math.round(effectiveFontSize * template.lineHeight);
 
   // Wrap words into lines (same greedy algorithm as CSS flex-wrap)
-  const lines = buildWrappedLines(measurements, wordGap, availableW);
+  const lines = buildWrappedLines(measurements, wordGapScaled, availableW);
 
   // Draw lines bottom-up: last line baseline = baselineY, earlier lines shifted up
   for (let li = 0; li < lines.length; li++) {
@@ -255,7 +274,7 @@ async function renderCueFrame(
       const word       = displayWords[wi];
       const isActive   = wi === cue.activeWordIndex;
       const wordScale  = isActive && template.highlightMode === "scale" ? template.activeWordScale : 1.0;
-      const wordFontSz = Math.round(fontSize * wordScale);
+      const wordFontSz = Math.round(effectiveFontSize * wordScale);
       const color      = isActive ? template.activeWordColor : template.primaryColor;
       const alpha      = isActive ? 1.0 : template.inactiveOpacity;
       const wordWidth  = measurements[wi];
@@ -312,7 +331,7 @@ async function renderCueFrame(
       ctx.fillText(word, x, lineY);
 
       ctx.restore();
-      x += wordWidth + wordGap;
+      x += wordWidth + wordGapScaled;
     }
   }
 
