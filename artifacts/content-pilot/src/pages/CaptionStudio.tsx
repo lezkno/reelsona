@@ -206,13 +206,13 @@ const PREVIEW_FUNCTION_WORDS = new Set([
   "es","son","fue","era","han","hay","ser","estar","ha","he","había",
 ])
 
-// Dimidium demo blocks — mix of content words (yellow/large) and function words
-// (white/small) to accurately represent how real Spanish Reel scripts look.
+// Dimidium demo blocks — realistic mix of short content + function words.
+// Each block = one visual line; words appear left-to-right, then the line stacks up.
 const DIM_BLOCKS = [
-  ["esto",  "es",  "lo"],
-  ["que",   "necesitas"],
-  ["para",  "crecer"],
-  ["en",    "redes"],
+  ["tu",    "marca"],    // small "tu" + large "MARCA"
+  ["crece", "con"],      // large "CRECE" + small "con"
+  ["muy",   "rápido"],   // small "muy" + large "RÁPIDO"
+  ["en",    "redes"],    // small "en" + large "REDES"
 ]
 
 // Flat list of states: (lineIdx, wordIdx within line)
@@ -336,25 +336,44 @@ function CaptionPreview({
         if (li < 0) break
         slots.push({ words: slot === 0 ? DIM_BLOCKS[li].slice(0, curWi + 1) : DIM_BLOCKS[li] })
       }
+      // Match engine geometry exactly:
+      //   - slot spacing = largeSize × lsf  (same as buildDimidiumASS lineSpacing)
+      //   - \an1 bottom-anchored: line bottom = baseY - slot × slotSpacing
+      //   - words joined by natural space char — no artificial flex gap
+      const slotSpacing = Math.round(largePx * lsf)
+      const lineH       = Math.round(largePx * 1.15)  // approximate line-box height
+      const dimFontFam  = `'${config.font_family ?? "Poppins"}', sans-serif`
+
       return (
-        <div className="absolute left-0 right-0 flex flex-col items-start justify-end overflow-hidden" style={{ top: 0, height: baseY_px, gap: lineGap, paddingLeft: marginX_px, paddingRight: 8 }}>
-          {[...slots].reverse().map(({ words }, idx) => (
-            <div key={`${curLi}-${idx}`} className="flex items-baseline flex-wrap" style={{ gap: "4px" }}>
-              {words.map((w, wi) => {
-                const isFunc = PREVIEW_FUNCTION_WORDS.has(w.toLowerCase())
-                return (
-                  <span key={wi} style={{
-                    fontFamily: `'${config.font_family ?? "Poppins"}', sans-serif`,
-                    fontWeight: 800,
-                    fontSize: `${isFunc ? smallPx : largePx}px`,
-                    color: isFunc ? primary : accent,
-                    textShadow: outlineShadow,
-                    lineHeight: 1.15,
-                  }}>{w}</span>
-                )
-              })}
-            </div>
-          ))}
+        <div className="absolute" style={{ top: 0, left: 0, right: 0, height: PHONE_SCREEN_H }}>
+          {[...slots].reverse().map(({ words }, idx) => {
+            // After reverse: idx=0 = oldest (top), idx=last = newest (bottom)
+            const slotIdx     = (slots.length - 1) - idx   // 0=newest(bottom)
+            const lineBottomY = baseY_px - slotIdx * slotSpacing
+            return (
+              <div key={`${curLi}-${idx}`} style={{
+                position: 'absolute',
+                top: lineBottomY - lineH,
+                left: marginX_px,
+                right: 8,
+                lineHeight: 1.15,
+                overflow: 'visible',
+              }}>
+                {words.map((w, wi) => {
+                  const isFunc = PREVIEW_FUNCTION_WORDS.has(w.toLowerCase())
+                  return (
+                    <span key={wi} style={{
+                      fontFamily: dimFontFam,
+                      fontWeight: 800,
+                      fontSize: `${isFunc ? smallPx : largePx}px`,
+                      color: isFunc ? primary : accent,
+                      textShadow: outlineShadow,
+                    }}>{wi > 0 ? ' ' : ''}{w}</span>
+                  )
+                })}
+              </div>
+            )
+          })}
         </div>
       )
     }
