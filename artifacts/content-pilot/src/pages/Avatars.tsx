@@ -258,7 +258,10 @@ export default function Avatars() {
   const spanishVoices: VoiceOption[] = (voices ?? [])
     .filter((v) => {
       const lang = (v.language ?? "").toLowerCase()
-      return lang.includes("spanish") || lang.startsWith("es") || v.is_cloned
+      // Include Spanish voices, voices with unknown language (ElevenLabs imports
+      // and other user-uploaded voices always come back as "unknown"), and any
+      // voice explicitly marked as cloned.
+      return lang.includes("spanish") || lang.startsWith("es") || lang === "unknown" || v.is_cloned
     })
     .map((v) => ({
       voice_id: v.voice_id,
