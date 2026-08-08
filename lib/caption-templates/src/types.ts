@@ -9,7 +9,7 @@
 
 export type HighlightMode = "color" | "scale" | "both" | "none";
 export type CaptionAnimation = "none" | "fade" | "zoom";
-export type BackgroundMode = "none" | "word" | "line";
+export type BackgroundMode = "none" | "word" | "active_word" | "line";
 export type TextAlign = "left" | "center" | "right";
 
 export interface CaptionTemplate {

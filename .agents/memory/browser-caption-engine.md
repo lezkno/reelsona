@@ -48,6 +48,9 @@ Moved to before `requireAuth` middleware in `app.ts` — serves from `/tmp/conte
 
 **Why:** Font descender metric (~25% of em) + outline below baseline + shadow downward extent all contribute below the alphabetic baseline. CSS previews this space differently than `@napi-rs/canvas`.
 
+## active_word backgroundMode (Dimigium template)
+Added `"active_word"` to `BackgroundMode` union in `types.ts`. Canvas renderer (`browser-caption-engine.ts`) and CSS renderer (`renderer.ts → buildWordStyle`) both check `backgroundMode === "active_word" && isActive` to draw the pill only on the highlighted word. The test script (`test-template.mjs`) has its own inline `renderCueFrame` — must keep it in sync with the engine. `buildWordStyle` now accepts an optional `renderH = 444` param for scaling padding/radius to preview pixels.
+
 ## Diagnostic notes
 - `GET /api/captions/browser/status` — returns `{ available: boolean }`, polled by CaptionStudio on mount
 - `GET /api/captions/browser/preview-frame?templateId=clean_coach` — renders a single diagnostic PNG (no UI button yet)

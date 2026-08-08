@@ -122,6 +122,31 @@ async function renderCueFrame(canvas, template, cue) {
       ctx.shadowColor = template.shadowColor;
       ctx.shadowOffsetX = shadowX; ctx.shadowOffsetY = shadowY; ctx.shadowBlur = shadowBlur;
 
+      // Background box: "word" = all words, "active_word" = active only
+      const wantsBox = template.backgroundColor != null &&
+        (template.backgroundMode === "word" ||
+         (template.backgroundMode === "active_word" && isActive));
+      if (wantsBox) {
+        const padX = scaleToHeight(template.backgroundPaddingX, VIDEO_HEIGHT);
+        const padY = scaleToHeight(template.backgroundPaddingY, VIDEO_HEIGHT);
+        const r    = scaleToHeight(template.backgroundRadius,   VIDEO_HEIGHT);
+        ctx.save();
+        ctx.shadowColor = "transparent";
+        ctx.fillStyle   = template.backgroundColor;
+        const boxX = x - padX;
+        const boxY = lineY - wordFontSz - padY;
+        const boxW = wordWidth + padX * 2;
+        const boxH = wordFontSz * 1.25 + padY * 2;
+        ctx.beginPath();
+        if (r > 0 && typeof ctx.roundRect === "function") {
+          ctx.roundRect(boxX, boxY, boxW, boxH, r);
+        } else {
+          ctx.rect(boxX, boxY, boxW, boxH);
+        }
+        ctx.fill();
+        ctx.restore();
+      }
+
       if (outlineW > 0) {
         ctx.strokeStyle = template.outlineColor;
         ctx.lineWidth = outlineW * 2; ctx.lineJoin = "round";

@@ -143,6 +143,54 @@ export const BROWSER_CAPTION_TEMPLATES: CaptionTemplate[] = [
     animation: "fade",
     animationDuration: 100,
   },
+
+  // ── Dimigium ─────────────────────────────────────────────────────────────────
+  // Bright-orange pill box on the active word only. The most recognisable viral
+  // caption style on Reels/TikTok: white text on a coloured box, inactive words
+  // with a crisp black stroke — zero ambiguity about which word is being said.
+  {
+    id: "dimigium",
+    name: "Dimigium",
+    description:
+      "Caja naranja solo en la palabra activa, texto blanco, pill redondeado. El estilo viral de mayor reconocimiento en Reels y TikTok.",
+
+    fontFamily: "Poppins",
+    fontSize: 112,
+    fontWeight: 800,
+    uppercase: true,
+    letterSpacing: 0.015,
+    lineHeight: 1.2,
+
+    wordsPerLine: 3,
+    yPercent: 83,
+    marginXPercent: 5,
+    textAlign: "center",
+
+    primaryColor: "#FFFFFF",
+    activeWordColor: "#FFFFFF",    // white text ON the orange box
+    inactiveOpacity: 0.92,
+
+    outlineColor: "#000000",
+    outlineWidth: 8,               // thick outline keeps inactive words crisp on any background
+
+    shadowColor: "rgba(0,0,0,0.45)",
+    shadowOffsetX: 0,
+    shadowOffsetY: 4,
+    shadowBlur: 8,
+
+    // ── Pill box — active word only ─────────────────────────────────────────
+    backgroundMode: "active_word",
+    backgroundColor: "#FF6B00",    // signature Dimigium orange
+    backgroundPaddingX: 22,        // generous horizontal padding at 1920 ref
+    backgroundPaddingY: 10,
+    backgroundRadius: 14,
+
+    highlightMode: "color",
+    activeWordScale: 1.0,
+
+    animation: "zoom",
+    animationDuration: 150,
+  },
 ];
 
 /** Look up a template by id. Returns undefined if not found. */

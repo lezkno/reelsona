@@ -96,6 +96,11 @@ export function formatWord(
  *
  * Returns a plain object compatible with React's `style` prop.
  */
+/**
+ * @param renderH  Target render height in px (e.g. PHONE_SCREEN_H = 444).
+ *                 Used to scale backgroundPaddingX/Y and backgroundRadius so the
+ *                 CSS pill matches the canvas-rendered box exactly.
+ */
 export function buildWordStyle(
   template: CaptionTemplate,
   isActive: boolean,
@@ -104,6 +109,7 @@ export function buildWordStyle(
   scaledShadowX: number,
   scaledShadowY: number,
   scaledShadowBlur: number,
+  renderH = 444,
 ): Record<string, string | number> {
   const color = isActive ? template.activeWordColor : template.primaryColor;
   const opacity = isActive ? 1.0 : template.inactiveOpacity;
@@ -113,7 +119,7 @@ export function buildWordStyle(
       ? `${scaledShadowX}px ${scaledShadowY}px ${scaledShadowBlur}px ${template.shadowColor}`
       : "none";
 
-  return {
+  const style: Record<string, string | number> = {
     fontFamily: `'${template.fontFamily}', sans-serif`,
     fontSize: `${scaledFontSize}px`,
     fontWeight: template.fontWeight,
@@ -135,4 +141,25 @@ export function buildWordStyle(
         ? `opacity ${template.animationDuration}ms ease, color ${template.animationDuration}ms ease`
         : "none",
   };
+
+  // ── Active-word pill background (backgroundMode: "active_word") ─────────────
+  // Draws a colored rounded-rect behind the active word only.
+  // Matches the canvas renderCueFrame "active_word" branch exactly.
+  const wantsBox =
+    template.backgroundColor != null &&
+    (template.backgroundMode === "word" ||
+      (template.backgroundMode === "active_word" && isActive));
+
+  if (wantsBox) {
+    const padX = scaleToHeight(template.backgroundPaddingX, renderH);
+    const padY = scaleToHeight(template.backgroundPaddingY, renderH);
+    const r    = scaleToHeight(template.backgroundRadius,   renderH);
+    style.backgroundColor = template.backgroundColor as string;
+    style.padding         = `${padY}px ${padX}px`;
+    style.borderRadius    = `${r}px`;
+    // Remove text-shadow when the box already provides contrast/depth
+    style.textShadow = "none";
+  }
+
+  return style;
 }

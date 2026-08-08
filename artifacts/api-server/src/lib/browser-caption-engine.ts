@@ -218,13 +218,20 @@ async function renderCueFrame(
       ctx.shadowBlur    = shadowBlur;
 
       // Word background box
-      if (template.backgroundMode === "word" && template.backgroundColor) {
+      // "word"        → box behind every word
+      // "active_word" → box only behind the active (highlighted) word
+      const wantsBox =
+        template.backgroundColor != null &&
+        (template.backgroundMode === "word" ||
+          (template.backgroundMode === "active_word" && isActive));
+
+      if (wantsBox) {
         const padX = scaleToHeight(template.backgroundPaddingX, VIDEO_HEIGHT);
         const padY = scaleToHeight(template.backgroundPaddingY, VIDEO_HEIGHT);
         const r    = scaleToHeight(template.backgroundRadius,   VIDEO_HEIGHT);
         ctx.save();
         ctx.shadowColor = "transparent";
-        ctx.fillStyle   = template.backgroundColor;
+        ctx.fillStyle   = template.backgroundColor as string;
         const boxX = x - padX;
         const boxY = lineY - wordFontSz - padY;
         const boxW = wordWidth + padX * 2;
