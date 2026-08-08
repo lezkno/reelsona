@@ -145,9 +145,12 @@ export function buildWordStyle(
   // ── Active-word pill background (backgroundMode: "active_word") ─────────────
   // Draws a colored rounded-rect behind the active word only.
   // Matches the canvas renderCueFrame "active_word" branch exactly.
+  // "line" mode renders a per-line box on the canvas; in CSS preview we
+  // approximate it by giving every word a box (they sit flush and look like one).
   const wantsBox =
     template.backgroundColor != null &&
     (template.backgroundMode === "word" ||
+      template.backgroundMode === "line" ||
       (template.backgroundMode === "active_word" && isActive));
 
   if (wantsBox) {

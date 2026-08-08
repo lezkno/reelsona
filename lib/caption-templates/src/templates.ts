@@ -144,6 +144,241 @@ export const BROWSER_CAPTION_TEMPLATES: CaptionTemplate[] = [
     animationDuration: 100,
   },
 
+  // ── Hormozi ──────────────────────────────────────────────────────────────────
+  // Popularized by Alex Hormozi: Poppins 800 ALL CAPS, 2 words per screen,
+  // active word in lime green #22C55E — his signature karaoke color.
+  // Heavy black outline. Sits center-frame, not bottom-third.
+  {
+    id: "hormozi",
+    name: "Hormozi",
+    description:
+      "Estilo Hormozi: Poppins 800, 2 palabras, activa en verde lima. El formato de captions más copiado en business/coaching en Reels y TikTok.",
+
+    fontFamily: "Poppins",
+    fontSize: 115,
+    fontWeight: 800,
+    uppercase: true,
+    letterSpacing: 0.01,
+    lineHeight: 1.15,
+
+    wordsPerLine: 2,
+    yPercent: 72,
+    marginXPercent: 6,
+    textAlign: "center",
+
+    primaryColor: "#FFFFFF",
+    activeWordColor: "#22C55E",
+    inactiveOpacity: 0.72,
+
+    outlineColor: "#000000",
+    outlineWidth: 10,
+
+    shadowColor: "rgba(0,0,0,0.65)",
+    shadowOffsetX: 3,
+    shadowOffsetY: 3,
+    shadowBlur: 8,
+
+    backgroundMode: "none",
+    backgroundColor: null,
+    backgroundPaddingX: 0,
+    backgroundPaddingY: 0,
+    backgroundRadius: 0,
+
+    highlightMode: "color",
+    activeWordScale: 1.0,
+
+    animation: "zoom",
+    animationDuration: 160,
+  },
+
+  // ── Neon Glow ─────────────────────────────────────────────────────────────────
+  // Bangers font with a saturated cyan glow. Active word flips to pure white
+  // (the "hot centre" of a neon tube). No outline — the glow provides contrast.
+  // Best for gaming, music drops, nightlife, and high-energy content.
+  {
+    id: "neon_glow",
+    name: "Neon Glow",
+    description:
+      "Fuente Bangers con halo cyan brillante. Activa en blanco puro. Sin stroke, el glow hace el contraste. Gaming, música, contenido nocturno.",
+
+    fontFamily: "Bangers",
+    fontSize: 115,
+    fontWeight: 400,
+    uppercase: true,
+    letterSpacing: 0.04,
+    lineHeight: 1.12,
+
+    wordsPerLine: 3,
+    yPercent: 75,
+    marginXPercent: 5,
+    textAlign: "center",
+
+    primaryColor: "#00F5FF",
+    activeWordColor: "#FFFFFF",
+    inactiveOpacity: 0.80,
+
+    outlineColor: "#000000",
+    outlineWidth: 0,
+
+    shadowColor: "rgba(0,245,255,0.90)",
+    shadowOffsetX: 0,
+    shadowOffsetY: 0,
+    shadowBlur: 28,
+
+    backgroundMode: "none",
+    backgroundColor: null,
+    backgroundPaddingX: 0,
+    backgroundPaddingY: 0,
+    backgroundRadius: 0,
+
+    highlightMode: "color",
+    activeWordScale: 1.0,
+
+    animation: "fade",
+    animationDuration: 120,
+  },
+
+  // ── Cinematic ─────────────────────────────────────────────────────────────────
+  // Oswald 700, letter-spacing muy ancho (0.16em), sin outline, solo sombra suave.
+  // Tono cálido en la activa. Elegancia de documental. Para lifestyle, coaches
+  // de alto nivel, entrevistas, viajes.
+  {
+    id: "cinematic",
+    name: "Cinematic",
+    description:
+      "Oswald 700, tracking ancho, sin stroke, sombra suave. Activa en oro cálido. Estilo documental premium. Lifestyle, coaches, entrevistas.",
+
+    fontFamily: "Oswald",
+    fontSize: 68,
+    fontWeight: 700,
+    uppercase: true,
+    letterSpacing: 0.16,
+    lineHeight: 1.40,
+
+    wordsPerLine: 4,
+    yPercent: 87,
+    marginXPercent: 7,
+    textAlign: "center",
+
+    primaryColor: "#FFFFFF",
+    activeWordColor: "#E8D5A3",
+    inactiveOpacity: 0.70,
+
+    outlineColor: "#000000",
+    outlineWidth: 0,
+
+    shadowColor: "rgba(0,0,0,0.88)",
+    shadowOffsetX: 0,
+    shadowOffsetY: 4,
+    shadowBlur: 14,
+
+    backgroundMode: "none",
+    backgroundColor: null,
+    backgroundPaddingX: 0,
+    backgroundPaddingY: 0,
+    backgroundRadius: 0,
+
+    highlightMode: "color",
+    activeWordScale: 1.0,
+
+    animation: "fade",
+    animationDuration: 100,
+  },
+
+  // ── Scale Pop ─────────────────────────────────────────────────────────────────
+  // La palabra activa crece 1.35× mientras las inactivas se atenúan al 50%.
+  // El resaltado es por escala (no por color) — único entre todas las plantillas.
+  // Poppins 800, blanco + stroke negro grueso.
+  {
+    id: "scale_pop",
+    name: "Scale Pop",
+    description:
+      "Activa crece 1.35×, inactivas al 50% de opacidad. Highlight por escala, no por color. Poppins 800, stroke negro. Scroll-stopping.",
+
+    fontFamily: "Poppins",
+    fontSize: 90,
+    fontWeight: 800,
+    uppercase: true,
+    letterSpacing: 0.01,
+    lineHeight: 1.18,
+
+    wordsPerLine: 3,
+    yPercent: 78,
+    marginXPercent: 5,
+    textAlign: "center",
+
+    primaryColor: "#FFFFFF",
+    activeWordColor: "#FFFFFF",
+    inactiveOpacity: 0.50,
+
+    outlineColor: "#000000",
+    outlineWidth: 7,
+
+    shadowColor: "rgba(0,0,0,0.55)",
+    shadowOffsetX: 2,
+    shadowOffsetY: 4,
+    shadowBlur: 7,
+
+    backgroundMode: "none",
+    backgroundColor: null,
+    backgroundPaddingX: 0,
+    backgroundPaddingY: 0,
+    backgroundRadius: 0,
+
+    highlightMode: "scale",
+    activeWordScale: 1.35,
+
+    animation: "zoom",
+    animationDuration: 140,
+  },
+
+  // ── Broadcast ─────────────────────────────────────────────────────────────────
+  // Caja semitransparente negra (0.78) detrás de cada línea completa — estilo
+  // CNN/BBC/podcast. Garantiza legibilidad en cualquier fondo. Activa en amarillo.
+  // Usa backgroundMode: "line" (caja por línea, no por palabra).
+  {
+    id: "broadcast",
+    name: "Broadcast",
+    description:
+      "Caja negra semitransparente detrás de cada línea completa. Estilo CNN/podcast. Máxima legibilidad en cualquier fondo. Activa en amarillo.",
+
+    fontFamily: "Oswald",
+    fontSize: 74,
+    fontWeight: 700,
+    uppercase: false,
+    letterSpacing: 0.005,
+    lineHeight: 1.35,
+
+    wordsPerLine: 5,
+    yPercent: 85,
+    marginXPercent: 5,
+    textAlign: "center",
+
+    primaryColor: "#FFFFFF",
+    activeWordColor: "#FFE600",
+    inactiveOpacity: 0.92,
+
+    outlineColor: "#000000",
+    outlineWidth: 0,
+
+    shadowColor: "transparent",
+    shadowOffsetX: 0,
+    shadowOffsetY: 0,
+    shadowBlur: 0,
+
+    backgroundMode: "line",
+    backgroundColor: "rgba(0,0,0,0.78)",
+    backgroundPaddingX: 24,
+    backgroundPaddingY: 10,
+    backgroundRadius: 6,
+
+    highlightMode: "color",
+    activeWordScale: 1.0,
+
+    animation: "fade",
+    animationDuration: 100,
+  },
+
   // ── Dimigium ─────────────────────────────────────────────────────────────────
   // Bright-orange pill box on the active word only. The most recognisable viral
   // caption style on Reels/TikTok: white text on a coloured box, inactive words

@@ -270,6 +270,30 @@ async function renderCueFrame(
     const lineX = Math.max(marginX, (videoW - lineWidth) / 2);
     let x = lineX;
 
+    // ── Full-line background box (backgroundMode: "line") ─────────────────
+    // A single rounded-rect behind the entire line, drawn before any words so
+    // text always renders on top of the box.
+    if (template.backgroundMode === "line" && template.backgroundColor != null) {
+      const padX = scaleToHeight(template.backgroundPaddingX, videoH);
+      const padY = scaleToHeight(template.backgroundPaddingY, videoH);
+      const r    = scaleToHeight(template.backgroundRadius,   videoH);
+      ctx.save();
+      ctx.shadowColor = "transparent";
+      ctx.fillStyle   = template.backgroundColor as string;
+      const boxX = lineX - padX;
+      const boxY = lineY - effectiveFontSize * 0.85 - padY;
+      const boxW = lineWidth + padX * 2;
+      const boxH = effectiveFontSize * 1.25 + padY * 2;
+      ctx.beginPath();
+      if (r > 0 && "roundRect" in ctx) {
+        (ctx as any).roundRect(boxX, boxY, boxW, boxH, r);
+      } else {
+        ctx.rect(boxX, boxY, boxW, boxH);
+      }
+      ctx.fill();
+      ctx.restore();
+    }
+
     for (const wi of wordIndices) {
       const word       = displayWords[wi];
       const isActive   = wi === cue.activeWordIndex;
