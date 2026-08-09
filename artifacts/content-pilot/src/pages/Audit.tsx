@@ -347,9 +347,9 @@ function TabRadar() {
           <p className="text-sm text-muted-foreground">No se pudieron generar sugerencias. Verificá que el nicho esté configurado en Ajustes.</p>
         ) : (
           <div className="space-y-2">
-            {suggestions.map((s, i) => {
-              const already = accounts.some((a) => a.ig_username === s.ig_username)
-              return (
+            {suggestions
+              .filter((s) => !accounts.some((a) => a.ig_username === s.ig_username))
+              .map((s, i) => (
                 <div key={i} className="flex items-center gap-3 px-4 py-3 rounded-xl border border-border bg-muted/20">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
@@ -358,15 +358,11 @@ function TabRadar() {
                     </div>
                     <p className="text-xs text-muted-foreground mt-0.5">{s.reason}</p>
                   </div>
-                  {already
-                    ? <span className="text-xs text-emerald-600 font-semibold flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" /> Agregado</span>
-                    : <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={() => handleAddSuggestion(s.ig_username, s.reason)}>
-                        <Plus className="w-3 h-3" /> Agregar
-                      </Button>
-                  }
+                  <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={() => handleAddSuggestion(s.ig_username, s.reason)}>
+                    <Plus className="w-3 h-3" /> Agregar
+                  </Button>
                 </div>
-              )
-            })}
+              ))}
           </div>
         )}
       </div>
