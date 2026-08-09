@@ -75,7 +75,7 @@ function HeyGenIntegrationCard() {
       onError: (err: any) => {
         toast({
           title: "Error al conectar",
-          description: err?.message || "API Key inválida. Verificá que sea correcta.",
+          description: err?.message || "API Key inválida. Verifica que sea correcta.",
           variant: "destructive",
         })
       },
@@ -245,7 +245,7 @@ function HeyGenIntegrationCard() {
                 <p className="text-xs font-medium text-foreground">Wallet API (generación de videos)</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   HeyGen no expone el saldo de la wallet por API. Para ver cuánto te queda de los dólares precargados,
-                  revisá directamente en{" "}
+                  revisa directamente en{" "}
                   <a
                     href="https://app.heygen.com/settings?nav=Billing"
                     target="_blank"

@@ -134,7 +134,7 @@ export default function Automation() {
     manual: {
       iconBg: "bg-amber-500/20 text-amber-600",
       title: "Modo Manual",
-      desc: "ContentPilot genera guiones y videos automáticamente, pero tú aprobás y publicás cada reel.",
+      desc: "ContentPilot genera guiones y videos automáticamente, pero tú apruebas y publicas cada reel.",
       cardBorder: "border-amber-500/40 shadow-xl shadow-amber-500/10",
       cardBg: "bg-amber-500/5",
     },
@@ -216,7 +216,7 @@ export default function Automation() {
               <Eye className="w-5 h-5" />
               <div className="text-center">
                 <p className="text-xs font-bold leading-tight">Manual</p>
-                <p className="text-[10px] mt-0.5 leading-tight opacity-70">Genera, tú publicás</p>
+                <p className="text-[10px] mt-0.5 leading-tight opacity-70">Genera, tú publicas</p>
               </div>
             </button>
 
@@ -281,7 +281,7 @@ export default function Automation() {
                   <CardDescription className="mt-1">
                     {recommended?.niche
                       ? <>Sugerencias basadas en tu nicho: <span className="font-medium text-foreground capitalize">{recommended.niche}</span></>
-                      : "Activá los horarios sugeridos o añadí los tuyos"}
+                      : "Activa los horarios sugeridos o añade los tuyos"}
                   </CardDescription>
                   {/* Timezone indicator */}
                   <div className="flex items-center gap-1.5 mt-2">
@@ -341,7 +341,7 @@ export default function Automation() {
                   })()}
                 </div>
                 <p className="text-[11px] text-muted-foreground mt-1.5">
-                  Los botones 1–4 aplican los mejores horarios para tu nicho. Para más, activá chips o añadí un horario personalizado.
+                  Los botones 1–4 aplican los mejores horarios para tu nicho. Para más, activa chips o añade un horario personalizado.
                 </p>
               </div>
 
@@ -429,7 +429,7 @@ export default function Automation() {
           <Card>
             <CardHeader>
               <CardTitle>Tubería de Contenido</CardTitle>
-              <CardDescription>Qué etapas hace la IA por vos, en orden</CardDescription>
+              <CardDescription>Qué etapas hace la IA por ti, en orden</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
 

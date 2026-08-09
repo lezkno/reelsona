@@ -1377,7 +1377,7 @@ export default function CaptionStudio() {
             Caption Studio
           </h1>
           <p className="text-muted-foreground mt-1 text-lg">
-            Elegí un estilo y se aplica automáticamente a tus videos.
+            Elige un estilo y se aplica automáticamente a tus videos.
           </p>
         </div>
         {dirty && (
@@ -1393,7 +1393,7 @@ export default function CaptionStudio() {
         <div className="flex items-center gap-3 rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
           <Loader2 className="w-4 h-4 shrink-0 animate-spin" />
           <span>
-            <strong>Video en proceso.</strong> No podés cambiar la plantilla ni los ajustes mientras un video se está generando o aplicando captions. Esperá a que termine.
+            <strong>Video en proceso.</strong> No puedes cambiar la plantilla ni los ajustes mientras un video se está generando o aplicando captions. Espera a que termine.
           </span>
         </div>
       )}
@@ -1430,9 +1430,9 @@ export default function CaptionStudio() {
               <p className="text-sm text-muted-foreground max-w-md">
                 {rotationEnabled
                   ? rotationIds.size > 0
-                    ? `${rotationIds.size} plantilla${rotationIds.size !== 1 ? "s" : ""} en rotación. Hacé clic en las plantillas para agregarlas o quitarlas.`
-                    : "Seleccioná al menos una plantilla. Si no elegís ninguna se usa siempre la misma."
-                  : "Activá para que cada video use una plantilla diferente de forma automática."}
+                    ? `${rotationIds.size} plantilla${rotationIds.size !== 1 ? "s" : ""} en rotación. Haz clic en las plantillas para agregarlas o quitarlas.`
+                    : "Selecciona al menos una plantilla. Si no eliges ninguna se usa siempre la misma."
+                  : "Activa para que cada video use una plantilla diferente de forma automática."}
               </p>
               {rotationEnabled && rotationIds.size === 0 && (
                 <p className="text-xs text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1">
@@ -1511,7 +1511,7 @@ export default function CaptionStudio() {
                 )}
               </div>
               <p className="text-sm text-muted-foreground mb-4">
-                Ajustá los valores de la plantilla <strong>{activeTmpl?.name}</strong>. El preview se actualiza en tiempo real y los cambios se aplican al video final.
+                Ajusta los valores de la plantilla <strong>{activeTmpl?.name}</strong>. El preview se actualiza en tiempo real y los cambios se aplican al video final.
               </p>
               <Card>
                 <CardContent className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-6">
@@ -1705,7 +1705,7 @@ export default function CaptionStudio() {
                   <Loader2 className="w-6 h-6 animate-spin text-amber-500" />
                   <p className="text-sm font-semibold text-center px-6">Ajustes bloqueados</p>
                   <p className="text-xs text-muted-foreground text-center px-8 leading-snug">
-                    Esperá a que el video termine de procesarse.
+                    Espera a que el video termine de procesarse.
                   </p>
                 </div>
               )}

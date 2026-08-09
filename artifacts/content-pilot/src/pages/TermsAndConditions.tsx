@@ -27,9 +27,9 @@ export default function TermsAndConditions() {
           <section>
             <h2 className="text-xl font-semibold mb-3">1. Aceptación de los Términos</h2>
             <p>
-              Al acceder o usar ContentPilot, disponible en <strong>reelsona.com</strong> ("el Servicio"), aceptás
-              quedar vinculado por estos Términos y Condiciones ("Términos"). Si no aceptás estos Términos en su
-              totalidad, no podés usar el Servicio.
+              Al acceder o usar ContentPilot, disponible en <strong>reelsona.com</strong> ("el Servicio"), aceptas
+              quedar vinculado por estos Términos y Condiciones ("Términos"). Si no aceptas estos Términos en su
+              totalidad, no puedes usar el Servicio.
             </p>
             <p className="mt-2">
               Nos reservamos el derecho de modificar estos Términos en cualquier momento. Los cambios materiales
@@ -50,29 +50,29 @@ export default function TermsAndConditions() {
               <li>Analizar el rendimiento de su cuenta de Instagram.</li>
             </ul>
             <p className="mt-3">
-              El Servicio requiere que conectés tu cuenta de Instagram a través de la API oficial de Meta y que
-              otorguémos los permisos necesarios para publicar en tu nombre.
+              El Servicio requiere que conectes tu cuenta de Instagram a través de la API oficial de Meta y que
+              otorguemos los permisos necesarios para publicar en tu nombre.
             </p>
           </section>
 
           <section>
             <h2 className="text-xl font-semibold mb-3">3. Elegibilidad y Cuenta</h2>
             <p>
-              Para usar ContentPilot debés tener al menos 18 años o la mayoría de edad en tu jurisdicción. Las
-              cuentas son personales e intransferibles. Sos responsable de mantener la confidencialidad de tus
+              Para usar ContentPilot debes tener al menos 18 años o la mayoría de edad en tu jurisdicción. Las
+              cuentas son personales e intransferibles. Eres responsable de mantener la confidencialidad de tus
               credenciales y de toda la actividad que ocurra bajo tu cuenta.
             </p>
             <p className="mt-2">
-              Debés notificarnos inmediatamente si sospechás acceso no autorizado a tu cuenta.
+              Debes notificarnos inmediatamente si sospechas acceso no autorizado a tu cuenta.
             </p>
           </section>
 
           <section>
             <h2 className="text-xl font-semibold mb-3">4. Uso del Servicio y Conducta del Usuario</h2>
-            <p>Al usar ContentPilot te comprometés a:</p>
+            <p>Al usar ContentPilot te comprometes a:</p>
             <ul className="list-disc pl-5 space-y-2 mt-2">
               <li>Cumplir con los <a href="https://help.instagram.com/581066165581870" target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2">Términos de Uso de Instagram</a> y las <a href="https://developers.facebook.com/policy/" target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2">Políticas de la Plataforma de Meta</a>.</li>
-              <li>Publicar únicamente contenido del cual tenés los derechos necesarios.</li>
+              <li>Publicar únicamente contenido del cual tienes los derechos necesarios.</li>
               <li>No usar el Servicio para difundir información falsa, contenido engañoso, spam, o material que viole derechos de terceros.</li>
               <li>No intentar eludir las limitaciones técnicas del Servicio ni acceder a recursos que no te corresponden.</li>
               <li>No usar el Servicio para actividades ilegales o que violen derechos de terceros.</li>
@@ -82,7 +82,7 @@ export default function TermsAndConditions() {
           <section>
             <h2 className="text-xl font-semibold mb-3">5. Contenido del Usuario</h2>
             <p>
-              Sos el único responsable del contenido que publicás a través de ContentPilot. Nos otorgás una
+              Eres el único responsable del contenido que publicas a través de ContentPilot. Nos otorgas una
               licencia limitada, no exclusiva y revocable para almacenar y procesar dicho contenido únicamente
               con el fin de prestar el Servicio.
             </p>
@@ -103,7 +103,7 @@ export default function TermsAndConditions() {
             </p>
             <p className="mt-2">
               Al conectar tu cuenta de Instagram aceptás los términos de Meta para el acceso de aplicaciones
-              de terceros a tu cuenta. Podés revocar el acceso en cualquier momento desde la configuración de
+              de terceros a tu cuenta. Puedes revocar el acceso en cualquier momento desde la configuración de
               Instagram.
             </p>
           </section>
@@ -116,8 +116,8 @@ export default function TermsAndConditions() {
               para su uso en redes sociales, ni que no infrinja derechos de terceros.
             </p>
             <p className="mt-2">
-              Sos responsable de revisar y aprobar todo el contenido antes de su publicación, especialmente en
-              el modo de automatización. El uso del modo automático implica que aceptás que el contenido sea
+              Eres responsable de revisar y aprobar todo el contenido antes de su publicación, especialmente en
+              el modo de automatización. El uso del modo automático implica que aceptas que el contenido sea
               publicado sin revisión manual previa.
             </p>
           </section>
@@ -149,7 +149,7 @@ export default function TermsAndConditions() {
               <li>Acceso no autorizado a tu cuenta causado por vulneración de tus propias credenciales.</li>
             </ul>
             <p className="mt-3">
-              Nuestra responsabilidad máxima ante vos no excederá el monto que hayas pagado por el Servicio en
+              Nuestra responsabilidad máxima ante ti no excederá el monto que hayas pagado por el Servicio en
               los últimos 3 meses.
             </p>
           </section>
@@ -158,7 +158,7 @@ export default function TermsAndConditions() {
             <h2 className="text-xl font-semibold mb-3">10. Propiedad Intelectual</h2>
             <p>
               ContentPilot, su diseño, código fuente, marca y funcionalidades son propiedad de sus operadores
-              y están protegidos por derechos de autor y otras leyes de propiedad intelectual. No podés copiar,
+              y están protegidos por derechos de autor y otras leyes de propiedad intelectual. No puedes copiar,
               modificar, distribuir ni crear obras derivadas del Servicio sin autorización expresa.
             </p>
           </section>
@@ -171,7 +171,7 @@ export default function TermsAndConditions() {
               Servicio.
             </p>
             <p className="mt-2">
-              Podés solicitar la eliminación de tu cuenta en cualquier momento contactándonos. Al eliminar tu
+              Puedes solicitar la eliminación de tu cuenta en cualquier momento contactándonos. Al eliminar tu
               cuenta, tus datos serán borrados conforme a nuestra Política de Privacidad.
             </p>
           </section>
@@ -188,7 +188,7 @@ export default function TermsAndConditions() {
           <section>
             <h2 className="text-xl font-semibold mb-3">13. Contacto</h2>
             <p>
-              Si tenés preguntas sobre estos Términos, escribinos a:{" "}
+              Si tienes preguntas sobre estos Términos, escríbenos a:{" "}
               <a href="mailto:legal@reelsona.com" className="text-primary underline underline-offset-2">
                 legal@reelsona.com
               </a>

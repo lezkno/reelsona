@@ -242,7 +242,7 @@ router.post("/content/plan/generate", async (req, res): Promise<void> => {
   });
 
   if (slots.length === 0) {
-    res.status(400).json({ error: "No hay horarios disponibles: revisá los días y horas en Automatización" });
+    res.status(400).json({ error: "No hay horarios disponibles: revisa los días y horas en Automatización" });
     return;
   }
 
@@ -632,7 +632,7 @@ router.post("/content/plan/reschedule-overdue", async (_req, res): Promise<void>
     });
 
     if (newSlots.length < overdueItems.length) {
-      res.status(500).json({ error: "No hay suficientes slots disponibles en el calendario. Revisá los días y horarios en Automatización." });
+      res.status(500).json({ error: "No hay suficientes slots disponibles en el calendario. Revisa los días y horarios en Automatización." });
       return;
     }
 
@@ -656,7 +656,7 @@ router.post("/content/plan/reanalyze", async (_req, res): Promise<void> => {
   try {
     const strategyProfile = await getStrategyProfile();
     if (!strategyProfile?.content_strategy) {
-      res.status(400).json({ error: "No hay estrategia generada. Completá el paso de Estrategia en la auditoría primero." });
+      res.status(400).json({ error: "No hay estrategia generada. Completa el paso de Estrategia en la auditoría primero." });
       return;
     }
     const strategyContext = toStrategyContext(strategyProfile);

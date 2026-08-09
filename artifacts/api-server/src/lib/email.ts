@@ -34,14 +34,14 @@ export function welcomeEmail(name: string) {
     html: `
       <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#111">
         <h1 style="font-size:24px;margin-bottom:8px">Hola${name ? `, ${name}` : ""}! 👋</h1>
-        <p style="color:#555">Ya sos parte de <strong>Reelsona</strong> — tu máquina de contenido con IA para Instagram.</p>
-        <p style="color:#555">Conectá tu cuenta de Instagram y en minutos estarás generando reels automatizados con avatar.</p>
+        <p style="color:#555">Ya eres parte de <strong>Reelsona</strong> — tu máquina de contenido con IA para Instagram.</p>
+        <p style="color:#555">Conecta tu cuenta de Instagram y en minutos estarás generando reels automatizados con avatar.</p>
         <a href="https://reelsona.com" style="display:inline-block;margin-top:16px;padding:12px 24px;background:#6366f1;color:#fff;border-radius:8px;text-decoration:none;font-weight:600">
           Empezar ahora →
         </a>
         <p style="margin-top:32px;font-size:12px;color:#999">Reelsona · info@reelsona.com</p>
       </div>`,
-    text: `Hola${name ? ` ${name}` : ""}! Bienvenido a Reelsona. Conectá tu cuenta de Instagram en https://reelsona.com`,
+    text: `Hola${name ? ` ${name}` : ""}! Bienvenido a Reelsona. Conecta tu cuenta de Instagram en https://reelsona.com`,
   }
 }
 
@@ -52,9 +52,9 @@ export function passwordChangedEmail(name: string) {
       <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#111">
         <h1 style="font-size:20px">Contraseña actualizada</h1>
         <p style="color:#555">Hola${name ? ` ${name}` : ""}, te confirmamos que tu contraseña de Reelsona fue cambiada exitosamente.</p>
-        <p style="color:#555">Si no fuiste vos, contactanos de inmediato respondiendo este email.</p>
+        <p style="color:#555">Si no fuiste tú, contáctanos de inmediato respondiendo este correo.</p>
         <p style="margin-top:32px;font-size:12px;color:#999">Reelsona · info@reelsona.com</p>
       </div>`,
-    text: `Tu contraseña de Reelsona fue cambiada. Si no fuiste vos, contactanos.`,
+    text: `Tu contraseña de Reelsona fue cambiada. Si no fuiste tú, contáctanos.`,
   }
 }

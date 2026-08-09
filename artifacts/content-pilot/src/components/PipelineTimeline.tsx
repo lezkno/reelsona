@@ -20,7 +20,7 @@ const BASE_STEPS = [
   { key: "video",   label: "Video con Avatar", desc: "HeyGen crea el video con tu avatar",     icon: UserSquare2, estimatedMs: 600_000 },
   { key: "caption", label: "Caption Studio",   desc: "Se aplican captions animados al video",  icon: Captions,    estimatedMs: 150_000 },
   { key: "copy",    label: "Descripción e IG", desc: "La IA genera descripción y hashtags",    icon: Sparkles,    estimatedMs: 15_000  },
-  { key: "review",  label: "Revisión Manual",  desc: "Aprobá el video antes de publicarlo",    icon: Eye,         estimatedMs: 0       },
+  { key: "review",  label: "Revisión Manual",  desc: "Aprueba el video antes de publicarlo",   icon: Eye,         estimatedMs: 0       },
   { key: "publish", label: "Publicar en IG",   desc: "Se sube y publica el Reel",              icon: Send,        estimatedMs: 120_000 },
 ] as const
 
@@ -120,10 +120,10 @@ function getHeaderLabel(mode: PipelineMode, willAutoPublish: boolean | undefined
     case "publishing":       return "Publicando en Instagram..."
     case "awaiting_publish": return willAutoPublish
       ? "En cola para publicar automáticamente"
-      : "Video listo — revisá y aprobá para publicar"
+      : "Video listo — revisa y aprueba para publicar"
     case "scripted_waiting": return willAutoPublish
       ? "Guion listo — el sistema generará el video"
-      : "Guion listo — revisá y generá el video"
+      : "Guion listo — revisa y genera el video"
     case "next":             return "Próximo video en cola"
     case "done":             return "Último video producido"
   }
@@ -212,7 +212,7 @@ function ReviewModal({
       open={open}
       onClose={onClose}
       title={item.topic}
-      subtitle="Revisá el video antes de publicarlo en Instagram."
+      subtitle="Revisa el video antes de publicarlo en Instagram."
       headerIcon={Eye}
       videoSrc={item.captioned_video_url}
       fallbackSrc={item.video_url}

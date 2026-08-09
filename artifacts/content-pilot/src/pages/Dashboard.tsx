@@ -72,7 +72,7 @@ export default function Dashboard() {
         queryClient.invalidateQueries({ queryKey: getGetDashboardQueryKey() })
       },
       onError: () => {
-        toast({ title: "Error al publicar", description: "Verificá la conexión con Instagram.", variant: "destructive" })
+        toast({ title: "Error al publicar", description: "Verifica la conexión con Instagram.", variant: "destructive" })
       }
     })
   }
@@ -590,7 +590,7 @@ function PipelineStatusCard({ planItems, planLoading, strategyProfile, strategyL
                 </Badge>
               </div>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Todavía no hay un plan de contenido. Generá los primeros Reels para arrancar el pipeline.
+                Todavía no hay un plan de contenido. Genera los primeros Reels para iniciar el pipeline.
               </p>
             </div>
           </div>

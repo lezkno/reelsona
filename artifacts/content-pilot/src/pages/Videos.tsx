@@ -126,7 +126,7 @@ export default function Videos() {
   const handleRetry = (video: Video) => {
     retryVideo.mutate({ id: video.id }, {
       onSuccess: () => {
-        toast({ title: "Reintentando", description: "El ítem volvió al estado 'Guión listo'. Podés generarlo de nuevo." })
+        toast({ title: "Reintentando", description: "El ítem volvió al estado 'Guión listo'. Puedes generarlo de nuevo." })
         queryClient.invalidateQueries({ queryKey: getGetVideosQueryKey() })
         queryClient.invalidateQueries({ queryKey: getGetContentPlanQueryKey() })
       },

@@ -1077,10 +1077,10 @@ export async function pollAndPublishVideos(): Promise<void> {
       let markFailed = false;
 
       if (httpStatus === 401) {
-        userMsg = "API key de HeyGen inválida — conectá tu cuenta en Configuración → Integraciones";
+        userMsg = "API key de HeyGen inválida — conecta tu cuenta en Configuración → Integraciones";
         markFailed = true; // Permanent — won't self-heal on retry
       } else if (httpStatus === 402) {
-        userMsg = "Créditos de HeyGen insuficientes — recargá tu cuenta en heygen.com";
+        userMsg = "Créditos de HeyGen insuficientes — recarga tu cuenta en heygen.com";
         markFailed = true; // Permanent — won't self-heal on retry
       } else if (httpStatus === 429) {
         userMsg = "Rate limit de HeyGen — el sistema reintentará en el próximo ciclo";

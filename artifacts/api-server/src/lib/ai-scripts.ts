@@ -885,7 +885,7 @@ export async function reanalyzeTopicsWithStrategy(
 
 ${strategyBlock}
 
-Tenés esta lista de temas ya planificados para Reels de Instagram. Re-evaluá cada uno contra la estrategia del creador y devolvé metadatos actualizados.
+Tienes esta lista de temas ya planificados para Reels de Instagram. Reevalúa cada uno contra la estrategia del creador y devuelve metadatos actualizados.
 
 TEMAS A EVALUAR:
 ${topics.map((t) => `- ID ${t.id}: "${t.topic}"`).join("\n")}

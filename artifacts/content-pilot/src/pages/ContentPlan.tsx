@@ -133,7 +133,7 @@ export default function ContentPlan() {
       const res = await fetch(`${base}/api/content/${item.id}/suggest-topic`, { method: "POST" })
       const data = await res.json()
       if (data.topic) setTopicSuggestion({ id: item.id, topic: data.topic })
-      else toast({ title: "Sin sugerencia", description: data.error ?? "Intentá de nuevo.", variant: "destructive" })
+      else toast({ title: "Sin sugerencia", description: data.error ?? "Intenta de nuevo.", variant: "destructive" })
     } catch {
       toast({ title: "Error", description: "No se pudo conectar con la IA.", variant: "destructive" })
     } finally {
@@ -163,7 +163,7 @@ export default function ContentPlan() {
         toast({ title: "Guion regenerado", description: `Guion regenerado con enfoque ${label}.` })
       },
       onError: (err: any) => {
-        toast({ title: "Error al regenerar", description: err?.data?.error ?? "Intentá de nuevo.", variant: "destructive" })
+        toast({ title: "Error al regenerar", description: err?.data?.error ?? "Intenta de nuevo.", variant: "destructive" })
       },
       onSettled: () => setRegeneratingId(null),
     })
@@ -237,7 +237,7 @@ export default function ContentPlan() {
         onError: (err: any) => {
           if (scriptGenerationItemIdRef.current !== boundItemId) return
           closeScriptModal()
-          toast({ title: "No se pudo generar el guion", description: err?.data?.error ?? "Intentá de nuevo.", variant: "destructive" })
+          toast({ title: "No se pudo generar el guion", description: err?.data?.error ?? "Intenta de nuevo.", variant: "destructive" })
         },
       })
     }
@@ -299,7 +299,7 @@ export default function ContentPlan() {
           const detail: string =
             err?.response?.data?.error ||
             err?.message ||
-            "Verificá la conexión con Instagram."
+            "Verifica la conexión con Instagram."
           toast({ title: "Error al publicar", description: detail, variant: "destructive" })
         },
         onSettled: () => setPublishingVideoId(null),
@@ -407,7 +407,7 @@ export default function ContentPlan() {
         })
       },
       onError: (err: any) => {
-        toast({ title: "Error al reagendar", description: err?.data?.error ?? "Intentá de nuevo.", variant: "destructive" })
+        toast({ title: "Error al reagendar", description: err?.data?.error ?? "Intenta de nuevo.", variant: "destructive" })
       },
     })
   }
@@ -557,7 +557,7 @@ export default function ContentPlan() {
                             ))}
                           </div>
                         ) : (
-                          <p className="text-xs text-muted-foreground mt-0.5">Sin días configurados — configurá Automatización primero.</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">Sin días configurados — configura Automatización primero.</p>
                         )}
                       </div>
                     </div>
@@ -635,7 +635,7 @@ export default function ContentPlan() {
       <div className={`flex items-center gap-2.5 px-4 py-2.5 rounded-lg border text-sm shrink-0 ${willAutoPublish ? "border-primary/30 bg-primary/5 text-primary" : "border-muted-foreground/20 bg-muted/40 text-muted-foreground"}`}>
         {willAutoPublish
           ? <><Bot className="w-4 h-4 shrink-0" /><span><strong>Piloto automático activo</strong> — el sistema crea y publica los videos según tu calendario.</span></>
-          : <><Hand className="w-4 h-4 shrink-0" /><span><strong>Modo manual</strong> — revisá, generá y publicá cada video cuando estés listo.</span></>
+          : <><Hand className="w-4 h-4 shrink-0" /><span><strong>Modo manual</strong> — revisa, genera y publica cada video cuando estés listo.</span></>
         }
       </div>
 
@@ -1056,7 +1056,7 @@ export default function ContentPlan() {
               {scriptModalItem?.topic && (
                 <span className="font-medium">{scriptModalItem.topic}</span>
               )}
-              {" — "}Revisá y editá el guion antes de enviarlo a HeyGen.
+              {" — "}Revisa y edita el guion antes de enviarlo a HeyGen.
             </DialogDescription>
           </DialogHeader>
 

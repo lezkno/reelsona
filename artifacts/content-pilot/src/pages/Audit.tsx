@@ -108,7 +108,7 @@ function TabCuenta({ profile, onNext }: { profile: StrategyProfile | null; onNex
   const handleRun = () => {
     runAudit.mutate(undefined, {
       onSuccess: () => { toast({ title: "Auditoría lista", description: "Datos de tu cuenta analizados." }); onNext() },
-      onError: (e: any) => toast({ title: "Error", description: e?.data?.error ?? "No se pudo auditar la cuenta. Verificá que Instagram esté conectado.", variant: "destructive" }),
+      onError: (e: any) => toast({ title: "Error", description: e?.data?.error ?? "No se pudo auditar la cuenta. Verifica que Instagram esté conectado.", variant: "destructive" }),
     })
   }
 
@@ -128,7 +128,7 @@ function TabCuenta({ profile, onNext }: { profile: StrategyProfile | null; onNex
         <div className="flex flex-col items-center justify-center py-16 text-center border-2 border-dashed rounded-xl">
           <BarChart2 className="w-12 h-12 text-muted-foreground/40 mb-3" />
           <h3 className="font-semibold">Sin datos aún</h3>
-          <p className="text-sm text-muted-foreground mt-1 max-w-xs">Hacé clic en "Analizar Cuenta" para leer tus últimos posts y calcular métricas reales.</p>
+          <p className="text-sm text-muted-foreground mt-1 max-w-xs">Haz clic en "Analizar Cuenta" para leer tus últimos posts y calcular métricas reales.</p>
         </div>
       )}
 
@@ -261,7 +261,7 @@ function TabRadar() {
           <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
           <div>
             <p className="font-semibold">Radar sin Apify</p>
-            <p className="text-xs mt-0.5">Podés agregar referentes manualmente o usar las sugerencias de IA. Los datos de engagement externos estarán disponibles cuando se configure APIFY_TOKEN.</p>
+            <p className="text-xs mt-0.5">Puedes agregar referentes manualmente o usar las sugerencias de IA. Los datos de engagement externos estarán disponibles cuando se configure APIFY_TOKEN.</p>
           </div>
         </div>
       )}
@@ -293,7 +293,7 @@ function TabRadar() {
         {loadingAccounts ? (
           <div className="space-y-2">{[1,2].map(i => <Skeleton key={i} className="h-14 rounded-xl" />)}</div>
         ) : accounts.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-4 text-center border-2 border-dashed rounded-xl">Sin referentes todavía. Agregá uno arriba o usá las sugerencias de IA.</p>
+          <p className="text-sm text-muted-foreground py-4 text-center border-2 border-dashed rounded-xl">Sin referentes todavía. Agrega uno arriba o usa las sugerencias de IA.</p>
         ) : (
           <div className="space-y-2">
             {accounts.map((acc) => (
@@ -363,7 +363,7 @@ function TabRadar() {
         {loadingSuggestions ? (
           <div className="space-y-2">{[1,2,3].map(i => <Skeleton key={i} className="h-14 rounded-xl" />)}</div>
         ) : suggestions.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No se pudieron generar sugerencias. Verificá que el nicho esté configurado en Ajustes.</p>
+          <p className="text-sm text-muted-foreground">No se pudieron generar sugerencias. Verifica que el nicho esté configurado en Ajustes.</p>
         ) : (
           <div className="space-y-2">
             {suggestions
@@ -408,7 +408,7 @@ function TabMercado({ profile, onNext }: { profile: StrategyProfile | null; onNe
   const handleRun = () => {
     runMarket.mutate(undefined, {
       onSuccess: () => { toast({ title: "Estudio listo", description: "Mercado analizado con éxito." }); onNext() },
-      onError: (e: any) => toast({ title: "Error", description: e?.data?.error ?? "Completá primero la auditoría de Cuenta.", variant: "destructive" }),
+      onError: (e: any) => toast({ title: "Error", description: e?.data?.error ?? "Completa primero la auditoría de Cuenta.", variant: "destructive" }),
     })
   }
 
@@ -427,7 +427,7 @@ function TabMercado({ profile, onNext }: { profile: StrategyProfile | null; onNe
       {!hasAccount && (
         <div className="flex items-center gap-2 px-4 py-3 rounded-xl border border-amber-500/30 bg-amber-50/50 text-sm text-amber-700 dark:text-amber-400">
           <AlertTriangle className="w-4 h-4 shrink-0" />
-          Primero completá la auditoría de <strong>Cuenta</strong> (paso 1).
+          Primero completa la auditoría de <strong>Cuenta</strong> (paso 1).
         </div>
       )}
 
@@ -503,7 +503,7 @@ function TabEstrategia({ profile, onNext }: { profile: StrategyProfile | null; o
   const handleRun = () => {
     runStrategy.mutate(undefined, {
       onSuccess: () => { toast({ title: "Estrategia generada", description: "Tu estrategia de contenido está lista." }); onNext() },
-      onError: (e: any) => toast({ title: "Error", description: e?.data?.error ?? "Completá primero el Estudio de Mercado.", variant: "destructive" }),
+      onError: (e: any) => toast({ title: "Error", description: e?.data?.error ?? "Completa primero el Estudio de Mercado.", variant: "destructive" }),
     })
   }
 
@@ -522,7 +522,7 @@ function TabEstrategia({ profile, onNext }: { profile: StrategyProfile | null; o
       {!hasMarket && (
         <div className="flex items-center gap-2 px-4 py-3 rounded-xl border border-amber-500/30 bg-amber-50/50 text-sm text-amber-700 dark:text-amber-400">
           <AlertTriangle className="w-4 h-4 shrink-0" />
-          Primero completá el <strong>Estudio de Mercado</strong> (paso 3).
+          Primero completa el <strong>Estudio de Mercado</strong> (paso 3).
         </div>
       )}
 
@@ -649,7 +649,7 @@ function TabPlan({ profile }: { profile: StrategyProfile | null }) {
         <h2 className="text-xl font-bold font-display">Plan de Contenido</h2>
         <p className="text-sm text-muted-foreground mt-0.5">
           {hasPlan
-            ? "Tu plan activo — revisá el estado y agregá más ideas cuando quieras."
+            ? "Tu plan activo — revisa el estado y agrega más ideas cuando quieras."
             : "Usá tu estrategia para crear un plan de Reels inteligente y personalizado."}
         </p>
       </div>
@@ -756,7 +756,7 @@ function TabPlan({ profile }: { profile: StrategyProfile | null }) {
               <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
               <div>
                 <p className="font-semibold">Estrategia incompleta</p>
-                <p className="text-xs mt-0.5">Completá al menos los pasos: Cuenta, Mercado y Estrategia para generar un plan con contexto estratégico. De lo contrario se usará el plan genérico.</p>
+                <p className="text-xs mt-0.5">Completa al menos los pasos: Cuenta, Mercado y Estrategia para generar un plan con contexto estratégico. De lo contrario se usará el plan genérico.</p>
               </div>
             </div>
           )}
@@ -824,7 +824,7 @@ export default function Audit() {
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
         <div>
           <h1 className="text-3xl md:text-4xl font-display font-bold tracking-tight">Estudio Estratégico</h1>
-          <p className="text-muted-foreground mt-1">Analizá tu cuenta, estudiá el mercado y generá un plan basado en datos.</p>
+          <p className="text-muted-foreground mt-1">Analiza tu cuenta, estudia el mercado y genera un plan basado en datos.</p>
         </div>
         <div className="flex items-center gap-2 shrink-0 flex-wrap">
           {steps.includes("strategy") && (

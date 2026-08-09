@@ -156,7 +156,7 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
     .limit(1);
   if (alreadyGenerating) {
     res.status(409).json({
-      error: `Ya hay un video en proceso: "${alreadyGenerating.topic}". Esperá a que termine antes de crear otro.`,
+      error: `Ya hay un video en proceso: "${alreadyGenerating.topic}". Espera a que termine antes de crear otro.`,
     });
     return;
   }
@@ -170,7 +170,7 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
     .limit(1);
   const heygenApiKey = userSettings?.heygenApiKey ?? undefined;
   if (!heygenApiKey) {
-    res.status(400).json({ error: "No hay una API key de HeyGen configurada. Conectá tu cuenta en Configuración → Integraciones." });
+    res.status(400).json({ error: "No hay una API key de HeyGen configurada. Conecta tu cuenta en Configuración → Integraciones." });
     return;
   }
 
@@ -179,7 +179,7 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
   {
     const [avatarCfg] = await db.select().from(avatarConfigTable).limit(1);
     if (!avatarCfg?.selectedAvatarIds?.length) {
-      res.status(400).json({ error: "No hay avatares configurados: seleccioná al menos uno en la página de Avatares" });
+      res.status(400).json({ error: "No hay avatares configurados: selecciona al menos uno en la página de Avatares" });
       return;
     }
     const avatarStillValid =
@@ -204,7 +204,7 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
     // per-avatar overrides, or before they changed them). The override always wins.
     const freshVoiceId = await resolveVoiceId(item.avatarId!, heygenApiKey);
     if (!freshVoiceId && !item.voiceId) {
-      res.status(400).json({ error: "No se encontró ninguna voz disponible en HeyGen. Verificá tu cuenta de HeyGen." });
+      res.status(400).json({ error: "No se encontró ninguna voz disponible en HeyGen. Verifica tu cuenta de HeyGen." });
       return;
     }
     item.voiceId = freshVoiceId ?? item.voiceId;

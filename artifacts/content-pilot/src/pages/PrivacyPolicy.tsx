@@ -41,8 +41,8 @@ export default function PrivacyPolicy() {
             <h2 className="text-xl font-semibold mb-3">2. Datos que recopilamos</h2>
             <h3 className="font-semibold mb-2 text-base">2.1 Datos de cuenta</h3>
             <p>
-              Cuando creás una cuenta en ContentPilot recopilamos tu nombre de usuario y contraseña (almacenada
-              con hash seguro). No recopilamos direcciones de correo electrónico a menos que las ingresés
+              Cuando creas una cuenta en ContentPilot recopilamos tu nombre de usuario y contraseña (almacenada
+              con hash seguro). No recopilamos direcciones de correo electrónico a menos que las ingreses
               voluntariamente en la configuración de perfil.
             </p>
             <h3 className="font-semibold mb-2 text-base">2.2 Datos de Instagram / Meta</h3>
@@ -75,7 +75,7 @@ export default function PrivacyPolicy() {
                 Reels en tu nombre según la programación que configurés.
               </li>
               <li>
-                <strong>Generación de contenido:</strong> los temas e instrucciones que configurás se envían a
+                <strong>Generación de contenido:</strong> los temas e instrucciones que configuras se envían a
                 modelos de inteligencia artificial (OpenAI) para generar guiones y videos. No usamos tus datos
                 para entrenar modelos externos.
               </li>
@@ -131,7 +131,7 @@ export default function PrivacyPolicy() {
           <section>
             <h2 className="text-xl font-semibold mb-3">6. Retención de datos</h2>
             <p>
-              Conservamos tus datos mientras tu cuenta esté activa. Si solicitás la eliminación de tu cuenta,
+              Conservamos tus datos mientras tu cuenta esté activa. Si solicitas la eliminación de tu cuenta,
               borramos tus datos personales e Instagram token dentro de los 30 días hábiles siguientes, salvo
               que debamos retenerlos por obligaciones legales.
             </p>
@@ -139,16 +139,16 @@ export default function PrivacyPolicy() {
 
           <section>
             <h2 className="text-xl font-semibold mb-3">7. Tus derechos</h2>
-            <p>Tenés derecho a:</p>
+            <p>Tienes derecho a:</p>
             <ul className="list-disc pl-5 space-y-1 mt-2">
-              <li>Acceder a los datos personales que tenemos sobre vos.</li>
+              <li>Acceder a los datos personales que tenemos sobre ti.</li>
               <li>Solicitar la corrección de datos incorrectos.</li>
               <li>Solicitar la eliminación de tu cuenta y datos asociados.</li>
               <li>Revocar en cualquier momento el acceso de ContentPilot a tu cuenta de Instagram desde la
                 configuración de Instagram → Aplicaciones y sitios web.</li>
             </ul>
             <p className="mt-3">
-              Para ejercer cualquiera de estos derechos, contactanos en el correo indicado en la sección 9.
+              Para ejercer cualquiera de estos derechos, contáctanos en el correo indicado en la sección 9.
             </p>
           </section>
 
@@ -163,7 +163,7 @@ export default function PrivacyPolicy() {
           <section>
             <h2 className="text-xl font-semibold mb-3">9. Contacto</h2>
             <p>
-              Si tenés preguntas sobre esta política o querés ejercer tus derechos, escribinos a:{" "}
+              Si tienes preguntas sobre esta política o quieres ejercer tus derechos, escríbenos a:{" "}
               <a href="mailto:privacidad@reelsona.com" className="text-primary underline underline-offset-2">
                 privacidad@reelsona.com
               </a>

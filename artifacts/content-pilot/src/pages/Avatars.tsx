@@ -135,7 +135,7 @@ function LooksDialog({
         <DialogHeader>
           <DialogTitle>{group.name}</DialogTitle>
           <DialogDescription>
-            Elegí los looks que querés usar. Cuando seleccionás un look podés asignarle su voz directamente.
+            Elige los looks que quieres usar. Cuando seleccionas un look puedes asignarle su voz directamente.
           </DialogDescription>
         </DialogHeader>
 
@@ -393,7 +393,7 @@ export default function Avatars() {
         <div>
           <h1 className="text-4xl font-display font-bold tracking-tight">Avatares HeyGen</h1>
           <p className="text-muted-foreground mt-1 text-lg">
-            Hacé clic en un avatar para elegir sus looks y asignarles una voz.
+            Haz clic en un avatar para elegir sus looks y asignarles una voz.
           </p>
         </div>
         <div className="flex gap-2">
@@ -423,7 +423,7 @@ export default function Avatars() {
             <div className="flex-1">
               <h3 className="text-xl font-bold font-display">Rotación y Voz</h3>
               <p className="text-muted-foreground text-sm max-w-xl mt-1">
-                Elegí cómo rotar los looks y qué voz usar en todos los videos.
+                Elige cómo rotar los looks y qué voz usar en todos los videos.
               </p>
             </div>
             <div className="flex flex-col sm:flex-row gap-4 shrink-0 w-full sm:w-auto">
@@ -452,7 +452,7 @@ export default function Avatars() {
                   </SelectContent>
                 </Select>
                 <p className="text-[11px] text-muted-foreground mt-1">
-                  Cambia la voz en todos los looks de una vez. También podés asignar voces individuales abriendo cada avatar.
+                  Cambia la voz en todos los looks de una vez. También puedes asignar voces individuales abriendo cada avatar.
                 </p>
               </div>
 

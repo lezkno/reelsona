@@ -246,7 +246,7 @@ router.post("/heygen/account/connect", async (req, res): Promise<void> => {
   // Validate before saving
   const valid = await validateHeyGenKey(trimmedKey);
   if (!valid) {
-    res.status(400).json({ error: "API Key inválida. Verificá que sea correcta en tu cuenta de HeyGen." });
+    res.status(400).json({ error: "API Key inválida. Verifica que sea correcta en tu cuenta de HeyGen." });
     return;
   }
 

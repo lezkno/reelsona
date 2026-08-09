@@ -43,7 +43,7 @@ export default function Connect() {
       const returnedState = params.get('state')
       const expectedState = sessionStorage.getItem('ig_oauth_state')
       if (expectedState && returnedState !== expectedState) {
-        toast({ title: "Error de seguridad", description: "El parámetro state no coincide. Intentá conectar de nuevo.", variant: "destructive" })
+        toast({ title: "Error de seguridad", description: "El parámetro state no coincide. Intenta conectar de nuevo.", variant: "destructive" })
         setLocation("/connect")
         return
       }

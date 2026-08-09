@@ -1,6 +1,7 @@
 import * as React from "react"
 import { useState } from "react"
 import { Sidebar } from "./Sidebar"
+import { WelcomeModal } from "@/components/WelcomeModal"
 import { Menu } from "lucide-react"
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -46,6 +47,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
           {children}
         </div>
       </main>
+
+      <WelcomeModal />
     </div>
   )
 }
