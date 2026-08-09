@@ -28,6 +28,16 @@ export const AVATAR_DEFAULT_VOICE = "avatar_default";
 const AUTO_FILL_CALENDAR_HORIZON = 14;
 
 /**
+ * How many hours before a scheduled item's time the scheduler will proactively
+ * generate its script and video.  Without this window, the cycle only triggers
+ * at the exact scheduled time, leaving no room for HeyGen's 3-10 min render.
+ *
+ * Example: item scheduled tomorrow at 09:00 → scheduler starts preparing it
+ * today at 06:00 (09:00 − 3h) so the video is ready well before publication.
+ */
+const PROACTIVE_PREP_HORIZON_HOURS = 3;
+
+/**
  * Auto-fill any empty slots in the upcoming automation schedule.
  * Called inside every runAutomationCycle tick so gaps are filled proactively.
  * Returns the number of draft items created (0 when all slots are occupied).
@@ -285,22 +295,27 @@ export async function runAutomationCycle(targetItemId?: number): Promise<{
     }
   }
 
-  // Check if we have a ready content item scheduled for now or overdue
+  // Check if we have a ready content item scheduled for now or overdue.
+  // We also proactively pick up items scheduled within PROACTIVE_PREP_HORIZON_HOURS
+  // so HeyGen has time to render the video before the publication time arrives.
   const now = new Date();
+  const prepHorizon = new Date(now.getTime() + PROACTIVE_PREP_HORIZON_HOURS * 60 * 60 * 1000);
+
   const readyItems = await db
     .select()
     .from(contentPlanItemsTable)
     .where(
       targetItemId !== undefined
         ? and(eq(contentPlanItemsTable.id, targetItemId), eq(contentPlanItemsTable.status, "scripted"))
-        : and(eq(contentPlanItemsTable.status, "scripted"), lte(contentPlanItemsTable.scheduledAt, now))
+        : and(eq(contentPlanItemsTable.status, "scripted"), lte(contentPlanItemsTable.scheduledAt, prepHorizon))
     )
     .orderBy(contentPlanItemsTable.scheduledAt)
     .limit(1);
 
   let contentItem = readyItems[0];
 
-  // If no scripted item, generate one from the next due draft
+  // If no scripted item, generate one from the next upcoming draft (within prep horizon).
+  // This ensures scripts and videos are ready well before the scheduled publication time.
   if (!contentItem && (automation.autoGenerateScript || targetItemId !== undefined)) {
     const draftItems = await db
       .select()
@@ -308,7 +323,7 @@ export async function runAutomationCycle(targetItemId?: number): Promise<{
       .where(
         targetItemId !== undefined
           ? and(eq(contentPlanItemsTable.id, targetItemId), eq(contentPlanItemsTable.status, "draft"))
-          : and(eq(contentPlanItemsTable.status, "draft"), lte(contentPlanItemsTable.scheduledAt, now))
+          : and(eq(contentPlanItemsTable.status, "draft"), lte(contentPlanItemsTable.scheduledAt, prepHorizon))
       )
       .orderBy(contentPlanItemsTable.scheduledAt)
       .limit(1);
