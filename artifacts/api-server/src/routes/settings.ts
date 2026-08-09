@@ -17,6 +17,7 @@ function mapSettings(s: typeof settingsTable.$inferSelect) {
     include_captions: s.includeCaptions ?? true,
     watermark_text: s.watermarkText ?? null,
     heygen_voice_speed: s.heygenVoiceSpeed ?? null,
+    welcome_dismissed: s.welcomeDismissed ?? false,
   };
 }
 
@@ -49,6 +50,7 @@ router.put("/settings", async (req, res): Promise<void> => {
   if (d.include_captions !== undefined) updates.includeCaptions = d.include_captions;
   if (d.watermark_text !== undefined) updates.watermarkText = d.watermark_text ?? null;
   if (d.heygen_voice_speed !== undefined) updates.heygenVoiceSpeed = d.heygen_voice_speed ?? null;
+  if (d.welcome_dismissed !== undefined) updates.welcomeDismissed = d.welcome_dismissed;
 
   let settings;
   if (existing) {

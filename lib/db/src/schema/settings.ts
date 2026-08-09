@@ -16,6 +16,8 @@ export const settingsTable = pgTable("settings", {
   heygenApiKey: text("heygen_api_key"),
   /** Voice speed multiplier for HeyGen TTS. null = HeyGen default (1.0). Range: 0.5–1.5 */
   heygenVoiceSpeed: real("heygen_voice_speed"),
+  /** Whether the user has dismissed the welcome modal (stored server-side so it persists across devices) */
+  welcomeDismissed: boolean("welcome_dismissed").notNull().default(false),
 });
 
 export const insertSettingsSchema = createInsertSchema(settingsTable).omit({ id: true });

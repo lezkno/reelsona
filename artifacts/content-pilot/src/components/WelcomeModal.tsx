@@ -12,6 +12,8 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { BookOpen, Play } from "lucide-react"
+import { useGetSettings, useUpdateSettings, getGetSettingsQueryKey } from "@workspace/api-client-react"
+import { useQueryClient } from "@tanstack/react-query"
 
 // ── Cambia esta URL por la del video de bienvenida cuando esté listo ──────────
 const WELCOME_VIDEO_URL = ""
@@ -23,20 +25,48 @@ export function WelcomeModal() {
   const [open, setOpen] = useState(false)
   const [dontShow, setDontShow] = useState(false)
   const [, navigate] = useLocation()
+  const queryClient = useQueryClient()
 
-  // Open on first visit — only when the key is not stored
+  const { data: settings, isLoading } = useGetSettings()
+  const { mutate: updateSettings } = useUpdateSettings()
+
+  // Open on first visit — use server-side flag, fall back to localStorage while loading
   useEffect(() => {
-    const dismissed = localStorage.getItem(STORAGE_KEY)
-    if (!dismissed) setOpen(true)
-  }, [])
+    if (isLoading) return
+
+    if (settings) {
+      // Server value is authoritative
+      if (!settings.welcome_dismissed) {
+        setOpen(true)
+      }
+    } else {
+      // Settings not yet available — fall back to localStorage
+      const dismissed = localStorage.getItem(STORAGE_KEY)
+      if (!dismissed) setOpen(true)
+    }
+  }, [isLoading, settings])
+
+  function persistDismissal() {
+    // Always persist to localStorage as fast local cache
+    localStorage.setItem(STORAGE_KEY, "1")
+    // Persist to server account so it's remembered across devices
+    updateSettings(
+      { data: { welcome_dismissed: true } },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: getGetSettingsQueryKey() })
+        },
+      }
+    )
+  }
 
   function handleClose() {
-    if (dontShow) localStorage.setItem(STORAGE_KEY, "1")
+    if (dontShow) persistDismissal()
     setOpen(false)
   }
 
   function handleStartCourse() {
-    if (dontShow) localStorage.setItem(STORAGE_KEY, "1")
+    if (dontShow) persistDismissal()
     setOpen(false)
     navigate("/course")
   }

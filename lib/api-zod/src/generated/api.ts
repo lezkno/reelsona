@@ -750,7 +750,8 @@ export const GetSettingsResponse = zod.object({
   "video_duration_seconds": zod.number(),
   "include_captions": zod.boolean(),
   "watermark_text": zod.string().nullish(),
-  "heygen_voice_speed": zod.number().nullish()
+  "heygen_voice_speed": zod.number().nullish(),
+  "welcome_dismissed": zod.boolean()
 })
 
 
@@ -766,7 +767,8 @@ export const UpdateSettingsBody = zod.object({
   "video_duration_seconds": zod.number().optional(),
   "include_captions": zod.boolean().optional(),
   "watermark_text": zod.string().nullish(),
-  "heygen_voice_speed": zod.number().nullish()
+  "heygen_voice_speed": zod.number().nullish(),
+  "welcome_dismissed": zod.boolean().optional()
 })
 
 export const UpdateSettingsResponse = zod.object({
@@ -778,7 +780,8 @@ export const UpdateSettingsResponse = zod.object({
   "video_duration_seconds": zod.number(),
   "include_captions": zod.boolean(),
   "watermark_text": zod.string().nullish(),
-  "heygen_voice_speed": zod.number().nullish()
+  "heygen_voice_speed": zod.number().nullish(),
+  "welcome_dismissed": zod.boolean()
 })
 
 
