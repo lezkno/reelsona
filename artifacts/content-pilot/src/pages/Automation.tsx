@@ -8,7 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { useQueryClient } from "@tanstack/react-query"
 import { useToast } from "@/hooks/use-toast"
 import { useEffect, useState } from "react"
-import { Zap, Clock, CalendarDays, Plus, X, Lock } from "lucide-react"
+import { Zap, Clock, CalendarDays, Plus, X, Lock, ExternalLink, Sparkles } from "lucide-react"
 
 const DAYS = [
   { value: 1, label: "Lunes" },
@@ -197,30 +197,100 @@ export default function Automation() {
           <Card>
             <CardHeader>
               <CardTitle>Tubería de Contenido</CardTitle>
-              <CardDescription>Qué etapas hace la IA sola</CardDescription>
+              <CardDescription>Qué etapas hace la IA por vos, en orden</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between p-3 border rounded-lg">
-                <div>
-                  <Label className="text-base">1. Generar Guiones</Label>
-                  <p className="text-xs text-muted-foreground">Crea guiones automáticamente si te quedas sin ideas.</p>
+            <CardContent className="space-y-3">
+
+              {/* Step 1 — Script */}
+              <div className={`flex items-center justify-between p-3 border rounded-lg transition-opacity ${!formData.auto_generate_script ? "opacity-50" : ""}`}>
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className="text-xs font-bold text-muted-foreground w-5 shrink-0">1</span>
+                  <div className="min-w-0">
+                    <Label className="text-base">Generar Guión</Label>
+                    <p className="text-xs text-muted-foreground">Crea guiones automáticamente si no hay ideas pendientes.</p>
+                  </div>
                 </div>
-                <Switch checked={formData.auto_generate_script} onCheckedChange={(v) => saveChange({ auto_generate_script: v })} />
+                <Switch disabled={isLocked} checked={formData.auto_generate_script} onCheckedChange={(v) => saveChange({ auto_generate_script: v })} />
               </div>
-              <div className="flex items-center justify-between p-3 border rounded-lg">
-                <div>
-                  <Label className="text-base">2. Producir Video</Label>
-                  <p className="text-xs text-muted-foreground">Envía guiones aprobados a HeyGen automáticamente.</p>
+
+              {/* Connector */}
+              <div className="flex items-center gap-2 px-4">
+                <div className="h-5 w-px bg-border ml-2" />
+              </div>
+
+              {/* Step 2 — Video */}
+              <div className={`flex items-center justify-between p-3 border rounded-lg transition-opacity ${!formData.auto_generate_video ? "opacity-50" : ""}`}>
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className="text-xs font-bold text-muted-foreground w-5 shrink-0">2</span>
+                  <div className="min-w-0">
+                    <Label className="text-base">Producir Video con HeyGen</Label>
+                    <p className="text-xs text-muted-foreground">Envía el guión aprobado a HeyGen y espera el resultado.</p>
+                  </div>
                 </div>
-                <Switch checked={formData.auto_generate_video} onCheckedChange={(v) => saveChange({ auto_generate_video: v })} />
+                <Switch disabled={isLocked} checked={formData.auto_generate_video} onCheckedChange={(v) => saveChange({ auto_generate_video: v })} />
               </div>
-              <div className="flex items-center justify-between p-3 border rounded-lg bg-secondary/5 border-secondary/20">
-                <div>
-                  <Label className="text-base text-secondary-foreground font-bold">3. Publicar en IG</Label>
-                  <p className="text-xs text-muted-foreground">Publica los videos listos en el horario programado.</p>
+
+              {/* Connector */}
+              <div className="flex items-center gap-2 px-4">
+                <div className="h-5 w-px bg-border ml-2" />
+              </div>
+
+              {/* Step 3 — Captions */}
+              <div className={`flex items-center justify-between p-3 border rounded-lg transition-opacity ${!formData.captions_enabled ? "opacity-50" : ""}`}>
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className="text-xs font-bold text-muted-foreground w-5 shrink-0">3</span>
+                  <div className="min-w-0">
+                    <Label className="text-base">Agregar Captions</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Quema captions animados sobre el video.{" "}
+                      <a href="/content-pilot/captions" className="text-primary underline underline-offset-2 inline-flex items-center gap-0.5 hover:opacity-80">
+                        Configurar plantilla <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </p>
+                  </div>
                 </div>
-                <Switch checked={formData.auto_publish} onCheckedChange={(v) => saveChange({ auto_publish: v })} />
+                <Switch disabled={isLocked} checked={formData.captions_enabled} onCheckedChange={(v) => saveChange({ captions_enabled: v })} />
               </div>
+
+              {/* Connector */}
+              <div className="flex items-center gap-2 px-4">
+                <div className="h-5 w-px bg-border ml-2" />
+              </div>
+
+              {/* Step 4 — Copy (automatic, no toggle) */}
+              <div className="flex items-center justify-between p-3 border rounded-lg bg-muted/30">
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className="text-xs font-bold text-muted-foreground w-5 shrink-0">4</span>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <Label className="text-base">Generar Copy para Instagram</Label>
+                      <Sparkles className="w-3.5 h-3.5 text-violet-500 shrink-0" />
+                    </div>
+                    <p className="text-xs text-muted-foreground">Redacta la descripción y hashtags del reel automáticamente.</p>
+                  </div>
+                </div>
+                <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-full px-2 py-0.5 shrink-0">
+                  Siempre activo
+                </span>
+              </div>
+
+              {/* Connector */}
+              <div className="flex items-center gap-2 px-4">
+                <div className="h-5 w-px bg-border ml-2" />
+              </div>
+
+              {/* Step 5 — Publish */}
+              <div className={`flex items-center justify-between p-3 border rounded-lg transition-opacity ${!formData.auto_publish ? "opacity-50" : "bg-primary/5 border-primary/20"}`}>
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className="text-xs font-bold text-muted-foreground w-5 shrink-0">5</span>
+                  <div className="min-w-0">
+                    <Label className="text-base font-bold">Publicar en Instagram</Label>
+                    <p className="text-xs text-muted-foreground">Sube el reel en el horario programado.</p>
+                  </div>
+                </div>
+                <Switch disabled={isLocked} checked={formData.auto_publish} onCheckedChange={(v) => saveChange({ auto_publish: v })} />
+              </div>
+
             </CardContent>
           </Card>
         </div>
