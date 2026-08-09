@@ -31,6 +31,17 @@ export default function Dashboard() {
 
   const readyVideos = allVideos ?? []
 
+  // Next scheduled reel (for banner)
+  const planItems = planData ?? []
+  const nowTs = Date.now()
+  const nextItem = planItems
+    .filter(i => {
+      if (!i.scheduled_at || ["published", "failed"].includes(i.status)) return false
+      const ts = new Date(i.scheduled_at).getTime()
+      return !isNaN(ts) && ts > nowTs
+    })
+    .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime())[0] ?? null
+
   // Refresh Instagram data every time the user opens / focuses the app
   useEffect(() => {
     const handleVisibility = () => {
@@ -174,12 +185,17 @@ export default function Dashboard() {
                   </p>
                 </div>
               </div>
-              <div className="bg-black/20 rounded-lg p-3 md:p-4 backdrop-blur-sm">
+              <div className="bg-black/20 rounded-lg p-3 md:p-4 backdrop-blur-sm min-w-0 max-w-xs">
                 <p className="text-xs md:text-sm font-medium text-sidebar-foreground/60 mb-1">Próxima publicación</p>
                 <div className="text-white font-bold text-sm flex items-center gap-2 flex-wrap">
                   <Clock className="w-3.5 h-3.5 text-primary shrink-0" />
                   {dashboard.next_scheduled_at ? format(new Date(dashboard.next_scheduled_at), "PPp", { locale: es }) : "No programada"}
                 </div>
+                {nextItem?.topic && (
+                  <p className="text-xs text-sidebar-foreground/60 mt-1 line-clamp-2 leading-snug">
+                    {nextItem.topic}
+                  </p>
+                )}
               </div>
             </div>
           </Card>
@@ -484,14 +500,14 @@ function PipelineStatusCard({ planItems, planLoading, strategyProfile, strategyL
 
   // Next scheduled item: soonest future scheduled_at that isn't published/failed
   const now = Date.now()
-  const upcoming = planItems
+  const nextItem = planItems
     .filter(i => {
       if (!i.scheduled_at || ["published", "failed"].includes(i.status)) return false
       const ts = new Date(i.scheduled_at).getTime()
       return !isNaN(ts) && ts > now
     })
-    .map(i => new Date(i.scheduled_at!).getTime())
-    .sort((a, b) => a - b)[0]
+    .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime())[0] ?? null
+  const upcoming = nextItem ? new Date(nextItem.scheduled_at!).getTime() : undefined
 
   // ── Loading skeleton ──
   if (loading) {
