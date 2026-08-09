@@ -1,0 +1,200 @@
+/**
+ * Admin-only routes.
+ *
+ * Mounted BEFORE requireAuth so programmatic callers (future webhooks) can
+ * reach them with a Bearer token instead of a session cookie.
+ *
+ * Access control — EITHER:
+ *   (a) valid session with role='admin', OR
+ *   (b) Authorization: Bearer <ADMIN_PASSWORD>
+ */
+
+import { Router } from "express";
+import type { Request, Response } from "express";
+import { randomBytes } from "crypto";
+import { db } from "@workspace/db";
+import { users } from "@workspace/db/schema";
+import { eq } from "drizzle-orm";
+import { hashPassword } from "../lib/password";
+import { sendEmail, activationEmail } from "../lib/email";
+import { upsertEntitlement } from "../lib/access";
+
+const router = Router();
+
+// ── Admin auth helper ─────────────────────────────────────────────────────────
+
+function isAdminRequest(req: Request): boolean {
+  const adminPw = process.env.ADMIN_PASSWORD;
+  const authHeader = req.headers.authorization ?? "";
+  const bearerValid = !!adminPw && authHeader === `Bearer ${adminPw}`;
+  const sessionValid =
+    req.session?.authenticated === true &&
+    req.session?.user?.role === "admin";
+  return bearerValid || sessionValid;
+}
+
+// ── POST /api/admin/provision ─────────────────────────────────────────────────
+/**
+ * Creates or updates a student account with course + tool access.
+ *
+ * Body:
+ *   email            string   required
+ *   fullName         string   required
+ *   toolAccessDays   number   required  (e.g. 30)
+ *   courseAccess     boolean  optional  (default true)
+ *   source           string   optional  (e.g. 'manual', 'gumroad')
+ *
+ * Response:
+ *   { ok, userId, created, emailSent, warning? }
+ */
+router.post("/admin/provision", async (req: Request, res: Response): Promise<void> => {
+  if (!isAdminRequest(req)) {
+    res.status(403).json({ error: "Acceso denegado" });
+    return;
+  }
+
+  const {
+    email,
+    fullName,
+    toolAccessDays,
+    courseAccess = true,
+    source = "manual",
+  } = (req.body ?? {}) as {
+    email?: string;
+    fullName?: string;
+    toolAccessDays?: number;
+    courseAccess?: boolean;
+    source?: string;
+  };
+
+  if (!email || !fullName || !toolAccessDays) {
+    res.status(400).json({ error: "Se requieren email, fullName y toolAccessDays" });
+    return;
+  }
+  if (toolAccessDays < 1 || toolAccessDays > 3650) {
+    res.status(400).json({ error: "toolAccessDays debe estar entre 1 y 3650" });
+    return;
+  }
+
+  const username = email.trim().toLowerCase();
+  const name     = fullName.trim();
+
+  try {
+    // ── Find or create user ──────────────────────────────────────────────────
+    let [existingUser] = await db
+      .select()
+      .from(users)
+      .where(eq(users.username, username))
+      .limit(1);
+
+    let created = false;
+    let userId: number;
+
+    const activationToken    = randomBytes(32).toString("hex");
+    const activationExpires  = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+    if (!existingUser) {
+      // Create a new pending user — password will be set during activation
+      const [inserted] = await db
+        .insert(users)
+        .values({
+          username,
+          passwordHash: hashPassword(randomBytes(16).toString("hex")), // temporary random
+          fullName: name,
+          email: username,
+          role: "user",
+          isActive: false,
+          activationToken,
+          activationTokenExpiresAt: activationExpires,
+        })
+        .returning({ id: users.id });
+      userId  = inserted.id;
+      created = true;
+    } else {
+      userId = existingUser.id;
+      // Refresh activation token even for existing users so they can reset their password
+      await db
+        .update(users)
+        .set({
+          fullName: name,
+          activationToken,
+          activationTokenExpiresAt: activationExpires,
+          updatedAt: new Date(),
+        })
+        .where(eq(users.id, userId));
+    }
+
+    // ── Upsert entitlement ───────────────────────────────────────────────────
+    const now               = new Date();
+    const toolAccessEndsAt  = new Date(now.getTime() + toolAccessDays * 24 * 60 * 60 * 1000);
+
+    await upsertEntitlement({
+      userId,
+      courseAccess,
+      toolAccessStatus:   "active",
+      toolAccessStartsAt: now,
+      toolAccessEndsAt,
+      source,
+    });
+
+    // ── Send activation email ────────────────────────────────────────────────
+    const rawAppUrl = process.env.APP_URL ?? "";
+    if (!rawAppUrl) {
+      console.warn("[admin/provision] APP_URL is not set — activation link will use fallback URL");
+    }
+    const appUrl      = rawAppUrl.replace(/\/$/, "") || "https://reelsona.com";
+    const activateUrl = `${appUrl}/activate?token=${activationToken}`;
+
+    let emailSent = false;
+    let warning: string | undefined;
+
+    try {
+      const tpl = activationEmail(name, activateUrl, toolAccessDays);
+      await sendEmail({ to: username, ...tpl });
+      emailSent = true;
+    } catch (emailErr: any) {
+      warning = `El usuario fue creado pero el email no pudo enviarse: ${emailErr?.message ?? "error desconocido"}`;
+      console.error("[admin/provision] Email send failed:", emailErr);
+    }
+
+    res.json({ ok: true, userId, created, emailSent, ...(warning ? { warning } : {}) });
+  } catch (err) {
+    console.error("[admin/provision]", err);
+    res.status(500).json({ error: "Error interno del servidor" });
+  }
+});
+
+// ── GET /api/admin/entitlements ───────────────────────────────────────────────
+/** List all entitlements (admin overview). */
+router.get("/admin/entitlements", async (req: Request, res: Response): Promise<void> => {
+  if (!isAdminRequest(req)) {
+    res.status(403).json({ error: "Acceso denegado" });
+    return;
+  }
+
+  try {
+    const { userEntitlements } = await import("@workspace/db/schema");
+    const rows = await db
+      .select({
+        userId:             userEntitlements.userId,
+        courseAccess:       userEntitlements.courseAccess,
+        toolAccessStatus:   userEntitlements.toolAccessStatus,
+        toolAccessEndsAt:   userEntitlements.toolAccessEndsAt,
+        source:             userEntitlements.source,
+        createdAt:          userEntitlements.createdAt,
+        username:           users.username,
+        fullName:           users.fullName,
+        isActive:           users.isActive,
+      })
+      .from(userEntitlements)
+      .innerJoin(users, eq(users.id, userEntitlements.userId))
+      .orderBy(userEntitlements.createdAt);
+
+    res.json({ entitlements: rows });
+  } catch (err) {
+    console.error("[admin/entitlements]", err);
+    res.status(500).json({ error: "Error interno del servidor" });
+  }
+});
+
+export default router;

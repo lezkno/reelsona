@@ -45,6 +45,26 @@ export function welcomeEmail(name: string) {
   }
 }
 
+export function activationEmail(name: string, activateUrl: string, toolAccessDays: number) {
+  const plural = toolAccessDays === 1 ? "día" : "días";
+  return {
+    subject: "Tu acceso a Reelsona está listo 🎉",
+    html: `
+      <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#111">
+        <h1 style="font-size:22px;margin-bottom:8px">¡Hola${name ? `, ${name}` : ""}! 👋</h1>
+        <p style="color:#555">Tu acceso a <strong>Reelsona</strong> está listo. Tienes <strong>${toolAccessDays} ${plural}</strong> de acceso completo a la herramienta y acceso permanente al curso de implementación.</p>
+        <p style="color:#555">Haz clic en el botón para elegir tu contraseña y comenzar:</p>
+        <a href="${activateUrl}"
+           style="display:inline-block;margin-top:20px;padding:14px 32px;background:#6366f1;color:#fff;border-radius:8px;text-decoration:none;font-weight:700;font-size:16px">
+          Activar mi cuenta →
+        </a>
+        <p style="margin-top:20px;color:#888;font-size:13px">Este enlace es válido por 7 días. Si tienes problemas, responde a este correo.</p>
+        <p style="margin-top:32px;font-size:12px;color:#999">Reelsona · info@reelsona.com</p>
+      </div>`,
+    text: `Hola${name ? ` ${name}` : ""}! Tu acceso a Reelsona está listo (${toolAccessDays} ${plural}). Activa tu cuenta aquí: ${activateUrl}`,
+  }
+}
+
 export function verificationEmail(name: string, verifyUrl: string) {
   return {
     subject: "Confirma tu correo — Reelsona",

@@ -3,9 +3,10 @@ import type { Request, Response } from "express";
 import { randomBytes } from "crypto";
 import { db } from "@workspace/db";
 import { users } from "@workspace/db/schema";
-import { eq, isNull, or } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { verifyPassword, hashPassword } from "../lib/password";
 import { sendEmail, passwordChangedEmail, verificationEmail } from "../lib/email";
+import { getUserAccess } from "../lib/access";
 
 const router = Router();
 
@@ -166,6 +167,108 @@ router.post("/auth/change-password", async (req: Request, res: Response): Promis
     res.json({ ok: true });
   } catch {
     res.status(500).json({ error: "Error al cambiar contraseña" });
+  }
+});
+
+/**
+ * GET /api/auth/activate/check?token=
+ * Public. Returns { email, fullName } for a valid, unexpired activation token.
+ * Used by the /activate page to pre-fill user info before the password form.
+ */
+router.get("/auth/activate/check", async (req: Request, res: Response): Promise<void> => {
+  const { token } = req.query as { token?: string };
+  if (!token) { res.status(400).json({ error: "Token no proporcionado" }); return; }
+
+  try {
+    const [user] = await db
+      .select({ id: users.id, email: users.email, username: users.username, fullName: users.fullName, activationTokenExpiresAt: users.activationTokenExpiresAt })
+      .from(users)
+      .where(eq(users.activationToken, token))
+      .limit(1);
+
+    if (!user) { res.status(400).json({ error: "El enlace no es válido o ya fue utilizado." }); return; }
+    if (user.activationTokenExpiresAt && user.activationTokenExpiresAt < new Date()) {
+      res.status(400).json({ error: "El enlace expiró. Solicita uno nuevo a tu asesor." }); return;
+    }
+
+    res.json({ email: user.email ?? user.username, fullName: user.fullName ?? "" });
+  } catch (err) {
+    console.error("[activate/check]", err);
+    res.status(500).json({ error: "Error interno del servidor" });
+  }
+});
+
+/**
+ * POST /api/auth/activate
+ * Public. Sets password, activates account, clears tokens, and creates a session.
+ * Body: { token: string; password: string }
+ */
+router.post("/auth/activate", async (req: Request, res: Response): Promise<void> => {
+  const { token, password } = (req.body ?? {}) as { token?: string; password?: string };
+
+  if (!token || !password) { res.status(400).json({ error: "Se requieren token y contraseña" }); return; }
+  if (password.length < 8)  { res.status(400).json({ error: "La contraseña debe tener al menos 8 caracteres" }); return; }
+
+  try {
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(eq(users.activationToken, token))
+      .limit(1);
+
+    if (!user) { res.status(400).json({ error: "El enlace no es válido o ya fue utilizado." }); return; }
+    if (user.activationTokenExpiresAt && user.activationTokenExpiresAt < new Date()) {
+      res.status(400).json({ error: "El enlace expiró. Solicita uno nuevo a tu asesor." }); return;
+    }
+
+    // Activate: set password, activate, clear both activation and verification tokens
+    await db.update(users).set({
+      passwordHash:                hashPassword(password),
+      isActive:                    true,
+      activationToken:             null,
+      activationTokenExpiresAt:    null,
+      verificationToken:           null,   // also counts as email-verified
+      verificationTokenExpiresAt:  null,
+      lastLoginAt:                 new Date(),
+      updatedAt:                   new Date(),
+    }).where(eq(users.id, user.id));
+
+    // Create session so user is logged in immediately
+    req.session.authenticated = true;
+    req.session.user = { username: user.username, role: user.role, userId: user.id };
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[auth/activate]", err);
+    res.status(500).json({ error: "Error interno del servidor" });
+  }
+});
+
+/**
+ * GET /api/auth/entitlement
+ * Protected. Returns the current user's access/license info.
+ * Admins always get full synthetic access without a DB lookup.
+ */
+router.get("/auth/entitlement", async (req: Request, res: Response): Promise<void> => {
+  if (!req.session?.authenticated) { res.status(401).json({ error: "No autenticado" }); return; }
+
+  const { userId, role } = req.session.user ?? { userId: 1, role: "admin" };
+  const isAdmin = role === "admin";
+
+  try {
+    const access = await getUserAccess(userId, role);
+    res.json({
+      isAdmin,
+      courseAccess:       access.courseAccess,
+      toolAccessStatus:   access.toolAccessStatus,
+      toolAccessActive:   access.toolAccessActive,
+      toolAccessEndsAt:   access.toolAccessEndsAt?.toISOString() ?? null,
+      daysRemaining:      access.daysRemaining,
+      source:             access.source,
+    });
+  } catch (err) {
+    console.error("[auth/entitlement]", err);
+    res.status(500).json({ error: "Error interno del servidor" });
   }
 });
 

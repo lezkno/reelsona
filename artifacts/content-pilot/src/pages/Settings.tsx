@@ -17,6 +17,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { useToast } from "@/hooks/use-toast"
 import { useEffect, useState } from "react"
 import { Save, CheckCircle2, XCircle, Loader2, Link2, Link2Off, Eye, EyeOff, RefreshCw, Play } from "lucide-react"
+import AccessStatus from "@/components/AccessStatus"
 
 const WELCOME_STORAGE_KEY = "reelsona_welcome_dismissed"
 
@@ -487,6 +488,15 @@ export default function Settings() {
           </Button>
         </CardFooter>
       </Card>
+
+      {/* ── Licencia y acceso ── */}
+      <div className="space-y-4">
+        <div>
+          <h2 className="text-xl font-display font-semibold">Licencia y acceso</h2>
+          <p className="text-sm text-muted-foreground mt-0.5">Estado de tu suscripción y acceso a la plataforma.</p>
+        </div>
+        <AccessStatus />
+      </div>
 
       {/* ── Ayuda ── */}
       <div className="space-y-4">

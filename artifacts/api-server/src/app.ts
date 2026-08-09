@@ -7,6 +7,7 @@ import cookieParser from "cookie-parser";
 import { logger } from "./lib/logger";
 import { requireAuth } from "./middleware/auth";
 import authRouter from "./routes/auth";
+import adminRouter from "./routes/admin";
 import captionedRouter from "./routes/captioned";
 import usersRouter from "./routes/users";
 import router from "./routes";
@@ -77,6 +78,10 @@ app.use(
 // Auth routes bypass the requireAuth guard (handled inside requireAuth itself,
 // but mounting here first makes the intent explicit)
 app.use("/api", authRouter);
+
+// Admin routes — mounted before requireAuth so Bearer-token calls work
+// (each handler performs its own admin check: session role=admin OR Bearer ADMIN_PASSWORD)
+app.use("/api", adminRouter);
 
 // Captioned video streaming — public, no auth required (files are ephemeral /tmp)
 app.use("/api", captionedRouter);
