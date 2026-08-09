@@ -44,11 +44,13 @@ export function Sidebar({ onClose }: SidebarProps) {
   const { data: authData } = useAuthStatus()
   const logout = useLogout()
   const queryClient = useQueryClient()
+  const [, navigate] = useLocation()
 
   const handleLogout = () => {
     logout.mutate(undefined, {
       onSuccess: () => {
         queryClient.clear()
+        navigate("/login")
       },
     })
   }
