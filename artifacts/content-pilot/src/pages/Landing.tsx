@@ -660,34 +660,6 @@ export default function Landing() {
       </section>
 
       {/* ══════════════════════════════════════
-          POR QUÉ NO ES OTRA HERRAMIENTA IA
-      ══════════════════════════════════════ */}
-      <section style={{ backgroundColor: "#0b0b0b", borderTop: "1px solid rgba(255,255,255,0.04)", padding: "6rem 1.5rem" }}>
-        <div className="mx-auto" style={{ maxWidth: 820 }}>
-          <div className="text-center reveal-up" style={{ marginBottom: "3rem" }}>
-            <SectionLabel>No es otra herramienta IA</SectionLabel>
-            <h2 style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "clamp(1.6rem,4vw,2.4rem)", fontWeight: 800, letterSpacing: "-0.025em", lineHeight: 1.15 }}>
-              Hay decenas de apps de IA para contenido.<br />Reelsona no es ninguna de ellas.
-            </h2>
-          </div>
-          <div className="flex flex-col gap-3 reveal-up stagger-1">
-            {notJustAiToolItems.map(({ wrong, right }) => (
-              <div key={wrong} className="grid rounded-2xl overflow-hidden" style={{ gridTemplateColumns: "1fr 1fr", border: "1px solid #1c1c1c" }}>
-                <div className="flex items-start gap-3 p-4" style={{ backgroundColor: "#0d0d0d", borderRight: "1px solid #1c1c1c" }}>
-                  <X size={14} color="#664444" style={{ flexShrink: 0, marginTop: 2 }} />
-                  <span style={{ color: "#555", fontSize: "0.84rem", lineHeight: 1.6 }}>{wrong}</span>
-                </div>
-                <div className="flex items-start gap-3 p-4" style={{ backgroundColor: "#0f0f0f" }}>
-                  <Check size={14} color="#4F6EF7" strokeWidth={3} style={{ flexShrink: 0, marginTop: 2 }} />
-                  <span style={{ color: "#aaa", fontSize: "0.84rem", lineHeight: 1.6 }}>{right}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ══════════════════════════════════════
           PRECIO $47
       ══════════════════════════════════════ */}
       <section style={{ padding: "6rem 1.5rem" }}>
