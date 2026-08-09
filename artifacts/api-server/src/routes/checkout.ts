@@ -14,6 +14,52 @@ import { getAppUrl } from "../lib/email";
 
 const router = Router();
 
+/**
+ * POST /api/checkout/create-payment-intent
+ *
+ * Creates a Stripe PaymentIntent and returns the clientSecret so the
+ * frontend can mount a fully custom-designed payment form using
+ * Stripe Elements + PaymentElement.
+ */
+router.post("/checkout/create-payment-intent", async (req: Request, res: Response): Promise<void> => {
+  let stripe: ReturnType<typeof getStripe>;
+  let priceId: string;
+  try {
+    stripe  = getStripe();
+    priceId = getPriceId();
+  } catch (configErr: any) {
+    console.error("[checkout/create-payment-intent] Stripe not configured:", configErr.message);
+    res.status(503).json({ error: "El checkout no está disponible en este momento." });
+    return;
+  }
+
+  const toolAccessDays = getToolAccessDays();
+
+  try {
+    // Retrieve price for canonical amount + currency (avoids hardcoding)
+    const price = await stripe.prices.retrieve(priceId);
+    if (!price.unit_amount) {
+      res.status(500).json({ error: "No se pudo determinar el precio." });
+      return;
+    }
+
+    const intent = await stripe.paymentIntents.create({
+      amount:   price.unit_amount,
+      currency: price.currency,
+      automatic_payment_methods: { enabled: true },
+      metadata: {
+        product:          "reelsona_program",
+        tool_access_days: String(toolAccessDays),
+      },
+    });
+
+    res.json({ clientSecret: intent.client_secret });
+  } catch (err: any) {
+    console.error("[checkout/create-payment-intent]", err?.message);
+    res.status(500).json({ error: "No se pudo crear la sesión de pago" });
+  }
+});
+
 router.post("/checkout/create-session", async (req: Request, res: Response): Promise<void> => {
   const { email, fullName, embedded } = (req.body ?? {}) as {
     email?:    string;

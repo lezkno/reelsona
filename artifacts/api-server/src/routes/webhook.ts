@@ -4,6 +4,10 @@
  * IMPORTANT: This router must be mounted in app.ts BEFORE express.json()
  * so that req.body arrives as a raw Buffer — required for Stripe signature
  * verification. express.raw() is applied at the route level here.
+ *
+ * Handles:
+ *   - checkout.session.completed  (legacy hosted/embedded checkout)
+ *   - payment_intent.succeeded    (custom PaymentElement form)
  */
 
 import express, { Router } from "express";
@@ -19,12 +23,10 @@ const router = Router();
 
 router.post(
   "/webhooks/stripe",
-  // Raw body parser — must come before the async handler
   express.raw({ type: "application/json" }),
   async (req: Request, res: Response): Promise<void> => {
     const sig = req.headers["stripe-signature"] as string | undefined;
 
-    // Validate Stripe config
     let stripe: ReturnType<typeof getStripe>;
     let webhookSecret: string;
     try {
@@ -32,7 +34,6 @@ router.post(
       webhookSecret = getWebhookSecret();
     } catch (configErr: any) {
       console.error("[webhook/stripe] Not configured:", configErr.message);
-      // Return 200 so Stripe doesn't retry — this is a config issue, not a transient error
       res.json({ received: false, reason: "not_configured" });
       return;
     }
@@ -51,7 +52,7 @@ router.post(
       return;
     }
 
-    // Respond immediately — processing happens async so Stripe gets its 200 fast
+    // Respond immediately so Stripe gets its 200 fast
     res.json({ received: true });
 
     if (event.type === "checkout.session.completed") {
@@ -60,15 +61,21 @@ router.post(
         console.error("[webhook/stripe] handleCheckoutCompleted error:", err?.message);
       });
     }
+
+    if (event.type === "payment_intent.succeeded") {
+      const intent = event.data.object as Stripe.PaymentIntent;
+      handlePaymentIntentSucceeded(intent).catch((err) => {
+        console.error("[webhook/stripe] handlePaymentIntentSucceeded error:", err?.message);
+      });
+    }
   }
 );
 
-// ── Event handler ─────────────────────────────────────────────────────────────
+// ── checkout.session.completed ─────────────────────────────────────────────────
 
 async function handleCheckoutCompleted(session: Stripe.Checkout.Session): Promise<void> {
   const sessionId = session.id;
 
-  // ── Idempotency: skip if already processed ──────────────────────────────
   const [existing] = await db
     .select({ id: purchases.id })
     .from(purchases)
@@ -80,13 +87,9 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session): Promis
     return;
   }
 
-  // ── Extract customer data ────────────────────────────────────────────────
   const email    = (session.customer_details?.email ?? session.metadata?.email ?? "").toLowerCase().trim();
   const fullName = (session.customer_details?.name  ?? session.metadata?.full_name ?? "").trim();
-  const toolAccessDays = Math.max(
-    1,
-    parseInt(session.metadata?.tool_access_days ?? "30", 10) || 30
-  );
+  const toolAccessDays = Math.max(1, parseInt(session.metadata?.tool_access_days ?? "30", 10) || 30);
   const amountTotal  = session.amount_total  ?? 0;
   const currency     = session.currency      ?? "usd";
   const customerId   = typeof session.customer === "string" ? session.customer : null;
@@ -96,45 +99,79 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session): Promis
     return;
   }
 
-  // ── Insert purchase row (guarantees idempotency even if provision fails) ─
   const [purchase] = await db
     .insert(purchases)
-    .values({
-      provider:           "stripe",
-      providerSessionId:  sessionId,
-      providerCustomerId: customerId,
-      email,
-      fullName,
-      amountTotal,
-      currency,
-      status:         "completed",
-      toolAccessDays,
-    })
+    .values({ provider: "stripe", providerSessionId: sessionId, providerCustomerId: customerId, email, fullName, amountTotal, currency, status: "completed", toolAccessDays })
     .returning({ id: purchases.id });
 
-  // ── Provision user ───────────────────────────────────────────────────────
   try {
-    const result = await provisionUser({
-      email,
-      name:           fullName || email,
-      toolAccessDays,
-      courseAccess:   true,
-      source:         "stripe",
-    });
+    const result = await provisionUser({ email, name: fullName || email, toolAccessDays, courseAccess: true, source: "stripe" });
+    await db.update(purchases).set({ userId: result.userId, updatedAt: new Date() }).where(eq(purchases.id, purchase.id));
+    console.log(`[webhook/stripe] Provisioned userId=${result.userId} email=${email}`, `created=${result.created} emailSent=${result.emailSent}`);
+    if (result.warning) console.warn("[webhook/stripe] Provision warning:", result.warning);
+  } catch (err: any) {
+    console.error(`[webhook/stripe] Provision failed for ${email}:`, err?.message);
+  }
+}
 
-    // Link purchase to userId for audit
-    await db
-      .update(purchases)
-      .set({ userId: result.userId, updatedAt: new Date() })
-      .where(eq(purchases.id, purchase.id));
+// ── payment_intent.succeeded ───────────────────────────────────────────────────
+// Triggered by the custom PaymentElement form (not a Checkout Session).
+// NOTE: Register this event in the Stripe Dashboard webhook settings.
 
-    console.log(
-      `[webhook/stripe] Provisioned userId=${result.userId} email=${email}`,
-      `created=${result.created} emailSent=${result.emailSent}`
-    );
-    if (result.warning) {
-      console.warn("[webhook/stripe] Provision warning:", result.warning);
+async function handlePaymentIntentSucceeded(intent: Stripe.PaymentIntent): Promise<void> {
+  const intentId = intent.id;
+
+  // Idempotency — use PaymentIntent ID as providerSessionId
+  const [existing] = await db
+    .select({ id: purchases.id })
+    .from(purchases)
+    .where(eq(purchases.providerSessionId, intentId))
+    .limit(1);
+
+  if (existing) {
+    console.log(`[webhook/stripe] PaymentIntent ${intentId} already processed — skipping`);
+    return;
+  }
+
+  // Retrieve billing details from the attached PaymentMethod
+  let email    = (intent.receipt_email ?? "").toLowerCase().trim();
+  let fullName = "";
+
+  if (intent.payment_method && typeof intent.payment_method === "string") {
+    try {
+      const stripe = getStripe();
+      const pm     = await stripe.paymentMethods.retrieve(intent.payment_method);
+      if (pm.billing_details.email) email    = pm.billing_details.email.toLowerCase().trim();
+      if (pm.billing_details.name)  fullName = pm.billing_details.name.trim();
+    } catch (err: any) {
+      console.warn("[webhook/stripe] Could not retrieve payment method:", err?.message);
     }
+  }
+
+  // Fallback to metadata if billing_details were empty
+  if (!email)    email    = (intent.metadata?.email      ?? "").toLowerCase().trim();
+  if (!fullName) fullName = (intent.metadata?.full_name  ?? "").trim();
+
+  if (!email) {
+    console.error("[webhook/stripe] No email found in PaymentIntent", intentId);
+    return;
+  }
+
+  const toolAccessDays = Math.max(1, parseInt(intent.metadata?.tool_access_days ?? "30", 10) || 30);
+  const amountTotal    = intent.amount_received ?? intent.amount ?? 0;
+  const currency       = intent.currency ?? "usd";
+  const customerId     = typeof intent.customer === "string" ? intent.customer : null;
+
+  const [purchase] = await db
+    .insert(purchases)
+    .values({ provider: "stripe", providerSessionId: intentId, providerCustomerId: customerId, email, fullName, amountTotal, currency, status: "completed", toolAccessDays })
+    .returning({ id: purchases.id });
+
+  try {
+    const result = await provisionUser({ email, name: fullName || email, toolAccessDays, courseAccess: true, source: "stripe" });
+    await db.update(purchases).set({ userId: result.userId, updatedAt: new Date() }).where(eq(purchases.id, purchase.id));
+    console.log(`[webhook/stripe] Provisioned userId=${result.userId} email=${email}`, `created=${result.created} emailSent=${result.emailSent}`);
+    if (result.warning) console.warn("[webhook/stripe] Provision warning:", result.warning);
   } catch (err: any) {
     console.error(`[webhook/stripe] Provision failed for ${email}:`, err?.message);
   }
