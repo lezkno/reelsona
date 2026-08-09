@@ -2,8 +2,10 @@
  * CheckoutModal
  *
  * Opens a dark overlay with Stripe Embedded Checkout mounted inside.
- * Stripe collects the email and card directly; after payment the browser
- * is redirected to /checkout/success by Stripe.
+ *
+ * Performance: Stripe.js starts loading as soon as this component mounts
+ * (i.e. when Landing renders), NOT when the modal opens. By the time the
+ * user clicks "Empezar a crear Reels", Stripe.js is already downloaded.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -22,14 +24,13 @@ interface Props {
 }
 
 export function CheckoutModal({ isOpen, onClose }: Props) {
-  const [stripePromise, setStripePromise] = useState<
-    ReturnType<typeof loadStripe> | null
-  >(null);
+  const [stripePromise, setStripePromise] = useState<ReturnType<typeof loadStripe> | null>(null);
   const [configError, setConfigError] = useState<string | null>(null);
 
-  // Fetch the publishable key once, lazily on first open.
+  // ── Pre-load Stripe.js on mount, not on modal open ───────────────────────
+  // useEffect with [] runs after the first render (when Landing.tsx mounts),
+  // giving Stripe.js ~5-10 s to download before the user ever clicks the CTA.
   useEffect(() => {
-    if (!isOpen || stripePromise) return;
     fetch(`${BASE}/api/config/public`)
       .then((r) => r.json())
       .then(({ stripePublishableKey }: { stripePublishableKey: string | null }) => {
@@ -37,12 +38,15 @@ export function CheckoutModal({ isOpen, onClose }: Props) {
           setConfigError("El checkout no está disponible en este momento.");
           return;
         }
+        // loadStripe starts fetching stripe.js from CDN immediately
         setStripePromise(loadStripe(stripePublishableKey));
       })
-      .catch(() => setConfigError("No se pudo conectar con el servidor de pagos."));
-  }, [isOpen, stripePromise]);
+      .catch(() =>
+        setConfigError("No se pudo conectar con el servidor de pagos.")
+      );
+  }, []); // ← intentionally empty: run once when Landing mounts
 
-  // Called by Stripe.js to get the client_secret for this session.
+  // ── Called by EmbeddedCheckoutProvider to get a fresh session secret ─────
   const fetchClientSecret = useCallback(async (): Promise<string> => {
     const res = await fetch(`${BASE}/api/checkout/create-session`, {
       method: "POST",
@@ -50,10 +54,12 @@ export function CheckoutModal({ isOpen, onClose }: Props) {
       body: JSON.stringify({ embedded: true }),
     });
     const data: { clientSecret?: string; error?: string } = await res.json();
-    if (!data.clientSecret) throw new Error(data.error ?? "No client secret returned");
+    if (!data.clientSecret)
+      throw new Error(data.error ?? "No client secret returned");
     return data.clientSecret;
   }, []);
 
+  // Hooks must be called before any early return — render nothing when closed
   if (!isOpen) return null;
 
   return (
@@ -104,7 +110,14 @@ export function CheckoutModal({ isOpen, onClose }: Props) {
             onClick={onClose}
             aria-label="Cerrar"
             className="flex items-center justify-center rounded-lg transition-colors hover:bg-white/5"
-            style={{ width: 32, height: 32, color: "#555", cursor: "pointer", background: "none", border: "none" }}
+            style={{
+              width: 32,
+              height: 32,
+              color: "#555",
+              cursor: "pointer",
+              background: "none",
+              border: "none",
+            }}
           >
             <X size={16} />
           </button>
@@ -148,17 +161,9 @@ export function CheckoutModal({ isOpen, onClose }: Props) {
         <div style={{ minHeight: 280 }}>
           {configError ? (
             <div className="flex flex-col items-center justify-center py-16 gap-3 px-6 text-center">
-              <p style={{ color: "#cc4444", fontSize: "0.875rem" }}>{configError}</p>
-              <a
-                href={`${BASE}/checkout`}
-                style={{
-                  color: "#4F6EF7",
-                  fontSize: "0.8rem",
-                  textDecoration: "underline",
-                }}
-              >
-                Ir a la página de pago →
-              </a>
+              <p style={{ color: "#cc4444", fontSize: "0.875rem" }}>
+                {configError}
+              </p>
             </div>
           ) : !stripePromise ? (
             <div className="flex items-center justify-center py-20">
