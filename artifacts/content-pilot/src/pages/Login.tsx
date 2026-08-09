@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { Link } from "wouter"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -82,6 +83,14 @@ export default function Login({ onSuccess }: LoginProps) {
           </form>
         </CardContent>
       </Card>
+      <div className="flex gap-4 text-xs text-muted-foreground">
+        <Link href="/privacy" className="hover:text-foreground transition-colors underline underline-offset-2">
+          Política de Privacidad
+        </Link>
+        <Link href="/terms" className="hover:text-foreground transition-colors underline underline-offset-2">
+          Términos y Condiciones
+        </Link>
+      </div>
     </div>
   )
 }

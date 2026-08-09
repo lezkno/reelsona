@@ -17,6 +17,8 @@ import Automation from "@/pages/Automation"
 import CaptionStudio from "@/pages/CaptionStudio"
 import UsersPage from "@/pages/Users"
 import Login from "@/pages/Login"
+import PrivacyPolicy from "@/pages/PrivacyPolicy"
+import TermsAndConditions from "@/pages/TermsAndConditions"
 import { useAuthStatus } from "@workspace/api-client-react"
 
 const queryClient = new QueryClient({
@@ -72,9 +74,15 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
-          <AuthGuard>
-            <Router />
-          </AuthGuard>
+          <Switch>
+            <Route path="/privacy" component={PrivacyPolicy} />
+            <Route path="/terms" component={TermsAndConditions} />
+            <Route>
+              <AuthGuard>
+                <Router />
+              </AuthGuard>
+            </Route>
+          </Switch>
         </WouterRouter>
         <Toaster />
       </TooltipProvider>
