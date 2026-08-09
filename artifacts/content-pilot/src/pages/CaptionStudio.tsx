@@ -1434,7 +1434,10 @@ export default function CaptionStudio() {
               </p>
               {rotationEnabled && rotationIds.size === 0 && (
                 <p className="text-xs text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1">
-                  <span>⚠</span> Sin plantillas seleccionadas se usará la plantilla activa por defecto.
+                  <span>⚠</span>{" "}
+                  {local.template_id
+                    ? "Sin selección se usará siempre la plantilla activa por defecto."
+                    : "Sin plantillas seleccionadas y sin plantilla por defecto, los videos no recibirán estilo de captions."}
                 </p>
               )}
               {rotationEnabled && (
