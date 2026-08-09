@@ -130,11 +130,11 @@ function VideoPlaceholder({ label, tall }: { label: string; tall?: boolean }) {
           style={{
             width: 64,
             height: 64,
-            backgroundColor: "rgba(0,212,180,0.12)",
-            border: "2px solid rgba(0,212,180,0.35)",
+            backgroundColor: "rgba(79,110,247,0.12)",
+            border: "2px solid rgba(79,110,247,0.35)",
           }}
         >
-          <Play size={26} color="#00d4b4" fill="#00d4b4" />
+          <Play size={26} color="#4F6EF7" fill="#4F6EF7" />
         </div>
         <span className="text-sm" style={{ color: "#444" }}>
           {label}
@@ -148,7 +148,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
     <span
       className="block mb-3 text-xs font-semibold tracking-widest uppercase"
-      style={{ color: "#00d4b4" }}
+      style={{ color: "#4F6EF7" }}
     >
       {children}
     </span>
@@ -198,7 +198,7 @@ export default function Landing() {
         }}
       >
         <div className="flex items-center gap-2">
-          <Zap size={19} fill="#00d4b4" color="#00d4b4" />
+          <img src={`${BASE}/logo.png`} alt="Reelsona" style={{ width: 30, height: 30, objectFit: "contain" }} />
           <span
             className="font-bold tracking-tight"
             style={{
@@ -221,8 +221,8 @@ export default function Landing() {
             href={`${BASE}/checkout`}
             className="text-sm font-semibold rounded-lg transition-opacity hover:opacity-90"
             style={{
-              backgroundColor: "#00d4b4",
-              color: "#000",
+              backgroundColor: "#4F6EF7",
+              color: "#fff",
               padding: "0.45rem 1rem",
               textDecoration: "none",
             }}
@@ -245,8 +245,8 @@ export default function Landing() {
           className="absolute inset-0 pointer-events-none"
           style={{
             backgroundImage: `
-              linear-gradient(rgba(0,212,180,0.035) 1px, transparent 1px),
-              linear-gradient(90deg, rgba(0,212,180,0.035) 1px, transparent 1px)
+              linear-gradient(rgba(79,110,247,0.035) 1px, transparent 1px),
+              linear-gradient(90deg, rgba(79,110,247,0.035) 1px, transparent 1px)
             `,
             backgroundSize: "64px 64px",
           }}
@@ -261,7 +261,7 @@ export default function Landing() {
             width: 700,
             height: 420,
             background:
-              "radial-gradient(ellipse, rgba(0,212,180,0.11) 0%, transparent 70%)",
+              "radial-gradient(ellipse, rgba(79,110,247,0.11) 0%, transparent 70%)",
           }}
         />
         {/* coral accent glow */}
@@ -277,101 +277,143 @@ export default function Landing() {
           }}
         />
 
-        <div className="relative z-10 mx-auto" style={{ maxWidth: 780 }}>
-          {/* badge */}
+        <div className="relative z-10 mx-auto w-full" style={{ maxWidth: 1080 }}>
           <div
-            className="inline-flex items-center gap-1.5 rounded-full text-xs font-semibold tracking-widest uppercase mb-7"
+            className="grid items-center"
             style={{
-              backgroundColor: "rgba(0,212,180,0.09)",
-              border: "1px solid rgba(0,212,180,0.22)",
-              padding: "0.3rem 0.9rem",
-              color: "#00d4b4",
+              gridTemplateColumns: "1fr auto",
+              gap: "clamp(2rem, 5vw, 5rem)",
             }}
           >
-            <Sparkles size={11} />
-            Avatar Content Machine
-          </div>
+            {/* ── LEFT: copy ── */}
+            <div>
+              {/* badge */}
+              <div
+                className="inline-flex items-center gap-1.5 rounded-full text-xs font-semibold tracking-widest uppercase mb-7"
+                style={{
+                  backgroundColor: "rgba(79,110,247,0.09)",
+                  border: "1px solid rgba(79,110,247,0.22)",
+                  padding: "0.3rem 0.9rem",
+                  color: "#4F6EF7",
+                }}
+              >
+                <Sparkles size={11} />
+                Avatar Content Machine
+              </div>
 
-          <h1
-            className="font-bold tracking-tight"
-            style={{
-              fontFamily: "var(--font-display, 'Outfit', sans-serif)",
-              fontSize: "clamp(2.25rem, 6.5vw, 4.2rem)",
-              lineHeight: 1.08,
-              letterSpacing: "-0.035em",
-              marginBottom: "1.5rem",
-            }}
-          >
-            Crea Reels con tu avatar{" "}
-            <span
-              style={{
-                background:
-                  "linear-gradient(135deg, #00d4b4 10%, #06b6d4 90%)",
-                WebkitBackgroundClip: "text",
-                WebkitTextFillColor: "transparent",
-                backgroundClip: "text",
-              }}
-            >
-              sin grabarte todos los días
-            </span>
-          </h1>
-
-          <p
-            className="mx-auto"
-            style={{
-              fontSize: "clamp(1rem, 2.2vw, 1.2rem)",
-              color: "#777",
-              lineHeight: 1.75,
-              maxWidth: 560,
-              marginBottom: "2.75rem",
-            }}
-          >
-            Accede a un sistema guiado que te lleva desde la estrategia hasta
-            tus primeros videos listos para publicar.
-          </p>
-
-          <div className="flex flex-wrap gap-3 justify-center">
-            <a
-              href={`${BASE}/checkout`}
-              className="inline-flex items-center gap-2 rounded-xl font-bold transition-opacity hover:opacity-90"
-              style={{
-                backgroundColor: "#00d4b4",
-                color: "#000",
-                padding: "0.9rem 2rem",
-                fontSize: "1rem",
-                textDecoration: "none",
-              }}
-            >
-              Acceder ahora <ArrowRight size={16} />
-            </a>
-            <a
-              href="#video-ventas"
-              className="inline-flex items-center gap-2 rounded-xl font-semibold transition-colors"
-              style={{
-                backgroundColor: "rgba(255,255,255,0.04)",
-                border: "1px solid #252525",
-                color: "#e0e0e0",
-                padding: "0.9rem 2rem",
-                fontSize: "1rem",
-                textDecoration: "none",
-              }}
-            >
-              <Play size={14} fill="currentColor" /> Ver demo
-            </a>
-          </div>
-
-          {/* social proof strip */}
-          <div
-            className="flex items-center justify-center gap-4 flex-wrap mt-10"
-            style={{ color: "#444", fontSize: "0.8rem" }}
-          >
-            {["Sin grabar cámara", "Avatar IA", "Publicación automática"].map(
-              (t) => (
-                <span key={t} className="flex items-center gap-1.5">
-                  <Check size={11} color="#00d4b4" strokeWidth={3} /> {t}
+              <h1
+                className="font-bold tracking-tight"
+                style={{
+                  fontFamily: "var(--font-display, 'Outfit', sans-serif)",
+                  fontSize: "clamp(2.1rem, 5vw, 3.8rem)",
+                  lineHeight: 1.08,
+                  letterSpacing: "-0.035em",
+                  marginBottom: "1.5rem",
+                }}
+              >
+                Crea Reels con tu avatar{" "}
+                <span
+                  style={{
+                    background: "linear-gradient(135deg, #4F6EF7 10%, #9B5CF6 90%)",
+                    WebkitBackgroundClip: "text",
+                    WebkitTextFillColor: "transparent",
+                    backgroundClip: "text",
+                    display: "block",
+                  }}
+                >
+                  sin grabarte todos los días
                 </span>
-              )
-            )}
+              </h1>
+
+              <p
+                style={{
+                  fontSize: "clamp(0.95rem, 1.8vw, 1.15rem)",
+                  color: "#777",
+                  lineHeight: 1.75,
+                  maxWidth: 500,
+                  marginBottom: "2.5rem",
+                }}
+              >
+                Accede a un sistema guiado que te lleva desde la estrategia hasta
+                tus primeros videos listos para publicar.
+              </p>
+
+              <div className="flex flex-wrap gap-3">
+                <a
+                  href={`${BASE}/checkout`}
+                  className="inline-flex items-center gap-2 rounded-xl font-bold transition-opacity hover:opacity-90"
+                  style={{
+                    backgroundColor: "#4F6EF7",
+                    color: "#fff",
+                    padding: "0.9rem 2rem",
+                    fontSize: "1rem",
+                    textDecoration: "none",
+                  }}
+                >
+                  Acceder ahora <ArrowRight size={16} />
+                </a>
+                <a
+                  href="#video-ventas"
+                  className="inline-flex items-center gap-2 rounded-xl font-semibold transition-colors"
+                  style={{
+                    backgroundColor: "rgba(255,255,255,0.04)",
+                    border: "1px solid #252525",
+                    color: "#e0e0e0",
+                    padding: "0.9rem 2rem",
+                    fontSize: "1rem",
+                    textDecoration: "none",
+                  }}
+                >
+                  <Play size={14} fill="currentColor" /> Ver demo
+                </a>
+              </div>
+
+              {/* social proof strip */}
+              <div
+                className="flex items-center gap-5 flex-wrap mt-9"
+                style={{ color: "#444", fontSize: "0.8rem" }}
+              >
+                {["Sin grabar cámara", "Avatar IA", "Publicación automática"].map(
+                  (t) => (
+                    <span key={t} className="flex items-center gap-1.5">
+                      <Check size={11} color="#4F6EF7" strokeWidth={3} /> {t}
+                    </span>
+                  )
+                )}
+              </div>
+            </div>
+
+            {/* ── RIGHT: avatar image ── */}
+            <div
+              className="hidden md:block flex-shrink-0"
+              style={{ position: "relative" }}
+            >
+              {/* glow behind image */}
+              <div
+                className="absolute pointer-events-none"
+                style={{
+                  inset: "-20px",
+                  background: "radial-gradient(ellipse at center, rgba(79,110,247,0.22) 0%, transparent 70%)",
+                  borderRadius: "9999px",
+                  zIndex: 0,
+                }}
+              />
+              <img
+                src={`${BASE}/hero-avatar.jpg`}
+                alt="Avatar IA presentador"
+                style={{
+                  position: "relative",
+                  zIndex: 1,
+                  width: "clamp(260px, 22vw, 360px)",
+                  aspectRatio: "9/16",
+                  objectFit: "cover",
+                  objectPosition: "top",
+                  borderRadius: "2rem",
+                  border: "1px solid rgba(79,110,247,0.25)",
+                  boxShadow: "0 0 60px rgba(79,110,247,0.18), 0 24px 60px rgba(0,0,0,0.6)",
+                }}
+              />
+            </div>
           </div>
         </div>
       </section>
@@ -441,8 +483,8 @@ export default function Landing() {
                   style={{
                     width: 42,
                     height: 42,
-                    backgroundColor: "rgba(0,212,180,0.1)",
-                    color: "#00d4b4",
+                    backgroundColor: "rgba(79,110,247,0.1)",
+                    color: "#4F6EF7",
                   }}
                 >
                   <Icon size={19} />
@@ -486,11 +528,11 @@ export default function Landing() {
                     style={{
                       width: 20,
                       height: 20,
-                      backgroundColor: "rgba(0,212,180,0.12)",
-                      border: "1px solid rgba(0,212,180,0.28)",
+                      backgroundColor: "rgba(79,110,247,0.12)",
+                      border: "1px solid rgba(79,110,247,0.28)",
                     }}
                   >
-                    <Check size={9} color="#00d4b4" strokeWidth={3.5} />
+                    <Check size={9} color="#4F6EF7" strokeWidth={3.5} />
                   </span>
                   <span style={{ color: "#999", fontSize: "0.88rem" }}>{item}</span>
                 </li>
@@ -538,8 +580,8 @@ export default function Landing() {
                   style={{
                     width: 36,
                     height: 36,
-                    backgroundColor: "rgba(0,212,180,0.09)",
-                    color: "#00d4b4",
+                    backgroundColor: "rgba(79,110,247,0.09)",
+                    color: "#4F6EF7",
                   }}
                 >
                   <Icon size={16} />
@@ -576,7 +618,7 @@ export default function Landing() {
             className="rounded-t-2xl absolute"
             style={{
               height: 2,
-              background: "linear-gradient(90deg, #00d4b4, #06b6d4, transparent)",
+              background: "linear-gradient(90deg, #4F6EF7, #9B5CF6, transparent)",
               marginTop: "-2.25rem",
               marginLeft: "-2rem",
               width: "60%",
@@ -594,11 +636,11 @@ export default function Landing() {
                   style={{
                     width: 22,
                     height: 22,
-                    backgroundColor: "rgba(0,212,180,0.13)",
-                    border: "1px solid rgba(0,212,180,0.28)",
+                    backgroundColor: "rgba(79,110,247,0.13)",
+                    border: "1px solid rgba(79,110,247,0.28)",
                   }}
                 >
-                  <Check size={10} color="#00d4b4" strokeWidth={3} />
+                  <Check size={10} color="#4F6EF7" strokeWidth={3} />
                 </span>
                 <span style={{ color: "#ccc", fontSize: "0.875rem" }}>{item}</span>
               </div>
@@ -677,7 +719,7 @@ export default function Landing() {
             width: 600,
             height: 360,
             background:
-              "radial-gradient(ellipse, rgba(0,212,180,0.09) 0%, transparent 70%)",
+              "radial-gradient(ellipse, rgba(79,110,247,0.09) 0%, transparent 70%)",
           }}
         />
         <div
@@ -707,7 +749,7 @@ export default function Landing() {
             <span
               style={{
                 background:
-                  "linear-gradient(135deg, #00d4b4 10%, #06b6d4 90%)",
+                  "linear-gradient(135deg, #4F6EF7 10%, #9B5CF6 90%)",
                 WebkitBackgroundClip: "text",
                 WebkitTextFillColor: "transparent",
                 backgroundClip: "text",
@@ -732,8 +774,8 @@ export default function Landing() {
             href={`${BASE}/checkout`}
             className="inline-flex items-center gap-2 rounded-xl font-bold transition-opacity hover:opacity-90"
             style={{
-              backgroundColor: "#00d4b4",
-              color: "#000",
+              backgroundColor: "#4F6EF7",
+              color: "#fff",
               padding: "1.05rem 2.5rem",
               fontSize: "1.05rem",
               textDecoration: "none",
