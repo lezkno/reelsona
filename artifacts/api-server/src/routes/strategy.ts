@@ -13,15 +13,16 @@
  * POST /strategy/strategy             → generate ContentStrategy, save to profile
  */
 import { Router } from "express";
-import { eq } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { db } from "@workspace/db";
 import {
   instagramAccountsTable,
   nicheRadarAccountsTable,
   settingsTable,
+  contentPlanItemsTable,
 } from "@workspace/db";
 import { getMediaList, getMediaInsights } from "../lib/instagram-api";
-import { analyzeAuditAndRecommend } from "../lib/ai-scripts";
+import { analyzeAuditAndRecommend, reanalyzeTopicsWithStrategy } from "../lib/ai-scripts";
 import { saveAuditCache } from "../lib/audit-cache";
 import {
   synthesizeMarketStudy,
@@ -30,6 +31,7 @@ import {
 import {
   getStrategyProfile,
   upsertStrategyProfile,
+  toStrategyContext,
 } from "../lib/strategy-profile";
 import { syncAllStaleRadarAccounts } from "../lib/scheduler";
 import type { AccountData } from "../lib/ai-strategy";
@@ -466,6 +468,75 @@ router.post("/strategy/strategy", async (_req, res): Promise<void> => {
       step: "strategy",
     });
     res.json({ profile: updated });
+
+    // Fire-and-forget: re-score draft plan items against the new strategy.
+    // - strategyVersion pins the exact save so a later concurrent strategy save
+    //   that completes sooner cannot be overwritten by this (older) job.
+    // - draftIdSet ensures we only update the rows we originally queried as draft,
+    //   guarding against hallucinated IDs and items that transitioned out of draft
+    //   while the AI call was in flight.
+    const strategyContext = toStrategyContext(updated);
+    const strategyVersion = updated.updated_at; // ISO string set by upsertStrategyProfile
+    if (strategyContext) {
+      setImmediate(async () => {
+        try {
+          const drafts = await db
+            .select({ id: contentPlanItemsTable.id, topic: contentPlanItemsTable.topic })
+            .from(contentPlanItemsTable)
+            .where(eq(contentPlanItemsTable.status, "draft"));
+
+          if (drafts.length === 0) return;
+
+          const draftIdSet = new Set(drafts.map((d) => d.id));
+          logger.info({ count: drafts.length }, "Auto-reanalyzing draft topics after strategy save");
+
+          const scores = await reanalyzeTopicsWithStrategy(
+            drafts.map((d) => ({ id: d.id, topic: d.topic ?? "" })),
+            strategyContext,
+          );
+
+          // Stale-job check: abort if a newer strategy has been saved while the
+          // AI call was in flight, so that older results never overwrite fresher ones.
+          const current = await getStrategyProfile();
+          if (current?.updated_at !== strategyVersion) {
+            logger.info(
+              { strategyVersion, currentVersion: current?.updated_at },
+              "Stale reanalysis job discarded — strategy updated by a newer save",
+            );
+            return;
+          }
+
+          for (const score of scores) {
+            // Skip any ID not in the original draft snapshot (hallucinated / changed status)
+            if (!draftIdSet.has(score.id)) continue;
+
+            await db
+              .update(contentPlanItemsTable)
+              .set({
+                viralScore:             score.viral_score,
+                editorialAngle:         score.editorial_angle,
+                visualDependency:       score.visual_dependency,
+                formatFitScore:         score.format_fit_score,
+                avatarFitReason:        score.avatar_fit_reason,
+                suggestedVisualSupport: score.suggested_visual_support.length > 0
+                  ? JSON.stringify(score.suggested_visual_support)
+                  : null,
+                audiencePain:           score.audience_pain,
+                shareReason:            score.share_reason,
+              })
+              // Double-guard: only touch rows still in draft status
+              .where(and(
+                eq(contentPlanItemsTable.id, score.id),
+                eq(contentPlanItemsTable.status, "draft"),
+              ));
+          }
+
+          logger.info({ updated: scores.length }, "Auto-reanalysis complete");
+        } catch (bgErr) {
+          logger.error({ err: bgErr }, "Background reanalysis after strategy save failed");
+        }
+      });
+    }
   } catch (err: any) {
     logger.error({ err }, "Content strategy generation failed");
     res.status(500).json({ error: err?.message ?? "Strategy generation failed" });
