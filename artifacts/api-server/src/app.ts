@@ -12,6 +12,7 @@ import adminRouter from "./routes/admin";
 import captionedRouter from "./routes/captioned";
 import usersRouter from "./routes/users";
 import checkoutRouter from "./routes/checkout";
+import configRouter from "./routes/config";
 import webhookRouter from "./routes/webhook";
 import router from "./routes";
 
@@ -95,6 +96,9 @@ app.use("/api", captionedRouter);
 
 // Checkout — public, no auth required (session created by Stripe webhook)
 app.use("/api", checkoutRouter);
+
+// Public config (Stripe publishable key, etc.) — no auth required
+app.use("/api", configRouter);
 
 // Require a valid session for all other /api routes
 app.use("/api", requireAuth);

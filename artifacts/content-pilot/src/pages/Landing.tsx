@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { CheckoutModal } from "./CheckoutModal";
 import {
   ArrowRight,
   Calendar,
@@ -145,6 +146,7 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 
 export default function Landing() {
   const [openFaq, setOpenFaq] = useState<number | null>(null);
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
 
   return (
     <div
@@ -191,18 +193,19 @@ export default function Landing() {
           >
             Acceder
           </a>
-          <a
-            href={`${BASE}/checkout`}
+          <button
+            onClick={() => setCheckoutOpen(true)}
             className="text-sm font-semibold rounded-lg transition-opacity hover:opacity-90"
             style={{
               backgroundColor: "#4F6EF7",
               color: "#fff",
               padding: "0.45rem 1rem",
-              textDecoration: "none",
+              border: "none",
+              cursor: "pointer",
             }}
           >
             Empezar →
-          </a>
+          </button>
         </div>
       </nav>
 
@@ -300,19 +303,20 @@ export default function Landing() {
               </p>
 
               <div className="flex flex-wrap gap-3" style={{ marginBottom: "1.25rem" }}>
-                <a
-                  href={`${BASE}/checkout`}
+                <button
+                  onClick={() => setCheckoutOpen(true)}
                   className="inline-flex items-center gap-2 rounded-xl font-bold transition-opacity hover:opacity-90"
                   style={{
                     backgroundColor: "#4F6EF7",
                     color: "#fff",
                     padding: "0.9rem 2rem",
                     fontSize: "1rem",
-                    textDecoration: "none",
+                    border: "none",
+                    cursor: "pointer",
                   }}
                 >
                   Empezar a crear Reels <ArrowRight size={16} />
-                </a>
+                </button>
                 <a
                   href="#como-funciona"
                   className="inline-flex items-center gap-2 rounded-xl font-semibold transition-colors"
@@ -855,19 +859,20 @@ export default function Landing() {
           <p style={{ color: "#555", fontSize: "0.8rem", marginBottom: "1.75rem" }}>
             Pago único · Acceso completo
           </p>
-          <a
-            href={`${BASE}/checkout`}
+          <button
+            onClick={() => setCheckoutOpen(true)}
             className="inline-flex items-center gap-2 rounded-xl font-bold transition-opacity hover:opacity-90 w-full justify-center"
             style={{
               backgroundColor: "#4F6EF7",
               color: "#fff",
               padding: "1rem 2rem",
               fontSize: "1rem",
-              textDecoration: "none",
+              border: "none",
+              cursor: "pointer",
             }}
           >
             Empezar a crear Reels <ArrowRight size={16} />
-          </a>
+          </button>
           <p
             style={{
               color: "#444",
@@ -937,21 +942,25 @@ export default function Landing() {
             Configura tu sistema, conecta tu avatar y publica tus primeros
             Reels con IA en días, no semanas.
           </p>
-          <a
-            href={`${BASE}/checkout`}
+          <button
+            onClick={() => setCheckoutOpen(true)}
             className="inline-flex items-center gap-2 rounded-xl font-bold transition-opacity hover:opacity-90"
             style={{
               backgroundColor: "#4F6EF7",
               color: "#fff",
               padding: "1.05rem 2.5rem",
               fontSize: "1.05rem",
-              textDecoration: "none",
+              border: "none",
+              cursor: "pointer",
             }}
           >
             Empezar a crear Reels <ArrowRight size={18} />
-          </a>
+          </button>
         </div>
       </section>
+
+      {/* ── CHECKOUT MODAL ── */}
+      <CheckoutModal isOpen={checkoutOpen} onClose={() => setCheckoutOpen(false)} />
 
       {/* ── FOOTER ── */}
       <footer
