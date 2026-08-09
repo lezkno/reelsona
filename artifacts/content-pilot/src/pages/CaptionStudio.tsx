@@ -206,7 +206,8 @@ function TemplateCaptionPreview({
   const [activeIdx, setActiveIdx] = useState(0)
   const [isDragging, setIsDragging] = useState(false)
 
-  const isTypewriter = template.animation === "typewriter"
+  const isTypewriter  = template.animation === "typewriter"
+  const isBuildingMode = !!(template as CaptionTemplate & { buildingMode?: boolean }).buildingMode
 
   // ── Typewriter animation state ─────────────────────────────────────────────
   const [twChunkIdx,      setTwChunkIdx]      = useState(0)
@@ -220,11 +221,13 @@ function TemplateCaptionPreview({
   const twTotalChars  = twChunkText.length
 
   // Standard active-word cycling — disabled when typewriter is running
+  // Building mode reuses activeIdx but at a faster interval (350 ms/word)
   useEffect(() => {
     if (isTypewriter) return
-    const t = setInterval(() => setActiveIdx((a) => (a + 1) % DEMO_WORDS.length), 700)
+    const ms = isBuildingMode ? 350 : 700
+    const t = setInterval(() => setActiveIdx((a) => (a + 1) % DEMO_WORDS.length), ms)
     return () => clearInterval(t)
-  }, [isTypewriter])
+  }, [isTypewriter, isBuildingMode])
 
   useEffect(() => { if (!isTypewriter) setActiveIdx(0) }, [template.wordsPerLine, isTypewriter])
 
@@ -258,13 +261,23 @@ function TemplateCaptionPreview({
   const chunk         = DEMO_WORDS.slice(chunkStart, chunkStart + template.wordsPerLine)
   const activeInChunk = activeIdx - chunkStart
 
-  // For typewriter mode, use twChunk and compute per-word visible text
-  const displayChunk       = isTypewriter ? twChunk       : chunk
-  const displayActiveInChunk = isTypewriter ? -1           : activeInChunk  // no active highlight during reveal
+  // Building mode: accumulate words from block start up to activeIdx
+  const bmBlockStart = Math.floor(activeIdx / template.wordsPerLine) * template.wordsPerLine
+  const bmWords      = DEMO_WORDS.slice(bmBlockStart, activeIdx + 1)
 
-  // Compute how many chars of each word are visible in typewriter mode
+  // For typewriter mode, use twChunk and compute per-word visible text
+  const displayChunk         = isBuildingMode ? bmWords
+                              : isTypewriter   ? twChunk
+                              : chunk
+  const displayActiveInChunk = isBuildingMode ? (bmWords.length - 1)  // last = just-added word
+                              : isTypewriter   ? -1                    // no highlight during char reveal
+                              : activeInChunk
+
+  // Compute per-word display text
   const twWordTexts: string[] = (() => {
+    // Building and standard modes: show full words
     if (!isTypewriter) return displayChunk.map(w => template.uppercase ? w.toUpperCase() : w)
+    // Typewriter: char-by-char reveal
     let left = twRevealedChars
     return displayChunk.map(w => {
       const full = template.uppercase ? w.toUpperCase() : w

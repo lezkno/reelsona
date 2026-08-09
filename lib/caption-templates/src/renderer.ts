@@ -49,6 +49,37 @@ export function buildCaptionCues(
   });
 }
 
+/**
+ * Building mode: words accumulate one-by-one within each block.
+ * Each cue shows words[blockStart..i] — one more word per cue — with the
+ * most-recently-added word as the active one.
+ * The block clears after `wordsPerLine` words and the next block starts fresh.
+ */
+export function buildBuildingCues(
+  words: WordTiming[],
+  template: Pick<CaptionTemplate, "wordsPerLine">,
+): CaptionCue[] {
+  const { wordsPerLine } = template;
+  const cues: CaptionCue[] = [];
+
+  for (let blockStart = 0; blockStart < words.length; blockStart += wordsPerLine) {
+    const blockEnd = Math.min(blockStart + wordsPerLine, words.length);
+
+    for (let i = blockStart; i < blockEnd; i++) {
+      const visibleWords = words.slice(blockStart, i + 1);
+      cues.push({
+        index: i,
+        startMs: words[i].startMs,
+        endMs:   words[i].endMs,
+        words: visibleWords.map((w) => ({ text: w.text, startMs: w.startMs, endMs: w.endMs })),
+        activeWordIndex: visibleWords.length - 1, // last = word currently being spoken
+      });
+    }
+  }
+
+  return cues;
+}
+
 // ── Scaling helpers ───────────────────────────────────────────────────────────
 
 /**

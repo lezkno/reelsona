@@ -62,6 +62,12 @@ export interface CaptionTemplate {
   // ── Animation ────────────────────────────────────────────────────────────
   animation: CaptionAnimation;
   animationDuration: number;   // ms — duration of transition
+
+  // ── Building mode ────────────────────────────────────────────────────────
+  /** When true, words accumulate one-by-one within each block instead of
+   *  showing the full window at once. Each word appears as it is spoken,
+   *  building up to `wordsPerLine` words before the block clears. */
+  buildingMode?: boolean;
 }
 
 // ── Caption Data Model ────────────────────────────────────────────────────────

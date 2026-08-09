@@ -203,13 +203,13 @@ export const BROWSER_CAPTION_TEMPLATES: CaptionTemplate[] = [
       "Palabras clave grandes en amarillo, funcionales pequeñas en blanco. El look Dimidium original.",
 
     fontFamily: "Poppins",
-    fontSize: 130,
+    fontSize: 90,
     fontWeight: 800,
     uppercase: false,
     letterSpacing: 0.01,
-    lineHeight: 1.2,
+    lineHeight: 1.25,
 
-    wordsPerLine: 5,
+    wordsPerLine: 9,
     yPercent: 75,
     marginXPercent: 5,
     textAlign: "center",
@@ -219,7 +219,7 @@ export const BROWSER_CAPTION_TEMPLATES: CaptionTemplate[] = [
     inactiveOpacity: 1.0,
 
     outlineColor: "#000000",
-    outlineWidth: 10,
+    outlineWidth: 8,
 
     shadowColor: "rgba(0,0,0,0.65)",
     shadowOffsetX: 2,
@@ -235,8 +235,9 @@ export const BROWSER_CAPTION_TEMPLATES: CaptionTemplate[] = [
     highlightMode: "mixed",
     activeWordScale: 1.0,
 
-    animation: "typewriter",
-    animationDuration: 40,  // ms per character in the CSS preview reveal
+    animation: "none",
+    animationDuration: 0,
+    buildingMode: true,
   },
 
   // ── Bold Stack ───────────────────────────────────────────────────────────────

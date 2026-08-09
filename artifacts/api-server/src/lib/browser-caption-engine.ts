@@ -29,6 +29,7 @@ import {
   BROWSER_CAPTION_TEMPLATES,
   getBrowserTemplate,
   buildCaptionCues,
+  buildBuildingCues,
   formatWord,
   getBaselineY,
   getSafeMarginX,
@@ -563,7 +564,11 @@ export async function applyCaptionsBrowser(
     }
 
     // ── 5. Build CaptionCues ──────────────────────────────────────────────
-    const allCues = buildCaptionCues(wordTimings, template);
+    // Building mode: each word gets its own cue showing all words accumulated
+    // so far in the block → natural word-by-word reveal, no sub-frames needed.
+    const allCues = template.buildingMode
+      ? buildBuildingCues(wordTimings, template)
+      : buildCaptionCues(wordTimings, template);
     const cues    = allCues.slice(0, MAX_CUES);
 
     if (cues.length < allCues.length) {
@@ -577,8 +582,9 @@ export async function applyCaptionsBrowser(
 
     // ── 6. Render PNG frames ──────────────────────────────────────────────
     // Typewriter templates get word-by-word sub-frames on each new window.
+    // Building mode templates already have one cue per word — no sub-frames.
     const segments: Array<{ pngPath: string; startSec: number; endSec: number }> = [];
-    const isTypewriter = template.animation === "typewriter";
+    const isTypewriter = template.animation === "typewriter" && !template.buildingMode;
     let prevWordsKey   = "";
 
     for (let i = 0; i < cues.length; i++) {
