@@ -83,14 +83,6 @@ export default function Login({ onSuccess }: LoginProps) {
           </form>
         </CardContent>
       </Card>
-      <div className="flex gap-4 text-xs text-muted-foreground">
-        <Link href="/privacy" className="hover:text-foreground transition-colors underline underline-offset-2">
-          Política de Privacidad
-        </Link>
-        <Link href="/terms" className="hover:text-foreground transition-colors underline underline-offset-2">
-          Términos y Condiciones
-        </Link>
-      </div>
     </div>
   )
 }
