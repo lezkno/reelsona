@@ -4,7 +4,7 @@ import path from "path";
 import { CAPTION_DIR } from "../lib/caption-engine";
 import { db } from "@workspace/db";
 import { contentPlanItemsTable, settingsTable, automationConfigTable, videosTable } from "@workspace/db";
-import { eq, and, sql, isNotNull, gte, inArray } from "drizzle-orm";
+import { eq, and, sql, isNotNull, gte, lte, inArray, lt } from "drizzle-orm";
 import { computeUpcomingSlots } from "../lib/schedule";
 import {
   GetContentPlanQueryParams,
@@ -571,6 +571,83 @@ router.post("/content/:id/regenerate", async (req, res): Promise<void> => {
   if (!updated) { res.status(404).json({ error: "Not found" }); return; }
 
   res.json({ success: true, item: mapItem(updated), criterion });
+});
+
+// ── POST /content/plan/reschedule-overdue — move past-dated drafts to future slots ──
+
+router.post("/content/plan/reschedule-overdue", async (_req, res): Promise<void> => {
+  try {
+    const now = new Date();
+
+    // Find all unprocessed items whose scheduled date is in the past
+    const overdueItems = await db
+      .select()
+      .from(contentPlanItemsTable)
+      .where(
+        and(
+          inArray(contentPlanItemsTable.status, ["draft", "scripted"]),
+          isNotNull(contentPlanItemsTable.scheduledAt),
+          lt(contentPlanItemsTable.scheduledAt, now),
+        )
+      )
+      .orderBy(contentPlanItemsTable.scheduledAt);
+
+    if (overdueItems.length === 0) {
+      res.json({ rescheduled: 0 });
+      return;
+    }
+
+    // Load automation config to know posting days/times/timezone
+    const [automation] = await db.select().from(automationConfigTable).limit(1);
+
+    // Find the last FUTURE scheduled item to anchor new slots after it
+    const futureScheduled = await db
+      .select({ scheduledAt: contentPlanItemsTable.scheduledAt })
+      .from(contentPlanItemsTable)
+      .where(and(isNotNull(contentPlanItemsTable.scheduledAt), gte(contentPlanItemsTable.scheduledAt, now)));
+
+    const occupiedDates = futureScheduled.map((r) => r.scheduledAt!).filter(Boolean);
+    const lastScheduled = occupiedDates.length > 0
+      ? new Date(Math.max(...occupiedDates.map((d) => d.getTime())))
+      : null;
+
+    // Start assigning slots from the day AFTER the last scheduled item (or from today)
+    const fromDate = lastScheduled
+      ? new Date(Date.UTC(
+          lastScheduled.getUTCFullYear(),
+          lastScheduled.getUTCMonth(),
+          lastScheduled.getUTCDate() + 1,
+          0, 0, 0, 0,
+        ))
+      : now;
+
+    const newSlots = computeUpcomingSlots({
+      daysOfWeek: automation?.daysOfWeek ?? [1, 2, 3, 4, 5],
+      postingTimes: automation?.postingTimes ?? ["09:00"],
+      timezone: automation?.timezone ?? "America/Buenos_Aires",
+      scheduledDays: overdueItems.length * 7, // generous upper bound
+      postsPerDay: 1,
+      occupied: occupiedDates,
+      from: fromDate,
+    });
+
+    if (newSlots.length < overdueItems.length) {
+      res.status(500).json({ error: "No hay suficientes slots disponibles en el calendario. Revisá los días y horarios en Automatización." });
+      return;
+    }
+
+    // Reassign each overdue item to the next available future slot
+    for (let i = 0; i < overdueItems.length; i++) {
+      await db
+        .update(contentPlanItemsTable)
+        .set({ scheduledAt: newSlots[i], updatedAt: now })
+        .where(eq(contentPlanItemsTable.id, overdueItems[i].id));
+    }
+
+    res.json({ rescheduled: overdueItems.length });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "Reschedule failed" });
+  }
 });
 
 // ── POST /content/plan/reanalyze — re-score all draft items against strategy ──

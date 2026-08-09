@@ -47,6 +47,21 @@ export function useLogout() {
   });
 }
 
+// ── Reschedule overdue content items ─────────────────────────────────────────
+
+export interface RescheduleOverdueResult {
+  rescheduled: number;
+}
+
+export function useRescheduleOverdue() {
+  return useMutation({
+    mutationFn: () =>
+      customFetch<RescheduleOverdueResult>("/api/content/plan/reschedule-overdue", {
+        method: "POST",
+      }),
+  });
+}
+
 // ── Video retry ───────────────────────────────────────────────────────────────
 
 export interface RetryVideoResult {

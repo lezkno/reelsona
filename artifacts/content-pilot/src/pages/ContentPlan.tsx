@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label"
 import { format, isSameDay } from "date-fns"
 import { es } from "date-fns/locale"
 import { useGetContentPlan, useGenerateContentPlan, useDeleteContentItem, useGenerateVideo, useUpdateContentItem, useCreateContentItem, useGetHeyGenAllLooks, useGetAvatarConfig, useGenerateScript, usePublishVideo, useGetAutomation, getGetContentPlanQueryKey, type ContentPlanItem } from "@workspace/api-client-react"
-import { useRegenerateScript, useReanalyzeContentPlan, type RegenerateCriterion } from "@workspace/api-client-react"
+import { useRegenerateScript, useReanalyzeContentPlan, useRescheduleOverdue, type RegenerateCriterion } from "@workspace/api-client-react"
 import { Textarea } from "@/components/ui/textarea"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Wand2, Edit3, Trash2, Video, CheckCircle2, Clock, AlertTriangle, CalendarDays, Plus, Zap, Users, List, Calendar, Loader2, FileText, RefreshCw, Sparkles, Check, X, Send, Bot, Hand, Play, Share2, ChevronDown, TrendingUp } from "lucide-react"
@@ -168,6 +168,15 @@ export default function ContentPlan() {
 
   const anyVideoInFlight = (allItems ?? []).some((i) => i.status === "generating")
   const generateBlocked = anyVideoInFlight || generateVideo.isPending
+
+  // Overdue items: draft/scripted with a past scheduled date
+  const now = new Date()
+  const overdueItems = (allItems ?? []).filter(
+    (i) => (i.status === "draft" || i.status === "scripted") && i.scheduled_at && new Date(i.scheduled_at) < now
+  )
+  const overdueCount = overdueItems.length
+  const [overdueDialogOpen, setOverdueDialogOpen] = useState(false)
+  const rescheduleOverdue = useRescheduleOverdue()
 
   const closeScriptModal = () => {
     scriptGenerationItemIdRef.current = null
@@ -374,9 +383,87 @@ export default function ContentPlan() {
 
   const groups = items ? groupByDay(items) : []
 
+  const handleRescheduleOverdue = () => {
+    rescheduleOverdue.mutate(undefined, {
+      onSuccess: (data) => {
+        setOverdueDialogOpen(false)
+        queryClient.invalidateQueries({ queryKey: getGetContentPlanQueryKey() })
+        toast({
+          title: `${data.rescheduled} ${data.rescheduled === 1 ? "publicación reagendada" : "publicaciones reagendadas"}`,
+          description: "Los contenidos fueron distribuidos en los próximos slots disponibles.",
+        })
+      },
+      onError: (err: any) => {
+        toast({ title: "Error al reagendar", description: err?.data?.error ?? "Intentá de nuevo.", variant: "destructive" })
+      },
+    })
+  }
+
   return (
     <TooltipProvider>
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 h-full flex flex-col">
+
+      {/* ── Overdue items banner ─────────────────────────────────────────────── */}
+      {overdueCount > 0 && (
+        <div className="flex flex-col sm:flex-row sm:items-center gap-4 rounded-xl border border-amber-500/40 bg-amber-500/10 px-5 py-4 shrink-0">
+          <div className="flex items-start gap-3 flex-1 min-w-0">
+            <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <div className="min-w-0">
+              <p className="font-semibold text-amber-800 dark:text-amber-300 text-sm leading-tight">
+                {overdueCount === 1
+                  ? "1 publicación con fecha vencida"
+                  : `${overdueCount} publicaciones con fechas vencidas`}
+              </p>
+              <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+                {overdueCount === 1
+                  ? "Este contenido no fue procesado mientras el sistema estuvo pausado."
+                  : "Estos contenidos no fueron procesados mientras el sistema estuvo pausado."}{" "}
+                El sistema no los generará automáticamente hasta que los reagendes.
+              </p>
+            </div>
+          </div>
+          <Dialog open={overdueDialogOpen} onOpenChange={setOverdueDialogOpen}>
+            <DialogTrigger asChild>
+              <Button size="sm" variant="outline" className="border-amber-500/50 text-amber-800 dark:text-amber-300 hover:bg-amber-500/20 shrink-0">
+                <CalendarDays className="w-4 h-4 mr-1.5" />
+                Reagendar {overdueCount === 1 ? "publicación" : `${overdueCount} publicaciones`}
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Reagendar contenidos vencidos</DialogTitle>
+                <DialogDescription>
+                  {overdueCount === 1
+                    ? "Hay 1 contenido con fecha pasada."
+                    : `Hay ${overdueCount} contenidos con fechas pasadas.`}{" "}
+                  Se distribuirán en los próximos slots disponibles según los días, horarios y frecuencia que configuraste en Automatización.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="rounded-lg border bg-muted/40 divide-y max-h-48 overflow-y-auto">
+                {overdueItems.map((item) => (
+                  <div key={item.id} className="flex items-center gap-3 px-3 py-2 text-sm">
+                    <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${item.status === "scripted" ? "bg-violet-500" : "bg-muted-foreground"}`} />
+                    <span className="flex-1 truncate text-foreground/80">{item.topic ?? "Sin título"}</span>
+                    <span className="text-xs text-muted-foreground shrink-0">
+                      {item.scheduled_at ? new Date(item.scheduled_at).toLocaleDateString("es", { day: "numeric", month: "short" }) : "—"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground -mt-1">
+                Se colocarán después del último contenido ya programado, sin solapar fechas existentes.
+              </p>
+              <DialogFooter>
+                <Button variant="ghost" onClick={() => setOverdueDialogOpen(false)}>Cancelar</Button>
+                <Button onClick={handleRescheduleOverdue} disabled={rescheduleOverdue.isPending}>
+                  {rescheduleOverdue.isPending ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Reagendando…</> : "Confirmar y reagendar"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </div>
+      )}
+
       <div className="flex flex-col gap-3 shrink-0">
         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
           <div>

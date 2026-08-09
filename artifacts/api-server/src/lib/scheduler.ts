@@ -321,13 +321,23 @@ export async function runAutomationCycle(targetItemId?: number): Promise<{
   const now = new Date();
   const prepHorizon = new Date(now.getTime() + PROACTIVE_PREP_HORIZON_HOURS * 60 * 60 * 1000);
 
+  // Items scheduled before this moment are considered "overdue" for auto-processing.
+  // The auto cycle never processes them — the user must explicitly reschedule them via
+  // the ContentPlan UI. Manual triggers (targetItemId set) bypass this guard.
+  const todayStart = new Date(now);
+  todayStart.setUTCHours(0, 0, 0, 0);
+
   const readyItems = await db
     .select()
     .from(contentPlanItemsTable)
     .where(
       targetItemId !== undefined
         ? and(eq(contentPlanItemsTable.id, targetItemId), eq(contentPlanItemsTable.status, "scripted"))
-        : and(eq(contentPlanItemsTable.status, "scripted"), lte(contentPlanItemsTable.scheduledAt, prepHorizon))
+        : and(
+            eq(contentPlanItemsTable.status, "scripted"),
+            lte(contentPlanItemsTable.scheduledAt, prepHorizon),
+            gte(contentPlanItemsTable.scheduledAt, todayStart),
+          )
     )
     .orderBy(contentPlanItemsTable.scheduledAt)
     .limit(1);
@@ -343,7 +353,11 @@ export async function runAutomationCycle(targetItemId?: number): Promise<{
       .where(
         targetItemId !== undefined
           ? and(eq(contentPlanItemsTable.id, targetItemId), eq(contentPlanItemsTable.status, "draft"))
-          : and(eq(contentPlanItemsTable.status, "draft"), lte(contentPlanItemsTable.scheduledAt, prepHorizon))
+          : and(
+              eq(contentPlanItemsTable.status, "draft"),
+              lte(contentPlanItemsTable.scheduledAt, prepHorizon),
+              gte(contentPlanItemsTable.scheduledAt, todayStart),
+            )
       )
       .orderBy(contentPlanItemsTable.scheduledAt)
       .limit(1);
