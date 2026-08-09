@@ -16,7 +16,9 @@ import { Progress } from "@/components/ui/progress"
 import { useQueryClient } from "@tanstack/react-query"
 import { useToast } from "@/hooks/use-toast"
 import { useEffect, useState } from "react"
-import { Save, CheckCircle2, XCircle, Loader2, Link2, Link2Off, Eye, EyeOff, RefreshCw } from "lucide-react"
+import { Save, CheckCircle2, XCircle, Loader2, Link2, Link2Off, Eye, EyeOff, RefreshCw, Play } from "lucide-react"
+
+const WELCOME_STORAGE_KEY = "reelsona_welcome_dismissed"
 
 // ── Supported script languages ────────────────────────────────────────────────
 const LANGUAGES = [
@@ -485,6 +487,49 @@ export default function Settings() {
           </Button>
         </CardFooter>
       </Card>
+
+      {/* ── Ayuda ── */}
+      <div className="space-y-4">
+        <div>
+          <h2 className="text-xl font-display font-semibold">Ayuda</h2>
+          <p className="text-sm text-muted-foreground mt-0.5">Recursos para sacar el máximo provecho de la plataforma.</p>
+        </div>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between gap-4">
+              <div className="space-y-0.5">
+                <p className="text-sm font-medium">Video de bienvenida</p>
+                <p className="text-xs text-muted-foreground">
+                  Volvé a ver la introducción y el curso de implementación paso a paso.
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0 gap-2"
+                onClick={() => {
+                  // Clear local dismissal flag
+                  localStorage.removeItem(WELCOME_STORAGE_KEY)
+                  // Reset server-side flag
+                  updateSettings.mutate(
+                    { data: { welcome_dismissed: false } },
+                    {
+                      onSuccess: () => {
+                        queryClient.invalidateQueries({ queryKey: getGetSettingsQueryKey() })
+                      },
+                    }
+                  )
+                  // Open the modal
+                  window.dispatchEvent(new Event("open-welcome-modal"))
+                }}
+              >
+                <Play className="w-3.5 h-3.5" />
+                Ver video de bienvenida
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
 
     </div>
   )

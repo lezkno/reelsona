@@ -46,6 +46,16 @@ export function WelcomeModal() {
     }
   }, [isLoading, settings])
 
+  // Allow programmatic opening from other parts of the app (e.g. Settings page)
+  useEffect(() => {
+    function handleOpenEvent() {
+      setDontShow(false)
+      setOpen(true)
+    }
+    window.addEventListener("open-welcome-modal", handleOpenEvent)
+    return () => window.removeEventListener("open-welcome-modal", handleOpenEvent)
+  }, [])
+
   function persistDismissal() {
     // Always persist to localStorage as fast local cache
     localStorage.setItem(STORAGE_KEY, "1")
