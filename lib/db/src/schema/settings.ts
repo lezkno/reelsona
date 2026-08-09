@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, boolean, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, boolean, real, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -14,6 +14,8 @@ export const settingsTable = pgTable("settings", {
   includeCaptions: boolean("include_captions").notNull().default(true),
   watermarkText: text("watermark_text"),
   heygenApiKey: text("heygen_api_key"),
+  /** Voice speed multiplier for HeyGen TTS. null = HeyGen default (1.0). Range: 0.5–1.5 */
+  heygenVoiceSpeed: real("heygen_voice_speed"),
 });
 
 export const insertSettingsSchema = createInsertSchema(settingsTable).omit({ id: true });

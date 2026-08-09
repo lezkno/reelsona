@@ -179,6 +179,28 @@ export async function getLookSupportedEngines(lookId: string, apiKey?: string): 
   }
 }
 
+/**
+ * Normalize a script for HeyGen TTS to avoid common Spanish (and general)
+ * pronunciation / pause artefacts caused by certain punctuation:
+ *
+ *  — em-dash  →  ", "   (prevents harsh abrupt stops)
+ *  ...        →  ","    (prevents over-long pause)
+ *  ;          →  ","    (semicolons cause odd rhythm breaks in cloned voices)
+ *  \n         →  " "    (line-breaks create unintended pauses)
+ *  multi-space → " "
+ */
+export function normalizeScriptForTTS(script: string): string {
+  return script
+    .replace(/ — /g, ", ")
+    .replace(/—/g, ", ")
+    .replace(/\.\.\./g, ",")
+    .replace(/…/g, ",")
+    .replace(/;/g, ",")
+    .replace(/\n+/g, " ")
+    .replace(/ {2,}/g, " ")
+    .trim();
+}
+
 export interface GenerateVideoParams {
   script: string;
   avatar_id: string;
@@ -193,6 +215,11 @@ export interface GenerateVideoParams {
    * Only sent when Avatar V is used.
    */
   motionPrompt?: string;
+  /**
+   * Voice speed multiplier. HeyGen default is 1.0.
+   * Range 0.5–1.5. null/undefined → omit from payload (use HeyGen default).
+   */
+  voiceSpeed?: number | null;
 }
 
 export interface VideoStatus {
@@ -248,15 +275,25 @@ export async function generateVideo(params: GenerateVideoParams, apiKey?: string
       : "[HeyGen v3] Avatar IV — engine: avatar_iv, expressiveness: high"
   );
 
+  // Normalize script punctuation before sending — removes em-dashes, ellipsis,
+  // and semicolons that cause unnatural pauses in cloned Spanish voices.
+  const normalizedScript = normalizeScriptForTTS(params.script);
+
   // v3 flat payload
   const payload: Record<string, unknown> = {
     type: "avatar",
     avatar_id: rawAvatarId,
-    script: params.script,
+    script: normalizedScript,
     voice_id: params.voice_id,
     aspect_ratio: "9:16",
     title: params.title ?? "ContentPilot Video",
   };
+
+  // Only include voice_speed when explicitly set — avoids overriding HeyGen's
+  // per-voice default for users who haven't configured it.
+  if (params.voiceSpeed != null) {
+    payload["voice_speed"] = params.voiceSpeed;
+  }
 
   if (supportsAvatarV) {
     // Avatar V: highest-fidelity lipsync + cross-reference animation.

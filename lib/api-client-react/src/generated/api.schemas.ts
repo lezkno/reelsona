@@ -476,6 +476,8 @@ export interface Settings {
   include_captions: boolean;
   /** @nullable */
   watermark_text?: string | null;
+  /** @nullable */
+  heygen_voice_speed?: number | null;
 }
 
 export type SettingsInputTone = typeof SettingsInputTone[keyof typeof SettingsInputTone];
@@ -500,6 +502,8 @@ export interface SettingsInput {
   include_captions?: boolean;
   /** @nullable */
   watermark_text?: string | null;
+  /** @nullable */
+  heygen_voice_speed?: number | null;
 }
 
 export type CaptionPresetHighlightMode = typeof CaptionPresetHighlightMode[keyof typeof CaptionPresetHighlightMode];

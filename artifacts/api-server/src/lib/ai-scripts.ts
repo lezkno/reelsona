@@ -77,7 +77,8 @@ FORMATOS ÓPTIMOS para talking-head/podcast:
 function getLanguageInstruction(language: string): string {
   const l = language.toLowerCase().trim();
   if (l.startsWith("es") || l === "español")
-    return `IMPORTANTE: Usa español neutro (sin voseo, sin modismos regionales). Tutea al espectador ("tú", "te", "tu"), no uses "vos" ni conjugaciones del voseo. El contenido debe ser comprensible para cualquier hispanohablante.`;
+    return `IMPORTANTE: Usa español neutro (sin voseo, sin modismos regionales). Tutea al espectador ("tú", "te", "tu"), no uses "vos" ni conjugaciones del voseo. El contenido debe ser comprensible para cualquier hispanohablante.
+REGLAS DE ESCRITURA PARA SÍNTESIS DE VOZ: El guion será leído por un avatar de voz clonada. Para que suene natural: (1) Escribe oraciones cortas y directas. (2) NUNCA uses puntos suspensivos (...) — generan pausas artificiales largas. (3) NUNCA uses raya o guion largo (—) — genera cortes abruptos. (4) NUNCA uses punto y coma (;) — causa pausas raras. (5) Usa solo comas y puntos finales para pausas. (6) Evita los dos puntos (:) dentro de oraciones; en su lugar usa una coma o "por ejemplo".`;
   if (l.startsWith("en") || l === "english" || l === "inglés")
     return `IMPORTANT: Write entirely in clear, natural English. Use second person ("you"). Keep it conversational and accessible to any English-speaking audience.`;
   if (l.startsWith("pt") || l === "português" || l === "portuguese")

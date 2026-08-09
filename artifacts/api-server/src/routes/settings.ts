@@ -16,6 +16,7 @@ function mapSettings(s: typeof settingsTable.$inferSelect) {
     video_duration_seconds: s.videoDurationSeconds ?? 60,
     include_captions: s.includeCaptions ?? true,
     watermark_text: s.watermarkText ?? null,
+    heygen_voice_speed: s.heygenVoiceSpeed ?? null,
   };
 }
 
@@ -47,6 +48,7 @@ router.put("/settings", async (req, res): Promise<void> => {
   if (d.video_duration_seconds !== undefined) updates.videoDurationSeconds = d.video_duration_seconds;
   if (d.include_captions !== undefined) updates.includeCaptions = d.include_captions;
   if (d.watermark_text !== undefined) updates.watermarkText = d.watermark_text ?? null;
+  if (d.heygen_voice_speed !== undefined) updates.heygenVoiceSpeed = d.heygen_voice_speed ?? null;
 
   let settings;
   if (existing) {

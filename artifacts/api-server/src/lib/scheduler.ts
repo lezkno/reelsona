@@ -511,6 +511,7 @@ export async function runAutomationCycle(targetItemId?: number): Promise<{
       voice_id: contentItem.voiceId,
       title: contentItem.topic,
       captionsEnabled: automation.captionsEnabled ?? false,
+      voiceSpeed: settings.heygenVoiceSpeed ?? undefined,
     }, heygenApiKey);
 
     await db
