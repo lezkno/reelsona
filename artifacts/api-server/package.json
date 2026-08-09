@@ -11,9 +11,9 @@
   },
   "dependencies": {
     "@google-cloud/storage": "^7.21.0",
+    "@napi-rs/canvas": "^0.1.55",
     "@types/express-session": "^1.19.0",
     "@types/node-cron": "^3.0.11",
-    "@napi-rs/canvas": "^0.1.55",
     "@workspace/api-zod": "workspace:*",
     "@workspace/caption-templates": "workspace:*",
     "@workspace/db": "workspace:*",
@@ -28,7 +28,8 @@
     "node-cron": "^4.6.0",
     "openai": "^6.49.0",
     "pino": "^9.14.0",
-    "pino-http": "^10.5.0"
+    "pino-http": "^10.5.0",
+    "resend": "^6.18.1"
   },
   "devDependencies": {
     "@types/connect-pg-simple": "^7.0.3",
