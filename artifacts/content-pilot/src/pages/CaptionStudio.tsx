@@ -1339,6 +1339,8 @@ export default function CaptionStudio() {
     if (next.has(id)) next.delete(id)
     else next.add(id)
     setRotationIds(next)
+    // If the user removed the last template, turn rotation off automatically
+    if (next.size === 0) setRotationEnabled(false)
     saveRotation(next, rotationStrategy)
   }
 
