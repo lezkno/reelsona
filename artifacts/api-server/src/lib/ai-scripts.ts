@@ -853,6 +853,102 @@ Devuelve SOLO un JSON válido:
 export type RegenerateCriterion = "educational" | "controversial" | "storytelling" | "sales" | "emotional";
 
 /** Regenerate the script for an existing content item with a different editorial emphasis. */
+// ── Re-analyze existing planned topics against the current strategy profile ───
+
+export async function reanalyzeTopicsWithStrategy(
+  topics: Array<{ id: number; topic: string }>,
+  strategyContext: StrategyContext,
+): Promise<Array<{
+  id: number;
+  viral_score: number;
+  editorial_angle: string;
+  visual_dependency: "low" | "medium" | "high";
+  format_fit_score: number;
+  avatar_fit_reason: string;
+  suggested_visual_support: string[];
+  audience_pain: string;
+  share_reason: string;
+}>> {
+  const client = getClient();
+
+  const strategyBlock = `ESTRATEGIA DEL CREADOR:
+- Propuesta de valor única: ${strategyContext.content_strategy.unique_value_prop}
+- Ángulos editoriales aprobados: ${strategyContext.content_strategy.editorial_angles.join(", ")}
+- Pilares: ${strategyContext.content_strategy.pillars.map((p) => `${p.name} (${p.frequency_pct}%)`).join(", ")}
+- Dolores de la audiencia: ${strategyContext.market_insights.audience_pains.slice(0, 5).join("; ")}
+- Huecos de contenido a explotar: ${strategyContext.market_insights.content_gaps.slice(0, 4).join("; ")}
+- Temas saturados (penalizar): ${strategyContext.market_insights.saturated_topics.slice(0, 4).join("; ")}
+- Hooks que generan shares: ${strategyContext.market_insights.shareable_hooks.slice(0, 4).join("; ")}`;
+
+  const prompt = `${TALKING_HEAD_CONSTRAINT}
+
+${strategyBlock}
+
+Tenés esta lista de temas ya planificados para Reels de Instagram. Re-evaluá cada uno contra la estrategia del creador y devolvé metadatos actualizados.
+
+TEMAS A EVALUAR:
+${topics.map((t) => `- ID ${t.id}: "${t.topic}"`).join("\n")}
+
+Para cada tema devolvé:
+- viral_score: 0-100 (potencial viral para esta audiencia específica, ajustado contra la estrategia)
+- editorial_angle: nombre corto del ángulo editorial que mejor encaja (preferir los ángulos aprobados de arriba)
+- visual_dependency: "low" (sólo avatar) | "medium" (soporte visual simple) | "high" (requiere pantalla o demo en vivo)
+- format_fit_score: 0-100 (qué tan bien funciona en talking-head/avatar sin pantalla compartida)
+- avatar_fit_reason: 1 frase explicando por qué funciona o no en formato avatar a cámara
+- suggested_visual_support: array de 2-3 apoyos visuales disponibles (captions animados, punch text, b-roll genérico, zoom dramático, overlay de texto)
+- audience_pain: el dolor específico de la audiencia que este tema aborda (1 frase)
+- share_reason: por qué alguien compartiría este video (1 frase concreta)
+
+Devolvé SÓLO JSON válido:
+{
+  "topics": [
+    {
+      "id": <número>,
+      "viral_score": <0-100>,
+      "editorial_angle": "<nombre>",
+      "visual_dependency": "low"|"medium"|"high",
+      "format_fit_score": <0-100>,
+      "avatar_fit_reason": "<frase>",
+      "suggested_visual_support": ["<elemento>", "<elemento>"],
+      "audience_pain": "<frase>",
+      "share_reason": "<frase>"
+    }
+  ]
+}`;
+
+  const result = await client.chat.completions.create({
+    model: "gpt-5.6-luna",
+    messages: [{ role: "user", content: prompt }],
+    response_format: { type: "json_object" },
+  });
+
+  const parsed = JSON.parse(result.choices[0]?.message?.content ?? "{}") as {
+    topics: Array<{
+      id: number;
+      viral_score: number;
+      editorial_angle: string;
+      visual_dependency: string;
+      format_fit_score: number;
+      avatar_fit_reason: string;
+      suggested_visual_support: string[];
+      audience_pain: string;
+      share_reason: string;
+    }>;
+  };
+
+  return (parsed.topics ?? []).map((t) => ({
+    id: t.id,
+    viral_score:             Math.max(0, Math.min(100, Math.round(t.viral_score ?? 50))),
+    editorial_angle:         t.editorial_angle ?? "",
+    visual_dependency:       (["low", "medium", "high"].includes(t.visual_dependency) ? t.visual_dependency : "low") as "low" | "medium" | "high",
+    format_fit_score:        Math.max(0, Math.min(100, Math.round(t.format_fit_score ?? 70))),
+    avatar_fit_reason:       t.avatar_fit_reason ?? "",
+    suggested_visual_support: Array.isArray(t.suggested_visual_support) ? t.suggested_visual_support : [],
+    audience_pain:           t.audience_pain ?? "",
+    share_reason:            t.share_reason ?? "",
+  }));
+}
+
 export async function regenerateScriptWithCriterion(
   topic: string,
   niche: string,

@@ -352,6 +352,15 @@ export function useRunMarketStudy() {
 }
 
 /** Generate the content strategy from market insights. */
+/** Re-score all draft content plan items against the current strategy profile. */
+export function useReanalyzeContentPlan() {
+  const qc = useQueryClient();
+  return useMutation<{ updated: number }, Error>({
+    mutationFn: () => customFetch<{ updated: number }>("/api/content/plan/reanalyze", { method: "POST" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["content", "plan"] }),
+  });
+}
+
 export function useRunContentStrategy() {
   const qc = useQueryClient();
   return useMutation({

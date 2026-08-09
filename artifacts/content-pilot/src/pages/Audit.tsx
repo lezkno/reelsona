@@ -605,11 +605,15 @@ function TabPlan({ profile }: { profile: StrategyProfile | null }) {
   const isComplete = steps.includes("strategy")
   const cs = profile?.content_strategy
 
+  // Radar step: derive completion from actual saved accounts, not steps_completed
+  const { data: radarData } = useGetRadarAccounts()
+  const radarDone = (radarData?.accounts?.length ?? 0) > 0
+
   const STEP_META = [
-    { id: "account",  label: "Auditoría de cuenta analizada", tab: "account" },
-    { id: "radar",    label: "Radar de nicho configurado",    tab: "radar",  optional: true },
-    { id: "market",   label: "Estudio de mercado sintetizado", tab: "market" },
-    { id: "strategy", label: "Estrategia de contenido generada", tab: "strategy" },
+    { id: "account",  label: "Auditoría de cuenta analizada",     tab: "account",  done: steps.includes("account") },
+    { id: "radar",    label: "Radar de nicho configurado",         tab: "radar",    done: radarDone, optional: true },
+    { id: "market",   label: "Estudio de mercado sintetizado",     tab: "market",   done: steps.includes("market") },
+    { id: "strategy", label: "Estrategia de contenido generada",   tab: "strategy", done: steps.includes("strategy") },
   ]
 
   return (
@@ -624,17 +628,14 @@ function TabPlan({ profile }: { profile: StrategyProfile | null }) {
         <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Estado de tu perfil estratégico</CardTitle></CardHeader>
         <CardContent>
           <div className="space-y-3">
-            {STEP_META.map((s) => {
-              const done = steps.includes(s.id)
-              return (
-                <div key={s.id} className={`flex items-center gap-3 py-1 ${!done && !s.optional ? "opacity-60" : ""}`}>
-                  <StepBadge completed={done} />
-                  <span className={`text-sm ${done ? "text-foreground" : "text-muted-foreground"}`}>{s.label}</span>
-                  {s.optional && !done && <span className="text-[10px] font-semibold text-muted-foreground ml-auto">Opcional</span>}
-                  {done && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 ml-auto" />}
-                </div>
-              )
-            })}
+            {STEP_META.map((s) => (
+              <div key={s.id} className={`flex items-center gap-3 py-1 ${!s.done && !s.optional ? "opacity-60" : ""}`}>
+                <StepBadge completed={s.done} />
+                <span className={`text-sm ${s.done ? "text-foreground" : "text-muted-foreground"}`}>{s.label}</span>
+                {s.optional && !s.done && <span className="text-[10px] font-semibold text-muted-foreground ml-auto">Opcional</span>}
+                {s.done && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 ml-auto" />}
+              </div>
+            ))}
           </div>
         </CardContent>
       </Card>

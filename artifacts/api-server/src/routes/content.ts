@@ -25,10 +25,11 @@ import {
   DeleteContentItemParams,
   DeleteContentItemResponse,
 } from "@workspace/api-zod";
-import { generateScript, generateContentTopics, regenerateCaption, regenerateScriptWithCriterion, type RegenerateCriterion } from "../lib/ai-scripts";
+import { generateScript, generateContentTopics, regenerateCaption, regenerateScriptWithCriterion, reanalyzeTopicsWithStrategy, type RegenerateCriterion } from "../lib/ai-scripts";
 import { runAutomationCycle } from "../lib/scheduler";
 import { getLatestAuditCache } from "../lib/audit-cache";
 import { getStrategyProfile, toStrategyContext } from "../lib/strategy-profile";
+import { logger } from "../lib/logger";
 
 /** Normalise a title for duplicate detection: lowercase, strip accents + punctuation */
 function normTopic(t: string): string {
@@ -570,6 +571,57 @@ router.post("/content/:id/regenerate", async (req, res): Promise<void> => {
   if (!updated) { res.status(404).json({ error: "Not found" }); return; }
 
   res.json({ success: true, item: mapItem(updated), criterion });
+});
+
+// ── POST /content/plan/reanalyze — re-score all draft items against strategy ──
+
+router.post("/content/plan/reanalyze", async (_req, res): Promise<void> => {
+  try {
+    const strategyProfile = await getStrategyProfile();
+    if (!strategyProfile?.content_strategy) {
+      res.status(400).json({ error: "No hay estrategia generada. Completá el paso de Estrategia en la auditoría primero." });
+      return;
+    }
+    const strategyContext = toStrategyContext(strategyProfile);
+
+    const drafts = await db
+      .select({ id: contentPlanItemsTable.id, topic: contentPlanItemsTable.topic })
+      .from(contentPlanItemsTable)
+      .where(eq(contentPlanItemsTable.status, "draft"));
+
+    if (drafts.length === 0) {
+      res.json({ updated: 0 });
+      return;
+    }
+
+    const scores = await reanalyzeTopicsWithStrategy(
+      drafts.map((d) => ({ id: d.id, topic: d.topic ?? "" })),
+      strategyContext!,
+    );
+
+    for (const score of scores) {
+      await db
+        .update(contentPlanItemsTable)
+        .set({
+          viralScore:             score.viral_score,
+          editorialAngle:         score.editorial_angle,
+          visualDependency:       score.visual_dependency,
+          formatFitScore:         score.format_fit_score,
+          avatarFitReason:        score.avatar_fit_reason,
+          suggestedVisualSupport: score.suggested_visual_support.length > 0
+            ? JSON.stringify(score.suggested_visual_support)
+            : null,
+          audiencePain:           score.audience_pain,
+          shareReason:            score.share_reason,
+        })
+        .where(eq(contentPlanItemsTable.id, score.id));
+    }
+
+    res.json({ updated: scores.length });
+  } catch (err: any) {
+    logger.error({ err }, "Failed to reanalyze content plan");
+    res.status(500).json({ error: err?.message ?? "Reanalysis failed" });
+  }
 });
 
 router.delete("/content/:id", async (req, res): Promise<void> => {

@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label"
 import { format, isSameDay } from "date-fns"
 import { es } from "date-fns/locale"
 import { useGetContentPlan, useGenerateContentPlan, useDeleteContentItem, useGenerateVideo, useUpdateContentItem, useCreateContentItem, useGetHeyGenAllLooks, useGetAvatarConfig, useGenerateScript, usePublishVideo, useGetAutomation, getGetContentPlanQueryKey, type ContentPlanItem } from "@workspace/api-client-react"
-import { useRegenerateScript, type RegenerateCriterion } from "@workspace/api-client-react"
+import { useRegenerateScript, useReanalyzeContentPlan, type RegenerateCriterion } from "@workspace/api-client-react"
 import { Textarea } from "@/components/ui/textarea"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Wand2, Edit3, Trash2, Video, CheckCircle2, Clock, AlertTriangle, CalendarDays, Plus, Zap, Users, List, Calendar, Loader2, FileText, RefreshCw, Sparkles, Check, X, Send, Bot, Hand, Play, Share2, ChevronDown, TrendingUp } from "lucide-react"
@@ -97,6 +97,7 @@ export default function ContentPlan() {
   const willAutoPublish = !!(automation?.enabled && automation?.auto_publish)
 
   const generatePlan = useGenerateContentPlan()
+  const reanalyzePlan = useReanalyzeContentPlan()
   const deleteItem = useDeleteContentItem()
   const generateVideo = useGenerateVideo()
   const updateItem = useUpdateContentItem()
@@ -394,6 +395,23 @@ export default function ContentPlan() {
                 <Calendar className="w-4 h-4" /> Calendario
               </button>
             </div>
+
+            <Button
+              variant="outline"
+              className="gap-2"
+              disabled={reanalyzePlan.isPending}
+              onClick={() => reanalyzePlan.mutate(undefined, {
+                onSuccess: (data) => {
+                  queryClient.invalidateQueries({ queryKey: getGetContentPlanQueryKey() })
+                  toast({ title: "Temas actualizados", description: `${data.updated} tema${data.updated !== 1 ? "s" : ""} re-analizados con tu estrategia.` })
+                },
+                onError: (e: any) => toast({ title: "Error", description: e?.message ?? "No se pudo re-analizar.", variant: "destructive" }),
+              })}
+            >
+              {reanalyzePlan.isPending
+                ? <><Loader2 className="w-4 h-4 animate-spin" /> Analizando…</>
+                : <><Sparkles className="w-4 h-4" /> Re-analizar con estrategia</>}
+            </Button>
 
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
