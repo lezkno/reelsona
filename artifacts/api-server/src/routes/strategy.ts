@@ -45,6 +45,24 @@ function getClient(): OpenAI {
 
 const router = Router();
 
+// ── Serialization helper — Drizzle returns camelCase; frontend expects snake_case ──
+
+function serializeAccount(a: typeof nicheRadarAccountsTable.$inferSelect) {
+  return {
+    id:               a.id,
+    ig_username:      a.igUsername,
+    profile_url:      a.profileUrl ?? null,
+    bio:              a.bio ?? null,
+    followers:        a.followers ?? null,
+    relevance_score:  a.relevanceScore ?? null,
+    use_as_reference: a.useAsReference,
+    source:           a.source,
+    top_posts_json:   a.topPostsJson ?? null,
+    last_synced_at:   a.lastSyncedAt?.toISOString() ?? null,
+    created_at:       a.createdAt.toISOString(),
+  };
+}
+
 // ── GET /strategy/profile ─────────────────────────────────────────────────────
 
 router.get("/strategy/profile", async (_req, res): Promise<void> => {
@@ -201,7 +219,7 @@ Devuelve SOLO un JSON:
 
 router.get("/strategy/radar", async (_req, res): Promise<void> => {
   const accounts = await db.select().from(nicheRadarAccountsTable).orderBy(nicheRadarAccountsTable.createdAt);
-  res.json({ accounts });
+  res.json({ accounts: accounts.map(serializeAccount) });
 });
 
 // ── POST /strategy/radar ──────────────────────────────────────────────────────
@@ -219,7 +237,7 @@ router.post("/strategy/radar", async (req, res): Promise<void> => {
     .where(eq(nicheRadarAccountsTable.igUsername, username))
     .limit(1);
   if (existing) {
-    res.status(409).json({ error: "Account already in radar", account: existing });
+    res.status(409).json({ error: "Account already in radar", account: serializeAccount(existing) });
     return;
   }
   const [inserted] = await db
@@ -252,7 +270,7 @@ router.post("/strategy/radar", async (req, res): Promise<void> => {
     }).catch((err) => logger.error({ err, igUsername: username }, "Background Apify enrichment failed"));
   }
 
-  res.status(201).json({ account: inserted });
+  res.status(201).json({ account: serializeAccount(inserted) });
 });
 
 // ── POST /strategy/radar/:id/sync — manually trigger Apify enrichment ─────────
@@ -292,7 +310,7 @@ router.post("/strategy/radar/:id/sync", async (req, res): Promise<void> => {
       .where(eq(nicheRadarAccountsTable.id, id))
       .returning();
 
-    res.json({ account: updated });
+    res.json({ account: serializeAccount(updated) });
   } catch (err: any) {
     logger.error({ err, id }, "Apify sync failed");
     res.status(500).json({ error: err?.message ?? "Sync failed" });
@@ -317,7 +335,7 @@ router.patch("/strategy/radar/:id", async (req, res): Promise<void> => {
     .where(eq(nicheRadarAccountsTable.id, id))
     .returning();
   if (!updated) { res.status(404).json({ error: "Not found" }); return; }
-  res.json({ account: updated });
+  res.json({ account: serializeAccount(updated) });
 });
 
 // ── DELETE /strategy/radar/:id ────────────────────────────────────────────────
