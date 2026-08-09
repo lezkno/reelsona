@@ -207,7 +207,19 @@ function TemplateCaptionPreview({
   const [isDragging, setIsDragging] = useState(false)
 
   const isTypewriter  = template.animation === "typewriter"
+  const isZoom        = template.animation === "zoom"
   const isBuildingMode = !!(template as CaptionTemplate & { buildingMode?: boolean }).buildingMode
+
+  // ── Zoom animation state ───────────────────────────────────────────────────
+  // Reset to false on each new word, then snap to true after 30ms to trigger
+  // the CSS scale transition — mirrors the video's 65%→100% zoom-in per word.
+  const [zoomed, setZoomed] = useState(true)
+  useEffect(() => {
+    if (!isZoom) return
+    setZoomed(false)
+    const t = setTimeout(() => setZoomed(true), 30)
+    return () => clearTimeout(t)
+  }, [isZoom, activeIdx])
 
   // ── Typewriter animation state ─────────────────────────────────────────────
   const [twChunkIdx,      setTwChunkIdx]      = useState(0)
@@ -375,10 +387,16 @@ function TemplateCaptionPreview({
               const wordFS    = isMixed && isFuncWord ? scaledFS * 0.55 : scaledFS
               const displayText = twWordTexts[i]
               if (isTypewriter && displayText === "") return null
+              const zoomStyle: React.CSSProperties = isZoom ? {
+                display:    "inline-block",
+                transform:  zoomed ? "scale(1)" : "scale(0.65)",
+                opacity:    zoomed ? 1 : 0.3,
+                transition: `transform ${template.animationDuration || 180}ms ease-out, opacity ${template.animationDuration || 180}ms ease-out`,
+              } : {}
               const span = (
                 <span
                   key={`${twChunkStart || chunkStart}-${i}`}
-                  style={buildWordStyle(template, wordIsActive, wordFS, scaledOW, scaledSX, scaledSY, scaledBlur) as React.CSSProperties}
+                  style={{ ...(buildWordStyle(template, wordIsActive, wordFS, scaledOW, scaledSX, scaledSY, scaledBlur) as React.CSSProperties), ...zoomStyle }}
                 >
                   {displayText}
                 </span>
