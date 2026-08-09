@@ -1113,7 +1113,7 @@ export default function CaptionStudio() {
   const { data: presets } = useGetCaptionPresets()
   const { data: config, isLoading } = useGetCaptionConfig()
   const { data: automation } = useGetAutomation({ query: { refetchInterval: 10000 } as any })
-  const { data: videos } = useGetVideos({ query: { refetchInterval: 8000 } as any })
+  const { data: videos } = useGetVideos(undefined, { query: { refetchInterval: 8000 } as any })
   const updateConfig = useUpdateCaptionConfig()
   const updateAutomation = useUpdateAutomation()
 

@@ -25,7 +25,7 @@ function VideoPreviewModal({ video, onClose }: { video: Video | null; onClose: (
   const queryClient = useQueryClient()
   const { data: contentItem } = useGetContentItem(
     video?.content_plan_id ?? 0,
-    { query: { enabled: !!video?.content_plan_id } }
+    { query: { enabled: !!video?.content_plan_id } as any }
   )
   const updateItem = useUpdateContentItem()
 
