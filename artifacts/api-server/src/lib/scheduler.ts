@@ -11,16 +11,95 @@ import {
   instagramAccountsTable,
   captionConfigTable,
 } from "@workspace/db";
-import { applyCaptions, CAPTION_DIR, type CaptionStyle } from "./caption-engine";
+import { applyCaptions, CAPTION_DIR, type CaptionStyle, CAPTION_PRESETS } from "./caption-engine";
+import { computeUpcomingSlots } from "./schedule";
 import { applyCaptionsBrowser } from "./browser-caption-engine";
-import { eq, and, lte, inArray, isNull, isNotNull, or } from "drizzle-orm";
+import { eq, and, lte, gte, inArray, isNull, isNotNull, or } from "drizzle-orm";
 import { logger } from "./logger";
-import { generateScript, regenerateCaption } from "./ai-scripts";
+import { generateScript, regenerateCaption, generateContentTopics } from "./ai-scripts";
 import { generateVideo, getVideoStatus, listVoices, getAvatarDefaultVoiceId } from "./heygen";
 import { createReelContainer, checkContainerStatus, publishContainer, getPermalink } from "./instagram-api";
 
 /** Sentinel stored in preferred_voice_id meaning "use the avatar's own HeyGen default voice" (legacy, kept for backwards compat). */
 export const AVATAR_DEFAULT_VOICE = "avatar_default";
+
+/** How many calendar days ahead the scheduler looks when auto-filling empty slots. */
+const AUTO_FILL_CALENDAR_HORIZON = 14;
+
+/**
+ * Auto-fill any empty slots in the upcoming automation schedule.
+ * Called inside every runAutomationCycle tick so gaps are filled proactively.
+ * Returns the number of draft items created (0 when all slots are occupied).
+ */
+async function fillEmptyScheduledSlots(
+  automation: typeof automationConfigTable.$inferSelect,
+  settings: typeof settingsTable.$inferSelect
+): Promise<number> {
+  if (!automation.autoGenerateScript) return 0;
+
+  const now = new Date();
+  const horizon = new Date(now.getTime() + AUTO_FILL_CALENDAR_HORIZON * 24 * 60 * 60 * 1000);
+
+  // Load all future scheduled items to know which slots are already taken
+  const futureScheduled = await db
+    .select({ scheduledAt: contentPlanItemsTable.scheduledAt })
+    .from(contentPlanItemsTable)
+    .where(and(isNotNull(contentPlanItemsTable.scheduledAt), gte(contentPlanItemsTable.scheduledAt, now)));
+
+  const occupied = futureScheduled.map((r) => r.scheduledAt!).filter(Boolean);
+  const occupiedKeys = new Set(occupied.map((d) => Math.floor(d.getTime() / 60000)));
+
+  // Generate the full set of expected slots within the horizon (no occupancy filter yet)
+  const postsPerDay = Math.max(1, (automation.postingTimes ?? ["09:00"]).length);
+  const allExpected = computeUpcomingSlots({
+    daysOfWeek:   automation.daysOfWeek   ?? [1, 2, 3, 4, 5],
+    postingTimes: automation.postingTimes ?? ["09:00"],
+    timezone:     automation.timezone     ?? "America/Buenos_Aires",
+    scheduledDays: AUTO_FILL_CALENDAR_HORIZON * 2, // generous — bounded below by calendar horizon
+    postsPerDay,
+    occupied: [],
+    from: now,
+  });
+
+  // Keep only slots within the calendar horizon that have no item yet
+  const emptySlots = allExpected.filter(
+    (s) => s <= horizon && !occupiedKeys.has(Math.floor(s.getTime() / 60000))
+  );
+
+  if (emptySlots.length === 0) return 0;
+
+  logger.info({ count: emptySlots.length }, "[AutoFill] Empty scheduled slots found — generating topics");
+
+  // Load recent topics so AI avoids repeating them
+  const recentRows = await db
+    .select({ topic: contentPlanItemsTable.topic })
+    .from(contentPlanItemsTable)
+    .limit(20);
+  const existingTopics = recentRows.map((r) => r.topic).filter(Boolean);
+
+  // Ask AI to generate one topic per empty slot
+  const rawTopics = await generateContentTopics(
+    settings.niche!,
+    (settings.topicKeywords as string[] | null) ?? [],
+    settings.tone   ?? "casual",
+    settings.language ?? "es",
+    emptySlots.length,
+    1,
+    existingTopics
+  );
+
+  if (rawTopics.length === 0) return 0;
+
+  const toInsert = emptySlots.slice(0, rawTopics.length).map((slot, i) => ({
+    topic:       rawTopics[i].topic,
+    scheduledAt: slot,
+    status:      "draft" as const,
+  }));
+
+  await db.insert(contentPlanItemsTable).values(toInsert);
+  logger.info({ created: toInsert.length }, "[AutoFill] Draft items created for empty scheduled slots");
+  return toInsert.length;
+}
 
 /**
  * Resolve the HeyGen API key for background scheduler jobs.
@@ -100,6 +179,28 @@ export async function ensurePreferredVoiceId(): Promise<string | null> {
   return null;
 }
 
+/** Pick the next caption preset ID from the rotation pool — mirrors pickNextAvatar. */
+export function pickNextPreset(
+  selectedIds: string[],
+  lastUsed: string | null,
+  strategy: string,
+  usageCount: Record<string, number>
+): string {
+  if (!selectedIds.length) throw new Error("No presets configured for rotation");
+  if (strategy === "sequential") {
+    const idx = lastUsed ? selectedIds.indexOf(lastUsed) : -1;
+    return selectedIds[(idx + 1) % selectedIds.length];
+  }
+  if (strategy === "performance") {
+    const sorted = [...selectedIds].sort((a, b) => (usageCount[a] ?? 0) - (usageCount[b] ?? 0));
+    return sorted[0];
+  }
+  // random — avoid immediate repeat when pool > 1
+  const filtered = selectedIds.filter((id) => id !== lastUsed);
+  const pool = filtered.length > 0 ? filtered : selectedIds;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
 export function pickNextAvatar(
   selectedIds: string[],
   lastUsed: string | null,
@@ -157,6 +258,21 @@ export async function runAutomationCycle(targetItemId?: number): Promise<{
   const [igAccount] = await db.select().from(instagramAccountsTable).limit(1);
   if (!igAccount && automation.autoPublish && targetItemId === undefined) {
     return { success: false, message: "Instagram account not connected" };
+  }
+
+  // ── Auto-fill empty upcoming slots ───────────────────────────────────────────
+  // Runs on every scheduled tick (not on manual targetItemId runs) so the
+  // calendar always has content for the next 14 days without the user needing
+  // to click "Generar Ideas" manually.
+  if (targetItemId === undefined) {
+    try {
+      const filled = await fillEmptyScheduledSlots(automation, settings);
+      if (filled > 0) {
+        logger.info({ filled }, "[AutoFill] Slot fill complete — new drafts added to pipeline");
+      }
+    } catch (fillErr) {
+      logger.warn({ fillErr }, "[AutoFill] Failed to fill slots — continuing normal cycle");
+    }
   }
 
   // Check if we have a ready content item scheduled for now or overdue
@@ -410,12 +526,41 @@ async function runCaptionProcessing(
     script = item?.script ?? null;
   }
 
+  // ── Caption preset rotation ───────────────────────────────────────────────
+  // If the user has configured a rotation pool, pick the next preset and
+  // update lastUsedPresetId + presetUsageCount in the DB before rendering.
+  let effectiveTemplateId: string | null = captionCfg.templateId ?? null;
+  let rotatedPreset: (typeof CAPTION_PRESETS)[number] | null = null;
+
+  const rotationPool = captionCfg.selectedPresetIds ?? [];
+  if (rotationPool.length > 0) {
+    const pickedId = pickNextPreset(
+      rotationPool,
+      captionCfg.lastUsedPresetId ?? null,
+      captionCfg.captionRotationStrategy ?? "sequential",
+      (captionCfg.presetUsageCount ?? {}) as Record<string, number>
+    );
+    logger.info({ videoId, pickedId }, "[CaptionRotation] Rotating caption preset");
+
+    const newUsageCount = { ...((captionCfg.presetUsageCount ?? {}) as Record<string, number>) };
+    newUsageCount[pickedId] = (newUsageCount[pickedId] ?? 0) + 1;
+    await db.update(captionConfigTable)
+      .set({ lastUsedPresetId: pickedId, presetUsageCount: newUsageCount, updatedAt: new Date() })
+      .where(eq(captionConfigTable.id, captionCfg.id));
+
+    if (captionCfg.captionEngine === "browser_experimental") {
+      effectiveTemplateId = pickedId;
+    } else {
+      rotatedPreset = CAPTION_PRESETS.find((p) => p.id === pickedId) ?? null;
+    }
+  }
+
   // ── Browser Caption Engine (experimental) ────────────────────────────────
   // When captionEngine = "browser_experimental" and a templateId is set,
   // attempt the canvas-based render first. On failure → fall through to ASS.
-  if (captionCfg.captionEngine === "browser_experimental" && captionCfg.templateId) {
+  if (captionCfg.captionEngine === "browser_experimental" && effectiveTemplateId) {
     logger.info(
-      { videoId, templateId: captionCfg.templateId },
+      { videoId, templateId: effectiveTemplateId },
       "[Scheduler] Using Browser Caption Engine (experimental)",
     );
 
@@ -424,7 +569,7 @@ async function runCaptionProcessing(
     if (captionCfg.templateOverrides) {
       try { parsedTemplateOverrides = JSON.parse(captionCfg.templateOverrides); } catch { /* ignore malformed */ }
     }
-    const browserResult = await applyCaptionsBrowser(videoUrl, script, captionCfg.templateId, {
+    const browserResult = await applyCaptionsBrowser(videoUrl, script, effectiveTemplateId, {
       subtitleUrl:          subtitleUrl ?? undefined,
       videoDurationSeconds: durationSeconds ?? undefined,
       // Pass user drag overrides so position set in Caption Studio is honoured in the render
@@ -460,7 +605,26 @@ async function runCaptionProcessing(
   }
 
   // ── Standard ASS/FFmpeg engine ────────────────────────────────────────────
-  const style: CaptionStyle = {
+  // If rotation picked a preset, its visual settings override the stored config.
+  const style: CaptionStyle = rotatedPreset ? {
+    presetId:        rotatedPreset.id,
+    position:        captionCfg.position as CaptionStyle["position"],
+    wordsPerLine:    rotatedPreset.wordsPerLine ?? captionCfg.wordsPerLine,
+    primaryColor:    rotatedPreset.primaryColor,
+    activeWordColor: rotatedPreset.activeWordColor,
+    outlineColor:    rotatedPreset.outlineColor,
+    backgroundColor: rotatedPreset.backgroundColor ?? null,
+    fontFamily:      rotatedPreset.fontFamily,
+    fontSize:        rotatedPreset.fontSize,
+    lineSpacingFactor: captionCfg.lineSpacingFactor,
+    yPosition:       captionCfg.yPosition,
+    marginX:         captionCfg.marginX,
+    activeWordScale: rotatedPreset.activeWordScale,
+    highlightMode:   rotatedPreset.highlightMode as CaptionStyle["highlightMode"],
+    autoScale:       captionCfg.autoScale,
+    autoMovement:    rotatedPreset.autoMovement,
+    subtleRotation:  rotatedPreset.subtleRotation,
+  } : {
     presetId: captionCfg.presetId,
     position: captionCfg.position as CaptionStyle["position"],
     wordsPerLine: captionCfg.wordsPerLine,

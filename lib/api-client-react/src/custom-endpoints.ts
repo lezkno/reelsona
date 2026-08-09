@@ -188,6 +188,29 @@ export function useConnectHeyGen() {
   });
 }
 
+// ── Caption rotation ──────────────────────────────────────────────────────────
+
+export interface CaptionBrowserTemplate {
+  id: string;
+  name: string;
+  description: string;
+  primary_color: string;
+  active_word_color: string;
+  background_color: string | null;
+  animation: string;
+  font_family: string;
+}
+
+export function useGetCaptionBrowserTemplates() {
+  return useQuery<CaptionBrowserTemplate[]>({
+    queryKey: ["caption-browser-templates"],
+    queryFn: () => customFetch<CaptionBrowserTemplate[]>("/api/captions/browser-templates"),
+    staleTime: 1000 * 60 * 60, // 1 h — templates are static
+  });
+}
+
+// ── HeyGen ───────────────────────────────────────────────────────────────────
+
 /** Remove the user-stored HeyGen API key (falls back to env var if set). */
 export function useDisconnectHeyGen() {
   const qc = useQueryClient();

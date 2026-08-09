@@ -1,4 +1,8 @@
-import { useGetAutomation, useUpdateAutomation, getGetAutomationQueryKey, type AutomationConfigInput } from "@workspace/api-client-react"
+import {
+  useGetAutomation, useUpdateAutomation, getGetAutomationQueryKey, type AutomationConfigInput,
+  useGetCaptionConfig, useUpdateCaptionConfig, getGetCaptionConfigQueryKey, useGetCaptionPresets,
+} from "@workspace/api-client-react"
+import { useGetCaptionBrowserTemplates } from "@workspace/api-client-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
@@ -9,7 +13,7 @@ import { Badge } from "@/components/ui/badge"
 import { useQueryClient, useQuery } from "@tanstack/react-query"
 import { useToast } from "@/hooks/use-toast"
 import { useEffect, useState } from "react"
-import { Zap, Clock, CalendarDays, Plus, X, Lock, ExternalLink, Sparkles, CheckCircle2, Circle } from "lucide-react"
+import { Zap, Clock, CalendarDays, Plus, X, Lock, ExternalLink, Sparkles, CheckCircle2, Circle, Shuffle, RefreshCw } from "lucide-react"
 
 type RecommendedSlot = { time: string; label: string; reason: string }
 type RecommendedTimesResponse = {
@@ -38,6 +42,47 @@ export default function Automation() {
 
   const [formData, setFormData] = useState<AutomationConfigInput | null>(null)
   const isLocked = !!(config as any)?.processing_locked
+
+  // ── Caption rotation ──────────────────────────────────────────────────────
+  const { data: captionConfig } = useGetCaptionConfig()
+  const updateCaptionConfig = useUpdateCaptionConfig()
+  const { data: standardPresets = [] } = useGetCaptionPresets()
+  const { data: browserTemplates = [] } = useGetCaptionBrowserTemplates()
+
+  const [captionSelectedIds, setCaptionSelectedIds] = useState<Set<string>>(new Set())
+  const [captionStrategy, setCaptionStrategy] = useState("sequential")
+  const [captionInitialized, setCaptionInitialized] = useState(false)
+
+  useEffect(() => {
+    if (captionConfig && !captionInitialized) {
+      setCaptionSelectedIds(new Set(captionConfig.selected_preset_ids ?? []))
+      setCaptionStrategy(captionConfig.caption_rotation_strategy ?? "sequential")
+      setCaptionInitialized(true)
+    }
+  }, [captionConfig, captionInitialized])
+
+  const saveCaptionRotation = (ids: Set<string>, strategy: string) => {
+    if (isLocked) return
+    updateCaptionConfig.mutate(
+      { data: { selected_preset_ids: Array.from(ids), caption_rotation_strategy: strategy } },
+      {
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetCaptionConfigQueryKey() }),
+        onError: () => toast({ title: "Error", description: "No se guardaron los cambios de rotación", variant: "destructive" }),
+      }
+    )
+  }
+
+  const toggleCaptionPreset = (id: string) => {
+    if (isLocked) return
+    const next = new Set(captionSelectedIds)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    setCaptionSelectedIds(next)
+    saveCaptionRotation(next, captionStrategy)
+  }
+
+  const captionEngine = (captionConfig?.caption_engine ?? "standard") as "standard" | "browser_experimental"
+  const presetPool = captionEngine === "browser_experimental" ? browserTemplates : standardPresets
 
   useEffect(() => {
     if (config && !formData) {
@@ -438,6 +483,119 @@ export default function Automation() {
 
             </CardContent>
           </Card>
+
+          {/* Caption Preset Rotation */}
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Shuffle className="w-4 h-4 text-primary" />
+                    Rotación de Captions
+                  </CardTitle>
+                  <CardDescription className="mt-0.5">
+                    Elegí qué plantillas queres rotar en cada video. Si no elegís ninguna, siempre se usa la que configuraste en Caption Studio.
+                  </CardDescription>
+                </div>
+                <Badge variant="outline" className={captionEngine === "browser_experimental" ? "text-violet-500 border-violet-500/30" : "text-blue-500 border-blue-500/30"}>
+                  {captionEngine === "browser_experimental" ? "Browser" : "Estándar"}
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Rotation strategy */}
+              {captionSelectedIds.size > 1 && (
+                <div className="flex items-center gap-3">
+                  <Label className="text-sm shrink-0">Método de rotación:</Label>
+                  <div className="flex gap-1.5">
+                    {[
+                      { value: "sequential", label: "Secuencial", icon: <RefreshCw className="w-3 h-3" /> },
+                      { value: "random", label: "Aleatorio", icon: <Shuffle className="w-3 h-3" /> },
+                    ].map(({ value, label, icon }) => (
+                      <button
+                        key={value}
+                        type="button"
+                        disabled={isLocked}
+                        onClick={() => {
+                          setCaptionStrategy(value)
+                          saveCaptionRotation(captionSelectedIds, value)
+                        }}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-all ${
+                          captionStrategy === value
+                            ? "bg-primary text-primary-foreground border-primary"
+                            : "bg-background text-muted-foreground border-border hover:border-primary/50"
+                        } disabled:opacity-50 disabled:cursor-not-allowed`}
+                      >
+                        {icon}{label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Preset / template grid */}
+              {presetPool.length === 0 ? (
+                <p className="text-xs text-muted-foreground py-2">
+                  {captionEngine === "browser_experimental"
+                    ? "No se encontraron plantillas de Caption Studio."
+                    : "No se encontraron presets de captions."}
+                </p>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {presetPool.map((item) => {
+                    const selected = captionSelectedIds.has(item.id)
+                    const primaryColor = "primary_color" in item ? item.primary_color : "#FFFFFF"
+                    const activeColor = "active_word_color" in item ? item.active_word_color : "#FFE600"
+                    const bgColor = "background_color" in item ? item.background_color : null
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        disabled={isLocked}
+                        onClick={() => toggleCaptionPreset(item.id)}
+                        className={`relative flex flex-col gap-1.5 p-3 rounded-xl border text-left transition-all group ${
+                          selected
+                            ? "border-primary bg-primary/5 shadow-sm ring-1 ring-primary/30"
+                            : "border-border bg-card hover:border-primary/40 hover:bg-muted/30"
+                        } disabled:opacity-50 disabled:cursor-not-allowed`}
+                      >
+                        {/* Selection checkmark */}
+                        <div className={`absolute top-2 right-2 w-4 h-4 rounded-full flex items-center justify-center transition-all ${
+                          selected ? "bg-primary" : "border border-border bg-background"
+                        }`}>
+                          {selected && <CheckCircle2 className="w-3 h-3 text-primary-foreground" />}
+                        </div>
+
+                        {/* Color swatches */}
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <span className="w-4 h-4 rounded-full border border-white/20 shrink-0 shadow-sm"
+                            style={{ backgroundColor: bgColor ?? "#000000" }} />
+                          <span className="w-4 h-4 rounded-full border border-white/20 shrink-0 shadow-sm"
+                            style={{ backgroundColor: primaryColor }} />
+                          <span className="w-4 h-4 rounded-full border border-white/20 shrink-0 shadow-sm"
+                            style={{ backgroundColor: activeColor }} />
+                        </div>
+
+                        <p className="text-xs font-semibold leading-tight pr-4">{item.name}</p>
+                        <p className="text-[10px] text-muted-foreground leading-snug line-clamp-2">
+                          {item.description}
+                        </p>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+
+              {captionSelectedIds.size > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  {captionSelectedIds.size} plantilla{captionSelectedIds.size !== 1 ? "s" : ""} en rotación
+                  {captionStrategy === "sequential" ? " · secuencial" : " · aleatoria"}.
+                  Cada video usa la siguiente de la lista.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
         </div>
       </div>
     </div>

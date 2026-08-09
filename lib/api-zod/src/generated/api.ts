@@ -789,6 +789,11 @@ export const GetCaptionConfigResponse = zod.object({
   "caption_engine": zod.enum(['standard', 'browser_experimental']),
   "template_id": zod.string().nullish(),
   "template_overrides": zod.string().nullish(),
+  // Caption preset rotation
+  "selected_preset_ids": zod.array(zod.string()),
+  "caption_rotation_strategy": zod.string(),
+  "last_used_preset_id": zod.string().nullish(),
+  "preset_usage_count": zod.record(zod.string(), zod.number()),
   "updated_at": zod.string()
 })
 
@@ -826,7 +831,12 @@ export const UpdateCaptionConfigBody = zod.object({
   // Browser Caption Engine feature flag
   "caption_engine": zod.enum(['standard', 'browser_experimental']).optional(),
   "template_id": zod.string().nullish(),
-  "template_overrides": zod.string().nullish()
+  "template_overrides": zod.string().nullish(),
+  // Caption preset rotation
+  "selected_preset_ids": zod.array(zod.string()).optional(),
+  "caption_rotation_strategy": zod.string().optional(),
+  "last_used_preset_id": zod.string().nullish(),
+  "preset_usage_count": zod.record(zod.string(), zod.number()).optional()
 })
 
 export const UpdateCaptionConfigResponse = zod.object({
@@ -850,6 +860,10 @@ export const UpdateCaptionConfigResponse = zod.object({
   "caption_engine": zod.enum(['standard', 'browser_experimental']),
   "template_id": zod.string().nullish(),
   "template_overrides": zod.string().nullish(),
+  "selected_preset_ids": zod.array(zod.string()),
+  "caption_rotation_strategy": zod.string(),
+  "last_used_preset_id": zod.string().nullish(),
+  "preset_usage_count": zod.record(zod.string(), zod.number()),
   "updated_at": zod.string()
 })
 

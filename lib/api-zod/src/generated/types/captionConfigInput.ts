@@ -56,4 +56,10 @@ export interface CaptionConfigInput {
   template_id?: string | null;
   /** @nullable — JSON: Partial<CaptionTemplate> style overrides */
   template_overrides?: string | null;
+  /** Caption preset rotation pool */
+  selected_preset_ids?: string[];
+  caption_rotation_strategy?: string;
+  /** @nullable */
+  last_used_preset_id?: string | null;
+  preset_usage_count?: Record<string, number>;
 }

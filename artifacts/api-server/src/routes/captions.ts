@@ -10,7 +10,7 @@ import {
   UpdateCaptionConfigResponse,
 } from "@workspace/api-zod";
 import { CAPTION_PRESETS } from "../lib/caption-engine";
-import { renderDiagnosticFrame, isBrowserEngineAvailable, applyCaptionsBrowser } from "../lib/browser-caption-engine";
+import { renderDiagnosticFrame, isBrowserEngineAvailable, applyCaptionsBrowser, BROWSER_CAPTION_TEMPLATES } from "../lib/browser-caption-engine";
 
 const router = Router();
 
@@ -36,9 +36,28 @@ function mapConfig(c: typeof captionConfigTable.$inferSelect) {
     caption_engine: (c.captionEngine ?? "standard") as "standard" | "browser_experimental",
     template_id: c.templateId ?? null,
     template_overrides: c.templateOverrides ?? null,
+    selected_preset_ids: c.selectedPresetIds ?? [],
+    caption_rotation_strategy: c.captionRotationStrategy ?? "sequential",
+    last_used_preset_id: c.lastUsedPresetId ?? null,
+    preset_usage_count: (c.presetUsageCount ?? {}) as Record<string, number>,
     updated_at: c.updatedAt.toISOString(),
   };
 }
+
+/** List all browser (Caption Studio) templates — used for rotation selector UI */
+router.get("/captions/browser-templates", (_req, res): void => {
+  const templates = BROWSER_CAPTION_TEMPLATES.map((t) => ({
+    id: t.id,
+    name: t.name,
+    description: t.description,
+    primary_color: t.primaryColor,
+    active_word_color: t.activeWordColor,
+    background_color: t.backgroundColor ?? null,
+    animation: t.animation,
+    font_family: t.fontFamily,
+  }));
+  res.json(templates);
+});
 
 router.get("/captions/presets", (_req, res): void => {
   const presets = CAPTION_PRESETS.map((p) => ({
@@ -101,6 +120,11 @@ router.put("/captions/config", async (req, res): Promise<void> => {
   if (d.caption_engine       !== undefined) updates.captionEngine      = d.caption_engine;
   if (d.template_id          !== undefined) updates.templateId         = d.template_id;
   if (d.template_overrides   !== undefined) updates.templateOverrides  = d.template_overrides ?? null;
+  // Caption preset rotation
+  if (d.selected_preset_ids        !== undefined) updates.selectedPresetIds       = d.selected_preset_ids;
+  if (d.caption_rotation_strategy  !== undefined) updates.captionRotationStrategy  = d.caption_rotation_strategy;
+  if (d.last_used_preset_id        !== undefined) updates.lastUsedPresetId        = d.last_used_preset_id ?? null;
+  if (d.preset_usage_count         !== undefined) updates.presetUsageCount        = d.preset_usage_count;
 
   const [existing] = await db.select().from(captionConfigTable).limit(1);
   let config;

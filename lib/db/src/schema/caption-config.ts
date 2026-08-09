@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, boolean, real, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, boolean, real, timestamp, json } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -25,6 +25,11 @@ export const captionConfigTable = pgTable("caption_config", {
   captionEngine: text("caption_engine").notNull().default("standard"), // "standard" | "browser_experimental"
   templateId: text("template_id"),                                     // null when captionEngine = "standard"
   templateOverrides: text("template_overrides"),                       // JSON: Partial<CaptionTemplate> — per-template user tweaks
+  // Caption preset rotation (mirrors avatar rotation pattern)
+  selectedPresetIds: text("selected_preset_ids").array().notNull().default([]),
+  captionRotationStrategy: text("caption_rotation_strategy").notNull().default("sequential"),
+  lastUsedPresetId: text("last_used_preset_id"),
+  presetUsageCount: json("preset_usage_count").$type<Record<string, number>>().notNull().default({}),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
