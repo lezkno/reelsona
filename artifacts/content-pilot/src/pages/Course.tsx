@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react"
+import { useState, useMemo, useRef, useEffect } from "react"
 import { Link } from "wouter"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -238,6 +238,19 @@ export default function Course() {
   // Default selection: next incomplete lesson, or first lesson
   const [selectedId, setSelectedId] = useState<string>(() => ALL_LESSONS[0].id)
 
+  // Ref for the lesson detail panel — used to scroll into view on mobile
+  const lessonDetailRef = useRef<HTMLDivElement>(null)
+
+  // On mobile (< lg = 1024px), scroll to lesson detail whenever selection changes
+  // Skip the very first render (no user interaction yet)
+  const isFirstRender = useRef(true)
+  useEffect(() => {
+    if (isFirstRender.current) { isFirstRender.current = false; return }
+    if (window.innerWidth < 1024 && lessonDetailRef.current) {
+      lessonDetailRef.current.scrollIntoView({ behavior: "smooth", block: "start" })
+    }
+  }, [selectedId])
+
   const selectedLesson = ALL_LESSONS.find((l) => l.id === selectedId) ?? ALL_LESSONS[0]
   const selectedModule = COURSE_MODULES.find((m) => m.lessons.some((l) => l.id === selectedId))!
   const lessonIndexInModule = selectedModule.lessons.findIndex((l) => l.id === selectedId) + 1
@@ -338,7 +351,7 @@ export default function Course() {
         </div>
 
         {/* Lesson detail */}
-        <div className="rounded-xl border bg-card shadow-sm p-6 min-h-[400px]">
+        <div ref={lessonDetailRef} className="rounded-xl border bg-card shadow-sm p-6 min-h-[400px] scroll-mt-4">
           {isLoading ? (
             <div className="flex items-center justify-center h-48 text-muted-foreground gap-2">
               <Loader2 className="w-5 h-5 animate-spin" /> Cargando…
