@@ -32,7 +32,9 @@ function isAllowedRedirectUri(uri: string): boolean {
     return (
       u.hostname === "localhost" ||
       u.hostname.endsWith(".replit.dev") ||
-      u.hostname.endsWith(".replit.app")
+      u.hostname.endsWith(".replit.app") ||
+      u.hostname === "reelsona.com" ||
+      u.hostname.endsWith(".reelsona.com")
     );
   } catch {
     return false;
