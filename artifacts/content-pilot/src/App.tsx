@@ -16,6 +16,7 @@ import Settings from "@/pages/Settings"
 import Automation from "@/pages/Automation"
 import CaptionStudio from "@/pages/CaptionStudio"
 import UsersPage from "@/pages/Users"
+import Profile from "@/pages/Profile"
 import Login from "@/pages/Login"
 import PrivacyPolicy from "@/pages/PrivacyPolicy"
 import TermsAndConditions from "@/pages/TermsAndConditions"
@@ -44,6 +45,7 @@ function Router() {
         <Route path="/automation" component={Automation} />
         <Route path="/captions" component={CaptionStudio} />
         <Route path="/users" component={UsersPage} />
+        <Route path="/profile" component={Profile} />
         <Route component={NotFound} />
       </Switch>
     </Layout>

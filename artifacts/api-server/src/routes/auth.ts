@@ -3,7 +3,7 @@ import type { Request, Response } from "express";
 import { db } from "@workspace/db";
 import { users } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
-import { verifyPassword } from "../lib/password";
+import { verifyPassword, hashPassword } from "../lib/password";
 
 const router = Router();
 
@@ -64,16 +64,91 @@ router.post("/auth/logout", (req: Request, res: Response): void => {
 
 /**
  * GET /api/auth/me
+ * Returns session info enriched with full profile from DB.
  */
-router.get("/auth/me", (req: Request, res: Response): void => {
-  if (req.session?.authenticated) {
-    res.json({
-      authenticated: true,
-      user: req.session.user ?? { username: "admin", role: "admin", userId: 1 },
-    });
+router.get("/auth/me", async (req: Request, res: Response): Promise<void> => {
+  if (!req.session?.authenticated) {
+    res.status(401).json({ authenticated: false });
     return;
   }
-  res.status(401).json({ authenticated: false });
+  const sessionUser = req.session.user ?? { username: "admin", role: "admin", userId: 1 };
+  try {
+    const [row] = await db.select().from(users).where(eq(users.id, sessionUser.userId)).limit(1);
+    res.json({
+      authenticated: true,
+      user: {
+        ...sessionUser,
+        fullName: row?.fullName ?? null,
+        email: row?.email ?? null,
+        phone: row?.phone ?? null,
+      },
+    });
+  } catch {
+    res.json({ authenticated: true, user: sessionUser });
+  }
+});
+
+/**
+ * PATCH /api/auth/profile
+ * Self-service profile update (name, email, phone).
+ */
+router.patch("/auth/profile", async (req: Request, res: Response): Promise<void> => {
+  if (!req.session?.authenticated) {
+    res.status(401).json({ error: "No autenticado" });
+    return;
+  }
+  const { fullName, email, phone } = (req.body ?? {}) as {
+    fullName?: string; email?: string; phone?: string;
+  };
+  const userId = req.session.user?.userId;
+  if (!userId) { res.status(400).json({ error: "Sesión inválida" }); return; }
+
+  try {
+    await db.update(users)
+      .set({ fullName: fullName ?? null, email: email ?? null, phone: phone ?? null, updatedAt: new Date() })
+      .where(eq(users.id, userId));
+    res.json({ ok: true });
+  } catch {
+    res.status(500).json({ error: "Error al actualizar perfil" });
+  }
+});
+
+/**
+ * POST /api/auth/change-password
+ * Self-service password change.
+ */
+router.post("/auth/change-password", async (req: Request, res: Response): Promise<void> => {
+  if (!req.session?.authenticated) {
+    res.status(401).json({ error: "No autenticado" });
+    return;
+  }
+  const { currentPassword, newPassword } = (req.body ?? {}) as {
+    currentPassword?: string; newPassword?: string;
+  };
+  if (!currentPassword || !newPassword) {
+    res.status(400).json({ error: "Se requieren ambas contraseñas" });
+    return;
+  }
+  if (newPassword.length < 8) {
+    res.status(400).json({ error: "La contraseña debe tener al menos 8 caracteres" });
+    return;
+  }
+  const userId = req.session.user?.userId;
+  if (!userId) { res.status(400).json({ error: "Sesión inválida" }); return; }
+
+  try {
+    const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+    if (!user || !verifyPassword(currentPassword, user.passwordHash)) {
+      res.status(401).json({ error: "Contraseña actual incorrecta" });
+      return;
+    }
+    await db.update(users)
+      .set({ passwordHash: hashPassword(newPassword), updatedAt: new Date() })
+      .where(eq(users.id, userId));
+    res.json({ ok: true });
+  } catch {
+    res.status(500).json({ error: "Error al cambiar contraseña" });
+  }
 });
 
 export default router;

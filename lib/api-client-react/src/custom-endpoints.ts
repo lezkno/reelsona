@@ -10,11 +10,39 @@ import { customFetch } from "./custom-fetch";
 export interface AuthUser {
   username: string;
   role: string;
+  userId: number;
+  fullName?: string | null;
+  email?: string | null;
+  phone?: string | null;
 }
 
 export interface AuthStatus {
   authenticated: boolean;
   user?: AuthUser;
+}
+
+/** Update the current user's profile (name, email, phone). */
+export function useUpdateProfile() {
+  return useMutation({
+    mutationFn: (data: { fullName?: string; email?: string; phone?: string }) =>
+      customFetch<{ ok: boolean }>("/api/auth/profile", {
+        method: "PATCH",
+        body: JSON.stringify(data),
+        headers: { "Content-Type": "application/json" },
+      }),
+  });
+}
+
+/** Change the current user's password. */
+export function useChangePassword() {
+  return useMutation({
+    mutationFn: ({ currentPassword, newPassword }: { currentPassword: string; newPassword: string }) =>
+      customFetch<{ ok: boolean }>("/api/auth/change-password", {
+        method: "POST",
+        body: JSON.stringify({ currentPassword, newPassword }),
+        headers: { "Content-Type": "application/json" },
+      }),
+  });
 }
 
 /** Check whether the current session is authenticated. */
