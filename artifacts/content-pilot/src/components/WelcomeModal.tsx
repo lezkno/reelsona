@@ -73,9 +73,9 @@ export function WelcomeModal() {
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) handleClose() }}>
-      <DialogContent className="max-w-xl p-0 overflow-hidden gap-0">
+      <DialogContent className="w-[calc(100%-2rem)] max-w-xl p-0 overflow-hidden gap-0 max-h-[90vh] overflow-y-auto">
         {/* Header gradient strip */}
-        <div className="bg-gradient-to-br from-primary/90 to-purple-700 px-6 pt-6 pb-5 text-white">
+        <div className="bg-gradient-to-br from-primary/90 to-purple-700 px-4 sm:px-6 pt-6 pb-5 text-white">
           <div className="flex justify-center mb-4">
             <img src="/logo.png" alt="Reelsona" className="w-16 h-16 object-contain drop-shadow-lg" />
           </div>
@@ -90,7 +90,7 @@ export function WelcomeModal() {
         </div>
 
         {/* Video area */}
-        <div className="mx-6 -mt-3 rounded-xl overflow-hidden border border-border shadow-md">
+        <div className="mx-3 sm:mx-6 -mt-3 rounded-xl overflow-hidden border border-border shadow-md">
           {WELCOME_VIDEO_URL ? (
             <div className="relative w-full" style={{ paddingBottom: "56.25%" }}>
               <iframe
@@ -113,7 +113,7 @@ export function WelcomeModal() {
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-5 space-y-4">
+        <div className="px-4 sm:px-6 py-5 space-y-4">
           {/* Steps summary */}
           <div className="grid grid-cols-3 gap-2 text-center">
             {[
@@ -138,7 +138,7 @@ export function WelcomeModal() {
           </Button>
 
           {/* Don't show again + skip */}
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2">
               <Checkbox
                 id="dont-show"
@@ -151,7 +151,7 @@ export function WelcomeModal() {
             </div>
             <button
               onClick={handleClose}
-              className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
+              className="min-h-[44px] px-3 text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
             >
               Ahora no
             </button>

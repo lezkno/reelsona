@@ -100,7 +100,7 @@ function HeyGenIntegrationCard() {
   return (
     <Card>
       <CardHeader className="pb-4">
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex items-center gap-3">
             {/* HeyGen brand mark */}
             <img
@@ -380,7 +380,7 @@ export default function Settings() {
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Tono de Voz</Label>
               <Select

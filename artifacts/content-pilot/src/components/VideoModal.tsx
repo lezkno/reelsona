@@ -223,7 +223,7 @@ export function VideoModal({
             </div>
           )}
 
-          <div className={`px-5 py-4 flex gap-2 items-center${hasCopy ? " border-t" : " mt-auto"}`}>
+          <div className={`px-5 py-4 flex flex-wrap gap-2 items-center${hasCopy ? " border-t" : " mt-auto"}`}>
             <Button variant="outline" onClick={onClose} disabled={isApproving} className="w-auto">
               {dismissLabel}
             </Button>

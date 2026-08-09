@@ -68,7 +68,7 @@ export function Sidebar({ onClose }: SidebarProps) {
           <button
             type="button"
             onClick={onClose}
-            className="md:hidden p-1.5 rounded-md text-sidebar-foreground/50 hover:text-sidebar-foreground hover:bg-sidebar-accent/50 transition-colors"
+            className="md:hidden min-h-[44px] min-w-[44px] flex items-center justify-center rounded-md text-sidebar-foreground/50 hover:text-sidebar-foreground hover:bg-sidebar-accent/50 transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
@@ -168,7 +168,7 @@ export function Sidebar({ onClose }: SidebarProps) {
                 onClick={e => { e.preventDefault(); handleLogout() }}
                 disabled={logout.isPending}
                 title="Cerrar sesión"
-                className="p-1.5 rounded-md text-sidebar-foreground/40 hover:text-sidebar-foreground hover:bg-sidebar-accent/60 transition-colors shrink-0 opacity-0 group-hover:opacity-100"
+                className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-md text-sidebar-foreground/40 hover:text-sidebar-foreground hover:bg-sidebar-accent/60 transition-colors shrink-0 opacity-0 group-hover:opacity-100"
               >
                 <LogOut className="w-3.5 h-3.5" />
               </button>

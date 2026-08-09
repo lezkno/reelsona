@@ -277,7 +277,7 @@ export default function PipelineTimeline() {
   const isAwaitingReview     = mode === "awaiting_publish" && isManual
 
   const gridClass =
-    visibleSteps.length === 3 ? "grid-cols-3" :
+    visibleSteps.length === 3 ? "grid-cols-2 sm:grid-cols-3" :
     visibleSteps.length === 4 ? "grid-cols-2 sm:grid-cols-4" :
     visibleSteps.length === 5 ? "grid-cols-2 sm:grid-cols-5" :
                                 "grid-cols-2 sm:grid-cols-6"
