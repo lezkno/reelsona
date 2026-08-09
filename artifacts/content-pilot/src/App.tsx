@@ -28,6 +28,7 @@ import TermsAndConditions from "@/pages/TermsAndConditions"
 import Checkout from "@/pages/Checkout"
 import CheckoutSuccess from "@/pages/CheckoutSuccess"
 import CheckoutCancel from "@/pages/CheckoutCancel"
+import Landing from "@/pages/Landing"
 import { useAuthStatus } from "@workspace/api-client-react"
 import { useEntitlement } from "@/hooks/useEntitlement"
 
@@ -133,6 +134,7 @@ function App() {
             <Route path="/terms" component={TermsAndConditions} />
             <Route path="/register" component={Register} />
             <Route path="/verify-email" component={VerifyEmail} />
+            <Route path="/landing" component={Landing} />
             <Route path="/activate" component={Activate} />
             <Route path="/checkout/success" component={CheckoutSuccess} />
             <Route path="/checkout/cancel" component={CheckoutCancel} />
