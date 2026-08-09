@@ -57,9 +57,7 @@ export function Sidebar({ onClose }: SidebarProps) {
     <aside className="w-64 shrink-0 bg-sidebar text-sidebar-foreground flex flex-col h-full border-r border-sidebar-border relative z-20">
       <div className="h-16 flex items-center px-6 border-b border-sidebar-border">
         <div className="flex items-center gap-2 flex-1">
-          <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground font-bold shadow-[0_0_15px_rgba(100,50,255,0.4)]">
-            R
-          </div>
+          <img src="/logo.png" alt="Reelsona" className="w-8 h-8 object-contain" />
           <span className="font-display font-bold text-xl tracking-tight">Reelsona</span>
         </div>
         {/* Close button — mobile only */}

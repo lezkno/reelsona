@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Lock, Loader2 } from "lucide-react"
+import { Loader2 } from "lucide-react"
 import { useLogin } from "@workspace/api-client-react"
 
 interface LoginProps {
@@ -35,8 +35,8 @@ export default function Login({ onSuccess }: LoginProps) {
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <Card className="w-full max-w-sm shadow-xl">
         <CardHeader className="text-center pb-2">
-          <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-3">
-            <Lock className="w-6 h-6 text-primary" />
+          <div className="flex items-center justify-center mx-auto mb-3">
+            <img src="/logo.png" alt="Reelsona" className="w-16 h-16 object-contain" />
           </div>
           <CardTitle className="text-2xl font-display">Reelsona</CardTitle>
           <CardDescription>Inicia sesión para continuar</CardDescription>
