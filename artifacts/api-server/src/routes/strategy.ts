@@ -179,17 +179,27 @@ router.get("/strategy/radar/suggestions", async (_req, res): Promise<void> => {
     return;
   }
   try {
+    // Fetch already-saved accounts so the AI never repeats them
+    const existing = await db.select({ igUsername: nicheRadarAccountsTable.igUsername })
+      .from(nicheRadarAccountsTable);
+    const excludeList = existing.map((r) => r.igUsername);
+
     const client = getClient();
     const language = settingsRow.language ?? "es";
     const langInstruction = language === "en" ? "Respond in English." : "Responde en español.";
+    const excludeBlock = excludeList.length > 0
+      ? `\nCuentas que el creador YA tiene en su radar — NO las sugieras: ${excludeList.map((u) => `@${u}`).join(", ")}`
+      : "";
+
     const prompt = `${langInstruction}
 
 Eres un experto en Instagram y nichos de contenido. El creador tiene el siguiente perfil:
 - Nicho: ${settingsRow.niche}
 ${settingsRow.nicheDescription ? `- Descripción: ${settingsRow.nicheDescription}` : ""}
 ${(settingsRow.topicKeywords as string[] | null)?.length ? `- Keywords: ${(settingsRow.topicKeywords as string[]).join(", ")}` : ""}
+${excludeBlock}
 
-Sugiere 6 cuentas de Instagram reales y relevantes que este creador debería monitorear como referentes del nicho. Pueden ser cuentas grandes, medianas o micro-influencers. Enfócate en cuentas que realmente existan y sean relevantes.
+Sugiere 10 cuentas de Instagram reales y relevantes que este creador debería monitorear como referentes del nicho. Pueden ser cuentas grandes, medianas o micro-influencers. Enfócate en cuentas que realmente existan y sean relevantes. NUNCA repitas las cuentas excluidas arriba.
 
 Devuelve SOLO un JSON:
 {
@@ -209,7 +219,11 @@ Devuelve SOLO un JSON:
       response_format: { type: "json_object" },
     });
     const parsed = JSON.parse(result.choices[0]?.message?.content ?? "{}");
-    res.json({ suggestions: parsed.suggestions ?? [] });
+    // Extra safety: strip any that sneak through matching existing accounts
+    const filtered = (parsed.suggestions ?? []).filter(
+      (s: { ig_username: string }) => !excludeList.includes(s.ig_username?.toLowerCase())
+    );
+    res.json({ suggestions: filtered });
   } catch (err) {
     logger.error({ err }, "Failed to get radar suggestions");
     res.json({ suggestions: [] });

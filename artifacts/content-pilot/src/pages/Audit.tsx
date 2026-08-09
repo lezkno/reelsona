@@ -203,7 +203,7 @@ function TabCuenta({ profile, onNext }: { profile: StrategyProfile | null; onNex
 function TabRadar() {
   const { data: statusData } = useGetRadarStatus()
   const { data: accountsData, isLoading: loadingAccounts } = useGetRadarAccounts()
-  const { data: suggestionsData, isLoading: loadingSuggestions } = useGetRadarSuggestions()
+  const { data: suggestionsData, isLoading: loadingSuggestions, refetch: refetchSuggestions } = useGetRadarSuggestions()
   const addAccount   = useAddRadarAccount()
   const updateAccount = useUpdateRadarAccount()
   const deleteAccount = useDeleteRadarAccount()
@@ -363,6 +363,14 @@ function TabRadar() {
                   </Button>
                 </div>
               ))}
+            {suggestions.filter((s) => !accounts.some((a) => a.ig_username === s.ig_username)).length === 0 && (
+              <div className="flex flex-col items-center gap-2 py-4 text-center">
+                <p className="text-sm text-muted-foreground">Agregaste todas las sugerencias.</p>
+                <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={() => refetchSuggestions()}>
+                  <RefreshCw className="w-3 h-3" /> Buscar más referentes
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </div>
