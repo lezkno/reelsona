@@ -132,18 +132,6 @@ export default function Connect() {
             <p className="text-xs text-muted-foreground mt-4">
               Solo publicaremos el contenido que tú apruebes o que esté automatizado.
             </p>
-            <div className="mt-6 text-left bg-muted/50 border rounded-lg p-4">
-              <p className="text-xs font-medium mb-1">URI de redireccionamiento (debe estar registrada exactamente así en tu Meta App):</p>
-              <div className="flex items-center gap-2">
-                <code className="text-xs bg-background border rounded px-2 py-1 flex-1 overflow-x-auto whitespace-nowrap">{redirectUri}</code>
-                <Button variant="outline" size="sm" onClick={() => { navigator.clipboard.writeText(redirectUri); toast({ title: "Copiada", description: "URI copiada al portapapeles." }) }}>
-                  Copiar
-                </Button>
-              </div>
-              <p className="text-[11px] text-muted-foreground mt-2">
-                Meta Dashboard → Instagram → Inicio de sesión con Instagram para empresas → Configurar → "URI de redireccionamiento de OAuth válidos". Usá el botón "Comprobar URI" con este valor exacto.
-              </p>
-            </div>
           </CardContent>
         </Card>
       ) : (
