@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { automationConfigTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { automationConfigTable, videosTable } from "@workspace/db";
+import { eq, or } from "drizzle-orm";
 import {
   GetAutomationResponse,
   UpdateAutomationBody,
@@ -12,7 +12,7 @@ import { runAutomationCycle } from "../lib/scheduler";
 
 const router = Router();
 
-function mapConfig(c: typeof automationConfigTable.$inferSelect) {
+function mapConfig(c: typeof automationConfigTable.$inferSelect, processingLocked: boolean) {
   return {
     enabled: c.enabled,
     posting_times: c.postingTimes ?? ["09:00", "18:00"],
@@ -25,7 +25,23 @@ function mapConfig(c: typeof automationConfigTable.$inferSelect) {
     last_run_at: c.lastRunAt?.toISOString() ?? null,
     next_run_at: c.nextRunAt?.toISOString() ?? null,
     last_run_status: c.lastRunStatus ?? null,
+    processing_locked: processingLocked,
   };
+}
+
+/** Returns true if any video is currently being processed (HeyGen rendering or caption render). */
+async function isProcessingLocked(): Promise<boolean> {
+  const processing = await db
+    .select({ id: videosTable.id })
+    .from(videosTable)
+    .where(
+      or(
+        eq(videosTable.status, "processing"),
+        eq(videosTable.captionStatus as any, "processing")
+      )
+    )
+    .limit(1);
+  return processing.length > 0;
 }
 
 router.get("/automation", async (req, res): Promise<void> => {
@@ -33,13 +49,23 @@ router.get("/automation", async (req, res): Promise<void> => {
   if (!config) {
     [config] = await db.insert(automationConfigTable).values({}).returning();
   }
-  res.json(GetAutomationResponse.parse(mapConfig(config)));
+  const locked = await isProcessingLocked();
+  res.json(GetAutomationResponse.parse(mapConfig(config, locked)));
 });
 
 router.put("/automation", async (req, res): Promise<void> => {
   const parsed = UpdateAutomationBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  // Block config changes while a video is being processed
+  if (await isProcessingLocked()) {
+    res.status(409).json({
+      error: "No se pueden cambiar las configuraciones mientras hay un video procesándose.",
+      processing_locked: true,
+    });
     return;
   }
 

@@ -8,7 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { useQueryClient } from "@tanstack/react-query"
 import { useToast } from "@/hooks/use-toast"
 import { useEffect, useState } from "react"
-import { Zap, Clock, CalendarDays, Plus, X } from "lucide-react"
+import { Zap, Clock, CalendarDays, Plus, X, Lock } from "lucide-react"
 
 const DAYS = [
   { value: 1, label: "Lunes" },
@@ -21,13 +21,14 @@ const DAYS = [
 ]
 
 export default function Automation() {
-  const { data: config, isLoading } = useGetAutomation()
+  const { data: config, isLoading } = useGetAutomation({ query: { refetchInterval: 5000 } as any })
   const updateConfig = useUpdateAutomation()
   const queryClient = useQueryClient()
   const { toast } = useToast()
 
   const [formData, setFormData] = useState<AutomationConfigInput | null>(null)
-  
+  const isLocked = !!(config as any)?.processing_locked
+
   useEffect(() => {
     if (config && !formData) {
       setFormData(config)
@@ -35,7 +36,7 @@ export default function Automation() {
   }, [config, formData])
 
   const saveChange = (updates: Partial<AutomationConfigInput>) => {
-    if (!formData) return
+    if (!formData || isLocked) return
     const newData = { ...formData, ...updates }
     setFormData(newData)
     
@@ -83,28 +84,44 @@ export default function Automation() {
         <p className="text-muted-foreground mt-1 text-lg">Controla el flujo de trabajo de generación y publicación.</p>
       </div>
 
-      <Card className={`overflow-hidden border-2 transition-colors duration-500 ${formData.enabled ? 'border-primary shadow-xl shadow-primary/10' : 'border-border'}`}>
-        <div className={`p-5 md:p-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-5 ${formData.enabled ? 'bg-primary/5' : 'bg-muted/30'}`}>
+      {/* Processing lock banner */}
+      {isLocked && (
+        <div className="flex items-center gap-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-5 py-4 text-amber-700 dark:text-amber-400">
+          <Lock className="w-5 h-5 shrink-0" />
+          <div>
+            <p className="font-semibold text-sm">Configuración bloqueada — video procesándose</p>
+            <p className="text-xs opacity-80 mt-0.5">
+              Los controles se desbloquean automáticamente cuando el video termine de procesarse.
+            </p>
+          </div>
+        </div>
+      )}
+
+      <Card className={`overflow-hidden border-2 transition-colors duration-500 ${isLocked ? 'border-amber-500/30 opacity-60' : formData.enabled ? 'border-primary shadow-xl shadow-primary/10' : 'border-border'}`}>
+        <div className={`p-5 md:p-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-5 ${formData.enabled && !isLocked ? 'bg-primary/5' : 'bg-muted/30'}`}>
           <div className="flex items-center gap-4">
-            <div className={`w-14 h-14 md:w-16 md:h-16 shrink-0 rounded-full flex items-center justify-center transition-colors duration-500 ${formData.enabled ? 'bg-primary text-primary-foreground shadow-[0_0_30px_rgba(100,50,255,0.4)]' : 'bg-muted-foreground/20 text-muted-foreground'}`}>
-              <Zap className="w-7 h-7 md:w-8 md:h-8" />
+            <div className={`w-14 h-14 md:w-16 md:h-16 shrink-0 rounded-full flex items-center justify-center transition-colors duration-500 ${isLocked ? 'bg-amber-500/20 text-amber-600' : formData.enabled ? 'bg-primary text-primary-foreground shadow-[0_0_30px_rgba(100,50,255,0.4)]' : 'bg-muted-foreground/20 text-muted-foreground'}`}>
+              {isLocked ? <Lock className="w-7 h-7 md:w-8 md:h-8" /> : <Zap className="w-7 h-7 md:w-8 md:h-8" />}
             </div>
             <div>
               <h2 className="text-xl md:text-3xl font-display font-bold mb-1">
-                {formData.enabled ? "Sistema Operativo" : "Sistema Pausado"}
+                {isLocked ? "Video procesándose…" : formData.enabled ? "Sistema Operativo" : "Sistema Pausado"}
               </h2>
               <p className="text-sm text-muted-foreground max-w-sm">
-                {formData.enabled 
-                  ? "ContentPilot está generando guiones, creando videos y publicando reels automáticamente." 
-                  : "El sistema no ejecutará ninguna acción automática hasta que lo actives."}
+                {isLocked
+                  ? "La configuración está bloqueada hasta que el video termine de procesarse."
+                  : formData.enabled
+                    ? "ContentPilot está generando guiones, creando videos y publicando reels automáticamente."
+                    : "El sistema no ejecutará ninguna acción automática hasta que lo actives."}
               </p>
             </div>
           </div>
           <div className="shrink-0 self-center sm:self-auto">
             <Switch 
               checked={formData.enabled} 
-              onCheckedChange={(v) => saveChange({ enabled: v })} 
-              className="data-[state=checked]:bg-primary scale-125"
+              onCheckedChange={(v) => saveChange({ enabled: v })}
+              disabled={isLocked}
+              className="data-[state=checked]:bg-primary scale-125 disabled:opacity-40 disabled:cursor-not-allowed"
             />
           </div>
         </div>
@@ -121,7 +138,7 @@ export default function Automation() {
         )}
       </Card>
 
-      <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 transition-opacity duration-500 ${!formData.enabled ? 'opacity-50 pointer-events-none' : ''}`}>
+      <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 transition-opacity duration-500 ${isLocked || !formData.enabled ? 'opacity-50 pointer-events-none' : ''}`}>
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><CalendarDays className="w-5 h-5" /> Días de Publicación</CardTitle>

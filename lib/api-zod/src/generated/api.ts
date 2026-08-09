@@ -655,7 +655,9 @@ export const GetAutomationResponse = zod.object({
   "captions_enabled": zod.boolean(),
   "last_run_at": zod.string().nullish(),
   "next_run_at": zod.string().nullish(),
-  "last_run_status": zod.string().nullish()
+  "last_run_status": zod.string().nullish(),
+  /** True while any video is being processed — UI should lock all config controls */
+  "processing_locked": zod.boolean()
 })
 
 

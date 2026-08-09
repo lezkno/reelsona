@@ -203,13 +203,13 @@ export const BROWSER_CAPTION_TEMPLATES: CaptionTemplate[] = [
       "Palabras clave grandes en amarillo, funcionales pequeñas en blanco. El look Dimidium original.",
 
     fontFamily: "Poppins",
-    fontSize: 90,
+    fontSize: 95,
     fontWeight: 800,
     uppercase: false,
     letterSpacing: 0.01,
     lineHeight: 1.25,
 
-    wordsPerLine: 9,
+    wordsPerLine: 5,
     yPercent: 75,
     marginXPercent: 5,
     textAlign: "center",

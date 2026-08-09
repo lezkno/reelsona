@@ -21,4 +21,6 @@ export interface AutomationConfig {
   next_run_at?: string | null;
   /** @nullable */
   last_run_status?: string | null;
+  /** True while any video is being processed — UI should lock all config controls */
+  processing_locked: boolean;
 }
