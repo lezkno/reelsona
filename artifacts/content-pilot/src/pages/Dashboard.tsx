@@ -610,10 +610,15 @@ function PipelineStatusCard({ planItems, planLoading, strategyProfile, strategyL
 
   // Items currently rendering in HeyGen
   const generatingItems = planItems.filter(i => i.status === "generating")
-  // Next item queued to be sent to HeyGen (first scripted, by id asc)
+  // Next item in the pipeline (scripted first, then draft) — always show something upcoming
+  const STATUS_PRIORITY: Record<string, number> = { scripted: 0, draft: 1 }
   const nextToGenerate = planItems
-    .filter(i => i.status === "scripted")
-    .sort((a, b) => a.id - b.id)[0] ?? null
+    .filter(i => i.status === "scripted" || i.status === "draft")
+    .sort((a, b) => {
+      const pa = STATUS_PRIORITY[a.status] ?? 99
+      const pb = STATUS_PRIORITY[b.status] ?? 99
+      return pa !== pb ? pa - pb : a.id - b.id
+    })[0] ?? null
 
   return (
     <Card>
@@ -698,7 +703,9 @@ function PipelineStatusCard({ planItems, planLoading, strategyProfile, strategyL
                   <Video className="w-3.5 h-3.5 text-blue-500" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-[11px] text-blue-600 dark:text-blue-400 font-semibold uppercase tracking-wide mb-0.5">Próximo a generar</p>
+                  <p className="text-[11px] text-blue-600 dark:text-blue-400 font-semibold uppercase tracking-wide mb-0.5">
+                    {nextToGenerate.status === "scripted" ? "Próximo a generar" : "Próximo en el plan"}
+                  </p>
                   <p className="text-sm font-medium text-foreground truncate">{nextToGenerate.topic}</p>
                 </div>
                 <Button size="sm" variant="ghost" className="shrink-0 text-xs gap-1 text-blue-600 hover:text-blue-700 hover:bg-blue-500/10" asChild>
