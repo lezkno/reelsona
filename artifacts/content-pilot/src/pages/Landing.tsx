@@ -105,19 +105,28 @@ const forWhom = [
   { Icon: TrendingUp, title: "Educadores online", desc: "Que necesitan generar autoridad y comunidad con Reels constantes sin que la producción los consuma." },
 ];
 
-const includes = [
-  "Plataforma completa de estrategia, guiones y producción",
-  "Ruta guiada de implementación desde cero",
+// Programa educativo ($47 acceso de por vida)
+const programIncludes = [
+  "7 módulos completos con 23 clases en video",
+  "Módulo 1 — Fundamentos de la máquina de contenido con avatar",
+  "Módulo 2 — Configuración técnica esencial (HeyGen, OpenAI, Instagram)",
+  "Módulo 3 — Estrategia antes de crear contenido",
+  "Módulo 4 — Crear los primeros Reels con tu avatar",
+  "Módulo 5 — Captions, edición y calidad",
+  "Módulo 6 — Publicación y automatización",
+  "Módulo 7 — Escalar sin perder calidad",
+  "Plantillas y checklists de lanzamiento",
+  "Acceso de por vida al programa",
+];
+
+// Herramientas de automatización (30 días gratis incluidos en los $47)
+const toolsIncludes = [
   "Estudio de mercado con análisis de competidores",
-  "Generador de temas y hooks para Reels",
-  "Generador de guiones con IA adaptados a tu avatar",
-  "Producción de videos usando tu avatar en HeyGen",
-  "Estudio de captions con plantillas visuales",
+  "Generador de temas y guiones con IA para Reels",
+  "Producción de videos con tu avatar en HeyGen",
+  "Caption Studio con plantillas visuales",
   "Publicación programada en Instagram",
-  "Modo Autopilot para ejecución sin intervención manual",
-  "Área de clases paso a paso incluida",
-  "Plantillas y checklists de producción",
-  "Acceso completo sin suscripción mensual",
+  "Modo Autopilot — el sistema ejecuta todo el pipeline",
 ];
 
 const notJustAiToolItems = [
@@ -134,7 +143,7 @@ const faqs = [
   { q: "¿Cómo funciona el modo Autopilot?", a: "Cuando tienes tu estrategia, herramientas y preferencias configuradas, Autopilot ejecuta el pipeline completo: genera guiones, produce los videos con tu avatar, aplica captions y los publica en Instagram según el calendario que definiste." },
   { q: "¿Necesito saber editar videos?", a: "No. El sistema genera los videos completos con tu avatar y captions incluidos. No necesitas abrir ningún editor de video." },
   { q: "¿Tengo que grabarme frente a una cámara?", a: "No. Tu avatar IA habla por ti en cada Reel. Tú defines la estrategia y el guión — el sistema produce el video." },
-  { q: "¿Qué pasa después de comprar?", a: "Recibirás un email de activación. Con ese link creas tu contraseña y accedes al sistema completo de inmediato." },
+  { q: "¿Qué pasa después de comprar?", a: "Recibirás un email de activación. Con ese link creas tu contraseña y accedes al programa educativo completo (7 módulos, 23 clases) de inmediato, más 30 días gratis de acceso a todas las herramientas de automatización de Instagram." },
   { q: "¿Puedo publicar directamente en Instagram?", a: "Sí. Conectas tu cuenta de Instagram Business desde la plataforma y programas la publicación de tus Reels desde ahí." },
 ];
 
@@ -339,49 +348,74 @@ export default function Landing() {
             </p>
           </div>
 
-          <div className="grid gap-6 reveal-up stagger-1" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(300px,1fr))" }}>
-            {/* Caos */}
-            <div className="rounded-3xl relative overflow-hidden" style={{ backgroundColor: "#111", border: "1px solid rgba(255,80,80,0.12)", padding: "2rem" }}>
-              <div style={{ position: "absolute", top: 0, right: 0, padding: "1.5rem", opacity: 0.07 }}><X size={120} color="#ff4444" /></div>
-              <div style={{ display: "inline-block", backgroundColor: "rgba(255,80,80,0.1)", color: "#ff6666", fontWeight: 700, fontSize: "0.72rem", letterSpacing: "0.08em", textTransform: "uppercase", borderRadius: 999, padding: "0.25rem 0.75rem", marginBottom: "1.25rem" }}>Sin Reelsona — Caos</div>
-              <h3 style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "1.25rem", fontWeight: 800, color: "#e0e0e0", marginBottom: "1.25rem" }}>Producción manual</h3>
-              <div className="flex flex-col gap-3">
-                {[
-                  { Icon: Clock, t: "Horas pensando ideas frente a la pantalla en blanco" },
-                  { Icon: FilePen, t: "Escribiendo guiones que no enganchan" },
-                  { Icon: Video, t: "Grabando, repitiendo tomas, editando cortes" },
-                  { Icon: Settings2, t: "Sufriendo con apps de captions dinámicos" },
-                ].map(({ Icon, t }) => (
-                  <div key={t} className="flex gap-3 items-start rounded-xl" style={{ backgroundColor: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,255,255,0.05)", padding: "0.85rem 1rem" }}>
-                    <Icon size={18} color="#884444" style={{ flexShrink: 0, marginTop: 1 }} />
-                    <span style={{ color: "#666", fontSize: "0.855rem", lineHeight: 1.55 }}>{t}</span>
+          {/* Single container split by a VS divider */}
+          <div className="reveal-up stagger-1" style={{ position: "relative" }}>
+            <div style={{ borderRadius: 28, overflow: "hidden", border: "1px solid #1c1c1c", display: "grid", gridTemplateColumns: "1fr 1fr" }}>
+
+              {/* ── LEFT: Caos ── */}
+              <div style={{ position: "relative", padding: "2.5rem", backgroundColor: "#0e0e0e", borderRight: "1px solid #1c1c1c", overflow: "hidden" }}>
+                {/* noise texture overlay */}
+                <div style={{ position: "absolute", inset: 0, backgroundImage: "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E\")", opacity: 0.6, pointerEvents: "none" }} />
+                {/* red glow top-right */}
+                <div style={{ position: "absolute", top: -40, right: -40, width: 200, height: 200, backgroundColor: "rgba(200,50,50,0.06)", borderRadius: "9999px", filter: "blur(60px)", pointerEvents: "none" }} />
+
+                <div style={{ position: "relative", zIndex: 1 }}>
+                  <div style={{ display: "inline-flex", alignItems: "center", gap: 6, backgroundColor: "rgba(200,50,50,0.1)", border: "1px solid rgba(200,50,50,0.15)", color: "#c05050", fontWeight: 700, fontSize: "0.68rem", letterSpacing: "0.1em", textTransform: "uppercase", borderRadius: 999, padding: "0.25rem 0.75rem", marginBottom: "1.5rem" }}>
+                    <X size={10} strokeWidth={3} /> Sin Reelsona
                   </div>
-                ))}
+                  <h3 style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "1.1rem", fontWeight: 800, color: "#777", marginBottom: "1.5rem", letterSpacing: "-0.02em" }}>Producción manual</h3>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                    {[
+                      { Icon: Clock,    t: "Horas pensando ideas frente a una pantalla en blanco" },
+                      { Icon: FilePen,  t: "Escribiendo guiones que no enganchan" },
+                      { Icon: Video,    t: "Grabando, repitiendo tomas, editando cortes" },
+                      { Icon: Settings2,t: "Sufriendo con apps de captions dinámicos" },
+                    ].map(({ Icon, t }) => (
+                      <div key={t} style={{ display: "flex", gap: "0.85rem", alignItems: "flex-start", padding: "0.85rem 1rem", borderRadius: 12, backgroundColor: "rgba(0,0,0,0.3)", border: "1px solid rgba(255,255,255,0.04)" }}>
+                        <Icon size={16} color="#5a3333" style={{ flexShrink: 0, marginTop: 1 }} />
+                        <span style={{ color: "#4a4a4a", fontSize: "0.845rem", lineHeight: 1.55, textDecoration: "line-through", textDecorationColor: "rgba(180,60,60,0.3)" }}>{t}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* ── RIGHT: Sistema ── */}
+              <div style={{ position: "relative", padding: "2.5rem", backgroundColor: "#0a0d14", overflow: "hidden" }}>
+                {/* blue glow */}
+                <div style={{ position: "absolute", bottom: -40, right: -40, width: 280, height: 280, backgroundColor: "rgba(79,110,247,0.1)", borderRadius: "9999px", filter: "blur(70px)", pointerEvents: "none" }} />
+                <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: "linear-gradient(90deg,rgba(79,110,247,0.5),rgba(155,92,246,0.5),transparent)", pointerEvents: "none" }} />
+
+                <div style={{ position: "relative", zIndex: 1 }}>
+                  <div style={{ display: "inline-flex", alignItems: "center", gap: 6, backgroundColor: "rgba(79,110,247,0.12)", border: "1px solid rgba(79,110,247,0.25)", color: "#4F6EF7", fontWeight: 700, fontSize: "0.68rem", letterSpacing: "0.1em", textTransform: "uppercase", borderRadius: 999, padding: "0.25rem 0.75rem", marginBottom: "1.5rem" }}>
+                    <Check size={10} strokeWidth={3} /> Con Reelsona
+                  </div>
+                  <h3 style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "1.1rem", fontWeight: 800, color: "#e8e8e8", marginBottom: "1.5rem", letterSpacing: "-0.02em" }}>Máquina en Autopilot</h3>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", position: "relative" }}>
+                    {/* vertical connector */}
+                    <div style={{ position: "absolute", left: 19, top: 20, bottom: 20, width: 2, background: "linear-gradient(to bottom,#4F6EF7,#9B5CF6,transparent)", zIndex: 0 }} />
+                    {[
+                      { Icon: Brain,     t: "Estrategia de 30 días generada automáticamente" },
+                      { Icon: Bot,       t: "IA escribe guiones optimizados para Reels" },
+                      { Icon: Play,      t: "Avatar graba el video en HeyGen" },
+                      { Icon: Instagram, t: "Publicado con captions en Instagram" },
+                    ].map(({ Icon, t }) => (
+                      <div key={t} style={{ position: "relative", zIndex: 1, display: "flex", gap: "0.85rem", alignItems: "center", padding: "0.85rem 1rem", borderRadius: 12, background: "linear-gradient(90deg,rgba(79,110,247,0.08),rgba(79,110,247,0.02))", border: "1px solid rgba(79,110,247,0.15)" }}>
+                        <div style={{ width: 38, height: 38, borderRadius: "9999px", backgroundColor: "#4F6EF7", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, boxShadow: "0 0 16px rgba(79,110,247,0.45)" }}>
+                          <Icon size={16} color="#fff" />
+                        </div>
+                        <span style={{ color: "#c8c8c8", fontSize: "0.845rem", fontWeight: 500, flex: 1 }}>{t}</span>
+                        <Check size={13} color="#4F6EF7" strokeWidth={3} style={{ flexShrink: 0 }} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
             </div>
 
-            {/* Sistema */}
-            <div className="rounded-3xl relative overflow-hidden" style={{ backgroundColor: "#111", border: "1px solid rgba(79,110,247,0.3)", padding: "2rem", boxShadow: "0 0 60px rgba(79,110,247,0.08)" }}>
-              <div style={{ position: "absolute", bottom: -40, right: -40, width: 200, height: 200, backgroundColor: "rgba(79,110,247,0.08)", borderRadius: "9999px", filter: "blur(40px)" }} />
-              <div style={{ display: "inline-block", backgroundColor: "rgba(79,110,247,0.12)", color: "#4F6EF7", fontWeight: 700, fontSize: "0.72rem", letterSpacing: "0.08em", textTransform: "uppercase", borderRadius: 999, padding: "0.25rem 0.75rem", marginBottom: "1.25rem" }}>Con Reelsona — Sistema</div>
-              <h3 style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "1.25rem", fontWeight: 800, color: "#e0e0e0", marginBottom: "1.25rem" }}>Máquina en Autopilot</h3>
-              <div className="flex flex-col gap-2 relative" style={{ zIndex: 1 }}>
-                <div style={{ position: "absolute", left: 19, top: 24, bottom: 24, width: 2, background: "linear-gradient(to bottom,#4F6EF7,#9B5CF6)" }} />
-                {[
-                  { Icon: Brain, t: "Estrategia de 30 días generada automáticamente" },
-                  { Icon: Bot,   t: "IA escribe guiones optimizados para Reels" },
-                  { Icon: Play,  t: "Avatar graba el video en HeyGen" },
-                  { Icon: Instagram, t: "Publicado con captions en Instagram" },
-                ].map(({ Icon, t }) => (
-                  <div key={t} className="flex gap-3 items-center rounded-xl" style={{ background: "linear-gradient(90deg,rgba(79,110,247,0.1),transparent)", border: "1px solid rgba(79,110,247,0.18)", padding: "0.85rem 1rem" }}>
-                    <div style={{ width: 38, height: 38, borderRadius: "9999px", backgroundColor: "#4F6EF7", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, zIndex: 2, boxShadow: "0 0 14px rgba(79,110,247,0.5)" }}>
-                      <Icon size={17} color="#fff" />
-                    </div>
-                    <span style={{ color: "#ccc", fontSize: "0.855rem", fontWeight: 500 }}>{t}</span>
-                    <Check size={14} color="#4F6EF7" strokeWidth={3} style={{ marginLeft: "auto", flexShrink: 0 }} />
-                  </div>
-                ))}
-              </div>
+            {/* VS badge — centered between the two halves */}
+            <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 10, width: 44, height: 44, borderRadius: "9999px", backgroundColor: "#090909", border: "1px solid #2a2a2a", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--font-display,'Outfit',sans-serif)", fontWeight: 900, fontSize: "0.72rem", letterSpacing: "0.04em", color: "#444", boxShadow: "0 0 0 6px #0b0b0b" }}>
+              VS
             </div>
           </div>
         </div>
@@ -637,23 +671,64 @@ export default function Landing() {
           QUÉ INCLUYE
       ══════════════════════════════════════ */}
       <section style={{ padding: "6rem 1.5rem" }}>
-        <div className="mx-auto" style={{ maxWidth: 820 }}>
-          <div className="text-center reveal-up" style={{ marginBottom: "2.5rem" }}>
-            <SectionLabel>Dentro del sistema</SectionLabel>
-            <h2 style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "clamp(1.6rem,4vw,2.4rem)", fontWeight: 800, letterSpacing: "-0.025em", lineHeight: 1.15 }}>Qué obtienes al entrar</h2>
-            <p style={{ color: "#666", fontSize: "0.9rem", lineHeight: 1.75, maxWidth: 480, margin: "0.75rem auto 0" }}>Todo lo que necesitas para montar tu sistema de Reels con avatar. Sin módulos de pago adicionales.</p>
+        <div className="mx-auto" style={{ maxWidth: 900 }}>
+          <div className="text-center reveal-up" style={{ marginBottom: "3rem" }}>
+            <SectionLabel>Lo que obtienes</SectionLabel>
+            <h2 style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "clamp(1.6rem,4vw,2.4rem)", fontWeight: 800, letterSpacing: "-0.025em", lineHeight: 1.15 }}>Un programa educativo + 30 días de herramientas</h2>
+            <p style={{ color: "#666", fontSize: "0.9rem", lineHeight: 1.75, maxWidth: 520, margin: "0.75rem auto 0" }}>Los $47 son acceso de por vida al programa paso a paso. Las herramientas de automatización están incluidas gratis los primeros 30 días.</p>
           </div>
-          <div className="rounded-2xl reveal-up stagger-1" style={{ backgroundColor: "#0f0f0f", border: "1px solid rgba(79,110,247,0.18)", padding: "2.25rem 2rem", position: "relative", overflow: "hidden" }}>
-            <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: "linear-gradient(90deg,#4F6EF7,#9B5CF6,transparent)" }} />
-            <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))" }}>
-              {includes.map((item) => (
-                <div key={item} className="flex items-center gap-3">
-                  <span className="flex-shrink-0 flex items-center justify-center rounded-full" style={{ width: 22, height: 22, backgroundColor: "rgba(79,110,247,0.12)", border: "1px solid rgba(79,110,247,0.28)" }}>
-                    <Check size={10} color="#4F6EF7" strokeWidth={3} />
-                  </span>
-                  <span style={{ color: "#ccc", fontSize: "0.875rem" }}>{item}</span>
+
+          <div className="grid gap-5 reveal-up stagger-1" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(360px,1fr))" }}>
+            {/* Programa educativo */}
+            <div style={{ borderRadius: 20, backgroundColor: "#0f0f0f", border: "1px solid rgba(79,110,247,0.22)", padding: "2rem", position: "relative", overflow: "hidden" }}>
+              <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: "linear-gradient(90deg,#4F6EF7,#9B5CF6)" }} />
+              <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1.5rem" }}>
+                <div style={{ width: 38, height: 38, borderRadius: 10, backgroundColor: "rgba(79,110,247,0.12)", border: "1px solid rgba(79,110,247,0.25)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <Layers size={18} color="#4F6EF7" />
                 </div>
-              ))}
+                <div>
+                  <p style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontWeight: 800, fontSize: "0.95rem", color: "#e0e0e0", margin: 0 }}>Programa educativo</p>
+                  <p style={{ fontSize: "0.72rem", color: "#4F6EF7", fontWeight: 700, margin: 0 }}>Acceso de por vida · 7 módulos · 23 clases</p>
+                </div>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+                {programIncludes.map((item) => (
+                  <div key={item} style={{ display: "flex", alignItems: "flex-start", gap: "0.65rem" }}>
+                    <span style={{ flexShrink: 0, width: 18, height: 18, borderRadius: "9999px", backgroundColor: "rgba(79,110,247,0.1)", border: "1px solid rgba(79,110,247,0.25)", display: "flex", alignItems: "center", justifyContent: "center", marginTop: 1 }}>
+                      <Check size={9} color="#4F6EF7" strokeWidth={3} />
+                    </span>
+                    <span style={{ color: "#aaa", fontSize: "0.845rem", lineHeight: 1.55 }}>{item}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Herramientas */}
+            <div style={{ borderRadius: 20, backgroundColor: "#0f0f0f", border: "1px solid rgba(155,92,246,0.22)", padding: "2rem", position: "relative", overflow: "hidden" }}>
+              <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: "linear-gradient(90deg,#9B5CF6,#4F6EF7)" }} />
+              <div style={{ position: "absolute", bottom: -40, right: -40, width: 180, height: 180, backgroundColor: "rgba(155,92,246,0.07)", borderRadius: "9999px", filter: "blur(50px)" }} />
+              <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.75rem" }}>
+                <div style={{ width: 38, height: 38, borderRadius: 10, backgroundColor: "rgba(155,92,246,0.12)", border: "1px solid rgba(155,92,246,0.25)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <Zap size={18} color="#9B5CF6" />
+                </div>
+                <div>
+                  <p style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontWeight: 800, fontSize: "0.95rem", color: "#e0e0e0", margin: 0 }}>Herramientas de automatización de IG</p>
+                  <p style={{ fontSize: "0.72rem", color: "#9B5CF6", fontWeight: 700, margin: 0 }}>30 días gratis incluidos</p>
+                </div>
+              </div>
+              <p style={{ fontSize: "0.78rem", color: "#444", marginBottom: "1.25rem", lineHeight: 1.6 }}>
+                Acceso completo a la plataforma de automatización durante 30 días para que implementes todo lo que aprendes en el programa.
+              </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem", position: "relative", zIndex: 1 }}>
+                {toolsIncludes.map((item) => (
+                  <div key={item} style={{ display: "flex", alignItems: "flex-start", gap: "0.65rem" }}>
+                    <span style={{ flexShrink: 0, width: 18, height: 18, borderRadius: "9999px", backgroundColor: "rgba(155,92,246,0.1)", border: "1px solid rgba(155,92,246,0.25)", display: "flex", alignItems: "center", justifyContent: "center", marginTop: 1 }}>
+                      <Check size={9} color="#9B5CF6" strokeWidth={3} />
+                    </span>
+                    <span style={{ color: "#aaa", fontSize: "0.845rem", lineHeight: 1.55 }}>{item}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>
@@ -663,30 +738,62 @@ export default function Landing() {
           PRECIO $47
       ══════════════════════════════════════ */}
       <section style={{ padding: "6rem 1.5rem" }}>
-        <div className="mx-auto" style={{ maxWidth: 540 }}>
-          <div className="rounded-2xl text-center reveal-up" style={{ backgroundColor: "#0f0f0f", border: "1px solid rgba(79,110,247,0.28)", padding: "3rem 2.5rem", position: "relative", overflow: "hidden" }}>
+        <div className="mx-auto" style={{ maxWidth: 560 }}>
+          <div className="rounded-2xl reveal-up" style={{ backgroundColor: "#0f0f0f", border: "1px solid rgba(79,110,247,0.28)", padding: "2.5rem", position: "relative", overflow: "hidden" }}>
             <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: "linear-gradient(90deg,#4F6EF7,#9B5CF6)" }} />
-            <SectionLabel>Precio de lanzamiento</SectionLabel>
-            <div style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "3.75rem", fontWeight: 900, lineHeight: 1, marginBottom: "0.4rem", background: "linear-gradient(135deg,#4F6EF7,#9B5CF6)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>$47 USD</div>
-            <p style={{ color: "#444", fontSize: "0.82rem", marginBottom: "0.75rem" }}>Pago único · Sin suscripción mensual · Acceso completo</p>
-            <div className="flex justify-center flex-wrap gap-4" style={{ marginBottom: "1.75rem" }}>
-              {["Acceso inmediato", "Sin cuota mensual", "Autopilot incluido"].map((t) => (
-                <span key={t} className="flex items-center gap-1.5" style={{ fontSize: "0.8rem", color: "#555" }}>
-                  <Check size={11} color="#4F6EF7" strokeWidth={3} /> {t}
-                </span>
-              ))}
+            <div style={{ position: "absolute", bottom: -60, right: -60, width: 220, height: 220, backgroundColor: "rgba(79,110,247,0.07)", borderRadius: "9999px", filter: "blur(60px)" }} />
+
+            <div style={{ position: "relative", zIndex: 1 }}>
+              {/* Label */}
+              <div style={{ display: "inline-block", backgroundColor: "rgba(79,110,247,0.1)", border: "1px solid rgba(79,110,247,0.22)", color: "#4F6EF7", fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", borderRadius: 999, padding: "0.25rem 0.75rem", marginBottom: "1.25rem" }}>
+                Precio de lanzamiento
+              </div>
+
+              {/* Price + descriptor */}
+              <div style={{ marginBottom: "1.5rem" }}>
+                <div style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "4rem", fontWeight: 900, lineHeight: 1, background: "linear-gradient(135deg,#4F6EF7,#9B5CF6)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>$47 USD</div>
+                <p style={{ color: "#555", fontSize: "0.82rem", marginTop: "0.35rem" }}>Pago único · Sin suscripción mensual</p>
+              </div>
+
+              {/* What you get — two rows */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", marginBottom: "1.75rem" }}>
+                {/* Row 1: programa */}
+                <div style={{ display: "flex", gap: "0.85rem", alignItems: "flex-start", backgroundColor: "rgba(79,110,247,0.06)", border: "1px solid rgba(79,110,247,0.18)", borderRadius: 12, padding: "1rem 1.1rem" }}>
+                  <Layers size={18} color="#4F6EF7" style={{ flexShrink: 0, marginTop: 1 }} />
+                  <div>
+                    <p style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontWeight: 700, fontSize: "0.9rem", color: "#e0e0e0", margin: "0 0 0.2rem" }}>Programa educativo completo</p>
+                    <p style={{ fontSize: "0.78rem", color: "#666", margin: 0 }}>7 módulos · 23 clases paso a paso · Acceso de por vida</p>
+                  </div>
+                </div>
+
+                {/* Row 2: herramientas */}
+                <div style={{ display: "flex", gap: "0.85rem", alignItems: "flex-start", backgroundColor: "rgba(155,92,246,0.06)", border: "1px solid rgba(155,92,246,0.18)", borderRadius: 12, padding: "1rem 1.1rem" }}>
+                  <Zap size={18} color="#9B5CF6" style={{ flexShrink: 0, marginTop: 1 }} />
+                  <div>
+                    <p style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontWeight: 700, fontSize: "0.9rem", color: "#e0e0e0", margin: "0 0 0.2rem" }}>
+                      + 30 días gratis de herramientas de automatización de IG
+                    </p>
+                    <p style={{ fontSize: "0.78rem", color: "#666", margin: 0 }}>Genera guiones, produce videos con avatar, aplica captions y publica en Instagram — todo en automático.</p>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setCheckoutOpen(true)}
+                style={{ background: "linear-gradient(135deg,#4F6EF7,#7B5CF6)", color: "#fff", border: "none", borderRadius: 12, padding: "1.1rem 2rem", fontSize: "1rem", fontWeight: 700, cursor: "pointer", boxShadow: "0 0 28px rgba(79,110,247,0.3)", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, width: "100%" }}
+              >
+                Acceder al programa por $47 <ArrowRight size={17} />
+              </button>
+
+              <div style={{ marginTop: "1.25rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                <div style={{ backgroundColor: "rgba(255,255,255,0.02)", border: "1px solid #1a1a1a", borderRadius: 10, padding: "0.75rem 1rem" }}>
+                  <p style={{ fontSize: "0.72rem", color: "#3a3a3a", lineHeight: 1.65, margin: 0 }}>
+                    <span style={{ color: "#555", fontWeight: 700 }}>Costos externos:</span> HeyGen y OpenAI tienen sus propios planes y costos, no incluidos en los $47. Te guiamos a configurarlos en el módulo 2.
+                  </p>
+                </div>
+                <p style={{ color: "#2a2a2a", fontSize: "0.72rem", textAlign: "center", margin: 0 }}>Recibirás un email de activación al completar el pago.</p>
+              </div>
             </div>
-            <button
-              onClick={() => setCheckoutOpen(true)}
-              style={{ background: "linear-gradient(135deg,#4F6EF7,#7B5CF6)", color: "#fff", border: "none", borderRadius: 12, padding: "1.1rem 2rem", fontSize: "1.05rem", fontWeight: 700, cursor: "pointer", boxShadow: "0 0 28px rgba(79,110,247,0.3)", display: "inline-flex", alignItems: "center", gap: 8, width: "100%", justifyContent: "center" }}
-            >
-              Montar mi sistema de Reels <ArrowRight size={17} />
-            </button>
-            <div style={{ marginTop: "1.25rem", backgroundColor: "rgba(255,255,255,0.025)", border: "1px solid #1e1e1e", borderRadius: 12, padding: "0.85rem 1rem", textAlign: "left" }}>
-              <p style={{ fontSize: "0.72rem", color: "#555", fontWeight: 700, marginBottom: "0.25rem" }}>Nota sobre costos externos</p>
-              <p style={{ fontSize: "0.72rem", color: "#3a3a3a", lineHeight: 1.65, margin: 0 }}>Para generar videos con avatar Reelsona usa HeyGen y OpenAI. Esas herramientas tienen sus propios planes y costos, no incluidos en los $47.</p>
-            </div>
-            <p style={{ color: "#2e2e2e", fontSize: "0.72rem", marginTop: "0.85rem" }}>Recibirás un email de activación al completar el pago.</p>
           </div>
         </div>
       </section>
