@@ -16,7 +16,7 @@ import { db } from "@workspace/db";
 import { users } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
 import { hashPassword } from "../lib/password";
-import { sendEmail, activationEmail } from "../lib/email";
+import { sendEmail, activationEmail, getAppUrl } from "../lib/email";
 import { upsertEntitlement } from "../lib/access";
 
 const router = Router();
@@ -138,12 +138,7 @@ router.post("/admin/provision", async (req: Request, res: Response): Promise<voi
     });
 
     // ── Send activation email ────────────────────────────────────────────────
-    const rawAppUrl = process.env.APP_URL ?? "";
-    if (!rawAppUrl) {
-      console.warn("[admin/provision] APP_URL is not set — activation link will use fallback URL");
-    }
-    const appUrl      = rawAppUrl.replace(/\/$/, "") || "https://reelsona.com";
-    const activateUrl = `${appUrl}/activate?token=${activationToken}`;
+    const activateUrl = `${getAppUrl()}/activate?token=${activationToken}`;
 
     let emailSent = false;
     let warning: string | undefined;
