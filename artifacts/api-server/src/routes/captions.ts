@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { captionConfigTable } from "@workspace/db";
+import { captionConfigTable, videosTable, contentPlanItemsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import {
   GetCaptionPresetsResponse,
@@ -9,7 +9,7 @@ import {
   UpdateCaptionConfigResponse,
 } from "@workspace/api-zod";
 import { CAPTION_PRESETS } from "../lib/caption-engine";
-import { renderDiagnosticFrame, isBrowserEngineAvailable } from "../lib/browser-caption-engine";
+import { renderDiagnosticFrame, isBrowserEngineAvailable, applyCaptionsBrowser } from "../lib/browser-caption-engine";
 
 const router = Router();
 
@@ -149,6 +149,54 @@ router.get("/captions/browser/preview-frame", async (req, res): Promise<void> =>
   res.setHeader("Content-Type", "image/png");
   res.setHeader("Content-Disposition", `inline; filename="preview-${templateId}.png"`);
   res.end(result.png);
+});
+
+/**
+ * POST /api/videos/:id/recaption
+ * Re-render captions on an existing video using a specific browser template.
+ * Used for testing new templates without going through the full automation cycle.
+ */
+router.post("/videos/:id/recaption", async (req, res): Promise<void> => {
+  const id = Number(req.params.id);
+  if (!id || isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const { template_id } = req.body ?? {};
+  if (!template_id) { res.status(400).json({ error: "template_id required" }); return; }
+
+  const [video] = await db
+    .select()
+    .from(videosTable)
+    .where(eq(videosTable.id, id))
+    .limit(1);
+
+  if (!video) { res.status(404).json({ error: "Video not found" }); return; }
+  if (!video.videoUrl) { res.status(400).json({ error: "Video has no videoUrl" }); return; }
+
+  // Fetch script from linked content plan item if available
+  let script: string | null = null;
+  if (video.contentPlanId) {
+    const [item] = await db
+      .select({ script: contentPlanItemsTable.script })
+      .from(contentPlanItemsTable)
+      .where(eq(contentPlanItemsTable.id, video.contentPlanId))
+      .limit(1);
+    script = item?.script ?? null;
+  }
+
+  res.json({ message: "Rendering — this may take 1-2 minutes…", videoId: id, templateId: template_id });
+
+  // Fire-and-forget: render captions and save URL
+  applyCaptionsBrowser(video.videoUrl, script, template_id, {
+    subtitleUrl:          video.subtitleUrl  ?? undefined,
+    videoDurationSeconds: video.durationSeconds ?? undefined,
+  }).then(async (result) => {
+    if (result.url) {
+      await db
+        .update(videosTable)
+        .set({ captionedVideoUrl: result.url, captionStatus: "done", updatedAt: new Date() })
+        .where(eq(videosTable.id, id));
+    }
+  }).catch(() => { /* logged inside applyCaptionsBrowser */ });
 });
 
 /**
