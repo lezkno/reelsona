@@ -290,6 +290,11 @@ export default function Automation() {
                 </div>
                 <Switch disabled={isLocked} checked={formData.auto_publish} onCheckedChange={(v) => saveChange({ auto_publish: v })} />
               </div>
+              {!formData.auto_publish && formData.enabled && (
+                <p className="text-xs text-amber-600 dark:text-amber-400 px-2 pb-1">
+                  ⚠️ El video se preparará completo (guión → video → captions → copy) pero quedará en espera hasta que lo publiques manualmente o actives este paso.
+                </p>
+              )}
 
             </CardContent>
           </Card>
