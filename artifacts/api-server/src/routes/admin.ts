@@ -13,7 +13,7 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import { randomBytes } from "crypto";
 import { db } from "@workspace/db";
-import { users } from "@workspace/db/schema";
+import { users, userEntitlements } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
 import { hashPassword } from "../lib/password";
 import { sendEmail, activationEmail, getAppUrl } from "../lib/email";
@@ -202,7 +202,6 @@ router.post("/admin/resend-activation", async (req: Request, res: Response): Pro
       .where(eq(users.id, user.id));
 
     // Compute remaining tool access days (for the email copy)
-    const { userEntitlements } = await import("@workspace/db/schema");
     const [ent] = await db
       .select({ toolAccessEndsAt: userEntitlements.toolAccessEndsAt })
       .from(userEntitlements)
@@ -211,9 +210,7 @@ router.post("/admin/resend-activation", async (req: Request, res: Response): Pro
     const msRemaining   = ent?.toolAccessEndsAt ? ent.toolAccessEndsAt.getTime() - Date.now() : 0;
     const daysRemaining = Math.max(1, Math.ceil(msRemaining / (1000 * 60 * 60 * 24)));
 
-    const rawAppUrl   = process.env.APP_URL ?? "";
-    const appUrl      = rawAppUrl.replace(/\/$/, "") || "https://reelsona.com";
-    const activateUrl = `${appUrl}/activate?token=${activationToken}`;
+    const activateUrl = `${getAppUrl()}/activate?token=${activationToken}`;
 
     let emailSent = false;
     let warning: string | undefined;

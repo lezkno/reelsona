@@ -91,8 +91,9 @@ export default function Activate() {
     )
   }
 
-  // ── Invalid token ────────────────────────────────────────────────────────────
+  // ── Invalid / expired token ───────────────────────────────────────────────────
   if (check.status === "invalid") {
+    const isExpired = check.message.includes("expiró")
     return (
       <div className="min-h-screen flex items-center justify-center bg-background p-4">
         <Card className="w-full max-w-sm shadow-xl text-center">
@@ -101,10 +102,12 @@ export default function Activate() {
               <XCircle className="w-8 h-8 text-destructive" />
             </div>
             <div className="space-y-1">
-              <h2 className="text-xl font-bold font-display">Enlace inválido</h2>
+              <h2 className="text-xl font-bold font-display">
+                {isExpired ? "Enlace vencido" : "Enlace inválido"}
+              </h2>
               <p className="text-muted-foreground text-sm">{check.message}</p>
-              <p className="text-muted-foreground text-sm">
-                Solicita un nuevo enlace de activación a tu asesor.
+              <p className="text-muted-foreground text-sm mt-1">
+                Pide a tu asesor que te reenvíe el enlace de activación.
               </p>
             </div>
             <Link href="/login">
