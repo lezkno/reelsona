@@ -424,7 +424,17 @@ export default function ContentPlan() {
         <CalendarView
           items={items ?? []}
           lookById={lookById}
-          onAddDay={(date) => { setAddDay(date); setAddTopic("") }}
+          onAddDay={(date) => {
+            setAddDay(date)
+            setAddTopic("")
+            // Pre-fill time: first posting_time not already occupied on that day
+            const times = (automation?.posting_times as string[] | undefined) ?? ["12:00"]
+            const occupiedTimes = (items ?? [])
+              .filter((i) => i.scheduled_at && isSameDay(new Date(i.scheduled_at), date))
+              .map((i) => format(new Date(i.scheduled_at!), "HH:mm"))
+            const available = times.find((t) => !occupiedTimes.includes(t)) ?? times[0] ?? "12:00"
+            setAddTime(available)
+          }}
           onDelete={handleDelete}
           onGenerateVideo={handleGenerateVideo}
           onProcessNow={handleProcessNow}
@@ -434,6 +444,7 @@ export default function ContentPlan() {
           generateVideoPending={generateVideo.isPending}
           publishingVideoId={publishingVideoId}
           willAutoPublish={willAutoPublish}
+          scheduledDays={(automation?.days_of_week as number[] | undefined) ?? []}
         />
       ) : (
       <Tabs value={filter} onValueChange={setFilter} className="flex-1 flex flex-col min-h-0">
@@ -908,6 +919,13 @@ export default function ContentPlan() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
+            {/* Off-schedule warning */}
+            {addDay && automation?.days_of_week && !(automation.days_of_week as number[]).includes(addDay.getDay()) && (
+              <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/8 px-3 py-2.5 text-xs text-amber-700 dark:text-amber-400">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                <span>Este día no está en tu programación de automatización. El item se procesará, pero no se publicará automáticamente en el horario habitual.</span>
+              </div>
+            )}
             <div className="space-y-2">
               <Label>Tema del video</Label>
               <input
@@ -920,6 +938,25 @@ export default function ContentPlan() {
             </div>
             <div className="space-y-2">
               <Label>Hora de publicación</Label>
+              {/* Posting time quick-chips */}
+              {automation?.posting_times && (automation.posting_times as string[]).length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {(automation.posting_times as string[]).map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => setAddTime(t)}
+                      className={`px-2.5 py-1 rounded-full text-xs font-semibold border transition-all ${
+                        addTime === t
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "bg-muted text-muted-foreground border-border hover:border-primary/50 hover:text-foreground"
+                      }`}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              )}
               <input
                 type="time"
                 value={addTime}

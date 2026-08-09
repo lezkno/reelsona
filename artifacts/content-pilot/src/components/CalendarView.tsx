@@ -36,6 +36,8 @@ interface Props {
   generateVideoPending: boolean
   publishingVideoId: number | null
   willAutoPublish: boolean
+  /** Days of week (0=Sun…6=Sat) that are active in the automation schedule */
+  scheduledDays?: number[]
 }
 
 type CalView = "month" | "week" | "day"
@@ -161,12 +163,15 @@ function ItemPill({ item, lookById, onDelete, onGenerateVideo, onProcessNow, onP
   )
 }
 
-export default function CalendarView({ items, lookById, onAddDay, onDelete, onGenerateVideo, onProcessNow, onPublishNow, onPreview, onPickAvatar, generateVideoPending, publishingVideoId, willAutoPublish }: Props) {
+export default function CalendarView({ items, lookById, onAddDay, onDelete, onGenerateVideo, onProcessNow, onPublishNow, onPreview, onPickAvatar, generateVideoPending, publishingVideoId, willAutoPublish, scheduledDays }: Props) {
   const [view, setView] = useState<CalView>("month")
   const [current, setCurrent] = useState(startOfDay(new Date()))
 
   const itemsOnDay = (day: Date) =>
     items.filter((i) => i.scheduled_at && isSameDay(new Date(i.scheduled_at), day))
+
+  /** Is this weekday active in the automation schedule? */
+  const isScheduledDay = (day: Date) => scheduledDays ? scheduledDays.includes(day.getDay()) : false
 
   // ── Month view ──────────────────────────────────────────────────────────────
   function MonthView() {
@@ -192,17 +197,21 @@ export default function CalendarView({ items, lookById, onAddDay, onDelete, onGe
             const dayItems = itemsOnDay(day)
             const isToday = isSameDay(day, new Date())
             const inMonth = isSameMonth(day, current)
+            const schedDay = inMonth && isScheduledDay(day)
             return (
               <div key={day.toISOString()}
-                className={`min-h-[90px] p-1 flex flex-col gap-0.5 ${!inMonth ? "bg-muted/30" : ""} ${isToday ? "bg-primary/5" : ""}`}>
+                className={`min-h-[90px] p-1 flex flex-col gap-0.5 ${!inMonth ? "bg-muted/30" : ""} ${isToday ? "bg-primary/5" : ""} ${schedDay ? "border-b-2 border-b-emerald-500/40" : ""}`}>
                 <div className="flex items-center justify-between mb-0.5">
-                  <button
-                    type="button"
-                    onClick={() => { setCurrent(day); setView("day") }}
-                    className={`w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center transition-colors hover:bg-primary hover:text-primary-foreground ${isToday ? "bg-primary text-primary-foreground" : "text-muted-foreground"} ${!inMonth ? "opacity-40" : ""}`}
-                  >
-                    {format(day, "d")}
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => { setCurrent(day); setView("day") }}
+                      className={`w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center transition-colors hover:bg-primary hover:text-primary-foreground ${isToday ? "bg-primary text-primary-foreground" : "text-muted-foreground"} ${!inMonth ? "opacity-40" : ""}`}
+                    >
+                      {format(day, "d")}
+                    </button>
+                    {schedDay && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" title="Día programado" />}
+                  </div>
                   <button
                     type="button"
                     onClick={() => onAddDay(day)}
@@ -243,9 +252,13 @@ export default function CalendarView({ items, lookById, onAddDay, onDelete, onGe
         <div className="grid grid-cols-7 border-b shrink-0">
           {days.map((day) => {
             const isToday = isSameDay(day, new Date())
+            const schedDay = isScheduledDay(day)
             return (
-              <div key={day.toISOString()} className="p-2 text-center border-r last:border-0">
-                <p className="text-xs text-muted-foreground">{format(day, "EEE", { locale: es })}</p>
+              <div key={day.toISOString()} className={`p-2 text-center border-r last:border-0 ${schedDay ? "border-b-2 border-b-emerald-500/50" : ""}`}>
+                <p className="text-xs text-muted-foreground flex items-center justify-center gap-1">
+                  {format(day, "EEE", { locale: es })}
+                  {schedDay && <span className="w-1 h-1 rounded-full bg-emerald-500 shrink-0" />}
+                </p>
                 <button
                   type="button"
                   onClick={() => { setCurrent(day); setView("day") }}
