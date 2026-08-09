@@ -578,35 +578,32 @@ export default function Landing() {
           </div>
 
           {/* Steps */}
-          <div className="relative">
-            {/* connector line */}
-            <div
-              className="absolute hidden md:block"
-              style={{
-                top: "2.2rem",
-                left: "calc(10% + 1.1rem)",
-                right: "calc(10% + 1.1rem)",
-                height: 1,
-                background: "linear-gradient(90deg, transparent, rgba(79,110,247,0.25), transparent)",
-              }}
-            />
-            <div
-              className="grid gap-5"
-              style={{ gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))" }}
-            >
-              {autopilotSteps.map(({ n, title, desc }) => (
+          <style>{`
+            @keyframes flow-arrow {
+              0%   { opacity: 0.15; transform: translateX(-4px); }
+              50%  { opacity: 1;    transform: translateX(4px);  }
+              100% { opacity: 0.15; transform: translateX(-4px); }
+            }
+            .ap-arrow-1 { animation: flow-arrow 2s ease-in-out infinite; }
+            .ap-arrow-2 { animation: flow-arrow 2s ease-in-out 0.35s infinite; }
+            .ap-arrow-3 { animation: flow-arrow 2s ease-in-out 0.7s infinite; }
+          `}</style>
+
+          <div className="flex flex-wrap items-start justify-center gap-0">
+            {autopilotSteps.map(({ n, title, desc }, idx) => (
+              <div key={n} className="flex items-start">
+                {/* Step card */}
                 <div
-                  key={n}
                   className="relative rounded-2xl text-center"
                   style={{
                     backgroundColor: "#0f0f0f",
                     border: "1px solid #1d1d1d",
                     padding: "1.75rem 1.25rem 1.5rem",
+                    width: "clamp(150px, 17vw, 185px)",
                   }}
                 >
-                  {/* step number bubble */}
                   <div
-                    className="flex items-center justify-center rounded-full mx-auto mb-4 relative z-10"
+                    className="flex items-center justify-center rounded-full mx-auto mb-4"
                     style={{
                       width: 44,
                       height: 44,
@@ -625,18 +622,30 @@ export default function Landing() {
                     className="font-bold mb-2"
                     style={{
                       fontFamily: "var(--font-display, 'Outfit', sans-serif)",
-                      fontSize: "0.88rem",
+                      fontSize: "0.85rem",
                       color: "#e0e0e0",
                     }}
                   >
                     {title}
                   </h3>
-                  <p style={{ color: "#5a5a5a", fontSize: "0.8rem", lineHeight: 1.6, margin: 0 }}>
+                  <p style={{ color: "#5a5a5a", fontSize: "0.78rem", lineHeight: 1.6, margin: 0 }}>
                     {desc}
                   </p>
                 </div>
-              ))}
-            </div>
+
+                {/* Animated arrow connector */}
+                {idx < autopilotSteps.length - 1 && (
+                  <div
+                    className="hidden md:flex flex-col items-center justify-center gap-1 self-center flex-shrink-0"
+                    style={{ width: 40, paddingTop: "1rem" }}
+                  >
+                    <ArrowRight size={13} color="#4F6EF7" className="ap-arrow-1" />
+                    <ArrowRight size={13} color="#7B5CF6" className="ap-arrow-2" />
+                    <ArrowRight size={13} color="#4F6EF7" className="ap-arrow-3" />
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
 
           {/* Autopilot outcome */}
