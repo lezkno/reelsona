@@ -144,8 +144,11 @@ export function Sidebar({ onClose }: SidebarProps) {
           const initials = displayName.split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2)
           return (
             <Link href="/profile" onClick={onClose} className="flex items-center gap-2.5 bg-sidebar-accent/30 hover:bg-sidebar-accent/50 px-3 py-2.5 rounded-lg transition-colors group cursor-pointer">
-              <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center shrink-0 text-primary text-xs font-bold">
-                {initials}
+              <div className="w-8 h-8 rounded-full overflow-hidden bg-primary/20 flex items-center justify-center shrink-0 text-primary text-xs font-bold ring-1 ring-sidebar-border">
+                {u.avatarUrl
+                  ? <img src={`/api/storage${u.avatarUrl}`} alt={displayName} className="w-full h-full object-cover" />
+                  : <span>{initials}</span>
+                }
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-xs font-semibold text-sidebar-foreground truncate leading-tight">

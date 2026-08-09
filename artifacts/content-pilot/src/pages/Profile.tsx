@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useRef } from "react"
 import { useAuthStatus, useUpdateProfile, useChangePassword } from "@workspace/api-client-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -7,15 +7,17 @@ import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import { useToast } from "@/hooks/use-toast"
 import { useQueryClient } from "@tanstack/react-query"
-import { User, KeyRound, Loader2, Save } from "lucide-react"
+import { User, KeyRound, Loader2, Save, Camera } from "lucide-react"
+import { useUpload } from "@workspace/object-storage-web"
 
 export default function Profile() {
   const { data: auth } = useAuthStatus()
   const user = auth?.user
   const queryClient = useQueryClient()
   const { toast } = useToast()
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Profile fields
+  // Profile fields — seed from current data
   const [fullName, setFullName] = useState(user?.fullName ?? "")
   const [email, setEmail]       = useState(user?.email ?? "")
   const [phone, setPhone]       = useState(user?.phone ?? "")
@@ -25,8 +27,36 @@ export default function Profile() {
   const [newPassword, setNewPassword]         = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
 
+  // Local avatar preview (before saving)
+  const [localAvatarUrl, setLocalAvatarUrl] = useState<string | null>(null)
+
   const updateProfile  = useUpdateProfile()
   const changePassword = useChangePassword()
+
+  const { uploadFile, isUploading } = useUpload({
+    onSuccess: (response) => {
+      const objectPath = response.objectPath
+      updateProfile.mutate(
+        { avatarUrl: objectPath },
+        {
+          onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["auth", "me"] })
+            toast({ title: "Foto actualizada" })
+          },
+          onError: () => toast({ title: "Error al guardar la foto", variant: "destructive" }),
+        }
+      )
+    },
+    onError: () => toast({ title: "Error al subir la foto", variant: "destructive" }),
+  })
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    // Instant local preview
+    setLocalAvatarUrl(URL.createObjectURL(file))
+    await uploadFile(file)
+  }
 
   const handleProfileSave = () => {
     updateProfile.mutate(
@@ -34,24 +64,22 @@ export default function Profile() {
       {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: ["auth", "me"] })
-          toast({ title: "Perfil actualizado", description: "Tus datos han sido guardados." })
+          toast({ title: "Perfil actualizado" })
         },
-        onError: () => toast({ title: "Error", description: "No se pudo actualizar el perfil.", variant: "destructive" }),
+        onError: () => toast({ title: "Error al actualizar el perfil", variant: "destructive" }),
       }
     )
   }
 
   const handlePasswordChange = () => {
     if (!currentPassword || !newPassword) { toast({ title: "Completa los campos", variant: "destructive" }); return }
-    if (newPassword !== confirmPassword) { toast({ title: "Las contraseñas no coinciden", variant: "destructive" }); return }
-    if (newPassword.length < 8) { toast({ title: "La contraseña debe tener al menos 8 caracteres", variant: "destructive" }); return }
+    if (newPassword !== confirmPassword)  { toast({ title: "Las contraseñas no coinciden", variant: "destructive" }); return }
+    if (newPassword.length < 8)           { toast({ title: "Mínimo 8 caracteres", variant: "destructive" }); return }
     changePassword.mutate(
       { currentPassword, newPassword },
       {
         onSuccess: () => {
-          setCurrentPassword("")
-          setNewPassword("")
-          setConfirmPassword("")
+          setCurrentPassword(""); setNewPassword(""); setConfirmPassword("")
           toast({ title: "Contraseña actualizada" })
         },
         onError: (err: any) => toast({
@@ -63,9 +91,9 @@ export default function Profile() {
     )
   }
 
-  // Avatar initials
-  const initials = (user?.fullName || user?.username || "?")
-    .split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2)
+  const displayName = user?.fullName || user?.username || "?"
+  const initials    = displayName.split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2)
+  const avatarSrc   = localAvatarUrl ?? (user?.avatarUrl ? `/api/storage${user.avatarUrl}` : null)
 
   return (
     <div className="max-w-2xl mx-auto space-y-6 py-2">
@@ -77,21 +105,50 @@ export default function Profile() {
         <p className="text-sm text-muted-foreground mt-1">Administra tu información personal y contraseña.</p>
       </div>
 
-      {/* Avatar + username */}
+      {/* Avatar card */}
       <Card>
-        <CardContent className="p-6 flex items-center gap-4">
-          <div className="w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold text-2xl shrink-0">
-            {initials}
-          </div>
+        <CardContent className="p-6 flex items-center gap-5">
+          {/* Clickable avatar */}
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isUploading}
+            className="relative group shrink-0 focus:outline-none"
+            title="Cambiar foto"
+          >
+            <div className="w-20 h-20 rounded-full overflow-hidden bg-primary/20 flex items-center justify-center text-primary font-bold text-3xl ring-2 ring-border">
+              {avatarSrc ? (
+                <img src={avatarSrc} alt="Avatar" className="w-full h-full object-cover" />
+              ) : (
+                <span>{initials}</span>
+              )}
+            </div>
+            {/* Hover overlay */}
+            <div className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+              {isUploading
+                ? <Loader2 className="w-5 h-5 text-white animate-spin" />
+                : <Camera className="w-5 h-5 text-white" />
+              }
+            </div>
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleFileChange}
+          />
+
           <div>
-            <p className="text-lg font-semibold">{user?.fullName || user?.username}</p>
+            <p className="text-lg font-semibold">{displayName}</p>
             <p className="text-sm text-muted-foreground capitalize">{user?.role}</p>
             {user?.email && <p className="text-sm text-muted-foreground">{user.email}</p>}
+            <p className="text-xs text-muted-foreground/60 mt-1">Haz clic en la foto para cambiarla</p>
           </div>
         </CardContent>
       </Card>
 
-      {/* Edit profile */}
+      {/* Edit info */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Información personal</CardTitle>

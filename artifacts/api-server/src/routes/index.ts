@@ -1,5 +1,6 @@
 import { Router } from "express";
 import healthRouter from "./health";
+import storageRouter from "./storage";
 import dashboardRouter from "./dashboard";
 import instagramRouter from "./instagram";
 import heygenRouter from "./heygen";
@@ -14,6 +15,7 @@ import strategyRouter from "./strategy";
 const router = Router();
 
 router.use(healthRouter);
+router.use(storageRouter);
 router.use(dashboardRouter);
 router.use(instagramRouter);
 router.use(heygenRouter);

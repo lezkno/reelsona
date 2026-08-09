@@ -14,6 +14,7 @@ export interface AuthUser {
   fullName?: string | null;
   email?: string | null;
   phone?: string | null;
+  avatarUrl?: string | null;
 }
 
 export interface AuthStatus {
@@ -21,10 +22,10 @@ export interface AuthStatus {
   user?: AuthUser;
 }
 
-/** Update the current user's profile (name, email, phone). */
+/** Update the current user's profile (name, email, phone, avatarUrl). */
 export function useUpdateProfile() {
   return useMutation({
-    mutationFn: (data: { fullName?: string; email?: string; phone?: string }) =>
+    mutationFn: (data: { fullName?: string; email?: string; phone?: string; avatarUrl?: string }) =>
       customFetch<{ ok: boolean }>("/api/auth/profile", {
         method: "PATCH",
         body: JSON.stringify(data),

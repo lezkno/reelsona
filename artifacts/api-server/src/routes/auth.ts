@@ -81,6 +81,7 @@ router.get("/auth/me", async (req: Request, res: Response): Promise<void> => {
         fullName: row?.fullName ?? null,
         email: row?.email ?? null,
         phone: row?.phone ?? null,
+        avatarUrl: row?.avatarUrl ?? null,
       },
     });
   } catch {
@@ -97,16 +98,19 @@ router.patch("/auth/profile", async (req: Request, res: Response): Promise<void>
     res.status(401).json({ error: "No autenticado" });
     return;
   }
-  const { fullName, email, phone } = (req.body ?? {}) as {
-    fullName?: string; email?: string; phone?: string;
+  const { fullName, email, phone, avatarUrl } = (req.body ?? {}) as {
+    fullName?: string; email?: string; phone?: string; avatarUrl?: string;
   };
   const userId = req.session.user?.userId;
   if (!userId) { res.status(400).json({ error: "Sesión inválida" }); return; }
 
   try {
-    await db.update(users)
-      .set({ fullName: fullName ?? null, email: email ?? null, phone: phone ?? null, updatedAt: new Date() })
-      .where(eq(users.id, userId));
+    const patch: Record<string, unknown> = { updatedAt: new Date() };
+    if (fullName !== undefined) patch.fullName = fullName || null;
+    if (email !== undefined) patch.email = email || null;
+    if (phone !== undefined) patch.phone = phone || null;
+    if (avatarUrl !== undefined) patch.avatarUrl = avatarUrl || null;
+    await db.update(users).set(patch).where(eq(users.id, userId));
     res.json({ ok: true });
   } catch {
     res.status(500).json({ error: "Error al actualizar perfil" });
