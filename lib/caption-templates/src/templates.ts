@@ -191,6 +191,54 @@ export const BROWSER_CAPTION_TEMPLATES: CaptionTemplate[] = [
     animationDuration: 160,
   },
 
+  // ── Bold Stack ───────────────────────────────────────────────────────────────
+  // Copia exacta del preset ASS "bold_stack":
+  //   fontFamily: Poppins, fontSize: 105, primaryColor: #FFFFFF,
+  //   activeWordColor: #FFE600, outlineColor: #000000, wordsPerLine: 2,
+  //   activeWordScale: 1.2, highlightMode: "color".
+  {
+    id: "bold_stack",
+    name: "Bold Stack",
+    description:
+      "2 palabras en Poppins bold, activa en amarillo #FFE600 y ligeramente más grande. El estilo más viral en TikTok e IG Reels.",
+
+    fontFamily: "Poppins",
+    fontSize: 105,
+    fontWeight: 800,
+    uppercase: true,
+    letterSpacing: 0.01,
+    lineHeight: 1.15,
+
+    wordsPerLine: 2,
+    yPercent: 72,
+    marginXPercent: 6,
+    textAlign: "center",
+
+    primaryColor: "#FFFFFF",
+    activeWordColor: "#FFE600",
+    inactiveOpacity: 0.72,
+
+    outlineColor: "#000000",
+    outlineWidth: 10,
+
+    shadowColor: "rgba(0,0,0,0.65)",
+    shadowOffsetX: 3,
+    shadowOffsetY: 3,
+    shadowBlur: 8,
+
+    backgroundMode: "none",
+    backgroundColor: null,
+    backgroundPaddingX: 0,
+    backgroundPaddingY: 0,
+    backgroundRadius: 0,
+
+    highlightMode: "color",
+    activeWordScale: 1.2,
+
+    animation: "zoom",
+    animationDuration: 160,
+  },
+
   // ── Bangers (Cómic) ──────────────────────────────────────────────────────────
   // Copia exacta del preset ASS "bangers":
   //   fontFamily: Bangers, fontSize: 120, primaryColor: #FFFFFF,
