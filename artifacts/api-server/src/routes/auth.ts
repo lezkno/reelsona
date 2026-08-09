@@ -381,4 +381,63 @@ router.get("/auth/verify-email", async (req: Request, res: Response): Promise<vo
   }
 });
 
+// ── POST /api/auth/resend-activation ─────────────────────────────────────────
+/**
+ * Public endpoint — students can request a new activation link without admin help.
+ * Always returns 200 to avoid email enumeration. Only sends an email when the user
+ * exists AND their account is still pending activation (is_active = false AND has
+ * an activation token, meaning they were provisioned but never activated).
+ *
+ * Body: { email: string }
+ */
+router.post("/auth/resend-activation", async (req: Request, res: Response): Promise<void> => {
+  const { email } = (req.body ?? {}) as { email?: string };
+  if (!email) {
+    res.status(400).json({ error: "Se requiere email" });
+    return;
+  }
+
+  const username = email.trim().toLowerCase();
+
+  // Always respond with ok:true to avoid leaking whether the email exists.
+  const silentOk = () => res.json({ ok: true });
+
+  try {
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(eq(users.username, username))
+      .limit(1);
+
+    // Only resend for pending-activation accounts (provisioned but not yet activated)
+    if (!user || user.isActive || !user.activationToken) {
+      silentOk();
+      return;
+    }
+
+    const activationToken  = randomBytes(32).toString("hex");
+    const activationExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+    await db
+      .update(users)
+      .set({ activationToken, activationTokenExpiresAt: activationExpires, updatedAt: new Date() })
+      .where(eq(users.id, user.id));
+
+    const activateUrl = `${getAppUrl()}/activate?token=${activationToken}`;
+
+    try {
+      const { activationEmail } = await import("../lib/email");
+      const tpl = activationEmail(user.fullName ?? username, activateUrl, 30);
+      await sendEmail({ to: username, ...tpl });
+    } catch (emailErr) {
+      console.error("[auth/resend-activation] Email send failed:", emailErr);
+    }
+
+    silentOk();
+  } catch (err) {
+    console.error("[auth/resend-activation]", err);
+    res.status(500).json({ error: "Error interno del servidor" });
+  }
+});
+
 export default router;

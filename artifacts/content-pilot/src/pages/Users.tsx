@@ -808,7 +808,7 @@ function EntitlementsSection() {
                       </td>
                       {/* Acciones */}
                       <td className="px-3 py-3.5">
-                        <ResendActivationButton entitlement={ent} />
+                        {!ent.isActive && <ResendActivationButton entitlement={ent} />}
                       </td>
                     </tr>
                   )

@@ -31,6 +31,7 @@ import CheckoutCancel from "@/pages/CheckoutCancel"
 import Landing from "@/pages/Landing"
 import { useAuthStatus } from "@workspace/api-client-react"
 import { useEntitlement } from "@/hooks/useEntitlement"
+import ResendActivation from "@/pages/ResendActivation"
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -136,6 +137,7 @@ function App() {
             <Route path="/verify-email" component={VerifyEmail} />
             <Route path="/landing" component={Landing} />
             <Route path="/activate" component={Activate} />
+            <Route path="/resend-activation" component={ResendActivation} />
             <Route path="/checkout/success" component={CheckoutSuccess} />
             <Route path="/checkout/cancel" component={CheckoutCancel} />
             <Route path="/checkout" component={Checkout} />
