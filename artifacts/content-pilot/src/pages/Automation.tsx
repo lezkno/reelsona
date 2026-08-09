@@ -214,27 +214,42 @@ export default function Automation() {
 
               {/* Daily count quick-select */}
               <div>
-                <p className="text-sm font-medium mb-2">¿Cuántos videos por día?</p>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm font-medium">¿Cuántos videos por día?</p>
+                  {(formData.posting_times?.length ?? 0) > 0 && (
+                    <span className="text-xs text-muted-foreground tabular-nums">
+                      {formData.posting_times?.length} horario{(formData.posting_times?.length ?? 0) !== 1 ? "s" : ""} activo{(formData.posting_times?.length ?? 0) !== 1 ? "s" : ""}
+                    </span>
+                  )}
+                </div>
                 <div className="flex gap-2">
-                  {[1, 2, 3, 4].map((n) => {
-                    const active = (formData.posting_times?.length ?? 0) === n
-                    return (
-                      <button
-                        key={n}
-                        onClick={() => setDailyCount(n)}
-                        className={`flex-1 py-2 rounded-lg border text-sm font-semibold transition-all ${
-                          active
-                            ? "bg-primary text-primary-foreground border-primary shadow-sm"
-                            : "bg-background text-muted-foreground border-border hover:border-primary/50 hover:text-foreground"
-                        }`}
-                      >
-                        {n}
-                      </button>
-                    )
-                  })}
+                  {(() => {
+                    const currentCount = formData.posting_times?.length ?? 0
+                    // Always show 1-4; if current count exceeds 4, add it as an extra button
+                    const presets = currentCount > 4 ? [1, 2, 3, 4, currentCount] : [1, 2, 3, 4]
+                    return presets.map((n) => {
+                      const active = currentCount === n
+                      const isExtra = n > 4
+                      return (
+                        <button
+                          key={n}
+                          onClick={() => isExtra ? undefined : setDailyCount(n)}
+                          className={`flex-1 py-2 rounded-lg border text-sm font-semibold transition-all ${
+                            active
+                              ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                              : isExtra
+                                ? "bg-background text-muted-foreground border-border cursor-default"
+                                : "bg-background text-muted-foreground border-border hover:border-primary/50 hover:text-foreground"
+                          }`}
+                        >
+                          {n}
+                        </button>
+                      )
+                    })
+                  })()}
                 </div>
                 <p className="text-[11px] text-muted-foreground mt-1.5">
-                  Seleccioná una cantidad para aplicar los mejores horarios automáticamente.
+                  Los botones 1–4 aplican los mejores horarios para tu nicho. Para más, activá chips o añadí un horario personalizado.
                 </p>
               </div>
 
