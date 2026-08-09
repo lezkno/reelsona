@@ -51,7 +51,10 @@ export function Sidebar({ onClose }: SidebarProps) {
   const handleLogout = () => {
     logout.mutate(undefined, {
       onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: ["auth", "me"] })
+        // Set auth state to unauthenticated immediately — invalidateQueries alone
+        // keeps stale data while re-fetching, and customFetch throws on 401 so the
+        // cache never gets cleared. Setting the data directly triggers RequireAuth.
+        queryClient.setQueryData(["auth", "me"], { authenticated: false })
       },
     })
   }
