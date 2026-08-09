@@ -16,6 +16,7 @@ import { eq } from "drizzle-orm";
 import { hashPassword } from "./password";
 import { sendEmail, activationEmail, getAppUrl } from "./email";
 import { upsertEntitlement } from "./access";
+import { invalidateAccessCache } from "../middleware/requireToolAccess";
 
 export interface ProvisionParams {
   email:          string;
@@ -99,6 +100,10 @@ export async function provisionUser(params: ProvisionParams): Promise<ProvisionR
     toolAccessEndsAt,
     source,
   });
+
+  // Clear the access cache so the user gets access on their next request
+  // without waiting for the 90-second TTL to expire.
+  invalidateAccessCache(userId);
 
   // ── Send activation email ─────────────────────────────────────────────────
   const activateUrl = `${getAppUrl()}/activate?token=${activationToken}`;
