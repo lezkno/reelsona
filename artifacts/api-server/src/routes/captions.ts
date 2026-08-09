@@ -1,7 +1,8 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { captionConfigTable, videosTable, contentPlanItemsTable } from "@workspace/db";
+import { captionConfigTable, videosTable, contentPlanItemsTable, settingsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import { getVideoStatus } from "../lib/heygen";
 import {
   GetCaptionPresetsResponse,
   GetCaptionConfigResponse,
@@ -172,7 +173,7 @@ router.post("/videos/:id/recaption", async (req, res): Promise<void> => {
   if (!video) { res.status(404).json({ error: "Video not found" }); return; }
   if (!video.videoUrl) { res.status(400).json({ error: "Video has no videoUrl" }); return; }
 
-  // Fetch script from linked content plan item if available
+  // ── 1. Fetch script from linked content plan item ──────────────────────────
   let script: string | null = null;
   if (video.contentPlanId) {
     const [item] = await db
@@ -183,11 +184,35 @@ router.post("/videos/:id/recaption", async (req, res): Promise<void> => {
     script = item?.script ?? null;
   }
 
-  res.json({ message: "Rendering — this may take 1-2 minutes…", videoId: id, templateId: template_id });
+  // ── 2. Fetch subtitle_url from HeyGen if not already stored ────────────────
+  let subtitleUrl = video.subtitleUrl ?? null;
+  if (!subtitleUrl && video.heygenVideoId) {
+    try {
+      const [settings] = await db.select().from(settingsTable).limit(1);
+      const apiKey = (settings as any)?.heygenApiKey ?? process.env.HEYGEN_API_KEY ?? "";
+      const status = await getVideoStatus(video.heygenVideoId, apiKey || undefined);
+      if (status.subtitle_url) {
+        subtitleUrl = status.subtitle_url;
+        await db.update(videosTable)
+          .set({ subtitleUrl: status.subtitle_url, updatedAt: new Date() })
+          .where(eq(videosTable.id, id));
+      }
+    } catch { /* ignore — will fall back to proportional timings */ }
+  }
+
+  const hasSRT = !!subtitleUrl;
+  res.json({
+    message: hasSRT
+      ? "Rendering con SRT de HeyGen — sincronía exacta con la voz…"
+      : "Rendering con timings proporcionales (sin SRT disponible)…",
+    videoId: id,
+    templateId: template_id,
+    hasSRT,
+  });
 
   // Fire-and-forget: render captions and save URL
   applyCaptionsBrowser(video.videoUrl, script, template_id, {
-    subtitleUrl:          video.subtitleUrl  ?? undefined,
+    subtitleUrl:          subtitleUrl ?? undefined,
     videoDurationSeconds: video.durationSeconds ?? undefined,
   }).then(async (result) => {
     if (result.url) {
