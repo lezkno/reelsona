@@ -1,12 +1,12 @@
-import { useGetDashboard, useGetVideos, usePublishVideo, useScheduleVideo, getGetDashboardQueryKey, getGetVideosQueryKey } from "@workspace/api-client-react"
-import { Card, CardContent } from "@/components/ui/card"
+import { useGetDashboard, useGetVideos, usePublishVideo, useScheduleVideo, useGetInstagramAccount, useGetInstagramPosts, getGetDashboardQueryKey, getGetVideosQueryKey } from "@workspace/api-client-react"
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
-import { Zap, Play, BarChart, Calendar, Video, Clock, Instagram, CalendarClock, Send, ExternalLink } from "lucide-react"
+import { Zap, Play, BarChart, Calendar, Video, Clock, Instagram, CalendarClock, Send, ExternalLink, Film, Heart, MessageCircle } from "lucide-react"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
 import { Link } from "wouter"
@@ -26,6 +26,9 @@ export default function Dashboard() {
   const [scheduleDatetime, setScheduleDatetime] = useState("")
 
   const readyVideos = allVideos ?? []
+  const { data: igStatus } = useGetInstagramAccount()
+  const igConnected = !!(igStatus?.connected && igStatus.account)
+  const { data: igPosts, isLoading: igPostsLoading } = useGetInstagramPosts({ limit: 12 })
 
   // Minimum datetime = now + 5 min (rounded to nearest minute)
   const minDatetime = () => {
@@ -291,6 +294,69 @@ export default function Dashboard() {
             </div>
           )}
         </>
+      )}
+
+      {/* ── Reels publicados en Instagram ──────────────────────────────────────── */}
+      {igConnected && (
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-xl font-display font-bold flex items-center gap-2">
+                <Film className="w-5 h-5 text-primary" />
+                Reels Publicados
+              </h2>
+              <p className="text-sm text-muted-foreground mt-0.5">Tus publicaciones más recientes en Instagram.</p>
+            </div>
+          </div>
+
+          {igPostsLoading ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <Skeleton key={i} className="aspect-[9/16] rounded-xl" />
+              ))}
+            </div>
+          ) : !igPosts || igPosts.length === 0 ? (
+            <Card>
+              <CardContent className="py-10 text-center text-sm text-muted-foreground">
+                No se encontraron publicaciones en tu cuenta.
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+              {igPosts.map((post) => (
+                <a
+                  key={post.id}
+                  href={post.permalink ?? undefined}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="group relative aspect-[9/16] rounded-xl overflow-hidden border bg-muted"
+                >
+                  {post.thumbnail_url ? (
+                    <img
+                      src={post.thumbnail_url}
+                      alt={post.caption ?? "Reel"}
+                      className="w-full h-full object-cover transition-transform group-hover:scale-105"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+                      <Film className="w-8 h-8" />
+                    </div>
+                  )}
+                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-3 text-white">
+                    <div className="flex items-center gap-3 text-xs font-medium">
+                      <span className="flex items-center gap-1"><Heart className="w-3.5 h-3.5" /> {post.like_count}</span>
+                      <span className="flex items-center gap-1"><MessageCircle className="w-3.5 h-3.5" /> {post.comments_count}</span>
+                      <ExternalLink className="w-3.5 h-3.5 ml-auto opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </div>
+                    {post.caption && (
+                      <p className="text-[11px] mt-1 line-clamp-2 opacity-80">{post.caption}</p>
+                    )}
+                  </div>
+                </a>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       {/* ── Schedule dialog ────────────────────────────────────────────────────── */}
