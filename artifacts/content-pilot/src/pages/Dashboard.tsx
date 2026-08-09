@@ -1,4 +1,4 @@
-import { useGetDashboard, useTriggerAutomation, useGetVideos, usePublishVideo, useScheduleVideo, useGetInstagramAccount, useGetInstagramPosts, getGetDashboardQueryKey, getGetVideosQueryKey, getGetInstagramAccountQueryKey, getGetInstagramPostsQueryKey, useGetContentPlan, useGetStrategyProfile } from "@workspace/api-client-react"
+import { useGetDashboard, useGetVideos, usePublishVideo, useScheduleVideo, useGetInstagramAccount, useGetInstagramPosts, getGetDashboardQueryKey, getGetVideosQueryKey, getGetInstagramAccountQueryKey, getGetInstagramPostsQueryKey, useGetContentPlan, useGetStrategyProfile } from "@workspace/api-client-react"
 import type { ContentPlanItem, StrategyProfile } from "@workspace/api-client-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -7,7 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
-import { Zap, Play, PlayCircle, BarChart, Calendar, Video, Clock, Instagram, CalendarClock, Send, ExternalLink, Film, Heart, MessageCircle, Map, CheckCircle2, CircleDot, FileText, Loader2, AlertCircle, ArrowRight, ListChecks } from "lucide-react"
+import { Zap, Play, BarChart, Calendar, Video, Clock, Instagram, CalendarClock, Send, ExternalLink, Film, Heart, MessageCircle, Map, CheckCircle2, CircleDot, FileText, Loader2, AlertCircle, ArrowRight, ListChecks } from "lucide-react"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
 import { Link } from "wouter"
@@ -20,7 +20,6 @@ export default function Dashboard() {
   const { data: allVideos } = useGetVideos({ status: 'ready' })
   const { data: planData, isLoading: planLoading } = useGetContentPlan({ limit: 10000, status: "all" })
   const { data: strategyData, isLoading: strategyLoading } = useGetStrategyProfile()
-  const triggerAutomation = useTriggerAutomation()
   const publishVideo = usePublishVideo()
   const scheduleVideo = useScheduleVideo()
   const queryClient = useQueryClient()
@@ -63,18 +62,6 @@ export default function Dashboard() {
     const d = new Date(Date.now() + 5 * 60 * 1000)
     d.setSeconds(0, 0)
     return d.toISOString().slice(0, 16)
-  }
-
-  const handleTrigger = () => {
-    triggerAutomation.mutate(undefined, {
-      onSuccess: (result) => {
-        toast({ title: "Automatización activada", description: result.message })
-        queryClient.invalidateQueries({ queryKey: getGetDashboardQueryKey() })
-      },
-      onError: () => {
-        toast({ title: "Error", description: "No se pudo activar la automatización", variant: "destructive" })
-      }
-    })
   }
 
   const handlePublishNow = (id: number) => {
@@ -131,15 +118,6 @@ export default function Dashboard() {
         <div>
           <h1 className="text-3xl md:text-4xl font-display font-bold tracking-tight">Dashboard</h1>
           <p className="text-muted-foreground mt-1">Resumen de tu máquina de contenido</p>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <Button variant="outline" size="sm" asChild>
-            <Link href="/content">Generar Script</Link>
-          </Button>
-          <Button size="sm" onClick={handleTrigger} disabled={triggerAutomation.isPending} className="gap-2 shadow-lg shadow-primary/20">
-            <PlayCircle className="w-4 h-4" />
-            {triggerAutomation.isPending ? "Ejecutando..." : "Ejecutar Ahora"}
-          </Button>
         </div>
       </div>
 
