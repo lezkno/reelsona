@@ -334,6 +334,51 @@ export default function Landing() {
       </section>
 
       {/* ══════════════════════════════════════
+          VIDEO DEMO
+      ══════════════════════════════════════ */}
+      {/* REEMPLAZA el ID de YouTube aquí cuando tengas el video listo ↓ */}
+      {(() => {
+        const YT_ID = ""; // ← pega aquí el ID de YouTube (ej: "dQw4w9WgXcQ")
+        return (
+          <section style={{ padding: "5rem 1.5rem", backgroundColor: "#050505", borderTop: "1px solid rgba(255,255,255,0.04)" }}>
+            <div className="mx-auto" style={{ maxWidth: 900 }}>
+              <div className="text-center reveal-up" style={{ marginBottom: "2.5rem" }}>
+                <h2 style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "clamp(1.6rem,4vw,2.4rem)", fontWeight: 800, letterSpacing: "-0.025em", lineHeight: 1.15 }}>
+                  Mira el sistema en acción
+                </h2>
+                <p style={{ color: "#555", fontSize: "0.9rem", marginTop: "0.6rem" }}>
+                  Del guión al Reel publicado, sin tocar ningún editor.
+                </p>
+              </div>
+
+              <div className="reveal-up stagger-1" style={{ position: "relative", borderRadius: 20, overflow: "hidden", border: "1px solid rgba(255,255,255,0.07)", boxShadow: "0 0 80px rgba(79,110,247,0.1), 0 40px 100px rgba(0,0,0,0.6)", aspectRatio: "16/9", backgroundColor: "#0f0f0f" }}>
+                {/* gradient top border */}
+                <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: "linear-gradient(90deg,#4F6EF7,#9B5CF6,transparent)", zIndex: 2 }} />
+
+                {YT_ID ? (
+                  <iframe
+                    src={`https://www.youtube.com/embed/${YT_ID}?rel=0&modestbranding=1&color=white`}
+                    title="Reelsona demo"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowFullScreen
+                    style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none" }}
+                  />
+                ) : (
+                  /* Placeholder hasta tener el video */
+                  <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "1.25rem" }}>
+                    <div style={{ width: 72, height: 72, borderRadius: "9999px", background: "linear-gradient(135deg,#4F6EF7,#9B5CF6)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 0 40px rgba(79,110,247,0.4)", cursor: "default" }}>
+                      <Play size={30} fill="#fff" color="#fff" style={{ marginLeft: 4 }} />
+                    </div>
+                    <p style={{ color: "#333", fontSize: "0.82rem", fontWeight: 600 }}>Video próximamente</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
+        );
+      })()}
+
+      {/* ══════════════════════════════════════
           PROBLEMA: Before / After
       ══════════════════════════════════════ */}
       <section style={{ backgroundColor: "#0b0b0b", borderTop: "1px solid rgba(255,255,255,0.04)", padding: "6rem 1.5rem" }}>
