@@ -106,6 +106,75 @@ export function useRetryVideo() {
   });
 }
 
+// ── Admin student provisioning ────────────────────────────────────────────────
+
+export interface AdminEntitlement {
+  userId:           number;
+  username:         string;
+  fullName:         string | null;
+  isActive:         boolean;
+  courseAccess:     boolean;
+  toolAccessStatus: string;
+  toolAccessEndsAt: string | null;
+  source:           string | null;
+  createdAt:        string;
+}
+
+export interface ProvisionStudentInput {
+  email:          string;
+  fullName:       string;
+  toolAccessDays: number;
+  courseAccess?:  boolean;
+  source?:        string;
+}
+
+export interface ProvisionResult {
+  ok:        boolean;
+  userId:    number;
+  created:   boolean;
+  emailSent: boolean;
+  warning?:  string;
+}
+
+export const ADMIN_ENTITLEMENTS_KEY = ["admin", "entitlements"] as const;
+
+/** List all student entitlements. */
+export function useAdminEntitlements() {
+  return useQuery<{ entitlements: AdminEntitlement[] }>({
+    queryKey: ADMIN_ENTITLEMENTS_KEY,
+    queryFn:  () => customFetch<{ entitlements: AdminEntitlement[] }>("/api/admin/entitlements"),
+    staleTime: 1000 * 30,
+  });
+}
+
+/** Provision (create or update) a student with tool access. */
+export function useProvisionStudent() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: ProvisionStudentInput) =>
+      customFetch<ProvisionResult>("/api/admin/provision", {
+        method:  "POST",
+        body:    JSON.stringify(data),
+        headers: { "Content-Type": "application/json" },
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ADMIN_ENTITLEMENTS_KEY }),
+  });
+}
+
+/** Resend the activation email for a student (refreshes the token). */
+export function useResendActivation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ email }: { email: string }) =>
+      customFetch<{ ok: boolean; emailSent: boolean; warning?: string }>("/api/admin/resend-activation", {
+        method:  "POST",
+        body:    JSON.stringify({ email }),
+        headers: { "Content-Type": "application/json" },
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ADMIN_ENTITLEMENTS_KEY }),
+  });
+}
+
 // ── Admin users ───────────────────────────────────────────────────────────────
 
 export interface AdminUser {

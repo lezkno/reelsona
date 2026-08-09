@@ -159,6 +159,81 @@ router.post("/admin/provision", async (req: Request, res: Response): Promise<voi
   }
 });
 
+// ── POST /api/admin/resend-activation ────────────────────────────────────────
+/**
+ * Refresh the activation token and resend the activation email.
+ * Does NOT touch the entitlement dates.
+ *
+ * Body: { email: string }
+ * Response: { ok, emailSent, warning? }
+ */
+router.post("/admin/resend-activation", async (req: Request, res: Response): Promise<void> => {
+  if (!isAdminRequest(req)) {
+    res.status(403).json({ error: "Acceso denegado" });
+    return;
+  }
+
+  const { email } = (req.body ?? {}) as { email?: string };
+  if (!email) {
+    res.status(400).json({ error: "Se requiere email" });
+    return;
+  }
+
+  const username = email.trim().toLowerCase();
+
+  try {
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(eq(users.username, username))
+      .limit(1);
+
+    if (!user) {
+      res.status(404).json({ error: "Usuario no encontrado" });
+      return;
+    }
+
+    const activationToken   = randomBytes(32).toString("hex");
+    const activationExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+    await db
+      .update(users)
+      .set({ activationToken, activationTokenExpiresAt: activationExpires, updatedAt: new Date() })
+      .where(eq(users.id, user.id));
+
+    // Compute remaining tool access days (for the email copy)
+    const { userEntitlements } = await import("@workspace/db/schema");
+    const [ent] = await db
+      .select({ toolAccessEndsAt: userEntitlements.toolAccessEndsAt })
+      .from(userEntitlements)
+      .where(eq(userEntitlements.userId, user.id))
+      .limit(1);
+    const msRemaining   = ent?.toolAccessEndsAt ? ent.toolAccessEndsAt.getTime() - Date.now() : 0;
+    const daysRemaining = Math.max(1, Math.ceil(msRemaining / (1000 * 60 * 60 * 24)));
+
+    const rawAppUrl   = process.env.APP_URL ?? "";
+    const appUrl      = rawAppUrl.replace(/\/$/, "") || "https://reelsona.com";
+    const activateUrl = `${appUrl}/activate?token=${activationToken}`;
+
+    let emailSent = false;
+    let warning: string | undefined;
+
+    try {
+      const tpl = activationEmail(user.fullName ?? username, activateUrl, daysRemaining);
+      await sendEmail({ to: username, ...tpl });
+      emailSent = true;
+    } catch (emailErr: any) {
+      warning = `Token renovado pero el email no pudo enviarse: ${emailErr?.message ?? "error desconocido"}`;
+      console.error("[admin/resend-activation] Email send failed:", emailErr);
+    }
+
+    res.json({ ok: true, emailSent, ...(warning ? { warning } : {}) });
+  } catch (err) {
+    console.error("[admin/resend-activation]", err);
+    res.status(500).json({ error: "Error interno del servidor" });
+  }
+});
+
 // ── GET /api/admin/entitlements ───────────────────────────────────────────────
 /** List all entitlements (admin overview). */
 router.get("/admin/entitlements", async (req: Request, res: Response): Promise<void> => {

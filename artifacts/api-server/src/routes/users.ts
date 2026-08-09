@@ -12,8 +12,12 @@ import { users } from "@workspace/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { hashPassword } from "../lib/password";
 import { sendEmail, welcomeEmail, getAppUrl } from "../lib/email";
+import { requireAdmin } from "../middleware/auth";
 
 const router = Router();
+
+// All user-management endpoints require admin role
+router.use(requireAdmin);
 
 const PUBLIC_FIELDS = {
   id:          users.id,
@@ -64,7 +68,7 @@ router.post("/users", async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
-  const allowedRoles = ["admin"];
+    const allowedRoles = ["admin"];
   const resolvedRole = allowedRoles.includes(role ?? "") ? role! : "admin";
 
   try {

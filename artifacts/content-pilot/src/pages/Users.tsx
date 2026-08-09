@@ -1,10 +1,9 @@
 import { useState } from "react"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   Shield, UserPlus, Trash2, Loader2, ShieldCheck,
   Pencil, Mail, Phone, StickyNote, KeyRound,
-  CheckCircle2, XCircle, Clock, Zap, BookOpen, Wrench,
-  AlertCircle,
+  CheckCircle2, XCircle, Clock, GraduationCap,
+  RefreshCw, AlertCircle, Info, BookOpen, Wrench,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -25,13 +24,18 @@ import { Badge } from "@/components/ui/badge"
 import {
   Tooltip, TooltipContent, TooltipTrigger,
 } from "@/components/ui/tooltip"
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useToast } from "@/hooks/use-toast"
 import {
   useAdminUsers, useCreateAdminUser, useUpdateAdminUser,
   useDeleteAdminUser, useAuthStatus,
-  type AdminUser, type UpdateAdminUserInput,
+  useAdminEntitlements, useProvisionStudent, useResendActivation,
+  type AdminUser, type UpdateAdminUserInput, type AdminEntitlement,
 } from "@workspace/api-client-react"
+import { cn } from "@/lib/utils"
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "")
 
@@ -57,7 +61,13 @@ function initials(user: AdminUser) {
   return name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()
 }
 
-// ── Add user dialog ───────────────────────────────────────────────────────────
+function daysRemaining(isoEnd: string | null): number | null {
+  if (!isoEnd) return null
+  const ms = new Date(isoEnd).getTime() - Date.now()
+  return Math.ceil(ms / (1000 * 60 * 60 * 24))
+}
+
+// ── Admin user dialogs ────────────────────────────────────────────────────────
 
 function AddUserDialog() {
   const [open, setOpen] = useState(false)
@@ -90,8 +100,8 @@ function AddUserDialog() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button size="sm" className="gap-2">
-          <UserPlus className="w-4 h-4" /> Nuevo usuario
+        <Button size="sm" variant="outline" className="gap-2">
+          <UserPlus className="w-4 h-4" /> Nuevo administrador
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-lg">
@@ -388,142 +398,263 @@ function DeleteUserButton({ user, selfUsername }: { user: AdminUser; selfUsernam
   )
 }
 
-// ── Provision dialog (create student access) ─────────────────────────────────
+// ── Status badge helper ───────────────────────────────────────────────────────
 
-interface ProvisionResult {
-  ok: boolean
-  userId?: number
-  created?: boolean
-  emailSent?: boolean
-  warning?: string
-  error?: string
+const TOOL_STATUS_BADGE: Record<string, { label: string; cls: string }> = {
+  active:   { label: "Activo",     cls: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" },
+  trialing: { label: "En prueba",  cls: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" },
+  expired:  { label: "Vencido",    cls: "bg-destructive/10 text-destructive" },
+  disabled: { label: "Sin acceso", cls: "bg-muted text-muted-foreground" },
 }
 
-function ProvisionDialog({ onDone }: { onDone?: () => void }) {
-  const [open, setOpen] = useState(false)
-  const [form, setForm] = useState({
-    email: "", fullName: "", toolAccessDays: "30", source: "manual",
-  })
-  const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState<ProvisionResult | null>(null)
+// ── Resend activation button ──────────────────────────────────────────────────
+
+function ResendActivationButton({ entitlement }: { entitlement: AdminEntitlement }) {
+  const resend = useResendActivation()
   const { toast } = useToast()
 
-  const set = (k: keyof typeof form) =>
-    (e: React.ChangeEvent<HTMLInputElement>) =>
-      setForm((f) => ({ ...f, [k]: e.target.value }))
+  const handleResend = () => {
+    resend.mutate(
+      { email: entitlement.username },
+      {
+        onSuccess: (data) => {
+          if (data.emailSent) {
+            toast({ title: "Email enviado", description: `Link de activación reenviado a ${entitlement.username}` })
+          } else {
+            toast({
+              title: "Token renovado",
+              description: data.warning ?? "No se pudo enviar el email",
+              variant: "destructive",
+            })
+          }
+        },
+        onError: (err: any) =>
+          toast({
+            title: "Error",
+            description: err?.data?.error ?? "No se pudo reenviar",
+            variant: "destructive",
+          }),
+      }
+    )
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 text-muted-foreground hover:text-primary"
+          onClick={handleResend}
+          disabled={resend.isPending}
+          title="Reenviar link de activación"
+        >
+          {resend.isPending
+            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            : <RefreshCw className="w-3.5 h-3.5" />}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="left" className="text-xs">Reenviar link de activación</TooltipContent>
+    </Tooltip>
+  )
+}
+
+// ── Provision student dialog ──────────────────────────────────────────────────
+
+function ProvisionStudentDialog() {
+  const [open, setOpen] = useState(false)
+  const [form, setForm] = useState({
+    email: "",
+    fullName: "",
+    toolAccessDays: "30",
+    courseAccess: true,
+    source: "manual",
+  })
+  const [result, setResult] = useState<{
+    created: boolean; emailSent: boolean; warning?: string
+  } | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const provision = useProvisionStudent()
+  const { toast } = useToast()
+
+  const reset = () => {
+    setForm({ email: "", fullName: "", toolAccessDays: "30", courseAccess: true, source: "manual" })
+    setResult(null)
+    setError(null)
+  }
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    setError(null)
+    setResult(null)
+    const days = parseInt(form.toolAccessDays, 10)
+    if (isNaN(days) || days < 1 || days > 3650) {
+      setError("Los días de acceso deben estar entre 1 y 3650")
+      return
+    }
+    provision.mutate(
+      {
+        email: form.email.trim().toLowerCase(),
+        fullName: form.fullName.trim(),
+        toolAccessDays: days,
+        courseAccess: form.courseAccess,
+        source: form.source || "manual",
+      },
+      {
+        onSuccess: (data) => {
+          setResult({ created: data.created, emailSent: data.emailSent, warning: data.warning })
+          if (!data.warning) {
+            toast({
+              title: data.created ? "Alumno dado de alta" : "Acceso actualizado",
+              description: data.emailSent
+                ? `Email de activación enviado a ${form.email}`
+                : "No se pudo enviar el email de activación",
+            })
+          }
+        },
+        onError: (err: any) =>
+          setError(err?.data?.error ?? err?.message ?? "Error al dar de alta"),
+      }
+    )
+  }
 
   const handleClose = (v: boolean) => {
+    if (!v) reset()
     setOpen(v)
-    if (!v) { setResult(null); setForm({ email: "", fullName: "", toolAccessDays: "30", source: "manual" }) }
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setLoading(true)
-    setResult(null)
-    try {
-      const res = await fetch(`${BASE}/api/admin/provision`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: form.email.trim(),
-          fullName: form.fullName.trim() || undefined,
-          toolAccessDays: Number(form.toolAccessDays) || 30,
-          source: form.source.trim() || "manual",
-        }),
-      })
-      const data: ProvisionResult = await res.json()
-      if (!res.ok || !data.ok) {
-        setResult({ ok: false, error: data.error ?? "Error al provisionar" })
-        return
-      }
-      setResult(data)
-      if (data.emailSent) {
-        toast({ title: "Alumno registrado", description: `Email de activación enviado a ${form.email}` })
-      } else {
-        toast({ title: "Alumno registrado", description: data.warning ?? "Revisa el email manualmente.", variant: "default" })
-      }
-      onDone?.()
-    } catch (err: any) {
-      setResult({ ok: false, error: err?.message ?? "Error de red" })
-    } finally {
-      setLoading(false)
-    }
-  }
+  const SOURCE_OPTIONS = [
+    { value: "manual", label: "Manual (admin)" },
+    { value: "gumroad", label: "Gumroad" },
+    { value: "hotmart", label: "Hotmart" },
+    { value: "referido", label: "Referido" },
+    { value: "otro", label: "Otro" },
+  ]
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogTrigger asChild>
-        <Button size="sm" variant="default" className="gap-2">
-          <Zap className="w-4 h-4" /> Dar de alta alumno
+        <Button size="sm" className="gap-2">
+          <GraduationCap className="w-4 h-4" /> Dar acceso a alumno
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Zap className="w-4 h-4 text-primary" /> Dar de alta alumno
-          </DialogTitle>
+          <DialogTitle>Dar acceso a alumno</DialogTitle>
           <DialogDescription>
-            Crea el acceso del alumno y envía el link de activación por email.
+            Crea o actualiza el acceso de un estudiante. Se enviará un email de activación con un enlace para elegir contraseña.
           </DialogDescription>
         </DialogHeader>
 
-        {result?.ok ? (
-          <div className="py-4 space-y-3">
-            <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
-              <CheckCircle2 className="w-5 h-5 shrink-0" />
-              <span className="font-medium">
-                {result.created ? "Alumno creado correctamente" : "Acceso actualizado"}
-              </span>
-            </div>
-            {result.emailSent ? (
-              <p className="text-sm text-muted-foreground">
-                Email de activación enviado a <strong>{form.email}</strong>.
-              </p>
-            ) : (
-              <div className="flex items-start gap-2 rounded-lg bg-amber-50 dark:bg-amber-950/30 px-3 py-2.5 text-amber-800 dark:text-amber-300 text-sm">
-                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <span>{result.warning ?? "No se pudo enviar el email. Comprueba la configuración de Resend."}</span>
+        {result ? (
+          <div className="py-2 space-y-4">
+            <div className={cn(
+              "flex items-start gap-3 rounded-lg border px-4 py-3",
+              result.warning ? "border-amber-300 bg-amber-50 dark:bg-amber-950/30" : "border-emerald-300 bg-emerald-50 dark:bg-emerald-950/30"
+            )}>
+              {result.warning
+                ? <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                : <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />}
+              <div className="space-y-1">
+                <p className="text-sm font-semibold">
+                  {result.created ? "Alumno creado" : "Acceso actualizado"}
+                </p>
+                {result.emailSent
+                  ? <p className="text-sm text-muted-foreground">Email de activación enviado a <strong>{form.email}</strong>.</p>
+                  : <p className="text-sm text-amber-700 dark:text-amber-400">No se pudo enviar el email de activación.</p>}
+                {result.warning && (
+                  <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">{result.warning}</p>
+                )}
               </div>
-            )}
+            </div>
             <DialogFooter>
-              <Button onClick={() => handleClose(false)}>Cerrar</Button>
+              <Button variant="outline" onClick={() => { reset() }}>Dar de alta otro alumno</Button>
+              <Button onClick={() => { reset(); setOpen(false) }}>Cerrar</Button>
             </DialogFooter>
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4 py-1">
             <div className="space-y-1.5">
-              <Label htmlFor="p-email">Email del alumno *</Label>
-              <Input id="p-email" type="email" placeholder="alumno@ejemplo.com"
-                value={form.email} onChange={set("email")} required autoComplete="off" />
+              <Label htmlFor="ps-fullname">Nombre completo *</Label>
+              <Input
+                id="ps-fullname"
+                placeholder="María García"
+                value={form.fullName}
+                onChange={(e) => setForm((f) => ({ ...f, fullName: e.target.value }))}
+                required
+              />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="p-name">Nombre completo</Label>
-              <Input id="p-name" placeholder="María García"
-                value={form.fullName} onChange={set("fullName")} />
+              <Label htmlFor="ps-email">Email *</Label>
+              <Input
+                id="ps-email"
+                type="email"
+                placeholder="alumno@ejemplo.com"
+                value={form.email}
+                onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                required
+              />
+              <p className="text-xs text-muted-foreground">
+                El email será el nombre de usuario para iniciar sesión.
+              </p>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label htmlFor="p-days">Días de acceso *</Label>
-                <Input id="p-days" type="number" min={1} max={3650}
-                  value={form.toolAccessDays} onChange={set("toolAccessDays")} required />
+                <Label htmlFor="ps-days">Días de acceso *</Label>
+                <Input
+                  id="ps-days"
+                  type="number"
+                  min={1}
+                  max={3650}
+                  placeholder="30"
+                  value={form.toolAccessDays}
+                  onChange={(e) => setForm((f) => ({ ...f, toolAccessDays: e.target.value }))}
+                  required
+                />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="p-source">Fuente / Notas</Label>
-                <Input id="p-source" placeholder="manual, stripe…"
-                  value={form.source} onChange={set("source")} />
+                <Label htmlFor="ps-source">Fuente</Label>
+                <Select
+                  value={form.source}
+                  onValueChange={(v) => setForm((f) => ({ ...f, source: v }))}
+                >
+                  <SelectTrigger id="ps-source">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SOURCE_OPTIONS.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
-            {result?.error && (
-              <p className="text-sm text-destructive flex items-center gap-1.5">
-                <XCircle className="w-4 h-4 shrink-0" /> {result.error}
+            <div className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
+              <div>
+                <p className="text-sm font-medium">Acceso al curso</p>
+                <p className="text-xs text-muted-foreground">Incluye acceso permanente al material del curso</p>
+              </div>
+              <Switch
+                checked={form.courseAccess}
+                onCheckedChange={(v) => setForm((f) => ({ ...f, courseAccess: v }))}
+              />
+            </div>
+            {error && (
+              <p className="flex items-center gap-1.5 text-sm text-destructive">
+                <AlertCircle className="w-4 h-4 shrink-0" /> {error}
               </p>
             )}
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => handleClose(false)}>Cancelar</Button>
-              <Button type="submit" disabled={loading || !form.email}>
-                {loading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Procesando…</> : "Dar de alta"}
+              <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+                Cancelar
+              </Button>
+              <Button
+                type="submit"
+                disabled={provision.isPending || !form.email || !form.fullName || !form.toolAccessDays}
+              >
+                {provision.isPending
+                  ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Procesando…</>
+                  : "Dar acceso"}
               </Button>
             </DialogFooter>
           </form>
@@ -535,73 +666,51 @@ function ProvisionDialog({ onDone }: { onDone?: () => void }) {
 
 // ── Entitlements section ──────────────────────────────────────────────────────
 
-interface EntitlementRow {
-  id:                 number
-  userId:             number
-  courseAccess:       boolean
-  toolAccessStatus:   string
-  toolAccessEndsAt:   string | null
-  source:             string | null
-  createdAt:          string
-  user: {
-    username:  string
-    email:     string | null
-    fullName:  string | null
-  }
-}
-
-const TOOL_STATUS_BADGE: Record<string, { label: string; cls: string }> = {
-  active:   { label: "Activo",     cls: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" },
-  trialing: { label: "En prueba",  cls: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" },
-  expired:  { label: "Vencido",    cls: "bg-destructive/10 text-destructive" },
-  disabled: { label: "Sin acceso", cls: "bg-muted text-muted-foreground" },
-}
-
 function EntitlementsSection() {
-  const queryClient = useQueryClient()
-
-  const { data, isLoading, error, refetch } = useQuery<EntitlementRow[]>({
-    queryKey: ["admin", "entitlements"],
-    queryFn: async () => {
-      const res = await fetch(`${BASE}/api/admin/entitlements`, { credentials: "include" })
-      if (!res.ok) throw new Error("Error al cargar licencias")
-      return res.json()
-    },
-    staleTime: 60_000,
-  })
+  const { data, isLoading, error } = useAdminEntitlements()
+  const entitlements = data?.entitlements ?? []
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center">
+          <GraduationCap className="w-5 h-5 text-emerald-600" />
+        </div>
         <div>
-          <h2 className="text-base font-semibold text-foreground">Licencias de alumnos</h2>
-          <p className="text-xs text-muted-foreground">
-            {data ? `${data.length} alumno${data.length !== 1 ? "s" : ""} registrado${data.length !== 1 ? "s" : ""}` : "Accesos otorgados a través de /admin/provision"}
+          <h2 className="text-xl font-bold text-foreground">Acceso de alumnos</h2>
+          <p className="text-sm text-muted-foreground">
+            {isLoading
+              ? "Cargando…"
+              : `${entitlements.length} alumno${entitlements.length !== 1 ? "s" : ""} con entitlement`}
           </p>
         </div>
-        <ProvisionDialog onDone={() => { refetch(); queryClient.invalidateQueries({ queryKey: ["admin", "entitlements"] }) }} />
       </div>
 
       <div className="rounded-xl border border-border overflow-hidden bg-card">
         {isLoading && (
           <div className="p-6 space-y-3">
-            {[1,2,3].map(i => <Skeleton key={i} className="h-8 w-full" />)}
+            {[1, 2, 3].map(i => <Skeleton key={i} className="h-8 w-full" />)}
           </div>
         )}
         {error && (
           <div className="py-10 text-center text-destructive text-sm">Error al cargar licencias</div>
         )}
-        {!isLoading && !error && data?.length === 0 && (
-          <div className="py-10 text-center text-muted-foreground text-sm">
-            Todavía no hay alumnos. Usa «Dar de alta alumno» para crear el primer acceso.
+        {!isLoading && !error && entitlements.length === 0 && (
+          <div className="py-12 text-center space-y-2">
+            <GraduationCap className="w-8 h-8 mx-auto text-muted-foreground/40" />
+            <p className="text-sm text-muted-foreground">Aún no hay alumnos dados de alta.</p>
+            <p className="text-xs text-muted-foreground">Usa el botón "Dar acceso a alumno" para empezar.</p>
           </div>
         )}
-        {!isLoading && !error && data && data.length > 0 && (
+        {!isLoading && !error && entitlements.length > 0 && (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/40">
                   <th className="text-left px-5 py-3 font-medium text-muted-foreground whitespace-nowrap">Alumno</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">
+                    <span className="flex items-center gap-1"><Mail className="w-3.5 h-3.5" /> Email</span>
+                  </th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">
                     <span className="flex items-center gap-1"><BookOpen className="w-3.5 h-3.5" /> Curso</span>
                   </th>
@@ -609,44 +718,98 @@ function EntitlementsSection() {
                     <span className="flex items-center gap-1"><Wrench className="w-3.5 h-3.5" /> Herramienta</span>
                   </th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">
-                    <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5" /> Vence</span>
+                    <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5" /> Vencimiento</span>
                   </th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Días</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Fuente</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Alta</th>
+                  <th className="px-3 py-3" />
                 </tr>
               </thead>
               <tbody>
-                {data.map((row) => {
-                  const badge = TOOL_STATUS_BADGE[row.toolAccessStatus] ?? TOOL_STATUS_BADGE.disabled
-                  const endDate = row.toolAccessEndsAt
-                    ? new Date(row.toolAccessEndsAt).toLocaleDateString("es-ES", { day: "2-digit", month: "short", year: "numeric" })
-                    : "—"
-                  const isExpired = row.toolAccessStatus === "expired" ||
-                    (row.toolAccessEndsAt ? new Date(row.toolAccessEndsAt) < new Date() : false)
+                {entitlements.map((ent) => {
+                  const days = daysRemaining(ent.toolAccessEndsAt)
+                  const badge = TOOL_STATUS_BADGE[ent.toolAccessStatus] ?? TOOL_STATUS_BADGE.disabled
                   return (
-                    <tr key={row.id} className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors">
+                    <tr
+                      key={ent.userId}
+                      className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors"
+                    >
+                      {/* Alumno */}
                       <td className="px-5 py-3.5">
-                        <p className="font-medium text-foreground leading-tight">
-                          {row.user.fullName ?? row.user.username}
-                        </p>
-                        {row.user.email && (
-                          <p className="text-xs text-muted-foreground truncate max-w-[200px]">{row.user.email}</p>
-                        )}
+                        <div className="flex items-center gap-2.5">
+                          <div className={cn(
+                            "w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-xs font-bold",
+                            ent.isActive
+                              ? "bg-emerald-500/10 text-emerald-700"
+                              : "bg-muted text-muted-foreground"
+                          )}>
+                            {(ent.fullName ?? ent.username).split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase()}
+                          </div>
+                          <div>
+                            <p className="font-medium text-foreground leading-tight">
+                              {ent.fullName ?? <span className="text-muted-foreground">—</span>}
+                            </p>
+                            {!ent.isActive && (
+                              <span className="text-xs text-amber-600 flex items-center gap-0.5">
+                                <Info className="w-3 h-3" /> Pendiente activación
+                              </span>
+                            )}
+                          </div>
+                        </div>
                       </td>
+                      {/* Email */}
                       <td className="px-4 py-3.5">
-                        {row.courseAccess
-                          ? <span className="flex items-center gap-1 text-emerald-600 text-xs font-medium"><CheckCircle2 className="w-3.5 h-3.5" /> Sí</span>
-                          : <span className="flex items-center gap-1 text-muted-foreground text-xs"><XCircle className="w-3.5 h-3.5" /> No</span>
-                        }
+                        <a href={`mailto:${ent.username}`} className="text-primary hover:underline text-xs">
+                          {ent.username}
+                        </a>
                       </td>
+                      {/* Curso */}
+                      <td className="px-4 py-3.5">
+                        {ent.courseAccess
+                          ? <span className="flex items-center gap-1 text-emerald-600 text-xs font-medium"><CheckCircle2 className="w-3.5 h-3.5" /> Sí</span>
+                          : <span className="flex items-center gap-1 text-muted-foreground text-xs"><XCircle className="w-3.5 h-3.5" /> No</span>}
+                      </td>
+                      {/* Herramienta */}
                       <td className="px-4 py-3.5">
                         <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${badge.cls}`}>
                           {badge.label}
                         </span>
                       </td>
-                      <td className={`px-4 py-3.5 text-xs whitespace-nowrap ${isExpired ? "text-destructive font-medium" : "text-muted-foreground"}`}>
-                        {endDate}
+                      {/* Vencimiento */}
+                      <td className={cn(
+                        "px-4 py-3.5 text-xs whitespace-nowrap",
+                        ent.toolAccessStatus === "expired" ? "text-destructive font-medium" : "text-muted-foreground"
+                      )}>
+                        {fmtDate(ent.toolAccessEndsAt)}
                       </td>
-                      <td className="px-4 py-3.5 text-xs text-muted-foreground">{row.source ?? "—"}</td>
+                      {/* Días restantes */}
+                      <td className="px-4 py-3.5 text-xs">
+                        {days === null ? (
+                          <span className="text-muted-foreground/40">—</span>
+                        ) : days <= 0 ? (
+                          <span className="text-destructive font-medium">Vencido</span>
+                        ) : (
+                          <span className={cn(
+                            "font-medium",
+                            days <= 7 ? "text-amber-600" : "text-foreground"
+                          )}>
+                            {days}d
+                          </span>
+                        )}
+                      </td>
+                      {/* Fuente */}
+                      <td className="px-4 py-3.5 text-xs text-muted-foreground capitalize">
+                        {ent.source ?? "—"}
+                      </td>
+                      {/* Alta */}
+                      <td className="px-4 py-3.5 text-xs text-muted-foreground whitespace-nowrap">
+                        {fmtDate(ent.createdAt)}
+                      </td>
+                      {/* Acciones */}
+                      <td className="px-3 py-3.5">
+                        <ResendActivationButton entitlement={ent} />
+                      </td>
                     </tr>
                   )
                 })}
@@ -667,155 +830,166 @@ export default function Users() {
   const selfUsername = authData?.user?.username
 
   return (
-    <div className="p-6 max-w-6xl mx-auto space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
-            <Shield className="w-5 h-5 text-primary" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold text-foreground">Usuarios administradores</h1>
-            <p className="text-sm text-muted-foreground">
-              {userList ? `${userList.length} usuario${userList.length !== 1 ? "s" : ""} registrado${userList.length !== 1 ? "s" : ""}` : "Gestiona acceso a ContentPilot"}
-            </p>
-          </div>
+    <div className="p-6 max-w-6xl mx-auto space-y-10">
+
+      {/* ── Student access section ─────────────────────────────────────────── */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-end">
+          <ProvisionStudentDialog />
         </div>
-        <AddUserDialog />
+        <EntitlementsSection />
       </div>
 
-      {/* Table */}
-      <div className="rounded-xl border border-border overflow-hidden bg-card">
-        {isLoading && (
-          <div className="flex items-center justify-center py-16 text-muted-foreground gap-2">
-            <Loader2 className="w-5 h-5 animate-spin" /><span>Cargando usuarios…</span>
+      {/* ── Divider ────────────────────────────────────────────────────────── */}
+      <div className="border-t border-border" />
+
+      {/* ── Admin users section ────────────────────────────────────────────── */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+              <Shield className="w-5 h-5 text-primary" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-foreground">Usuarios administradores</h2>
+              <p className="text-sm text-muted-foreground">
+                {userList
+                  ? `${userList.length} usuario${userList.length !== 1 ? "s" : ""} registrado${userList.length !== 1 ? "s" : ""}`
+                  : "Gestiona acceso a ContentPilot"}
+              </p>
+            </div>
           </div>
-        )}
-        {error && (
-          <div className="py-12 text-center text-destructive text-sm">Error al cargar usuarios</div>
-        )}
-        {!isLoading && !error && userList?.length === 0 && (
-          <div className="py-12 text-center text-muted-foreground text-sm">No hay usuarios registrados</div>
-        )}
-        {!isLoading && !error && userList && userList.length > 0 && (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border bg-muted/40">
-                  <th className="text-left px-5 py-3 font-medium text-muted-foreground whitespace-nowrap">Usuario</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Nombre</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">
-                    <span className="flex items-center gap-1"><Mail className="w-3.5 h-3.5" /> Email</span>
-                  </th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">
-                    <span className="flex items-center gap-1"><Phone className="w-3.5 h-3.5" /> Teléfono</span>
-                  </th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Rol</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Estado</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">
-                    <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5" /> Último acceso</span>
-                  </th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Creado</th>
-                  <th className="px-3 py-3 font-medium text-muted-foreground whitespace-nowrap">
-                    <span className="flex items-center gap-1"><StickyNote className="w-3.5 h-3.5" /> Notas</span>
-                  </th>
-                  <th className="px-3 py-3" />
-                </tr>
-              </thead>
-              <tbody>
-                {userList.map((user) => (
-                  <tr key={user.id}
-                    className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors">
-                    {/* Usuario */}
-                    <td className="px-5 py-3.5">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0 text-primary text-xs font-bold">
-                          {initials(user)}
-                        </div>
-                        <div>
-                          <p className="font-medium text-foreground leading-tight">
-                            @{user.username}
-                            {user.username === selfUsername && (
-                              <span className="ml-1.5 text-[10px] font-normal text-primary bg-primary/10 px-1.5 py-0.5 rounded-full">tú</span>
-                            )}
-                          </p>
-                        </div>
-                      </div>
-                    </td>
-                    {/* Nombre */}
-                    <td className="px-4 py-3.5 text-foreground/80 whitespace-nowrap">
-                      {user.fullName ?? <span className="text-muted-foreground/40">—</span>}
-                    </td>
-                    {/* Email */}
-                    <td className="px-4 py-3.5">
-                      {user.email
-                        ? <a href={`mailto:${user.email}`} className="text-primary hover:underline truncate max-w-[180px] block">{user.email}</a>
-                        : <span className="text-muted-foreground/40">—</span>}
-                    </td>
-                    {/* Teléfono */}
-                    <td className="px-4 py-3.5 text-foreground/80 whitespace-nowrap">
-                      {user.phone ?? <span className="text-muted-foreground/40">—</span>}
-                    </td>
-                    {/* Rol */}
-                    <td className="px-4 py-3.5">
-                      <Badge variant="secondary" className="capitalize text-xs gap-1">
-                        <ShieldCheck className="w-3 h-3" />{user.role}
-                      </Badge>
-                    </td>
-                    {/* Estado */}
-                    <td className="px-4 py-3.5">
-                      {user.isActive
-                        ? <span className="flex items-center gap-1 text-emerald-600 text-xs font-medium">
-                            <CheckCircle2 className="w-3.5 h-3.5" /> Activo
-                          </span>
-                        : <span className="flex items-center gap-1 text-destructive text-xs font-medium">
-                            <XCircle className="w-3.5 h-3.5" /> Inactivo
-                          </span>}
-                    </td>
-                    {/* Último acceso */}
-                    <td className="px-4 py-3.5 text-muted-foreground whitespace-nowrap text-xs">
-                      {fmtDateTime(user.lastLoginAt)}
-                    </td>
-                    {/* Creado */}
-                    <td className="px-4 py-3.5 text-muted-foreground whitespace-nowrap text-xs">
-                      {fmtDate(user.createdAt)}
-                    </td>
-                    {/* Notas */}
-                    <td className="px-3 py-3.5 text-center">
-                      {user.notes
-                        ? <Tooltip>
-                            <TooltipTrigger asChild>
-                              <StickyNote className="w-3.5 h-3.5 text-amber-500 cursor-help mx-auto" />
-                            </TooltipTrigger>
-                            <TooltipContent side="left" className="max-w-xs text-xs whitespace-pre-wrap">
-                              {user.notes}
-                            </TooltipContent>
-                          </Tooltip>
-                        : <span className="text-muted-foreground/30">—</span>}
-                    </td>
-                    {/* Acciones */}
-                    <td className="px-3 py-3.5">
-                      <div className="flex items-center gap-0.5">
-                        <EditUserDialog user={user} selfUsername={selfUsername} />
-                        <ChangePasswordDialog user={user} />
-                        <DeleteUserButton user={user} selfUsername={selfUsername} />
-                      </div>
-                    </td>
+          <AddUserDialog />
+        </div>
+
+        <div className="rounded-xl border border-border overflow-hidden bg-card">
+          {isLoading && (
+            <div className="flex items-center justify-center py-16 text-muted-foreground gap-2">
+              <Loader2 className="w-5 h-5 animate-spin" /><span>Cargando usuarios…</span>
+            </div>
+          )}
+          {error && (
+            <div className="py-12 text-center text-destructive text-sm">Error al cargar usuarios</div>
+          )}
+          {!isLoading && !error && userList?.length === 0 && (
+            <div className="py-12 text-center text-muted-foreground text-sm">No hay usuarios registrados</div>
+          )}
+          {!isLoading && !error && userList && userList.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/40">
+                    <th className="text-left px-5 py-3 font-medium text-muted-foreground whitespace-nowrap">Usuario</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Nombre</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">
+                      <span className="flex items-center gap-1"><Mail className="w-3.5 h-3.5" /> Email</span>
+                    </th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">
+                      <span className="flex items-center gap-1"><Phone className="w-3.5 h-3.5" /> Teléfono</span>
+                    </th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Rol</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Estado</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">
+                      <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5" /> Último acceso</span>
+                    </th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Creado</th>
+                    <th className="px-3 py-3 font-medium text-muted-foreground whitespace-nowrap">
+                      <span className="flex items-center gap-1"><StickyNote className="w-3.5 h-3.5" /> Notas</span>
+                    </th>
+                    <th className="px-3 py-3" />
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+                </thead>
+                <tbody>
+                  {userList.map((user) => (
+                    <tr key={user.id}
+                      className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors">
+                      {/* Usuario */}
+                      <td className="px-5 py-3.5">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0 text-primary text-xs font-bold">
+                            {initials(user)}
+                          </div>
+                          <div>
+                            <p className="font-medium text-foreground leading-tight">
+                              @{user.username}
+                              {user.username === selfUsername && (
+                                <span className="ml-1.5 text-[10px] font-normal text-primary bg-primary/10 px-1.5 py-0.5 rounded-full">tú</span>
+                              )}
+                            </p>
+                          </div>
+                        </div>
+                      </td>
+                      {/* Nombre */}
+                      <td className="px-4 py-3.5 text-foreground/80 whitespace-nowrap">
+                        {user.fullName ?? <span className="text-muted-foreground/40">—</span>}
+                      </td>
+                      {/* Email */}
+                      <td className="px-4 py-3.5">
+                        {user.email
+                          ? <a href={`mailto:${user.email}`} className="text-primary hover:underline truncate max-w-[180px] block">{user.email}</a>
+                          : <span className="text-muted-foreground/40">—</span>}
+                      </td>
+                      {/* Teléfono */}
+                      <td className="px-4 py-3.5 text-foreground/80 whitespace-nowrap">
+                        {user.phone ?? <span className="text-muted-foreground/40">—</span>}
+                      </td>
+                      {/* Rol */}
+                      <td className="px-4 py-3.5">
+                        <Badge variant="secondary" className="capitalize text-xs gap-1">
+                          <ShieldCheck className="w-3 h-3" />{user.role}
+                        </Badge>
+                      </td>
+                      {/* Estado */}
+                      <td className="px-4 py-3.5">
+                        {user.isActive
+                          ? <span className="flex items-center gap-1 text-emerald-600 text-xs font-medium">
+                              <CheckCircle2 className="w-3.5 h-3.5" /> Activo
+                            </span>
+                          : <span className="flex items-center gap-1 text-destructive text-xs font-medium">
+                              <XCircle className="w-3.5 h-3.5" /> Inactivo
+                            </span>}
+                      </td>
+                      {/* Último acceso */}
+                      <td className="px-4 py-3.5 text-muted-foreground whitespace-nowrap text-xs">
+                        {fmtDateTime(user.lastLoginAt)}
+                      </td>
+                      {/* Creado */}
+                      <td className="px-4 py-3.5 text-muted-foreground whitespace-nowrap text-xs">
+                        {fmtDate(user.createdAt)}
+                      </td>
+                      {/* Notas */}
+                      <td className="px-3 py-3.5 text-center">
+                        {user.notes
+                          ? <Tooltip>
+                              <TooltipTrigger asChild>
+                                <StickyNote className="w-3.5 h-3.5 text-amber-500 cursor-help mx-auto" />
+                              </TooltipTrigger>
+                              <TooltipContent side="left" className="max-w-xs text-xs whitespace-pre-wrap">
+                                {user.notes}
+                              </TooltipContent>
+                            </Tooltip>
+                          : <span className="text-muted-foreground/30">—</span>}
+                      </td>
+                      {/* Acciones */}
+                      <td className="px-3 py-3.5">
+                        <div className="flex items-center gap-0.5">
+                          <EditUserDialog user={user} selfUsername={selfUsername} />
+                          <ChangePasswordDialog user={user} />
+                          <DeleteUserButton user={user} selfUsername={selfUsername} />
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <p className="text-xs text-muted-foreground text-center">
+          Todos los usuarios activos tienen acceso de administrador completo a ContentPilot.
+        </p>
       </div>
-
-      <p className="text-xs text-muted-foreground text-center">
-        Los usuarios de esta tabla tienen acceso de administrador completo.
-        Los alumnos se gestionan en la sección siguiente.
-      </p>
-
-      {/* Entitlements section */}
-      <EntitlementsSection />
     </div>
   )
 }

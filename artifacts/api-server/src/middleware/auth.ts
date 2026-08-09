@@ -38,3 +38,65 @@ export const requireAuth: RequestHandler = (req, res, next): void => {
   }
   res.status(401).json({ error: "Unauthorized" });
 };
+
+/**
+ * Require admin role. Must be used after requireAuth.
+ * Returns 403 for authenticated non-admin users.
+ */
+export const requireAdmin: RequestHandler = (req, res, next): void => {
+  if (req.session?.user?.role !== "admin") {
+    res.status(403).json({ error: "Se requiere rol de administrador" });
+    return;
+  }
+  next();
+};
+
+/**
+ * Require active tool-access entitlement. Must be used after requireAuth.
+ * Admins always pass through. Non-admin users with expired/disabled entitlements get 403.
+ */
+export const requireToolAccess: RequestHandler = async (req, res, next): Promise<void> => {
+  const user = req.session?.user;
+  if (!user) { res.status(401).json({ error: "Unauthorized" }); return; }
+  if (user.role === "admin") { next(); return; }
+
+  try {
+    const { getUserAccess } = await import("../lib/access");
+    const access = await getUserAccess(user.userId, user.role);
+    if (!access.toolAccessActive) {
+      res.status(403).json({
+        error: "Tu acceso a la herramienta ha vencido o no está activo",
+        code: "TOOL_ACCESS_EXPIRED",
+      });
+      return;
+    }
+    next();
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Require course-access entitlement. Must be used after requireAuth.
+ * Admins always pass through. Non-admin users without courseAccess get 403.
+ */
+export const requireCourseAccess: RequestHandler = async (req, res, next): Promise<void> => {
+  const user = req.session?.user;
+  if (!user) { res.status(401).json({ error: "Unauthorized" }); return; }
+  if (user.role === "admin") { next(); return; }
+
+  try {
+    const { getUserAccess } = await import("../lib/access");
+    const access = await getUserAccess(user.userId, user.role);
+    if (!access.courseAccess) {
+      res.status(403).json({
+        error: "No tienes acceso al curso",
+        code: "COURSE_ACCESS_DENIED",
+      });
+      return;
+    }
+    next();
+  } catch (err) {
+    next(err);
+  }
+};

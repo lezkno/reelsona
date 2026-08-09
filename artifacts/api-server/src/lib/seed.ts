@@ -39,10 +39,29 @@ export async function seedAdminUser(): Promise<void> {
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS notes         TEXT",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMP",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at    TIMESTAMP NOT NULL DEFAULT NOW()",
+    // Migration 011: activation token columns (post-purchase "set your password" flow)
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS activation_token            TEXT",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS activation_token_expires_at TIMESTAMP",
   ];
   for (const stmt of alterations) {
     await db.execute(sql.raw(stmt));
   }
+
+  // Migration 011: user_entitlements table (access/license layer)
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS user_entitlements (
+      id                    SERIAL PRIMARY KEY,
+      user_id               INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+      course_access         BOOLEAN NOT NULL DEFAULT FALSE,
+      tool_access_status    VARCHAR(16) NOT NULL DEFAULT 'disabled'
+                              CHECK (tool_access_status IN ('active', 'trialing', 'expired', 'disabled')),
+      tool_access_starts_at TIMESTAMP,
+      tool_access_ends_at   TIMESTAMP,
+      source                VARCHAR(64),
+      created_at            TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at            TIMESTAMP NOT NULL DEFAULT NOW()
+    )
+  `);
 
   const [existing] = await db.select({ id: users.id }).from(users).limit(1);
   if (existing) return; // already seeded

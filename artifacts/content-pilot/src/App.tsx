@@ -59,8 +59,9 @@ function Router() {
         <Route path="/settings" component={Settings} />
         <Route path="/profile" component={Profile} />
         <Route path="/course" component={Course} />
-        <Route path="/users" component={UsersPage} />
         <Route path="/access-expired" component={AccessExpired} />
+        {/* Admin-only */}
+        <Route path="/users" component={() => <AdminOnly><UsersPage /></AdminOnly>} />
 
         {/* Tool routes — blocked for expired access */}
         <Route path="/connect">
@@ -110,6 +111,15 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
+/** Renders children only for admin users; redirects others to the dashboard. */
+function AdminOnly({ children }: { children: React.ReactNode }) {
+  const { data } = useAuthStatus()
+  if (data?.user?.role !== "admin") {
+    // Non-admin: redirect silently to dashboard
+    return <Dashboard />
+  }
+  return <>{children}</>
+}
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
