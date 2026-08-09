@@ -604,36 +604,130 @@ export default function Landing() {
 
       {/* ── AUTOPILOT ── */}
       <section style={{ padding: "6rem 1.5rem" }}>
-        <div className="mx-auto" style={{ maxWidth: 1000 }}>
-          {/* header */}
-          <div className="text-center mb-14">
-            <SectionLabel>Modo Autopilot</SectionLabel>
-            <SectionTitle center>
-              Configura una vez. Publica para siempre.
-            </SectionTitle>
+        <div className="mx-auto" style={{ maxWidth: 1040 }}>
+
+          {/* ── Encabezado ── */}
+          <div className="text-center mb-12">
+            <div
+              className="inline-flex items-center gap-1.5 rounded-full text-xs font-semibold tracking-widest uppercase mb-4"
+              style={{
+                backgroundColor: "rgba(155,92,246,0.08)",
+                border: "1px solid rgba(155,92,246,0.22)",
+                padding: "0.3rem 0.95rem",
+                color: "#9B5CF6",
+              }}
+            >
+              <Rocket size={11} />
+              Modo Autopilot
+            </div>
+            <h2
+              className="font-bold tracking-tight"
+              style={{
+                fontFamily: "var(--font-display, 'Outfit', sans-serif)",
+                fontSize: "clamp(1.9rem, 4.5vw, 3rem)",
+                letterSpacing: "-0.03em",
+                lineHeight: 1.1,
+                marginBottom: "1.1rem",
+              }}
+            >
+              Configura una vez.{" "}
+              <span
+                style={{
+                  background: "linear-gradient(135deg, #4F6EF7 10%, #9B5CF6 90%)",
+                  WebkitBackgroundClip: "text",
+                  WebkitTextFillColor: "transparent",
+                  backgroundClip: "text",
+                }}
+              >
+                Tu sistema publica solo.
+              </span>
+            </h2>
             <p
-              className="mx-auto mt-5"
+              className="mx-auto"
               style={{ color: "#666", maxWidth: 560, fontSize: "0.95rem", lineHeight: 1.8 }}
             >
-              Cuando tu estrategia, herramientas e Instagram están conectados,
-              Autopilot se encarga del resto — de principio a fin, sin que tengas
-              que tocar nada.
+              Autopilot es el modo de Reelsona que ejecuta el pipeline completo —
+              estrategia, guiones, producción, captions y publicación — sin que tengas
+              que intervenir en cada paso.
             </p>
           </div>
 
-          {/* Quote highlight */}
+          {/* ── Qué es Autopilot: 3 pilares ── */}
           <div
-            className="text-center rounded-2xl mx-auto mb-14"
+            className="grid gap-4 mb-14"
+            style={{ gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))" }}
+          >
+            {[
+              {
+                Icon: Settings2,
+                color: "#4F6EF7",
+                bg: "rgba(79,110,247,0.08)",
+                border: "rgba(79,110,247,0.2)",
+                title: "1. Configuras una sola vez",
+                desc: "Defines tu nicho, tu audiencia, el tono de tu contenido y los horarios de publicación. Eso es todo lo que haces tú.",
+              },
+              {
+                Icon: Bot,
+                color: "#9B5CF6",
+                bg: "rgba(155,92,246,0.08)",
+                border: "rgba(155,92,246,0.2)",
+                title: "2. El sistema produce",
+                desc: "Reelsona genera los temas, escribe los guiones, produce los videos con tu avatar en HeyGen y aplica los captions automáticamente.",
+              },
+              {
+                Icon: Calendar,
+                color: "#4F6EF7",
+                bg: "rgba(79,110,247,0.08)",
+                border: "rgba(79,110,247,0.2)",
+                title: "3. Instagram se actualiza solo",
+                desc: "Los Reels se publican en tu cuenta según el calendario que configuraste. Sin que abras la app, sin que programes nada a mano.",
+              },
+            ].map(({ Icon, color, bg, border, title, desc }) => (
+              <div
+                key={title}
+                className="rounded-2xl"
+                style={{
+                  backgroundColor: "#0f0f0f",
+                  border: `1px solid ${border}`,
+                  padding: "1.75rem",
+                }}
+              >
+                <div
+                  className="flex items-center justify-center rounded-xl mb-4"
+                  style={{ width: 44, height: 44, backgroundColor: bg, color }}
+                >
+                  <Icon size={20} />
+                </div>
+                <h3
+                  className="font-bold mb-2"
+                  style={{
+                    fontFamily: "var(--font-display, 'Outfit', sans-serif)",
+                    fontSize: "1rem",
+                    color: "#e8e8e8",
+                  }}
+                >
+                  {title}
+                </h3>
+                <p style={{ color: "#666", fontSize: "0.875rem", lineHeight: 1.7, margin: 0 }}>
+                  {desc}
+                </p>
+              </div>
+            ))}
+          </div>
+
+          {/* ── Quote ── */}
+          <div
+            className="rounded-2xl text-center mx-auto mb-14"
             style={{
-              maxWidth: 680,
-              background: "linear-gradient(135deg, rgba(79,110,247,0.07), rgba(155,92,246,0.07))",
-              border: "1px solid rgba(155,92,246,0.2)",
-              padding: "1.75rem 2rem",
+              maxWidth: 700,
+              background: "linear-gradient(135deg, rgba(79,110,247,0.06), rgba(155,92,246,0.06))",
+              border: "1px solid rgba(155,92,246,0.18)",
+              padding: "2rem 2.5rem",
             }}
           >
             <p
               style={{
-                fontSize: "clamp(0.95rem, 2vw, 1.1rem)",
+                fontSize: "clamp(1rem, 2.2vw, 1.2rem)",
                 color: "#c8c8c8",
                 lineHeight: 1.75,
                 fontStyle: "italic",
@@ -645,7 +739,20 @@ export default function Landing() {
             </p>
           </div>
 
-          {/* Steps */}
+          {/* ── Pipeline animado: título ── */}
+          <p
+            className="text-center font-semibold mb-6"
+            style={{
+              fontSize: "0.78rem",
+              letterSpacing: "0.1em",
+              textTransform: "uppercase",
+              color: "#444",
+            }}
+          >
+            El pipeline que Autopilot ejecuta en cada ciclo
+          </p>
+
+          {/* ── Pipeline animado: tarjetas ── */}
           <style>{`
             @keyframes card-light {
               0%   { border-color: rgba(79,110,247,0.6); box-shadow: 0 0 32px rgba(79,110,247,0.22), inset 0 0 24px rgba(79,110,247,0.05); background-color: rgba(79,110,247,0.06); }
@@ -668,7 +775,7 @@ export default function Landing() {
             .ap-a4 { animation: arr-light  5s ease-in-out 3s   infinite; }
           `}</style>
 
-          <div style={{ display: "flex", alignItems: "stretch", gap: 0, overflowX: "auto" }}>
+          <div style={{ display: "flex", alignItems: "stretch", gap: 0, overflowX: "auto" }} className="mb-14">
             {autopilotSteps.flatMap(({ n, title, desc }, idx) => {
               const cardClass = `ap-c${idx + 1}`;
               const arrClass  = `ap-a${idx + 1}`;
@@ -682,7 +789,6 @@ export default function Landing() {
                     border: "1px solid #1d1d1d",
                     backgroundColor: "#0f0f0f",
                     padding: "1.75rem 1rem 1.5rem",
-                    transition: "border-color 0.3s, box-shadow 0.3s",
                   }}
                 >
                   <div
@@ -716,7 +822,6 @@ export default function Landing() {
                   </p>
                 </div>,
               ];
-
               if (idx < autopilotSteps.length - 1) {
                 items.push(
                   <div
@@ -730,48 +835,131 @@ export default function Landing() {
                   </div>
                 );
               }
-
               return items;
             })}
           </div>
 
-          {/* Autopilot outcome */}
+          {/* ── Sin Autopilot vs Con Autopilot ── */}
           <div
-            className="mt-10 rounded-2xl flex flex-wrap items-center gap-6"
+            className="grid gap-4 mb-10"
+            style={{ gridTemplateColumns: "1fr 1fr" }}
+          >
+            {/* Sin */}
+            <div
+              className="rounded-2xl"
+              style={{
+                backgroundColor: "#0e0e0e",
+                border: "1px solid #1c1c1c",
+                padding: "1.75rem",
+              }}
+            >
+              <p
+                className="font-bold mb-4"
+                style={{
+                  fontFamily: "var(--font-display, 'Outfit', sans-serif)",
+                  fontSize: "0.82rem",
+                  color: "#555",
+                  letterSpacing: "0.05em",
+                  textTransform: "uppercase",
+                }}
+              >
+                Sin Autopilot
+              </p>
+              <div className="flex flex-col gap-3">
+                {[
+                  "Decides qué publicar cada semana manualmente",
+                  "Escribes o corriges cada guión",
+                  "Abres HeyGen, configuras y esperas el render",
+                  "Descargas el video y añades captions en otra app",
+                  "Programas la publicación en Instagram a mano",
+                  "Repites todo esto la próxima semana",
+                ].map((t) => (
+                  <div key={t} className="flex items-start gap-2.5">
+                    <X size={13} color="#4a3030" className="flex-shrink-0 mt-0.5" />
+                    <span style={{ color: "#4a4a4a", fontSize: "0.83rem", lineHeight: 1.55 }}>{t}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Con */}
+            <div
+              className="rounded-2xl"
+              style={{
+                background: "linear-gradient(145deg, rgba(79,110,247,0.05), rgba(155,92,246,0.05))",
+                border: "1px solid rgba(79,110,247,0.2)",
+                padding: "1.75rem",
+              }}
+            >
+              <p
+                className="font-bold mb-4"
+                style={{
+                  fontFamily: "var(--font-display, 'Outfit', sans-serif)",
+                  fontSize: "0.82rem",
+                  color: "#4F6EF7",
+                  letterSpacing: "0.05em",
+                  textTransform: "uppercase",
+                }}
+              >
+                Con Autopilot activo
+              </p>
+              <div className="flex flex-col gap-3">
+                {[
+                  "El plan de temas se genera automáticamente según tu estrategia",
+                  "Los guiones se producen y aprueban sin intervención",
+                  "HeyGen renderiza el video con tu avatar en background",
+                  "Los captions se aplican solos al video terminado",
+                  "El Reel se publica en Instagram en el horario configurado",
+                  "El ciclo se repite solo — semana tras semana",
+                ].map((t) => (
+                  <div key={t} className="flex items-start gap-2.5">
+                    <Check size={13} color="#4F6EF7" strokeWidth={3} className="flex-shrink-0 mt-0.5" />
+                    <span style={{ color: "#aaa", fontSize: "0.83rem", lineHeight: 1.55 }}>{t}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* ── Resultado final ── */}
+          <div
+            className="rounded-2xl flex flex-wrap items-center gap-6"
             style={{
-              backgroundColor: "#0d0d0d",
-              border: "1px solid rgba(79,110,247,0.15)",
+              background: "linear-gradient(135deg, rgba(79,110,247,0.07), rgba(155,92,246,0.07))",
+              border: "1px solid rgba(155,92,246,0.2)",
               padding: "1.75rem 2rem",
             }}
           >
             <div
               className="flex items-center justify-center rounded-xl flex-shrink-0"
               style={{
-                width: 48,
-                height: 48,
-                background: "linear-gradient(135deg, rgba(79,110,247,0.15), rgba(155,92,246,0.15))",
-                border: "1px solid rgba(79,110,247,0.25)",
+                width: 50,
+                height: 50,
+                background: "linear-gradient(135deg, rgba(79,110,247,0.18), rgba(155,92,246,0.18))",
+                border: "1px solid rgba(155,92,246,0.3)",
               }}
             >
-              <Repeat size={20} color="#4F6EF7" />
+              <Repeat size={22} color="#9B5CF6" />
             </div>
             <div style={{ flex: 1, minWidth: 240 }}>
               <p
-                className="font-semibold mb-1"
+                className="font-bold mb-1"
                 style={{
                   fontFamily: "var(--font-display, 'Outfit', sans-serif)",
-                  fontSize: "0.975rem",
+                  fontSize: "1.05rem",
                   color: "#e0e0e0",
                 }}
               >
-                No pagas por producir un video.
+                No pagas por producir un video. Montas una máquina.
               </p>
-              <p style={{ color: "#666", fontSize: "0.875rem", lineHeight: 1.65, margin: 0 }}>
-                Pagas por montar una máquina que puede seguir creando contenido para ti — mes
-                tras mes, con o sin que estés disponible para producirlo.
+              <p style={{ color: "#666", fontSize: "0.875rem", lineHeight: 1.7, margin: 0 }}>
+                Una vez que Autopilot está activo, tu clon digital puede publicar Reels
+                esta semana, la siguiente y el mes que viene — con o sin que estés disponible.
+                Eso es lo que separa tener una herramienta de tener un sistema.
               </p>
             </div>
           </div>
+
         </div>
       </section>
 
