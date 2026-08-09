@@ -1,4 +1,4 @@
-import { useGetInstagramAccount, useDisconnectInstagram, useHandleInstagramCallback, getGetInstagramAccountQueryKey } from "@workspace/api-client-react"
+import { useGetInstagramAccount, useDisconnectInstagram, useHandleInstagramCallback, getGetInstagramAccountQueryKey, getGetInstagramPostsQueryKey } from "@workspace/api-client-react"
 import { ExternalLink } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -52,6 +52,7 @@ export default function Connect() {
         onSuccess: () => {
           toast({ title: "Cuenta Conectada", description: "Tu cuenta de Instagram se vinculó correctamente." })
           queryClient.invalidateQueries({ queryKey: getGetInstagramAccountQueryKey() })
+          queryClient.invalidateQueries({ queryKey: getGetInstagramPostsQueryKey() })
           setLocation("/connect")
         },
         onError: () => {

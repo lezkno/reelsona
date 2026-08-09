@@ -1,4 +1,4 @@
-import { useGetDashboard, useGetVideos, usePublishVideo, useScheduleVideo, useGetInstagramAccount, useGetInstagramPosts, getGetDashboardQueryKey, getGetVideosQueryKey } from "@workspace/api-client-react"
+import { useGetDashboard, useGetVideos, usePublishVideo, useScheduleVideo, useGetInstagramAccount, useGetInstagramPosts, getGetDashboardQueryKey, getGetVideosQueryKey, getGetInstagramAccountQueryKey, getGetInstagramPostsQueryKey } from "@workspace/api-client-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -12,7 +12,7 @@ import { es } from "date-fns/locale"
 import { Link } from "wouter"
 import { useQueryClient } from "@tanstack/react-query"
 import { useToast } from "@/hooks/use-toast"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 
 export default function Dashboard() {
   const { data: dashboard, isLoading } = useGetDashboard()
@@ -26,6 +26,19 @@ export default function Dashboard() {
   const [scheduleDatetime, setScheduleDatetime] = useState("")
 
   const readyVideos = allVideos ?? []
+
+  // Refresh Instagram data every time the user opens / focuses the app
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        queryClient.invalidateQueries({ queryKey: getGetInstagramAccountQueryKey() })
+        queryClient.invalidateQueries({ queryKey: getGetInstagramPostsQueryKey() })
+      }
+    }
+    document.addEventListener("visibilitychange", handleVisibility)
+    return () => document.removeEventListener("visibilitychange", handleVisibility)
+  }, [queryClient])
+
   const { data: igStatus } = useGetInstagramAccount()
   const igConnected = !!(igStatus?.connected && igStatus.account)
   const { data: igPosts, isLoading: igPostsLoading } = useGetInstagramPosts({ limit: 12 })
