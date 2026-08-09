@@ -15,9 +15,8 @@ import { randomBytes } from "crypto";
 import { db } from "@workspace/db";
 import { users, userEntitlements } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
-import { hashPassword } from "../lib/password";
 import { sendEmail, activationEmail, getAppUrl } from "../lib/email";
-import { upsertEntitlement } from "../lib/access";
+import { provisionUser } from "../lib/provision";
 
 const router = Router();
 
@@ -76,83 +75,15 @@ router.post("/admin/provision", async (req: Request, res: Response): Promise<voi
     return;
   }
 
-  const username = email.trim().toLowerCase();
-  const name     = fullName.trim();
-
   try {
-    // ── Find or create user ──────────────────────────────────────────────────
-    let [existingUser] = await db
-      .select()
-      .from(users)
-      .where(eq(users.username, username))
-      .limit(1);
-
-    let created = false;
-    let userId: number;
-
-    const activationToken    = randomBytes(32).toString("hex");
-    const activationExpires  = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
-
-    if (!existingUser) {
-      // Create a new pending user — password will be set during activation
-      const [inserted] = await db
-        .insert(users)
-        .values({
-          username,
-          passwordHash: hashPassword(randomBytes(16).toString("hex")), // temporary random
-          fullName: name,
-          email: username,
-          role: "user",
-          isActive: false,
-          activationToken,
-          activationTokenExpiresAt: activationExpires,
-        })
-        .returning({ id: users.id });
-      userId  = inserted.id;
-      created = true;
-    } else {
-      userId = existingUser.id;
-      // Refresh activation token even for existing users so they can reset their password
-      await db
-        .update(users)
-        .set({
-          fullName: name,
-          activationToken,
-          activationTokenExpiresAt: activationExpires,
-          updatedAt: new Date(),
-        })
-        .where(eq(users.id, userId));
-    }
-
-    // ── Upsert entitlement ───────────────────────────────────────────────────
-    const now               = new Date();
-    const toolAccessEndsAt  = new Date(now.getTime() + toolAccessDays * 24 * 60 * 60 * 1000);
-
-    await upsertEntitlement({
-      userId,
+    const result = await provisionUser({
+      email:         email.trim(),
+      name:          fullName.trim(),
+      toolAccessDays,
       courseAccess,
-      toolAccessStatus:   "active",
-      toolAccessStartsAt: now,
-      toolAccessEndsAt,
       source,
     });
-
-    // ── Send activation email ────────────────────────────────────────────────
-    const activateUrl = `${getAppUrl()}/activate?token=${activationToken}`;
-
-    let emailSent = false;
-    let warning: string | undefined;
-
-    try {
-      const tpl = activationEmail(name, activateUrl, toolAccessDays);
-      await sendEmail({ to: username, ...tpl });
-      emailSent = true;
-    } catch (emailErr: any) {
-      warning = `El usuario fue creado pero el email no pudo enviarse: ${emailErr?.message ?? "error desconocido"}`;
-      console.error("[admin/provision] Email send failed:", emailErr);
-    }
-
-    res.json({ ok: true, userId, created, emailSent, ...(warning ? { warning } : {}) });
+    res.json({ ok: true, ...result });
   } catch (err) {
     console.error("[admin/provision]", err);
     res.status(500).json({ error: "Error interno del servidor" });

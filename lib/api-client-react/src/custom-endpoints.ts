@@ -507,6 +507,19 @@ export function useMarkLessonComplete() {
   });
 }
 
+// ── Checkout ──────────────────────────────────────────────────────────────────
+
+export function useCreateCheckoutSession() {
+  return useMutation({
+    mutationFn: (data: { email: string; fullName?: string }) =>
+      customFetch<{ url: string }>("/api/checkout/create-session", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify(data),
+      }),
+  });
+}
+
 export function useUnmarkLessonComplete() {
   const qc = useQueryClient();
   return useMutation({

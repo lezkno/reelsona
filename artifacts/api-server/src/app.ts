@@ -11,6 +11,8 @@ import authRouter from "./routes/auth";
 import adminRouter from "./routes/admin";
 import captionedRouter from "./routes/captioned";
 import usersRouter from "./routes/users";
+import checkoutRouter from "./routes/checkout";
+import webhookRouter from "./routes/webhook";
 import router from "./routes";
 
 const PgSession = connectPgSimple(session);
@@ -49,6 +51,10 @@ app.use(
   })
 );
 
+// Stripe webhook — MUST be mounted before express.json() to receive raw body.
+// The route applies express.raw() itself; all other routes remain unaffected.
+app.use("/api", webhookRouter);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
@@ -86,6 +92,9 @@ app.use("/api", adminRouter);
 
 // Captioned video streaming — public, no auth required (files are ephemeral /tmp)
 app.use("/api", captionedRouter);
+
+// Checkout — public, no auth required (session created by Stripe webhook)
+app.use("/api", checkoutRouter);
 
 // Require a valid session for all other /api routes
 app.use("/api", requireAuth);

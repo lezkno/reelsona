@@ -25,6 +25,9 @@ import Activate from "@/pages/Activate"
 import AccessExpired from "@/pages/AccessExpired"
 import PrivacyPolicy from "@/pages/PrivacyPolicy"
 import TermsAndConditions from "@/pages/TermsAndConditions"
+import Checkout from "@/pages/Checkout"
+import CheckoutSuccess from "@/pages/CheckoutSuccess"
+import CheckoutCancel from "@/pages/CheckoutCancel"
 import { useAuthStatus } from "@workspace/api-client-react"
 import { useEntitlement } from "@/hooks/useEntitlement"
 
@@ -131,6 +134,9 @@ function App() {
             <Route path="/register" component={Register} />
             <Route path="/verify-email" component={VerifyEmail} />
             <Route path="/activate" component={Activate} />
+            <Route path="/checkout/success" component={CheckoutSuccess} />
+            <Route path="/checkout/cancel" component={CheckoutCancel} />
+            <Route path="/checkout" component={Checkout} />
             <Route>
               <AuthGuard>
                 <Router />
