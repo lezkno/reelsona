@@ -28,6 +28,7 @@ export interface CaptionTemplate {
 
   // ── Layout & Position ────────────────────────────────────────────────────
   wordsPerLine: number;        // words shown simultaneously per block
+  stackWords?: boolean;        // true = each word on its own line (vertical stack)
   yPercent: number;            // 0–100 from top of video (text baseline anchor)
   marginXPercent: number;      // horizontal safe-area padding as % of video width
   textAlign: TextAlign;

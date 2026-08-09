@@ -210,6 +210,7 @@ export const BROWSER_CAPTION_TEMPLATES: CaptionTemplate[] = [
     lineHeight: 1.15,
 
     wordsPerLine: 2,
+    stackWords: true,
     yPercent: 72,
     marginXPercent: 6,
     textAlign: "center",

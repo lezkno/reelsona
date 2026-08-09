@@ -293,10 +293,12 @@ function TemplateCaptionPreview({
             paddingRight: marginX_px,
           }}
         >
-          <div className="flex flex-wrap justify-center items-end gap-x-1 gap-y-0.5">
+          <div className={template.stackWords
+            ? "flex flex-col items-center gap-y-1"
+            : "flex flex-wrap justify-center items-end gap-x-1 gap-y-0.5"}>
             {chunk.map((word, i) => {
               const isActive = i === activeInChunk
-              return (
+              const span = (
                 <span
                   key={`${chunkStart}-${i}`}
                   style={buildWordStyle(template, isActive, scaledFS, scaledOW, scaledSX, scaledSY, scaledBlur) as React.CSSProperties}
@@ -304,6 +306,9 @@ function TemplateCaptionPreview({
                   {template.uppercase ? word.toUpperCase() : word}
                 </span>
               )
+              return template.stackWords
+                ? <div key={`${chunkStart}-${i}`} className="w-full flex justify-center">{span}</div>
+                : span
             })}
           </div>
         </div>
@@ -486,15 +491,22 @@ function BrowserTemplateCard({
               paddingRight: `${template.marginXPercent}%`,
             }}
           >
-            <div className="flex flex-wrap justify-center items-end gap-x-1 gap-y-0.5">
-              {demoWords.map((word, i) => (
-                <span
-                  key={i}
-                  style={buildWordStyle(template, i === 1, scaledFS, scaledOW, scaledSX, scaledSY, scaledBl) as React.CSSProperties}
-                >
-                  {template.uppercase ? word.toUpperCase() : word}
-                </span>
-              ))}
+            <div className={template.stackWords
+              ? "flex flex-col items-center gap-y-1"
+              : "flex flex-wrap justify-center items-end gap-x-1 gap-y-0.5"}>
+              {demoWords.map((word, i) => {
+                const span = (
+                  <span
+                    key={i}
+                    style={buildWordStyle(template, i === 1, scaledFS, scaledOW, scaledSX, scaledSY, scaledBl) as React.CSSProperties}
+                  >
+                    {template.uppercase ? word.toUpperCase() : word}
+                  </span>
+                )
+                return template.stackWords
+                  ? <div key={i} className="w-full flex justify-center">{span}</div>
+                  : span
+              })}
             </div>
           </div>
         </div>

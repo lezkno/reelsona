@@ -260,8 +260,10 @@ async function renderCueFrame(
   const wordGapScaled = Math.round(effectiveFontSize * WORD_GAP_FACTOR);
   const lineSpacing   = Math.round(effectiveFontSize * template.lineHeight);
 
-  // Wrap words into lines (same greedy algorithm as CSS flex-wrap)
-  const lines = buildWrappedLines(measurements, wordGapScaled, availableW);
+  // Wrap words into lines — or force 1 word per line when stackWords: true
+  const lines = template.stackWords
+    ? measurements.map((w, i) => ({ wordIndices: [i], lineWidth: w }))
+    : buildWrappedLines(measurements, wordGapScaled, availableW);
 
   // Draw lines bottom-up: last line baseline = baselineY, earlier lines shifted up
   for (let li = 0; li < lines.length; li++) {
