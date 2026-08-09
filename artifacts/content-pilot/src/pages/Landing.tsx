@@ -423,11 +423,11 @@ export default function Landing() {
                   style={{
                     width: 36,
                     height: 36,
-                    backgroundColor: "rgba(255,80,80,0.07)",
-                    border: "1px solid rgba(255,80,80,0.15)",
+                    backgroundColor: "rgba(79,110,247,0.09)",
+                    border: "1px solid rgba(79,110,247,0.18)",
                   }}
                 >
-                  <Icon size={16} color="#cc4444" />
+                  <Icon size={16} color="#4F6EF7" />
                 </div>
                 <span style={{ color: "#888", fontSize: "0.875rem", lineHeight: 1.65 }}>
                   {text}
