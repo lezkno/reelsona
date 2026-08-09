@@ -206,16 +206,74 @@ function TemplateCaptionPreview({
   const [activeIdx, setActiveIdx] = useState(0)
   const [isDragging, setIsDragging] = useState(false)
 
+  const isTypewriter = template.animation === "typewriter"
+
+  // ── Typewriter animation state ─────────────────────────────────────────────
+  const [twChunkIdx,      setTwChunkIdx]      = useState(0)
+  const [twRevealedChars, setTwRevealedChars] = useState(0)
+  const [twHolding,       setTwHolding]       = useState(false)
+
+  const twNumChunks   = Math.ceil(DEMO_WORDS.length / template.wordsPerLine)
+  const twChunkStart  = (twChunkIdx % twNumChunks) * template.wordsPerLine
+  const twChunk       = DEMO_WORDS.slice(twChunkStart, twChunkStart + template.wordsPerLine)
+  const twChunkText   = twChunk.map(w => template.uppercase ? w.toUpperCase() : w).join(" ")
+  const twTotalChars  = twChunkText.length
+
+  // Standard active-word cycling — disabled when typewriter is running
   useEffect(() => {
+    if (isTypewriter) return
     const t = setInterval(() => setActiveIdx((a) => (a + 1) % DEMO_WORDS.length), 700)
     return () => clearInterval(t)
-  }, [])
+  }, [isTypewriter])
 
-  useEffect(() => { setActiveIdx(0) }, [template.wordsPerLine])
+  useEffect(() => { if (!isTypewriter) setActiveIdx(0) }, [template.wordsPerLine, isTypewriter])
 
+  // Typewriter: reveal chars, then hold, then advance chunk
+  useEffect(() => {
+    if (!isTypewriter) return undefined
+    if (twHolding) {
+      const t = setTimeout(() => {
+        setTwChunkIdx(i => i + 1)
+        setTwRevealedChars(0)
+        setTwHolding(false)
+      }, 900)
+      return () => clearTimeout(t)
+    }
+    if (twRevealedChars < twTotalChars) {
+      const msPerChar = template.animationDuration || 40
+      const t = setTimeout(() => setTwRevealedChars(c => c + 1), msPerChar)
+      return () => clearTimeout(t)
+    }
+    setTwHolding(true)
+    return undefined
+  }, [isTypewriter, twRevealedChars, twHolding, twTotalChars, template.animationDuration])
+
+  // Reset typewriter when template changes
+  useEffect(() => {
+    setTwChunkIdx(0); setTwRevealedChars(0); setTwHolding(false)
+  }, [template.id])
+
+  // ── Standard chunk / active-word computation ──────────────────────────────
   const chunkStart    = Math.floor(activeIdx / template.wordsPerLine) * template.wordsPerLine
   const chunk         = DEMO_WORDS.slice(chunkStart, chunkStart + template.wordsPerLine)
   const activeInChunk = activeIdx - chunkStart
+
+  // For typewriter mode, use twChunk and compute per-word visible text
+  const displayChunk       = isTypewriter ? twChunk       : chunk
+  const displayActiveInChunk = isTypewriter ? -1           : activeInChunk  // no active highlight during reveal
+
+  // Compute how many chars of each word are visible in typewriter mode
+  const twWordTexts: string[] = (() => {
+    if (!isTypewriter) return displayChunk.map(w => template.uppercase ? w.toUpperCase() : w)
+    let left = twRevealedChars
+    return displayChunk.map(w => {
+      const full = template.uppercase ? w.toUpperCase() : w
+      if (left <= 0) return ""
+      const visible = full.slice(0, left)
+      left = Math.max(0, left - full.length - 1) // -1 for the space separator
+      return visible
+    })
+  })()
 
   // Scale all 1920-reference values to preview dimensions
   const scaledFS   = Math.round(scaleToHeight(template.fontSize,    PHONE_SCREEN_H))
@@ -296,22 +354,24 @@ function TemplateCaptionPreview({
           <div className={template.stackWords
             ? "flex flex-col items-center gap-y-1"
             : "flex flex-wrap justify-center items-end gap-x-1 gap-y-0.5"}>
-            {chunk.map((word, i) => {
-              const isActive   = i === activeInChunk
+            {displayChunk.map((word, i) => {
+              const isActive   = i === displayActiveInChunk
               const isMixed    = template.highlightMode === "mixed"
               const isFuncWord = isMixed && PREVIEW_FUNCTION_WORDS.has(word.toLowerCase())
               const wordIsActive = isMixed ? !isFuncWord : isActive
               const wordFS    = isMixed && isFuncWord ? scaledFS * 0.55 : scaledFS
+              const displayText = twWordTexts[i]
+              if (isTypewriter && displayText === "") return null
               const span = (
                 <span
-                  key={`${chunkStart}-${i}`}
+                  key={`${twChunkStart || chunkStart}-${i}`}
                   style={buildWordStyle(template, wordIsActive, wordFS, scaledOW, scaledSX, scaledSY, scaledBlur) as React.CSSProperties}
                 >
-                  {template.uppercase ? word.toUpperCase() : word}
+                  {displayText}
                 </span>
               )
               return template.stackWords
-                ? <div key={`${chunkStart}-${i}`} className="w-full flex justify-center">{span}</div>
+                ? <div key={`${twChunkStart || chunkStart}-${i}`} className="w-full flex justify-center">{span}</div>
                 : span
             })}
           </div>

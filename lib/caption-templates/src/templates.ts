@@ -235,8 +235,8 @@ export const BROWSER_CAPTION_TEMPLATES: CaptionTemplate[] = [
     highlightMode: "mixed",
     activeWordScale: 1.0,
 
-    animation: "fade",
-    animationDuration: 120,
+    animation: "typewriter",
+    animationDuration: 40,  // ms per character in the CSS preview reveal
   },
 
   // ── Bold Stack ───────────────────────────────────────────────────────────────

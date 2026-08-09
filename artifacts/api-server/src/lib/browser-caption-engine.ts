@@ -237,6 +237,8 @@ async function renderCueFrame(
   cue: CaptionCue,
   videoW = VIDEO_WIDTH_DEFAULT,
   videoH = VIDEO_HEIGHT_DEFAULT,
+  /** typewriter: show only the first N words of the cue (undefined = show all) */
+  revealedWords?: number,
 ): Promise<Buffer> {
   const cvs = canvas.createCanvas(videoW, videoH);
   const ctx = cvs.getContext("2d");
@@ -253,8 +255,11 @@ async function renderCueFrame(
   const marginX     = getSafeMarginX(template, videoW);
   const availableW  = videoW - 2 * marginX;
 
-  // Format words (apply uppercase if template requires it)
-  const displayWords = cue.words.map((w) => formatWord(w.text, template));
+  // Format words — typewriter: only show the first `revealedWords` words
+  const visibleWords = revealedWords !== undefined
+    ? cue.words.slice(0, revealedWords)
+    : cue.words;
+  const displayWords = visibleWords.map((w) => formatWord(w.text, template));
 
   /**
    * Measure all words at `fontSize` first, then auto-scale the font down if
@@ -570,20 +575,56 @@ export async function applyCaptionsBrowser(
 
     logger.info({ cueCount: cues.length }, "[BrowserEngine] Rendering PNG frames...");
 
-    // ── 6. Render one PNG per cue ─────────────────────────────────────────
+    // ── 6. Render PNG frames ──────────────────────────────────────────────
+    // Typewriter templates get word-by-word sub-frames on each new window.
     const segments: Array<{ pngPath: string; startSec: number; endSec: number }> = [];
+    const isTypewriter = template.animation === "typewriter";
+    let prevWordsKey   = "";
 
     for (let i = 0; i < cues.length; i++) {
       const cue    = cues[i];
       const endMs  = i + 1 < cues.length ? cues[i + 1].startMs : cue.endMs;
-      const png    = await renderCueFrame(canvas, template, cue, videoDims.width, videoDims.height);
-      const pngPath = path.join(tmpDir, `cue_${String(i).padStart(4, "0")}.png`);
-      await fs.writeFile(pngPath, png);
-      segments.push({
-        pngPath,
-        startSec: cue.startMs / 1000,
-        endSec:   endMs / 1000,
-      });
+      const cueDur = endMs - cue.startMs;
+      const wordsKey = cue.words.map((w) => w.text).join(",");
+      const isNewWindow = wordsKey !== prevWordsKey;
+      prevWordsKey = wordsKey;
+
+      if (isTypewriter && isNewWindow && cue.words.length > 1) {
+        // Word-by-word reveal at the start of each new visible window
+        const numWords   = cue.words.length;
+        const msPerWord  = Math.min(80, cueDur / (numWords * 2));
+
+        for (let w = 1; w < numWords; w++) {
+          const subPng  = await renderCueFrame(canvas, template, cue, videoDims.width, videoDims.height, w);
+          const subPath = path.join(tmpDir, `cue_${String(i).padStart(4, "0")}_w${w}.png`);
+          await fs.writeFile(subPath, subPng);
+          segments.push({
+            pngPath:  subPath,
+            startSec: (cue.startMs + (w - 1) * msPerWord) / 1000,
+            endSec:   (cue.startMs +  w      * msPerWord) / 1000,
+          });
+        }
+
+        // Full cue held for the rest of the window's duration
+        const fullPng  = await renderCueFrame(canvas, template, cue, videoDims.width, videoDims.height);
+        const fullPath = path.join(tmpDir, `cue_${String(i).padStart(4, "0")}.png`);
+        await fs.writeFile(fullPath, fullPng);
+        segments.push({
+          pngPath:  fullPath,
+          startSec: (cue.startMs + (numWords - 1) * msPerWord) / 1000,
+          endSec:    endMs / 1000,
+        });
+      } else {
+        // Standard: one PNG per cue
+        const png     = await renderCueFrame(canvas, template, cue, videoDims.width, videoDims.height);
+        const pngPath = path.join(tmpDir, `cue_${String(i).padStart(4, "0")}.png`);
+        await fs.writeFile(pngPath, png);
+        segments.push({
+          pngPath,
+          startSec: cue.startMs / 1000,
+          endSec:   endMs / 1000,
+        });
+      }
     }
 
     logger.info({ count: segments.length }, "[BrowserEngine] Frames rendered");

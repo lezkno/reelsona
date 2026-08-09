@@ -8,7 +8,7 @@
  */
 
 export type HighlightMode = "color" | "scale" | "both" | "none" | "mixed";
-export type CaptionAnimation = "none" | "fade" | "zoom";
+export type CaptionAnimation = "none" | "fade" | "zoom" | "typewriter";
 export type BackgroundMode = "none" | "word" | "active_word" | "line";
 export type TextAlign = "left" | "center" | "right";
 
