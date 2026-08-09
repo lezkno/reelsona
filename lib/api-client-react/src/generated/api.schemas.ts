@@ -757,6 +757,7 @@ export interface NicheRadarAccount {
   relevance_score: number | null;
   use_as_reference: boolean;
   source: string;
+  top_posts_json: unknown[] | null;
   last_synced_at: string | null;
   created_at: string;
 }

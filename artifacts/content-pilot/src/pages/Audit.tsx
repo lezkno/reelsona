@@ -297,10 +297,27 @@ function TabRadar() {
             {accounts.map((acc) => (
               <div key={acc.id} className={`flex items-center gap-3 px-4 py-3 rounded-xl border transition-colors ${acc.use_as_reference ? "border-primary/30 bg-primary/3" : "border-border bg-muted/30 opacity-60"}`}>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-semibold text-sm">@{acc.ig_username}</span>
                     {acc.followers != null && <span className="text-xs text-muted-foreground">{acc.followers.toLocaleString()} seg.</span>}
                     {acc.source === "ai_suggested" && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 dark:bg-violet-900/20 dark:text-violet-400">IA</span>}
+                    {!acc.bio && !(acc.top_posts_json && (acc.top_posts_json as unknown[]).length > 0) && (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400 cursor-default">
+                              <AlertTriangle className="w-2.5 h-2.5" />
+                              Sin datos
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="text-xs max-w-[220px] text-center">
+                            {acc.use_as_reference
+                              ? "Esta cuenta no tiene bio ni posts sincronizados y será ignorada en el Estudio de Mercado. Sincronizala para que aporte datos al análisis."
+                              : "Sin bio ni posts sincronizados. Sincronizala para que aporte datos al análisis."}
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    )}
                   </div>
                   {acc.bio && <p className="text-xs text-muted-foreground mt-0.5 truncate">{acc.bio}</p>}
                 </div>
