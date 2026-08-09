@@ -4,6 +4,7 @@ import { db } from "@workspace/db";
 import { users } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
 import { verifyPassword, hashPassword } from "../lib/password";
+import { sendEmail, passwordChangedEmail } from "../lib/email";
 
 const router = Router();
 
@@ -149,6 +150,13 @@ router.post("/auth/change-password", async (req: Request, res: Response): Promis
     await db.update(users)
       .set({ passwordHash: hashPassword(newPassword), updatedAt: new Date() })
       .where(eq(users.id, userId));
+
+    // Fire-and-forget: notify by email (don't block the response)
+    if (user.email) {
+      const tpl = passwordChangedEmail(user.fullName ?? user.username)
+      sendEmail({ to: user.email, ...tpl }).catch(() => {})
+    }
+
     res.json({ ok: true });
   } catch {
     res.status(500).json({ error: "Error al cambiar contraseña" });

@@ -413,3 +413,38 @@ export function useRunContentStrategy() {
     onSuccess: () => qc.invalidateQueries({ queryKey: STRATEGY_PROFILE_KEY }),
   });
 }
+
+// ── Course progress ───────────────────────────────────────────────────────────
+
+const COURSE_PROGRESS_KEY = ["course", "progress"] as const;
+
+export function useGetCourseProgress() {
+  return useQuery<{ completedLessons: string[] }>({
+    queryKey: COURSE_PROGRESS_KEY,
+    queryFn: () => customFetch<{ completedLessons: string[] }>("/api/course/progress"),
+  });
+}
+
+export function useMarkLessonComplete() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (lessonId: string) =>
+      customFetch<{ ok: boolean }>("/api/course/progress", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lessonId }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: COURSE_PROGRESS_KEY }),
+  });
+}
+
+export function useUnmarkLessonComplete() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (lessonId: string) =>
+      customFetch<{ ok: boolean }>(`/api/course/progress/${encodeURIComponent(lessonId)}`, {
+        method: "DELETE",
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: COURSE_PROGRESS_KEY }),
+  });
+}

@@ -17,6 +17,7 @@ import Automation from "@/pages/Automation"
 import CaptionStudio from "@/pages/CaptionStudio"
 import UsersPage from "@/pages/Users"
 import Profile from "@/pages/Profile"
+import Course from "@/pages/Course"
 import Login from "@/pages/Login"
 import PrivacyPolicy from "@/pages/PrivacyPolicy"
 import TermsAndConditions from "@/pages/TermsAndConditions"
@@ -46,6 +47,7 @@ function Router() {
         <Route path="/captions" component={CaptionStudio} />
         <Route path="/users" component={UsersPage} />
         <Route path="/profile" component={Profile} />
+        <Route path="/course" component={Course} />
         <Route component={NotFound} />
       </Switch>
     </Layout>

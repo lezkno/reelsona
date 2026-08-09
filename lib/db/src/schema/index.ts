@@ -9,3 +9,4 @@ export * from "./users";
 export * from "./instagram-audit-cache";
 export * from "./audit-profiles";
 export * from "./niche-radar-accounts";
+export * from "./course-progress";

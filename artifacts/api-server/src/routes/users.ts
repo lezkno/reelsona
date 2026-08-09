@@ -11,6 +11,7 @@ import { db } from "@workspace/db";
 import { users } from "@workspace/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { hashPassword } from "../lib/password";
+import { sendEmail, welcomeEmail } from "../lib/email";
 
 const router = Router();
 
@@ -80,6 +81,13 @@ router.post("/users", async (req: Request, res: Response): Promise<void> => {
         notes: notes || null,
       })
       .returning(PUBLIC_FIELDS);
+
+    // Fire-and-forget welcome email
+    if (email) {
+      const tpl = welcomeEmail(fullName ?? username)
+      sendEmail({ to: email, ...tpl }).catch(() => {})
+    }
+
     res.status(201).json(created);
   } catch (err: any) {
     if (err?.code === "23505") {
