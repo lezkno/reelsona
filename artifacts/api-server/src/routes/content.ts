@@ -25,8 +25,9 @@ import {
   DeleteContentItemParams,
   DeleteContentItemResponse,
 } from "@workspace/api-zod";
-import { generateScript, generateContentTopics, regenerateCaption } from "../lib/ai-scripts";
+import { generateScript, generateContentTopics, regenerateCaption, regenerateScriptWithCriterion, type RegenerateCriterion } from "../lib/ai-scripts";
 import { runAutomationCycle } from "../lib/scheduler";
+import { getLatestAuditCache } from "../lib/audit-cache";
 
 /** Normalise a title for duplicate detection: lowercase, strip accents + punctuation */
 function normTopic(t: string): string {
@@ -83,6 +84,15 @@ function mapItem(
     captioned_video_url: videoInfo?.captionedVideoUrl ?? null,
     thumbnail_url: videoInfo?.thumbnailUrl ?? null,
     video_status: videoInfo?.videoStatus ?? null,
+    // ── Viral Editorial Engine fields ────────────────────────────────────────
+    viral_score: item.viralScore ?? null,
+    editorial_angle: item.editorialAngle ?? null,
+    hook_candidates: item.hookCandidates ?? null,
+    hook_selection_reason: item.hookSelectionReason ?? null,
+    share_reason: item.shareReason ?? null,
+    audience_pain: item.audiencePain ?? null,
+    novelty_level: item.noveltyLevel ?? null,
+    // ────────────────────────────────────────────────────────────────────────
     created_at: item.createdAt.toISOString(),
     updated_at: item.updatedAt.toISOString(),
   };
@@ -234,6 +244,9 @@ router.post("/content/plan/generate", async (req, res): Promise<void> => {
     return;
   }
 
+  // Load audit cache for enriched generation
+  const auditInsights = await getLatestAuditCache().catch(() => null);
+
   const rawTopics = await generateContentTopics(
     niche,
     keywords,
@@ -241,7 +254,8 @@ router.post("/content/plan/generate", async (req, res): Promise<void> => {
     language,
     parsed.data.days,
     postsPerDay,
-    existingTopics
+    existingTopics,
+    auditInsights ?? undefined
   );
 
   // Server-side safety net: remove any topics the AI returned more than once
@@ -255,6 +269,11 @@ router.post("/content/plan/generate", async (req, res): Promise<void> => {
         topic: t.topic,
         scheduledAt: slots[i],
         status: "draft",
+        viralScore: t.viral_score ?? null,
+        editorialAngle: t.editorial_angle ?? null,
+        shareReason: t.share_reason ?? null,
+        audiencePain: t.audience_pain ?? null,
+        noveltyLevel: t.novelty_level ?? null,
       }))
     )
     .returning();
@@ -279,7 +298,8 @@ router.post("/content", async (req, res): Promise<void> => {
     const tone = settings?.tone ?? "casual";
     const language = settings?.language ?? "es";
     const existingItems = await db.select({ topic: contentPlanItemsTable.topic }).from(contentPlanItemsTable).limit(20);
-    const generated = await generateContentTopics(niche, keywords, tone, language, 1, 1, existingItems.map((i) => i.topic));
+    const auditInsights = await getLatestAuditCache().catch(() => null);
+    const generated = await generateContentTopics(niche, keywords, tone, language, 1, 1, existingItems.map((i) => i.topic), auditInsights ?? undefined);
     if (!generated[0]?.topic) {
       res.status(500).json({ error: "No se pudo generar el tema" });
       return;
@@ -349,7 +369,8 @@ router.post("/content/:id/suggest-topic", async (req, res): Promise<void> => {
   const existing = await db.select({ topic: contentPlanItemsTable.topic }).from(contentPlanItemsTable);
   const existingTopics = existing.map((i) => i.topic);
 
-  const [generated] = await generateContentTopics(niche, keywords, tone, language, 1, 1, existingTopics);
+  const auditInsights = await getLatestAuditCache().catch(() => null);
+  const [generated] = await generateContentTopics(niche, keywords, tone, language, 1, 1, existingTopics, auditInsights ?? undefined);
   if (!generated?.topic) { res.status(500).json({ error: "No se pudo generar el tema" }); return; }
 
   res.json({ topic: generated.topic });
@@ -455,9 +476,10 @@ router.post("/content/:id/regenerate-caption", async (req, res): Promise<void> =
   const id = Number(req.params.id);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
 
-  const [[item], [settings]] = await Promise.all([
+  const [[item], [settings], auditInsights] = await Promise.all([
     db.select().from(contentPlanItemsTable).where(eq(contentPlanItemsTable.id, id)).limit(1),
     db.select().from(settingsTable).limit(1),
+    getLatestAuditCache().catch(() => null),
   ]);
   if (!item) { res.status(404).json({ error: "Not found" }); return; }
 
@@ -468,9 +490,68 @@ router.post("/content/:id/regenerate-caption", async (req, res): Promise<void> =
   const result = await regenerateCaption(
     item.topic,
     item.script ?? item.hook ?? item.topic,
-    niche, tone, language
+    niche, tone, language,
+    auditInsights?.topCaptions?.slice(0, 3)
   );
   res.json(result);
+});
+
+/**
+ * Regenerate the script for a content item with a different editorial criterion.
+ * POST /content/:id/regenerate
+ * Body: { criterion: "educational" | "controversial" | "storytelling" | "sales" | "emotional" }
+ */
+router.post("/content/:id/regenerate", async (req, res): Promise<void> => {
+  const id = Number(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const VALID_CRITERIA = ["educational", "controversial", "storytelling", "sales", "emotional"] as const;
+  const criterion = req.body?.criterion as RegenerateCriterion;
+  if (!VALID_CRITERIA.includes(criterion)) {
+    res.status(400).json({ error: `criterion must be one of: ${VALID_CRITERIA.join(", ")}` });
+    return;
+  }
+
+  const [[item], [settings], auditInsights] = await Promise.all([
+    db.select().from(contentPlanItemsTable).where(eq(contentPlanItemsTable.id, id)).limit(1),
+    db.select().from(settingsTable).limit(1),
+    getLatestAuditCache().catch(() => null),
+  ]);
+  if (!item) { res.status(404).json({ error: "Not found" }); return; }
+  if (item.status !== "draft" && item.status !== "scripted") {
+    res.status(400).json({ error: `Cannot regenerate script for item in status "${item.status}"` });
+    return;
+  }
+
+  const niche    = settings?.niche    ?? "marketing digital";
+  const tone     = settings?.tone     ?? "casual";
+  const language = settings?.language ?? "es";
+  const duration = settings?.videoDurationSeconds ?? 60;
+
+  const scriptResult = await regenerateScriptWithCriterion(
+    item.topic, niche, tone, language, duration, criterion,
+    auditInsights ?? undefined
+  );
+
+  const [updated] = await db
+    .update(contentPlanItemsTable)
+    .set({
+      hook: scriptResult.hook,
+      script: scriptResult.script,
+      cta: scriptResult.cta,
+      caption: scriptResult.caption,
+      hashtags: scriptResult.hashtags,
+      hookCandidates: scriptResult.hook_candidates.length > 0 ? JSON.stringify(scriptResult.hook_candidates) : null,
+      hookSelectionReason: scriptResult.hook_selection_reason || null,
+      status: "scripted",
+      updatedAt: new Date(),
+    })
+    .where(eq(contentPlanItemsTable.id, id))
+    .returning();
+
+  if (!updated) { res.status(404).json({ error: "Not found" }); return; }
+
+  res.json({ success: true, item: mapItem(updated), criterion });
 });
 
 router.delete("/content/:id", async (req, res): Promise<void> => {

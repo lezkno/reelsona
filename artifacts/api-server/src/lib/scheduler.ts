@@ -17,6 +17,7 @@ import { applyCaptionsBrowser } from "./browser-caption-engine";
 import { eq, and, lte, gte, inArray, isNull, isNotNull, or } from "drizzle-orm";
 import { logger } from "./logger";
 import { generateScript, regenerateCaption, generateContentTopics } from "./ai-scripts";
+import { getLatestAuditCache } from "./audit-cache";
 import { generateVideo, getVideoStatus, listVoices, getAvatarDefaultVoiceId } from "./heygen";
 import { createReelContainer, checkContainerStatus, publishContainer, getPermalink } from "./instagram-api";
 
@@ -77,6 +78,9 @@ async function fillEmptyScheduledSlots(
     .limit(20);
   const existingTopics = recentRows.map((r) => r.topic).filter(Boolean);
 
+  // Load audit cache to improve topic quality
+  const auditInsights = await getLatestAuditCache().catch(() => null);
+
   // Ask AI to generate one topic per empty slot
   const rawTopics = await generateContentTopics(
     settings.niche!,
@@ -85,15 +89,21 @@ async function fillEmptyScheduledSlots(
     settings.language ?? "es",
     emptySlots.length,
     1,
-    existingTopics
+    existingTopics,
+    auditInsights ?? undefined
   );
 
   if (rawTopics.length === 0) return 0;
 
   const toInsert = emptySlots.slice(0, rawTopics.length).map((slot, i) => ({
-    topic:       rawTopics[i].topic,
-    scheduledAt: slot,
-    status:      "draft" as const,
+    topic:        rawTopics[i].topic,
+    scheduledAt:  slot,
+    status:       "draft" as const,
+    viralScore:   rawTopics[i].viral_score ?? null,
+    editorialAngle: rawTopics[i].editorial_angle ?? null,
+    shareReason:  rawTopics[i].share_reason ?? null,
+    audiencePain: rawTopics[i].audience_pain ?? null,
+    noveltyLevel: rawTopics[i].novelty_level ?? null,
   }));
 
   await db.insert(contentPlanItemsTable).values(toInsert);
@@ -308,12 +318,14 @@ export async function runAutomationCycle(targetItemId?: number): Promise<{
       return { success: false, message: "No draft content items available" };
     }
 
+    const auditInsights = await getLatestAuditCache().catch(() => null);
     const scriptResult = await generateScript(
       draft.topic,
       settings.niche,
       settings.tone,
       settings.language,
-      settings.videoDurationSeconds
+      settings.videoDurationSeconds,
+      { auditInsights: auditInsights ?? undefined }
     );
 
     // Use the stored avatarId only if it's still in the current selection.
@@ -349,6 +361,8 @@ export async function runAutomationCycle(targetItemId?: number): Promise<{
         avatarId,
         voiceId,
         status: "scripted",
+        hookCandidates: scriptResult.hook_candidates.length > 0 ? JSON.stringify(scriptResult.hook_candidates) : null,
+        hookSelectionReason: scriptResult.hook_selection_reason || null,
         updatedAt: new Date(),
       })
       .where(eq(contentPlanItemsTable.id, draft.id));

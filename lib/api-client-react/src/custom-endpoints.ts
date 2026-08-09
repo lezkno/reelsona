@@ -219,3 +219,24 @@ export function useDisconnectHeyGen() {
     onSuccess: () => qc.invalidateQueries({ queryKey: HEYGEN_ACCOUNT_QUERY_KEY }),
   });
 }
+
+// ── Viral Editorial Engine ────────────────────────────────────────────────────
+
+export type RegenerateCriterion = "educational" | "controversial" | "storytelling" | "sales" | "emotional";
+
+export interface RegenerateScriptResult {
+  success: boolean;
+  criterion: RegenerateCriterion;
+}
+
+/** Regenerate the script for a content item with a specific editorial criterion emphasis. */
+export function useRegenerateScript() {
+  return useMutation({
+    mutationFn: ({ id, criterion }: { id: number; criterion: RegenerateCriterion }) =>
+      customFetch<RegenerateScriptResult>(`/api/content/${id}/regenerate`, {
+        method: "POST",
+        body: JSON.stringify({ criterion }),
+        headers: { "Content-Type": "application/json" },
+      }),
+  });
+}

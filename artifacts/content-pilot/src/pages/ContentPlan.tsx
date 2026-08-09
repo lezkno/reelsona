@@ -9,8 +9,10 @@ import { Label } from "@/components/ui/label"
 import { format, isSameDay } from "date-fns"
 import { es } from "date-fns/locale"
 import { useGetContentPlan, useGenerateContentPlan, useDeleteContentItem, useGenerateVideo, useUpdateContentItem, useCreateContentItem, useGetHeyGenAllLooks, useGetAvatarConfig, useGenerateScript, usePublishVideo, useGetAutomation, getGetContentPlanQueryKey, type ContentPlanItem } from "@workspace/api-client-react"
+import { useRegenerateScript, type RegenerateCriterion } from "@workspace/api-client-react"
 import { Textarea } from "@/components/ui/textarea"
-import { Wand2, Edit3, Trash2, Video, CheckCircle2, Clock, AlertTriangle, CalendarDays, Plus, Zap, Users, List, Calendar, Loader2, FileText, RefreshCw, Sparkles, Check, X, Send, Bot, Hand, Play } from "lucide-react"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+import { Wand2, Edit3, Trash2, Video, CheckCircle2, Clock, AlertTriangle, CalendarDays, Plus, Zap, Users, List, Calendar, Loader2, FileText, RefreshCw, Sparkles, Check, X, Send, Bot, Hand, Play, Share2, ChevronDown, TrendingUp } from "lucide-react"
 import PipelineTimeline from "@/components/PipelineTimeline"
 import CalendarView from "@/components/CalendarView"
 import { useToast } from "@/hooks/use-toast"
@@ -24,6 +26,22 @@ const statusConfig: Record<string, { label: string, variant: string, icon: any }
   ready: { label: "Video Listo", variant: "success", icon: Video },
   published: { label: "Publicado", variant: "default", icon: CheckCircle2 },
   failed: { label: "Error", variant: "destructive", icon: AlertTriangle },
+}
+
+const CRITERION_OPTIONS: { value: RegenerateCriterion; label: string; description: string }[] = [
+  { value: "educational",   label: "🎓 Educativo",     description: "Datos, takeaways, razonamiento claro" },
+  { value: "controversial", label: "⚡ Polémico",       description: "Ángulo contra-intuitivo con evidencia real" },
+  { value: "storytelling",  label: "📖 Narrativo",     description: "Historia con conflicto y resolución" },
+  { value: "sales",         label: "💰 Ventas",         description: "Beneficio claro, CTA específico" },
+  { value: "emotional",     label: "❤️ Emocional",     description: "Historia personal, empatía genuina" },
+]
+
+/** Returns color class for viral score badge */
+function viralScoreColor(score: number | null | undefined): string {
+  if (!score && score !== 0) return "bg-muted text-muted-foreground"
+  if (score >= 70) return "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+  if (score >= 40) return "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+  return "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
 }
 
 function groupByDay(items: ContentPlanItem[]): { date: Date | null, label: string, items: ContentPlanItem[] }[] {
@@ -52,16 +70,13 @@ export default function ContentPlan() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [days, setDays] = useState(7)
 
-  // Always fetch everything — filtering is done client-side so tab counts are
-  // always accurate and switching tabs is instant (no extra network round-trips).
   const { data: allItems, isLoading } = useGetContentPlan({ limit: 100 })
 
-  // Tab → which statuses to include
   const TAB_STATUSES: Record<string, string[]> = {
     all:        ["draft","scripted","generating","ready","published","failed"],
     draft:      ["draft"],
     scripted:   ["scripted"],
-    active:     ["generating","ready"],   // "En Producción"
+    active:     ["generating","ready"],
     published:  ["published"],
     failed:     ["failed"],
   }
@@ -70,7 +85,6 @@ export default function ContentPlan() {
     ? allItems
     : (allItems ?? []).filter(i => TAB_STATUSES[filter]?.includes(i.status))
 
-  // Count per logical tab (computed once, used for badges)
   const counts = {
     all:       (allItems ?? []).length,
     draft:     (allItems ?? []).filter(i => i.status === "draft").length,
@@ -88,11 +102,14 @@ export default function ContentPlan() {
   const updateItem = useUpdateContentItem()
   const createItem = useCreateContentItem()
   const publishVideo = usePublishVideo()
+  const regenerateScript = useRegenerateScript()
   const [publishingVideoId, setPublishingVideoId] = useState<number | null>(null)
   const [previewItem, setPreviewItem] = useState<ContentPlanItem | null>(null)
   const [editingTopic, setEditingTopic] = useState<{ id: number; value: string } | null>(null)
   const [suggestingId, setSuggestingId] = useState<number | null>(null)
   const [topicSuggestion, setTopicSuggestion] = useState<{ id: number; topic: string } | null>(null)
+  const [criterionMenuId, setCriterionMenuId] = useState<number | null>(null)
+  const [regeneratingId, setRegeneratingId] = useState<number | null>(null)
 
   const handleSuggestTopic = async (item: ContentPlanItem) => {
     setSuggestingId(item.id)
@@ -122,56 +139,76 @@ export default function ContentPlan() {
     setTopicSuggestion(null)
   }
 
+  const handleRegenerateWithCriterion = (item: ContentPlanItem, criterion: RegenerateCriterion) => {
+    setRegeneratingId(item.id)
+    setCriterionMenuId(null)
+    regenerateScript.mutate({ id: item.id, criterion }, {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: getGetContentPlanQueryKey() })
+        const label = CRITERION_OPTIONS.find(c => c.value === criterion)?.label ?? criterion
+        toast({ title: "Guion regenerado", description: `Guion regenerado con enfoque ${label}.` })
+      },
+      onError: (err: any) => {
+        toast({ title: "Error al regenerar", description: err?.data?.error ?? "Intentá de nuevo.", variant: "destructive" })
+      },
+      onSettled: () => setRegeneratingId(null),
+    })
+  }
+
   // Script review modal state
   const [scriptModalItem, setScriptModalItem] = useState<ContentPlanItem | null>(null)
   const [scriptDraft, setScriptDraft] = useState<{ hook: string; script: string; cta: string } | null>(null)
   const [scriptGenerating, setScriptGenerating] = useState(false)
+  const [hookCandidates, setHookCandidates] = useState<string[]>([])
+  const [hookSelectionReason, setHookSelectionReason] = useState<string>("")
+  const [showHookCandidates, setShowHookCandidates] = useState(false)
   const generateScript = useGenerateScript()
-  // Tracks which item's generation is currently in-flight so stale callbacks
-  // from a cancelled request never overwrite state for a different item.
   const scriptGenerationItemIdRef = useRef<number | null>(null)
 
-  // Only block new video generation when HeyGen is actively rendering.
-  // A "ready" item is just waiting for publish — it doesn't consume a HeyGen slot.
   const anyVideoInFlight = (allItems ?? []).some((i) => i.status === "generating")
   const generateBlocked = anyVideoInFlight || generateVideo.isPending
 
   const closeScriptModal = () => {
-    // Clear the in-flight binding so any late-arriving callback is ignored
     scriptGenerationItemIdRef.current = null
     setScriptModalItem(null)
     setScriptDraft(null)
     setScriptGenerating(false)
+    setHookCandidates([])
+    setHookSelectionReason("")
+    setShowHookCandidates(false)
   }
 
-  /**
-   * Open the script review modal.
-   * - If the item already has a script, show it immediately.
-   * - If not, generate one via AI first (POST /content/script).
-   * The callback is bound to item.id via scriptGenerationItemIdRef so that
-   * a stale response arriving after the user cancels and opens a different
-   * item cannot overwrite the new item's state.
-   */
   const handleOpenScriptReview = (item: ContentPlanItem) => {
-    // Reset state for the new item before starting
     setScriptModalItem(item)
     setScriptDraft(null)
     setScriptGenerating(false)
+    setHookCandidates([])
+    setHookSelectionReason("")
+    setShowHookCandidates(false)
     scriptGenerationItemIdRef.current = null
 
     if (item.hook || item.script || item.cta) {
-      // Existing script — show it right away, no generation needed
       setScriptDraft({ hook: item.hook ?? "", script: item.script ?? "", cta: item.cta ?? "" })
+      // Load stored hook candidates if available
+      if (item.hook_candidates) {
+        try {
+          const candidates = JSON.parse(item.hook_candidates) as string[]
+          setHookCandidates(candidates)
+        } catch { /* no-op */ }
+      }
+      if (item.hook_selection_reason) {
+        setHookSelectionReason(item.hook_selection_reason)
+      }
     } else {
-      // No script yet — generate one, binding the callback to this item's id
       setScriptGenerating(true)
       const boundItemId = item.id
       scriptGenerationItemIdRef.current = boundItemId
       generateScript.mutate({ data: { topic: item.topic } }, {
         onSuccess: (result) => {
-          // Ignore if the user closed the modal or opened a different item
           if (scriptGenerationItemIdRef.current !== boundItemId) return
           setScriptDraft({ hook: result.hook, script: result.script, cta: result.cta })
+          if (result.hook_candidates?.length) setHookCandidates(result.hook_candidates)
+          if (result.hook_selection_reason) setHookSelectionReason(result.hook_selection_reason)
           setScriptGenerating(false)
         },
         onError: (err: any) => {
@@ -183,21 +220,15 @@ export default function ContentPlan() {
     }
   }
 
-  /**
-   * User approved the script (possibly with edits).
-   * Save it via PATCH (which auto-moves draft→scripted), then trigger video generation.
-   */
   const handleApproveAndGenerate = () => {
     if (!scriptModalItem || !scriptDraft) return
     const item = scriptModalItem
     const draft = scriptDraft
 
-    // Save script fields (moves draft to scripted if not already)
     updateItem.mutate(
       { id: item.id, data: { hook: draft.hook, script: draft.script, cta: draft.cta } },
       {
         onSuccess: () => {
-          // Now trigger video generation
           generateVideo.mutate(
             { data: { content_plan_id: item.id } },
             {
@@ -253,17 +284,13 @@ export default function ContentPlan() {
     )
   }
 
-  // "Add video to this day" dialog state
   const [addDay, setAddDay] = useState<Date | null>(null)
   const [addTopic, setAddTopic] = useState("")
   const [addTime, setAddTime] = useState("12:00")
 
-  // Avatar thumbnail + picker
   const { data: allLooks } = useGetHeyGenAllLooks()
   const { data: avatarConfig } = useGetAvatarConfig()
   const lookById = new Map((allLooks ?? []).map((l) => [l.id, l]))
-  // Only show looks that are in the active rotation — picking outside it would be
-  // silently overridden by the scheduler when generating the video.
   const selectedAvatarIds = new Set(avatarConfig?.selected_avatar_ids ?? [])
   const pickerLooks = (allLooks ?? []).filter((l) => selectedAvatarIds.has(l.id))
   const [avatarPickerItem, setAvatarPickerItem] = useState<ContentPlanItem | null>(null)
@@ -292,7 +319,6 @@ export default function ContentPlan() {
   const { toast } = useToast()
   const queryClient = useQueryClient()
 
-  // Derive posts per day directly from the configured posting times
   const derivedPostsPerDay = Math.max(1, (automation?.posting_times as string[] | undefined)?.length ?? 1)
 
   const handleGenerate = () => {
@@ -316,7 +342,6 @@ export default function ContentPlan() {
       }
     })
   }
-
 
   const handleReschedule = (id: number, value: string) => {
     if (!value) return
@@ -349,6 +374,7 @@ export default function ContentPlan() {
   const groups = items ? groupByDay(items) : []
 
   return (
+    <TooltipProvider>
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 h-full flex flex-col">
       <div className="flex flex-col gap-3 shrink-0">
         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
@@ -449,7 +475,6 @@ export default function ContentPlan() {
                 )
               })()}
 
-              {/* Only ask how many scheduling days ahead */}
               <div className="space-y-2">
                 <Label className="text-sm font-medium">¿Cuántos días de publicación planificar?</Label>
                 <div className="flex gap-2">
@@ -482,9 +507,9 @@ export default function ContentPlan() {
             </DialogFooter>
           </DialogContent>
             </Dialog>
-          </div>{/* end button group */}
-        </div>{/* end header row */}
-      </div>{/* end header */}
+          </div>
+        </div>
+      </div>
 
       <PipelineTimeline />
 
@@ -503,7 +528,6 @@ export default function ContentPlan() {
           onAddDay={(date) => {
             setAddDay(date)
             setAddTopic("")
-            // Pre-fill time: first posting_time not already occupied on that day
             const times = (automation?.posting_times as string[] | undefined) ?? ["12:00"]
             const occupiedTimes = (items ?? [])
               .filter((i) => i.scheduled_at && isSameDay(new Date(i.scheduled_at), date))
@@ -594,6 +618,7 @@ export default function ContentPlan() {
                     {group.items.map((item) => {
                       const conf = statusConfig[item.status]
                       const Icon = conf.icon
+                      const canRegenerate = item.status === "draft" || item.status === "scripted"
 
                       return (
                         <div key={item.id} className="group flex flex-col md:flex-row gap-4 p-6 border-b last:border-0 hover:bg-muted/30 transition-colors">
@@ -621,6 +646,39 @@ export default function ContentPlan() {
                                     <Zap className="w-3 h-3" />
                                     Revisar guion
                                   </Button>
+                                )}
+                                {/* Regenerar con enfoque dropdown */}
+                                {canRegenerate && (
+                                  <div className="relative">
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="w-full h-7 gap-1 text-xs text-muted-foreground hover:text-foreground"
+                                      disabled={regeneratingId === item.id}
+                                      onClick={() => setCriterionMenuId(criterionMenuId === item.id ? null : item.id)}
+                                    >
+                                      {regeneratingId === item.id ? (
+                                        <><Loader2 className="w-3 h-3 animate-spin" /> Regenerando…</>
+                                      ) : (
+                                        <><RefreshCw className="w-3 h-3" /> Regenerar guion <ChevronDown className="w-3 h-3 ml-auto" /></>
+                                      )}
+                                    </Button>
+                                    {criterionMenuId === item.id && (
+                                      <div className="absolute left-0 top-full mt-1 z-50 w-56 rounded-lg border bg-popover shadow-lg py-1">
+                                        {CRITERION_OPTIONS.map((opt) => (
+                                          <button
+                                            key={opt.value}
+                                            type="button"
+                                            className="w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors"
+                                            onClick={() => handleRegenerateWithCriterion(item, opt.value)}
+                                          >
+                                            <div className="font-medium">{opt.label}</div>
+                                            <div className="text-xs text-muted-foreground">{opt.description}</div>
+                                          </button>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
                                 )}
                                 {item.status === "ready" && item.video_id != null && (() => {
                                   const captionTerminal = item.caption_status === "done" || item.caption_status === "failed" || item.caption_status === "disabled"
@@ -733,6 +791,47 @@ export default function ContentPlan() {
                                   </div>
                                 )}
 
+                                {/* ── Viral Editorial Engine metadata ──────────── */}
+                                {(item.viral_score != null || item.editorial_angle || item.share_reason) && (
+                                  <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                                    {/* Viral score badge */}
+                                    {item.viral_score != null && (
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full cursor-default ${viralScoreColor(item.viral_score)}`}>
+                                            <TrendingUp className="w-2.5 h-2.5" />
+                                            {item.viral_score}
+                                          </span>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="bottom" className="max-w-[200px] text-xs">
+                                          Score viral: {item.viral_score}/100
+                                          {item.novelty_level && ` · Novedad: ${item.novelty_level}`}
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    )}
+                                    {/* Editorial angle chip */}
+                                    {item.editorial_angle && (
+                                      <span className="inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400">
+                                        Formato {item.editorial_angle}
+                                      </span>
+                                    )}
+                                    {/* Share reason tooltip */}
+                                    {item.share_reason && (
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 cursor-default">
+                                            <Share2 className="w-2.5 h-2.5" /> Compartible
+                                          </span>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="bottom" className="max-w-[240px] text-xs">
+                                          {item.share_reason}
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    )}
+                                  </div>
+                                )}
+                                {/* ─────────────────────────────────────────────── */}
+
                                 {/* Inline AI suggestion */}
                                 {topicSuggestion?.id === item.id && (
                                   <div className="mt-2 rounded-lg border border-primary/30 bg-primary/5 p-2.5 flex flex-col gap-2">
@@ -741,28 +840,17 @@ export default function ContentPlan() {
                                     </p>
                                     <p className="text-sm font-semibold leading-snug">{topicSuggestion.topic}</p>
                                     <div className="flex items-center gap-1.5">
-                                      <Button
-                                        size="sm"
-                                        className="h-7 gap-1 text-xs"
-                                        onClick={handleAcceptSuggestion}
-                                      >
+                                      <Button size="sm" className="h-7 gap-1 text-xs" onClick={handleAcceptSuggestion}>
                                         <Check className="w-3 h-3" /> Usar este
                                       </Button>
                                       <Button
-                                        size="sm"
-                                        variant="outline"
-                                        className="h-7 gap-1 text-xs"
+                                        size="sm" variant="outline" className="h-7 gap-1 text-xs"
                                         disabled={suggestingId === item.id}
                                         onClick={() => handleSuggestTopic(item)}
                                       >
                                         <RefreshCw className="w-3 h-3" /> Otro
                                       </Button>
-                                      <Button
-                                        size="sm"
-                                        variant="ghost"
-                                        className="h-7 w-7 p-0"
-                                        onClick={() => setTopicSuggestion(null)}
-                                      >
+                                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setTopicSuggestion(null)}>
                                         <X className="w-3 h-3" />
                                       </Button>
                                     </div>
@@ -803,8 +891,6 @@ export default function ContentPlan() {
       <Dialog
         open={scriptModalItem !== null}
         onOpenChange={(open) => {
-          // Block closing while any async work is in-flight so a late
-          // generateScript callback cannot land in a different item's session.
           if (!open && !scriptGenerating && !updateItem.isPending && !generateVideo.isPending) {
             closeScriptModal()
           }
@@ -831,6 +917,50 @@ export default function ContentPlan() {
             </div>
           ) : scriptDraft ? (
             <div className="space-y-4 py-2">
+              {/* Hook candidates section */}
+              {hookCandidates.length > 0 && (
+                <div className="rounded-xl border bg-primary/5 p-3 space-y-2">
+                  <button
+                    type="button"
+                    className="flex items-center gap-2 w-full text-left"
+                    onClick={() => setShowHookCandidates(v => !v)}
+                  >
+                    <TrendingUp className="w-4 h-4 text-primary shrink-0" />
+                    <span className="text-sm font-semibold text-primary flex-1">
+                      {hookCandidates.length} hooks evaluados — ganador seleccionado por IA
+                    </span>
+                    <ChevronDown className={`w-4 h-4 text-primary transition-transform ${showHookCandidates ? "rotate-180" : ""}`} />
+                  </button>
+                  {showHookCandidates && (
+                    <div className="space-y-2 pt-1">
+                      {hookCandidates.map((candidate, idx) => {
+                        const isWinner = candidate === scriptDraft.hook
+                        return (
+                          <div
+                            key={idx}
+                            className={`rounded-lg p-2.5 text-sm border ${isWinner ? "border-primary/40 bg-primary/10" : "border-border bg-background"}`}
+                          >
+                            <div className="flex items-start gap-2">
+                              <span className={`shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold mt-0.5 ${isWinner ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
+                                {isWinner ? <Check className="w-3 h-3" /> : idx + 1}
+                              </span>
+                              <p className={`leading-snug ${isWinner ? "font-medium" : "text-muted-foreground"}`}>
+                                {candidate}
+                              </p>
+                            </div>
+                          </div>
+                        )
+                      })}
+                      {hookSelectionReason && (
+                        <p className="text-xs text-muted-foreground italic pl-1 pt-1">
+                          <strong>Razón de selección:</strong> {hookSelectionReason}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="space-y-2">
                 <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Hook de apertura</Label>
                 <Textarea
@@ -888,9 +1018,7 @@ export default function ContentPlan() {
         <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Elegir avatar para este video</DialogTitle>
-            <DialogDescription>
-              {avatarPickerItem?.topic}
-            </DialogDescription>
+            <DialogDescription>{avatarPickerItem?.topic}</DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
             {pickerLooks.map((look) => {
@@ -995,7 +1123,6 @@ export default function ContentPlan() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
-            {/* Off-schedule warning */}
             {addDay && automation?.days_of_week && !(automation.days_of_week as number[]).includes(addDay.getDay()) && (
               <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/8 px-3 py-2.5 text-xs text-amber-700 dark:text-amber-400">
                 <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
@@ -1014,7 +1141,6 @@ export default function ContentPlan() {
             </div>
             <div className="space-y-2">
               <Label>Hora de publicación</Label>
-              {/* Posting time quick-chips */}
               {automation?.posting_times && (automation.posting_times as string[]).length > 0 && (
                 <div className="flex flex-wrap gap-1.5 mb-2">
                   {(automation.posting_times as string[]).map((t) => (
@@ -1050,6 +1176,7 @@ export default function ContentPlan() {
         </DialogContent>
       </Dialog>
     </div>
+    </TooltipProvider>
   )
 }
 

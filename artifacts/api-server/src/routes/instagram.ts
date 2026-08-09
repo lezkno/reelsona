@@ -20,6 +20,7 @@ import {
   getMediaInsights,
 } from "../lib/instagram-api";
 import { analyzeAuditAndRecommend } from "../lib/ai-scripts";
+import { saveAuditCache } from "../lib/audit-cache";
 
 const router = Router();
 
@@ -187,6 +188,7 @@ router.get("/instagram/audit", async (req, res): Promise<void> => {
       ? postsWithInsights.reduce((s, p) => s + (p.reach ?? 0), 0) / postsWithInsights.length
       : 0;
 
+  // Use up to 10 captions for analysis but save top-5 full captions for future generation use
   const topCaptions = sorted.slice(0, 10).map((p) => p.caption ?? "");
   const aiAnalysis = await analyzeAuditAndRecommend(
     settingsRow?.niche ?? "general",
@@ -194,6 +196,16 @@ router.get("/instagram/audit", async (req, res): Promise<void> => {
     avgEngagement,
     settingsRow?.language ?? "es"
   );
+
+  // Persist audit to cache for future generation cycles (non-blocking)
+  const top5Captions = sorted.slice(0, 5).map((p) => p.caption ?? "").filter(Boolean);
+  saveAuditCache({
+    topCaptions: top5Captions,
+    recommendedTopics: aiAnalysis.recommended_topics,
+    avgEngagement,
+    bestPostingTimes: aiAnalysis.best_posting_times,
+    contentInsights: aiAnalysis.content_insights,
+  }).catch(() => { /* non-fatal — already logged inside saveAuditCache */ });
 
   const result = {
     account: {

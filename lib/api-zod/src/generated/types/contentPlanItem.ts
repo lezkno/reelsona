@@ -48,6 +48,22 @@ export interface ContentPlanItem {
   copy_status?: string | null;
   /** @nullable */
   video_status?: string | null;
+  // ── Viral Editorial Engine fields ──────────────────────────────────────────
+  /** 0–100 viral potential score @nullable */
+  viral_score?: number | null;
+  /** Format letter A–J from editorial categories @nullable */
+  editorial_angle?: string | null;
+  /** JSON array of 3 hook candidates @nullable */
+  hook_candidates?: string | null;
+  /** Why the winning hook was selected @nullable */
+  hook_selection_reason?: string | null;
+  /** Why a viewer would share this content @nullable */
+  share_reason?: string | null;
+  /** Specific audience pain/desire this topic targets @nullable */
+  audience_pain?: string | null;
+  /** low | medium | high @nullable */
+  novelty_level?: string | null;
+  // ──────────────────────────────────────────────────────────────────────────
   created_at: string;
   updated_at: string;
 }

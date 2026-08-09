@@ -8,6 +8,35 @@ function getClient(): OpenAI {
   });
 }
 
+// ── Editorial Base — injected into ALL prompts ────────────────────────────────
+
+/**
+ * EDITORIAL_BASE: The shared editorial constitution for all AI-generated content.
+ * Injected at the top of every prompt to enforce quality, safety, and originality.
+ */
+const EDITORIAL_BASE = `
+CONSTITUCIÓN EDITORIAL — OBLIGATORIA EN TODO CONTENIDO:
+
+VALORES FUNDAMENTALES:
+• Originalidad real: cada pieza debe aportar un ángulo, dato o perspectiva que no exista ya en los primeros 10 resultados de búsqueda del tema.
+• Valor concreto: el espectador debe poder aplicar algo o entender algo nuevo en menos de 60 segundos. Sin relleno, sin intro genérica.
+• Retención desde el primer segundo: la primera frase debe crear tensión, curiosidad o contradicción — no presentar, no saludar, no anunciar el tema.
+• Compartibilidad: el contenido debe hacer que el espectador quiera enviárselo a alguien específico ("esto es justo lo que le pasa a mi amigo").
+
+PROHIBICIONES ABSOLUTAS (penalización máxima si se detectan):
+❌ NUNCA prometer resultados garantizados de salud, dinero, relaciones o rendimiento ("vas a ganar X", "cura X", "perderás X kilos").
+❌ NUNCA fabricar estadísticas, porcentajes o datos sin fuente verificable implícita ("el 87% de los expertos dicen…" sin base real).
+❌ NUNCA usar sensacionalismo falso ("lo que el gobierno oculta", "la verdad que nadie dice") sin evidencia real detrás.
+❌ NUNCA reutilizar o parafrasear contenido ajeno sin valor agregado original.
+❌ NUNCA usar clichés de contenido: "tips", "consejos", "guía paso a paso", "tutorial", "todo lo que necesitas saber".
+❌ NUNCA usar palabras de alerta: "garantizado", "cura", "secreto que ocultan", "te hacen pobre", "método infalible".
+
+ESTÁNDAR DE CALIDAD:
+✅ Cada título debe sonar como la primera frase que diría una persona real mirando a cámara — no un artículo de blog.
+✅ Cada guion debe terminar dejando al espectador con una acción concreta o una idea que no tenía antes.
+✅ El tono debe ser conversacional y directo — nunca corporativo, nunca artificial.
+`.trim();
+
 // ── Language-aware prompt helpers ─────────────────────────────────────────────
 
 /** Returns a per-language style instruction injected at the top of every prompt. */
@@ -86,6 +115,16 @@ function getAvatarCTAs(language: string): string[] {
   ];
 }
 
+// ── Shared types ──────────────────────────────────────────────────────────────
+
+/** Audit insights fed into generation to improve relevance. */
+export interface AuditInsights {
+  topCaptions: string[];
+  recommendedTopics: string[];
+  avgEngagement: number;
+  contentInsights?: string;
+}
+
 export interface ScriptOutput {
   topic: string;
   hook: string;
@@ -94,32 +133,196 @@ export interface ScriptOutput {
   caption: string;
   hashtags: string;
   estimated_duration_seconds: number;
+  /** 3 hook candidates generated before picking the winner */
+  hook_candidates: string[];
+  /** Why the winning hook was chosen over alternatives */
+  hook_selection_reason: string;
 }
+
+// ── Hook multi-candidate generation ──────────────────────────────────────────
+
+interface HookCandidate {
+  hook: string;
+  selection_reason: string;
+}
+
+const GENERIC_HOOK_PHRASES = [
+  "te voy a enseñar",
+  "hoy hablamos de",
+  "en este video",
+  "bienvenidos",
+  "hola a todos",
+  "hoy vamos a",
+  "en este reel",
+  "i'm going to show you",
+  "today we're talking",
+  "in this video",
+];
+
+/** Penalize hooks with generic filler phrases; reward specificity and numbers. */
+function scoreHook(hook: string): number {
+  let score = 50;
+  const lower = hook.toLowerCase();
+
+  for (const phrase of GENERIC_HOOK_PHRASES) {
+    if (lower.includes(phrase)) score -= 25;
+  }
+
+  // Reward: contains a number
+  if (/\d/.test(hook)) score += 10;
+  // Reward: contains a question
+  if (/[?¿]/.test(hook)) score += 10;
+  // Reward: short and punchy (< 80 chars)
+  if (hook.length < 80) score += 5;
+  // Reward: specificity markers
+  if (/\b(exactamente|específicamente|concretamente|en \d+|sin )\b/i.test(hook)) score += 10;
+
+  return score;
+}
+
+/** Generate 3 hook candidates and pick the best one programmatically. */
+async function generateHookCandidates(
+  topic: string,
+  niche: string,
+  tone: string,
+  language: string,
+  auditInsights?: AuditInsights
+): Promise<{ candidates: string[]; winner: string; selectionReason: string }> {
+  const client = getClient();
+
+  const auditContext = auditInsights?.topCaptions.length
+    ? `\nCaptions que funcionaron bien en esta cuenta (solo como referencia de estilo de apertura):\n${auditInsights.topCaptions.slice(0, 3).map((c, i) => `${i + 1}. ${c.substring(0, 120)}`).join("\n")}`
+    : "";
+
+  const prompt = `${EDITORIAL_BASE}
+
+${getLanguageInstruction(language)}
+
+Genera 3 hooks alternativos para el primer segundo de un Reel de Instagram.
+
+Nicho: ${niche}
+Tema: ${topic}
+Tono: ${tone}${auditContext}
+
+CRITERIOS PARA UN HOOK GANADOR:
+• Claridad en el primer segundo: sin preámbulo, directamente al conflicto o revelación
+• Curiosidad o tensión: el espectador NECESITA saber qué sigue
+• Especificidad: cifras, nombre de algo concreto, situación reconocible
+• Promesa creíble: nada de "esto cambiará tu vida" — algo alcanzable y real
+• Potencial de retención: alguien viendo scrollear debería detenerse en esa frase
+
+PROHIBIDO en los hooks:
+❌ "Te voy a enseñar...", "Hoy hablamos de...", "En este video...", "Bienvenidos..."
+❌ Promesas de resultados garantizados
+❌ Palabras de clickbait vacío ("increíble", "lo que nadie te dijo")
+
+Devuelve SOLO un JSON válido:
+{
+  "candidates": [
+    { "hook": "primera frase exacta del reel", "selection_reason": "por qué este hook funciona" },
+    { "hook": "segunda alternativa distinta", "selection_reason": "por qué este hook funciona" },
+    { "hook": "tercera alternativa distinta", "selection_reason": "por qué este hook funciona" }
+  ]
+}`;
+
+  try {
+    const res = await client.chat.completions.create({
+      model: "gpt-5.6-luna",
+      messages: [{ role: "user", content: prompt }],
+      response_format: { type: "json_object" },
+    });
+
+    const content = res.choices[0]?.message?.content;
+    if (!content) throw new Error("Empty hook candidates response");
+
+    const parsed = JSON.parse(content) as { candidates: HookCandidate[] };
+    const candidates = parsed.candidates ?? [];
+
+    if (candidates.length === 0) throw new Error("No candidates returned");
+
+    // Programmatic scoring — pick the highest-scoring hook
+    const scored = candidates.map((c) => ({ ...c, score: scoreHook(c.hook) }));
+    scored.sort((a, b) => b.score - a.score);
+    const winner = scored[0];
+
+    return {
+      candidates: candidates.map((c) => c.hook),
+      winner: winner.hook,
+      selectionReason: winner.selection_reason,
+    };
+  } catch (err) {
+    logger.warn({ err, topic }, "Hook candidate generation failed — fallback to single-call");
+    throw err; // caller handles fallback
+  }
+}
+
+// ── Script generation ─────────────────────────────────────────────────────────
+
+/** Maps a criterion to an emphasis instruction injected into the script prompt. */
+const CRITERION_EMPHASIS: Record<string, string> = {
+  educational: "ÉNFASIS EDUCATIONAL: prioriza datos concretos, takeaways accionables y razonamiento claro. Cada afirmación debe enseñar algo aplicable. Estructura: dato sorprendente → explicación → acción concreta.",
+  controversial: "ÉNFASIS CONTROVERSIAL (SEGURO): elige el ángulo contra-intuitivo o la posición minoritaria que tiene evidencia real detrás. NO fabricar polémica ni sensacionalismo — la controversia debe ser honesta y respaldada.",
+  storytelling: "ÉNFASIS STORYTELLING: estructura narrativa clara: situación → conflicto → giro → resolución. El espectador debe sentir que vivió algo, no que recibió información.",
+  sales: "ÉNFASIS VENTAS: beneficio claro en el primer tercio, urgencia real (no ficticia) en el segundo, CTA específico y con consecuencia concreta en el cierre. Sin presión falsa.",
+  emotional: "ÉNFASIS EMOCIONAL: historia personal o situación con la que el espectador se identifica. Muestra vulnerabilidad real. La empatía debe sentirse genuina, no calculada.",
+};
 
 export async function generateScript(
   topic: string,
   niche: string,
   tone: string,
   language: string,
-  durationSeconds: number
+  durationSeconds: number,
+  options?: {
+    criterion?: string;
+    auditInsights?: AuditInsights;
+  }
 ): Promise<ScriptOutput> {
   const client = getClient();
-  const wordCount = Math.round((durationSeconds / 60) * 130); // ~130 wpm for video
+  const wordCount = Math.round((durationSeconds / 60) * 130);
 
   const avatarCTAs = getAvatarCTAs(language);
   const ctaList = avatarCTAs.map((c) => `   - "${c}"`).join("\n");
 
-  const prompt = `Eres un experto en creación de contenido para Instagram Reels.
+  // Step 1: Generate hook candidates (with fallback)
+  let hookWinner: string | null = null;
+  let hookCandidatesList: string[] = [];
+  let hookSelectionReason = "";
+
+  try {
+    const hookResult = await generateHookCandidates(
+      topic, niche, tone, language, options?.auditInsights
+    );
+    hookWinner = hookResult.winner;
+    hookCandidatesList = hookResult.candidates;
+    hookSelectionReason = hookResult.selectionReason;
+  } catch {
+    logger.warn({ topic }, "Hook candidates failed — proceeding with single-pass script generation");
+  }
+
+  const criterionInstruction = options?.criterion
+    ? `\n${CRITERION_EMPHASIS[options.criterion] ?? ""}\n`
+    : "";
+
+  const hookInstruction = hookWinner
+    ? `\nHOOK GANADOR (ÚSALO COMO PRIMERA FRASE EXACTA DEL GUION): "${hookWinner}"\nEl hook ya fue seleccionado — NO lo cambies ni reescribas. Úsalo tal cual como la primera oración del script.\n`
+    : "";
+
+  const auditContext = options?.auditInsights?.contentInsights
+    ? `\nInsight de audiencia (basado en análisis de la cuenta): ${options.auditInsights.contentInsights}\n`
+    : "";
+
+  const prompt = `${EDITORIAL_BASE}
 
 ${getLanguageInstruction(language)}
-
+${criterionInstruction}${auditContext}
 Crea un guion de video para un Reel de Instagram con estas especificaciones:
 - Nicho: ${niche}
 - Tema: ${topic}
 - Tono: ${tone}
 - Idioma: ${language}
 - Duración aproximada: ${durationSeconds} segundos (~${wordCount} palabras)
-
+${hookInstruction}
 REGLAS OBLIGATORIAS para el campo "script":
 1. El guion DEBE terminar con una llamada a la acción clara y directa hablada por el avatar.
 2. La ÚLTIMA oración del guion SIEMPRE debe ser una de estas frases — elige UNA distinta cada vez (varía, no repitas siempre la misma):
@@ -149,10 +352,28 @@ Devuelve SOLO un JSON válido con esta estructura exacta:
   const content = res.choices[0]?.message?.content;
   if (!content) throw new Error("Empty response from AI");
 
-  const parsed = JSON.parse(content) as Omit<ScriptOutput, "topic">;
-  logger.info({ topic }, "Script generated by AI");
-  return { topic, ...parsed };
+  const parsed = JSON.parse(content) as Omit<ScriptOutput, "topic" | "hook_candidates" | "hook_selection_reason">;
+
+  // If hook candidates were generated, override the AI's hook with the winner
+  if (hookWinner) {
+    parsed.hook = hookWinner;
+    // Ensure script starts with the winning hook
+    if (!parsed.script.startsWith(hookWinner)) {
+      parsed.script = hookWinner + " " + parsed.script.replace(/^[^.!?]+[.!?]\s*/, "");
+    }
+  }
+
+  logger.info({ topic, criterion: options?.criterion, hasHookCandidates: hookCandidatesList.length > 0 }, "Script generated by AI");
+
+  return {
+    topic,
+    ...parsed,
+    hook_candidates: hookCandidatesList,
+    hook_selection_reason: hookSelectionReason,
+  };
 }
+
+// ── Caption regeneration ──────────────────────────────────────────────────────
 
 export interface RegenerateCaptionOutput {
   caption: string;
@@ -164,19 +385,27 @@ export async function regenerateCaption(
   script: string,
   niche: string,
   tone: string,
-  language: string
+  language: string,
+  topCaptions?: string[]
 ): Promise<RegenerateCaptionOutput> {
   const client = getClient();
 
-  const prompt = `Eres un experto en copywriting para Instagram Reels. Tu trabajo es escribir la descripción del post (caption) para acompañar el video.
+  // Build examples block from top-performing captions
+  const examplesBlock = topCaptions?.length
+    ? `\nEjemplos de captions que funcionaron bien en esta cuenta (úsalos SOLO como referencia de estilo y longitud — NO los copies ni parafrasees):\n${topCaptions.slice(0, 3).map((c, i) => `${i + 1}. "${c.substring(0, 200)}"`).join("\n")}\n`
+    : "";
+
+  const prompt = `${EDITORIAL_BASE}
 
 ${getLanguageInstruction(language)}
+
+Eres un experto en copywriting para Instagram Reels. Tu trabajo es escribir la descripción del post (caption) para acompañar el video.
 
 Nicho: ${niche}
 Tono: ${tone}
 Idioma: ${language}
 Tema: ${topic}
-
+${examplesBlock}
 Guion del video (úsalo como base para que el caption esté directamente relacionado con lo que dice el video):
 """
 ${script}
@@ -186,7 +415,11 @@ REGLAS ESTRICTAS:
 1. El caption debe tener 3-5 oraciones. Primera oración: hook que llame la atención y haga querer ver el video (puede empezar con emoji). Segunda/tercera: complementa o amplía lo más valioso del video. Última oración OBLIGATORIA: un llamado a la acción claro y específico.
 2. ${getLanguageInstruction(language)}
 3. El caption debe sentirse escrito por una persona real, no por una IA.
-4. Los hashtags: 10-15, mezcla entre específicos al tema (alcance medio) y amplios. Sin espacios entre ellos.
+4. HASHTAGS — mezcla estratégica OBLIGATORIA:
+   - 3-4 hashtags de nicho específico (menos de 500 mil posts) — máxima especificidad, alcance medio-alto por segmentación
+   - 4-5 hashtags de tema general del nicho (500 mil a 5 millones de posts) — equilibrio entre alcance y competencia
+   - 2-3 hashtags amplios (más de 5 millones de posts) — visibilidad general
+   - Total: 9-12 hashtags, sin espacios entre ellos
 
 Devuelve SOLO un JSON válido con esta estructura exacta:
 {
@@ -208,10 +441,21 @@ Devuelve SOLO un JSON válido con esta estructura exacta:
   return parsed;
 }
 
-export interface ContentPlanTopic {
+// ── Content topic generation ──────────────────────────────────────────────────
+
+export interface ContentPlanTopicMeta {
   topic: string;
   scheduled_at: string;
+  viral_score: number;
+  editorial_angle: string;
+  audience_pain: string;
+  share_reason: string;
+  novelty_level: "low" | "medium" | "high";
+  specific_promise: string;
 }
+
+// Keep backwards compat alias
+export type ContentPlanTopic = ContentPlanTopicMeta;
 
 // Topic categories and hook formats for high-performing Reels content
 const TOPIC_CATEGORIES = `
@@ -240,6 +484,70 @@ REGLA CRÍTICA DE TÍTULOS:
   ✅ OBLIGATORIO: debe generar curiosidad o incomodidad en los primeros 3 segundos
 `.trim();
 
+/** Words that indicate a low-quality or unsafe topic title. */
+const PENALTY_WORDS = ["garantizado", "cura", "secreto que ocultan", "te hacen pobre", "método infalible", "infalible", "milagroso"];
+const GENERIC_WORDS = ["tips", "consejos", "guía", "tutorial", "cómo hacer"];
+
+/** Apply programmatic scoring adjustments to a list of AI-generated topics. */
+function scoreTopics(
+  topics: Array<{ topic: string; viral_score: number; editorial_angle: string; novelty_level: string; share_reason: string }>,
+  existingAngles: string[] = []
+): Array<typeof topics[0] & { adjusted_score: number }> {
+  // Count angle occurrences in this batch + existing
+  const angleCounts: Record<string, number> = {};
+  for (const a of existingAngles) angleCounts[a] = (angleCounts[a] ?? 0) + 1;
+
+  return topics.map((t) => {
+    let score = t.viral_score ?? 50;
+
+    // (a) Penalize repeated angles (> 2 times in plan)
+    const angle = t.editorial_angle ?? "";
+    const currentCount = angleCounts[angle] ?? 0;
+    if (currentCount >= 2) score -= 15;
+    angleCounts[angle] = currentCount + 1;
+
+    // (b) Penalize low novelty
+    if (t.novelty_level === "low") score -= 20;
+
+    // (c) Penalize generic title words
+    const lowerTopic = t.topic.toLowerCase();
+    for (const w of GENERIC_WORDS) {
+      if (lowerTopic.includes(w)) { score -= 10; break; }
+    }
+
+    // (d) Penalize safety-risk words
+    for (const w of PENALTY_WORDS) {
+      if (lowerTopic.includes(w)) { score -= 30; break; }
+    }
+
+    // (e) Bonus for specific share_reason (> 30 chars = more thought out)
+    if ((t.share_reason?.length ?? 0) > 30) score += 10;
+
+    return { ...t, adjusted_score: Math.max(0, Math.min(100, score)) };
+  });
+}
+
+/** Balance topic ordering: no more than 2 consecutive same-angle topics. */
+function balanceAngles<T extends { editorial_angle: string; adjusted_score: number }>(topics: T[]): T[] {
+  const sorted = [...topics].sort((a, b) => b.adjusted_score - a.adjusted_score);
+  const result: T[] = [];
+  const lastTwoAngles: string[] = [];
+
+  for (const t of sorted) {
+    const angle = t.editorial_angle ?? "";
+    if (lastTwoAngles.length === 2 && lastTwoAngles[0] === angle && lastTwoAngles[1] === angle) {
+      // Push to end of result to break streak
+      result.push(t);
+      continue;
+    }
+    result.splice(result.length - (result.length > 0 ? 0 : 0), 0, t);
+    lastTwoAngles.push(angle);
+    if (lastTwoAngles.length > 2) lastTwoAngles.shift();
+  }
+
+  return result;
+}
+
 export async function generateContentTopics(
   niche: string,
   keywords: string[],
@@ -247,31 +555,40 @@ export async function generateContentTopics(
   language: string,
   days: number,
   postsPerDay: number,
-  topPerformingTopics: string[] = []
-): Promise<ContentPlanTopic[]> {
+  topPerformingTopics: string[] = [],
+  auditInsights?: AuditInsights
+): Promise<ContentPlanTopicMeta[]> {
   const client = getClient();
   const total = days * postsPerDay;
 
-  // Derive content pillars from the niche string so the AI spreads topics
-  // evenly instead of fixating on a single keyword.
-  // E.g. "Marketing digital, automatizaciones, chatbot, IA" → 4 pillars
   const rawPillars = niche
     .split(/[,;|]/)
     .map((p) => p.trim())
     .filter((p) => p.length > 2);
 
-  // Also include extra keywords that aren't already covered by pillars
   const extraKeywords = keywords.filter(
     (k) => !rawPillars.some((p) => p.toLowerCase().includes(k.toLowerCase()))
   );
   const allPillars = [...rawPillars, ...extraKeywords];
-
   const maxPerPillar = Math.ceil(total / Math.max(allPillars.length, 1));
 
-  const prompt = `Eres un estratega de contenido para Instagram Reels especializado en crecimiento orgánico.
+  // Build audit insights context
+  const auditBlock = auditInsights
+    ? `
+DATOS REALES DE LA CUENTA (úsalos para mejorar la relevancia):
+- Engagement promedio: ${auditInsights.avgEngagement.toFixed(1)}%
+${auditInsights.recommendedTopics.length ? `- Temas recomendados por análisis previo: ${auditInsights.recommendedTopics.slice(0, 5).join(", ")}` : ""}
+${auditInsights.contentInsights ? `- Insight clave de audiencia: ${auditInsights.contentInsights}` : ""}
+${auditInsights.topCaptions.length ? `- Los captions con mejor engagement incluyen temas como: ${auditInsights.topCaptions.slice(0, 3).map((c) => `"${c.substring(0, 80)}"`).join("; ")}` : ""}
+`
+    : "";
+
+  const prompt = `${EDITORIAL_BASE}
 
 ${getLanguageInstruction(language)}
 
+Eres un estratega de contenido para Instagram Reels especializado en crecimiento orgánico.
+${auditBlock}
 Genera un plan de contenido con EXACTAMENTE ${total} temas únicos para:
 - Nicho: ${niche}
 - Tono: ${tone}
@@ -295,15 +612,23 @@ ${TOPIC_CATEGORIES}
 
 REGLA ANTI-DUPLICADOS — CRÍTICA:
   • Cada uno de los ${total} temas debe ser COMPLETAMENTE DIFERENTE en ángulo, formato y subtema
-  • Si hay ${postsPerDay} videos el mismo día, sus temas deben hablar de cosas DISTINTAS (uno no puede ser la continuación del otro)
+  • Si hay ${postsPerDay} videos el mismo día, sus temas deben hablar de cosas DISTINTAS
   • Antes de escribir cada título, verifica mentalmente que no coincida con ninguno anterior de la lista
   • NUNCA repitas el mismo verbo o estructura en más de 2 títulos del mismo plan
 
 Reglas de calidad:
   • Cada título debe ser específico — evitar genéricos como "Tips de marketing" o "Consejos de IA"
-  • Los temas TRENDING deben referenciar contexto real 2025-2026: cambios de algoritmo, nuevas funciones de plataformas, reportes de adopción de IA
+  • Los temas TRENDING deben referenciar contexto real 2025-2026
   • Cada tema debe desarrollarse en un Reel de 45-75 segundos sin necesidad de visuals complejas
   • Los temas deben distribuirse a lo largo de ${days} días, máximo ${postsPerDay} por día
+
+Para cada tema, devuelve también:
+- viral_score: número 0-100 estimando el potencial viral (considera retención, compartibilidad, originalidad)
+- angle: letra del formato usado (A-J)
+- audience_pain: el dolor o deseo específico de la audiencia que este tema toca (1 frase)
+- share_reason: por qué alguien compartiría este video (1 frase específica)
+- novelty_level: "low" | "medium" | "high" según qué tan original es el ángulo
+- specific_promise: qué aprende o gana el espectador en concreto
 
 Devuelve SOLO un JSON válido:
 {
@@ -312,8 +637,13 @@ Devuelve SOLO un JSON válido:
       "topic": "Título exacto del Reel",
       "days_from_now": 0,
       "pillar": "nombre del pilar",
-      "format": "letra del formato usado (A-J)",
-      "category": "emocional|revelacion|resultado|tendencia"
+      "angle": "letra del formato usado (A-J)",
+      "category": "emocional|revelacion|resultado|tendencia",
+      "viral_score": 75,
+      "audience_pain": "descripción del dolor/deseo específico",
+      "share_reason": "por qué alguien lo compartiría",
+      "novelty_level": "medium",
+      "specific_promise": "qué aprende o gana el espectador"
     }
   ]
 }
@@ -329,16 +659,56 @@ Genera exactamente ${total} temas distintos. Verifica la lista completa antes de
   const content = res.choices[0]?.message?.content;
   if (!content) throw new Error("Empty response from AI");
 
-  const parsed = JSON.parse(content) as { topics: Array<{ topic: string; days_from_now: number; category?: string }> };
+  const parsed = JSON.parse(content) as {
+    topics: Array<{
+      topic: string;
+      days_from_now: number;
+      angle?: string;
+      viral_score?: number;
+      audience_pain?: string;
+      share_reason?: string;
+      novelty_level?: string;
+      specific_promise?: string;
+    }>;
+  };
+
   const now = new Date();
 
-  return parsed.topics.map((t) => {
+  // Programmatic scoring
+  const withScores = scoreTopics(
+    parsed.topics.map((t) => ({
+      topic: t.topic,
+      viral_score: t.viral_score ?? 50,
+      editorial_angle: t.angle ?? "",
+      novelty_level: t.novelty_level ?? "medium",
+      share_reason: t.share_reason ?? "",
+    }))
+  );
+
+  // Balance angles
+  const balanced = balanceAngles(withScores);
+  // Map back to original order for date assignment
+  const topicMap = new Map(parsed.topics.map((t) => [t.topic, t]));
+
+  return balanced.map((scored) => {
+    const orig = topicMap.get(scored.topic)!;
     const date = new Date(now);
-    date.setDate(date.getDate() + t.days_from_now);
+    date.setDate(date.getDate() + (orig.days_from_now ?? 0));
     date.setHours(9, 0, 0, 0);
-    return { topic: t.topic, scheduled_at: date.toISOString() };
+    return {
+      topic: scored.topic,
+      scheduled_at: date.toISOString(),
+      viral_score: scored.adjusted_score,
+      editorial_angle: orig.angle ?? "",
+      audience_pain: orig.audience_pain ?? "",
+      share_reason: orig.share_reason ?? "",
+      novelty_level: (orig.novelty_level as "low" | "medium" | "high") ?? "medium",
+      specific_promise: orig.specific_promise ?? "",
+    };
   });
 }
+
+// ── Audit analysis ────────────────────────────────────────────────────────────
 
 export async function analyzeAuditAndRecommend(
   niche: string,
@@ -354,7 +724,7 @@ Nicho: ${niche}
 Idioma: ${language}
 Engagement promedio: ${avgEngagement.toFixed(2)}%
 Mejores captions/temas de los últimos posts:
-${topPostCaptions.slice(0, 10).map((c, i) => `${i + 1}. ${c?.substring(0, 100) || "Sin caption"}`).join("\n")}
+${topPostCaptions.slice(0, 10).map((c, i) => `${i + 1}. ${c?.substring(0, 150) || "Sin caption"}`).join("\n")}
 
 Devuelve SOLO un JSON válido:
 {
@@ -372,4 +742,21 @@ Devuelve SOLO un JSON válido:
   const content = res.choices[0]?.message?.content;
   if (!content) throw new Error("Empty AI response");
   return JSON.parse(content);
+}
+
+// ── Regenerate script with criterion ─────────────────────────────────────────
+
+export type RegenerateCriterion = "educational" | "controversial" | "storytelling" | "sales" | "emotional";
+
+/** Regenerate the script for an existing content item with a different editorial emphasis. */
+export async function regenerateScriptWithCriterion(
+  topic: string,
+  niche: string,
+  tone: string,
+  language: string,
+  durationSeconds: number,
+  criterion: RegenerateCriterion,
+  auditInsights?: AuditInsights
+): Promise<ScriptOutput> {
+  return generateScript(topic, niche, tone, language, durationSeconds, { criterion, auditInsights });
 }

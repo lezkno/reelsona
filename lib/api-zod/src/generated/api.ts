@@ -281,6 +281,13 @@ export const GetContentPlanResponseItem = zod.object({
   "captioned_video_url": zod.string().nullish(),
   "thumbnail_url": zod.string().nullish(),
   "video_status": zod.string().nullish(),
+  "viral_score": zod.number().nullish(),
+  "editorial_angle": zod.string().nullish(),
+  "hook_candidates": zod.string().nullish(),
+  "hook_selection_reason": zod.string().nullish(),
+  "share_reason": zod.string().nullish(),
+  "audience_pain": zod.string().nullish(),
+  "novelty_level": zod.string().nullish(),
   "created_at": zod.string(),
   "updated_at": zod.string()
 })
@@ -317,6 +324,13 @@ export const GenerateContentPlanResponseItem = zod.object({
   "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish().describe('Caption Studio processing state for the associated video'),
   "copy_status": zod.union([zod.literal('generating'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish(),
   "video_status": zod.string().nullish(),
+  "viral_score": zod.number().nullish(),
+  "editorial_angle": zod.string().nullish(),
+  "hook_candidates": zod.string().nullish(),
+  "hook_selection_reason": zod.string().nullish(),
+  "share_reason": zod.string().nullish(),
+  "audience_pain": zod.string().nullish(),
+  "novelty_level": zod.string().nullish(),
   "created_at": zod.string(),
   "updated_at": zod.string()
 })
@@ -352,6 +366,13 @@ export const CreateContentItemResponse = zod.object({
   "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish().describe('Caption Studio processing state for the associated video'),
   "copy_status": zod.union([zod.literal('generating'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish(),
   "video_status": zod.string().nullish(),
+  "viral_score": zod.number().nullish(),
+  "editorial_angle": zod.string().nullish(),
+  "hook_candidates": zod.string().nullish(),
+  "hook_selection_reason": zod.string().nullish(),
+  "share_reason": zod.string().nullish(),
+  "audience_pain": zod.string().nullish(),
+  "novelty_level": zod.string().nullish(),
   "created_at": zod.string(),
   "updated_at": zod.string()
 })
@@ -387,7 +408,9 @@ export const GenerateScriptResponse = zod.object({
   "cta": zod.string(),
   "caption": zod.string(),
   "hashtags": zod.string(),
-  "estimated_duration_seconds": zod.number()
+  "estimated_duration_seconds": zod.number(),
+  "hook_candidates": zod.array(zod.string()).optional(),
+  "hook_selection_reason": zod.string().optional()
 })
 
 
@@ -414,6 +437,13 @@ export const GetContentItemResponse = zod.object({
   "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish().describe('Caption Studio processing state for the associated video'),
   "copy_status": zod.union([zod.literal('generating'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish(),
   "video_status": zod.string().nullish(),
+  "viral_score": zod.number().nullish(),
+  "editorial_angle": zod.string().nullish(),
+  "hook_candidates": zod.string().nullish(),
+  "hook_selection_reason": zod.string().nullish(),
+  "share_reason": zod.string().nullish(),
+  "audience_pain": zod.string().nullish(),
+  "novelty_level": zod.string().nullish(),
   "created_at": zod.string(),
   "updated_at": zod.string()
 })
@@ -454,6 +484,13 @@ export const UpdateContentItemResponse = zod.object({
   "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish().describe('Caption Studio processing state for the associated video'),
   "copy_status": zod.union([zod.literal('generating'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish(),
   "video_status": zod.string().nullish(),
+  "viral_score": zod.number().nullish(),
+  "editorial_angle": zod.string().nullish(),
+  "hook_candidates": zod.string().nullish(),
+  "hook_selection_reason": zod.string().nullish(),
+  "share_reason": zod.string().nullish(),
+  "audience_pain": zod.string().nullish(),
+  "novelty_level": zod.string().nullish(),
   "created_at": zod.string(),
   "updated_at": zod.string()
 })
