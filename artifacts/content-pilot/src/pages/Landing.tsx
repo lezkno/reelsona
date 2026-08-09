@@ -1290,18 +1290,17 @@ export default function Landing() {
 
       {/* ── CTA FINAL ── */}
       <section
-        className="relative text-center overflow-hidden"
-        style={{ padding: "8rem 1.5rem" }}
+        className="relative overflow-hidden"
+        style={{ padding: "7rem 1.5rem" }}
       >
+        {/* bg effects */}
         <div
           className="absolute pointer-events-none"
           style={{
-            top: "50%",
-            left: "50%",
+            top: "50%", left: "50%",
             transform: "translate(-50%, -50%)",
-            width: 700,
-            height: 400,
-            background: "radial-gradient(ellipse, rgba(79,110,247,0.09) 0%, transparent 68%)",
+            width: 800, height: 500,
+            background: "radial-gradient(ellipse, rgba(79,110,247,0.08) 0%, transparent 68%)",
           }}
         />
         <div
@@ -1315,67 +1314,131 @@ export default function Landing() {
           }}
         />
 
-        <div className="relative z-10 mx-auto" style={{ maxWidth: 640 }}>
-          <h2
-            className="font-bold tracking-tight"
-            style={{
-              fontFamily: "var(--font-display, 'Outfit', sans-serif)",
-              fontSize: "clamp(2rem, 5.5vw, 3.4rem)",
-              lineHeight: 1.07,
-              letterSpacing: "-0.035em",
-              marginBottom: "1.25rem",
-            }}
-          >
-            Crea tu clon digital.{" "}
-            <span
+        <div
+          className="relative z-10 mx-auto grid items-center"
+          style={{
+            maxWidth: 980,
+            gridTemplateColumns: "auto 1fr",
+            gap: "clamp(2.5rem, 6vw, 6rem)",
+          }}
+        >
+          {/* ── LEFT: second avatar ── */}
+          <div className="hidden md:block flex-shrink-0" style={{ position: "relative" }}>
+            {/* purple glow */}
+            <div
+              className="absolute pointer-events-none"
               style={{
-                background: "linear-gradient(135deg, #4F6EF7 10%, #9B5CF6 90%)",
-                WebkitBackgroundClip: "text",
-                WebkitTextFillColor: "transparent",
-                backgroundClip: "text",
-                display: "block",
+                inset: "-28px",
+                background: "radial-gradient(ellipse at center, rgba(155,92,246,0.22) 0%, transparent 68%)",
+                borderRadius: "9999px",
+                zIndex: 0,
+              }}
+            />
+            {/* phone frame — slightly smaller, tilted */}
+            <div
+              style={{
+                position: "relative",
+                zIndex: 1,
+                width: "clamp(160px, 15vw, 220px)",
+                aspectRatio: "9/16",
+                borderRadius: "2rem",
+                border: "1px solid rgba(155,92,246,0.35)",
+                boxShadow: "0 0 50px rgba(155,92,246,0.22), 0 24px 60px rgba(0,0,0,0.7)",
+                overflow: "hidden",
+                backgroundColor: "#111",
+                transform: "rotate(-3deg)",
               }}
             >
-              Ponlo a trabajar por ti.
-            </span>
-          </h2>
-          <p
-            style={{
-              color: "#666",
-              fontSize: "1rem",
-              lineHeight: 1.8,
-              marginBottom: "2.75rem",
-              maxWidth: 500,
-              margin: "0 auto 2.75rem",
-            }}
-          >
-            Te enseñamos a crear tu avatar de forma efectiva, paso a paso.
-            Después configuras el sistema y lo dejas publicando Reels en automático.
-          </p>
-          <button
-            onClick={() => setCheckoutOpen(true)}
-            className="inline-flex items-center gap-2 rounded-xl font-bold transition-opacity hover:opacity-90"
-            style={{
-              background: "linear-gradient(135deg, #4F6EF7, #7B5CF6)",
-              color: "#fff",
-              padding: "1.15rem 2.75rem",
-              fontSize: "1.1rem",
-              border: "none",
-              cursor: "pointer",
-              boxShadow: "0 0 35px rgba(79,110,247,0.35)",
-            }}
-          >
-            Montar mi sistema por $47 <ArrowRight size={18} />
-          </button>
-          <p
-            style={{
-              marginTop: "1rem",
-              color: "#333",
-              fontSize: "0.78rem",
-            }}
-          >
-            Pago único · Acceso inmediato · Sin suscripción
-          </p>
+              <img
+                src={`${BASE}/hero-avatar.jpg`}
+                alt="Avatar IA publicando Reels"
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "cover",
+                  objectPosition: "top",
+                  display: "block",
+                }}
+              />
+              {/* overlay badge */}
+              <div
+                style={{
+                  position: "absolute",
+                  bottom: "1rem",
+                  left: "50%",
+                  transform: "translateX(-50%)",
+                  backgroundColor: "rgba(9,9,9,0.82)",
+                  backdropFilter: "blur(10px)",
+                  border: "1px solid rgba(155,92,246,0.4)",
+                  borderRadius: "9999px",
+                  padding: "0.28rem 0.75rem",
+                  fontSize: "0.6rem",
+                  fontWeight: 700,
+                  letterSpacing: "0.07em",
+                  color: "#9B5CF6",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                ✦ EN AUTOPILOT
+              </div>
+            </div>
+          </div>
+
+          {/* ── RIGHT: copy ── */}
+          <div>
+            <h2
+              className="font-bold tracking-tight"
+              style={{
+                fontFamily: "var(--font-display, 'Outfit', sans-serif)",
+                fontSize: "clamp(2rem, 5vw, 3.3rem)",
+                lineHeight: 1.08,
+                letterSpacing: "-0.035em",
+                marginBottom: "1.25rem",
+              }}
+            >
+              Crea tu clon digital.{" "}
+              <span
+                style={{
+                  background: "linear-gradient(135deg, #4F6EF7 10%, #9B5CF6 90%)",
+                  WebkitBackgroundClip: "text",
+                  WebkitTextFillColor: "transparent",
+                  backgroundClip: "text",
+                }}
+              >
+                Ponlo a trabajar por ti.
+              </span>
+            </h2>
+            <p
+              style={{
+                color: "#666",
+                fontSize: "1rem",
+                lineHeight: 1.8,
+                marginBottom: "2.5rem",
+                maxWidth: 460,
+              }}
+            >
+              Te enseñamos a crear tu avatar de forma efectiva, paso a paso.
+              Después configuras el sistema y lo dejas publicando Reels en automático.
+            </p>
+            <button
+              onClick={() => setCheckoutOpen(true)}
+              className="inline-flex items-center gap-2 rounded-xl font-bold transition-opacity hover:opacity-90"
+              style={{
+                background: "linear-gradient(135deg, #4F6EF7, #7B5CF6)",
+                color: "#fff",
+                padding: "1.1rem 2.5rem",
+                fontSize: "1.05rem",
+                border: "none",
+                cursor: "pointer",
+                boxShadow: "0 0 32px rgba(79,110,247,0.32)",
+              }}
+            >
+              Montar mi sistema por $47 <ArrowRight size={17} />
+            </button>
+            <p style={{ marginTop: "0.9rem", color: "#333", fontSize: "0.78rem" }}>
+              Pago único · Acceso inmediato · Sin suscripción
+            </p>
+          </div>
         </div>
       </section>
 
