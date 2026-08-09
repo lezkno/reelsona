@@ -1429,9 +1429,14 @@ export default function CaptionStudio() {
                 {rotationEnabled
                   ? rotationIds.size > 0
                     ? `${rotationIds.size} plantilla${rotationIds.size !== 1 ? "s" : ""} en rotación. Hacé clic en las plantillas para agregarlas o quitarlas.`
-                    : "Hacé clic en las plantillas que querés incluir en la rotación."
+                    : "Seleccioná al menos una plantilla. Si no elegís ninguna se usa siempre la misma."
                   : "Activá para que cada video use una plantilla diferente de forma automática."}
               </p>
+              {rotationEnabled && rotationIds.size === 0 && (
+                <p className="text-xs text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1">
+                  <span>⚠</span> Sin plantillas seleccionadas se usará la plantilla activa por defecto.
+                </p>
+              )}
               {rotationEnabled && (
                 <div className="flex gap-1.5 mt-2">
                   {[{ value: "sequential", label: "Secuencial" }, { value: "random", label: "Aleatorio" }].map(({ value, label }) => (
