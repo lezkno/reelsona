@@ -50,7 +50,7 @@ router.post("/checkout/create-session", async (req: Request, res: Response): Pro
       const session = await stripe.checkout.sessions.create({
         mode:      "payment",
         line_items: [{ price: priceId, quantity: 1 }],
-        ui_mode:   "embedded",
+        ui_mode:   "embedded_page",
         return_url: `${appUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
         metadata: {
           product:          "reelsona_program",
