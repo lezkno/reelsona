@@ -58,9 +58,9 @@ export function Sidebar({ onClose }: SidebarProps) {
       <div className="h-16 flex items-center px-6 border-b border-sidebar-border">
         <div className="flex items-center gap-2 flex-1">
           <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground font-bold shadow-[0_0_15px_rgba(100,50,255,0.4)]">
-            CP
+            R
           </div>
-          <span className="font-display font-bold text-xl tracking-tight">ContentPilot</span>
+          <span className="font-display font-bold text-xl tracking-tight">Reelsona</span>
         </div>
         {/* Close button — mobile only */}
         {onClose && (
@@ -173,6 +173,17 @@ export function Sidebar({ onClose }: SidebarProps) {
           <div className="text-xs font-medium text-sidebar-foreground/80">
             Sistema en línea
           </div>
+        </div>
+
+        {/* Legal links */}
+        <div className="flex items-center justify-center gap-3 pt-1">
+          <Link href="/privacy" onClick={onClose} className="text-[10px] text-sidebar-foreground/40 hover:text-sidebar-foreground/70 transition-colors">
+            Privacidad
+          </Link>
+          <span className="text-sidebar-foreground/20 text-[10px]">·</span>
+          <Link href="/terms" onClick={onClose} className="text-[10px] text-sidebar-foreground/40 hover:text-sidebar-foreground/70 transition-colors">
+            Términos
+          </Link>
         </div>
       </div>
     </aside>

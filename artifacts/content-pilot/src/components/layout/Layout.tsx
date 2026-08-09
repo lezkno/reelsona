@@ -38,9 +38,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </button>
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 rounded-md bg-primary flex items-center justify-center text-primary-foreground font-bold text-xs shadow-[0_0_10px_rgba(100,50,255,0.4)]">
-              CP
+              R
             </div>
-            <span className="font-display font-bold text-sidebar-foreground tracking-tight">ContentPilot</span>
+            <span className="font-display font-bold text-sidebar-foreground tracking-tight">Reelsona</span>
           </div>
         </div>
 

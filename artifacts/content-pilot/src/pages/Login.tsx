@@ -38,7 +38,7 @@ export default function Login({ onSuccess }: LoginProps) {
           <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-3">
             <Lock className="w-6 h-6 text-primary" />
           </div>
-          <CardTitle className="text-2xl font-display">ContentPilot</CardTitle>
+          <CardTitle className="text-2xl font-display">Reelsona</CardTitle>
           <CardDescription>Inicia sesión para continuar</CardDescription>
         </CardHeader>
         <CardContent>
