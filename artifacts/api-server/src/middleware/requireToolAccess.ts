@@ -45,6 +45,26 @@ export function invalidateAccessCache(userId: number): void {
   cache.delete(userId);
 }
 
+/**
+ * Write a synthetic entry into the in-memory cache.
+ * Only intended for unit tests — do not call from production code.
+ */
+export function _setCacheEntryForTest(
+  userId: number,
+  entry: Omit<CacheEntry, "expiresAt">,
+  ttlMs = CACHE_TTL_MS,
+): void {
+  cache.set(userId, { ...entry, expiresAt: Date.now() + ttlMs });
+}
+
+/**
+ * Read the raw cache entry for a user (null = not cached).
+ * Only intended for unit tests — do not call from production code.
+ */
+export function _getCacheEntryForTest(userId: number): CacheEntry | null {
+  return cache.get(userId) ?? null;
+}
+
 // ── Paths that bypass tool-access check ──────────────────────────────────────
 
 const BYPASS_PREFIXES = [
