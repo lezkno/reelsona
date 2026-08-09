@@ -828,6 +828,38 @@ export default function ContentPlan() {
                                         </TooltipContent>
                                       </Tooltip>
                                     )}
+                                    {/* Avatar talking-head fit badge */}
+                                    {item.visual_dependency && (
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full cursor-default ${
+                                            item.visual_dependency === "low"
+                                              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                                              : item.visual_dependency === "medium"
+                                              ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                                              : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                                          }`}>
+                                            <Video className="w-2.5 h-2.5" />
+                                            {item.visual_dependency === "low" ? "Avatar ✓" : item.visual_dependency === "medium" ? "Avatar ~" : "Avatar ⚠"}
+                                          </span>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="bottom" className="max-w-[240px] text-xs space-y-1">
+                                          <p className="font-semibold">
+                                            {item.visual_dependency === "low" && "✓ Apto para talking-head"}
+                                            {item.visual_dependency === "medium" && "~ Compatible con soporte visual simple"}
+                                            {item.visual_dependency === "high" && "⚠ Alta dependencia visual — considerar reformular"}
+                                          </p>
+                                          {item.avatar_fit_reason && <p className="text-muted-foreground">{item.avatar_fit_reason}</p>}
+                                          {item.suggested_visual_support && (() => {
+                                            try {
+                                              const supports = JSON.parse(item.suggested_visual_support) as string[];
+                                              return <p className="text-muted-foreground">Soporte: {supports.join(", ")}</p>;
+                                            } catch { return null; }
+                                          })()}
+                                          {item.format_fit_score != null && <p className="text-muted-foreground">Fit score: {Math.round(item.format_fit_score)}/100</p>}
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    )}
                                   </div>
                                 )}
                                 {/* ─────────────────────────────────────────────── */}

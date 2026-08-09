@@ -38,6 +38,39 @@ ESTÁNDAR DE CALIDAD:
 ✅ El tono debe ser conversacional y directo — nunca corporativo, nunca artificial.
 `.trim();
 
+// ── Talking-head format constraint — injected into all topic + script prompts ─
+
+/**
+ * TALKING_HEAD_CONSTRAINT: Format rules for avatar-only production.
+ * Injected into generateContentTopics and generateScript prompts.
+ */
+const TALKING_HEAD_CONSTRAINT = `
+FORMATO OBLIGATORIO — AVATAR TALKING-HEAD (estilo podcast/experto):
+El contenido será producido por un avatar de IA mirando directamente a cámara. NO existe pantalla compartida, NO hay grabación de escritorio, NO hay tutorial visual en tiempo real.
+
+MEDIOS DISPONIBLES:
+✅ Avatar hablando a cámara · Captions / subtítulos animados · Punch text grande en pantalla
+✅ B-roll simple (imágenes de stock, cortes) · Overlays de texto (listas, estadísticas, preguntas)
+✅ Zoom dramático · Hook card visual · CTA card al final
+
+PROHIBIDO — estas ideas/frases NO son producibles:
+❌ "te muestro en pantalla" · "hacemos clic aquí" · "mira este gráfico" · "te enseño en vivo"
+❌ "en mi pantalla ves" · "voy a abrir la herramienta" · "paso a paso en el software"
+❌ Tutoriales de interfaz, walkthroughs de configuración, análisis de dashboard en vivo
+❌ Cualquier idea que REQUIERA ver una pantalla para entenderse
+
+CONVERSIÓN OBLIGATORIA de ideas dependientes de pantalla:
+  "Cómo configurar [X] paso a paso" → "El error que hace que [X] falle aunque creas que está bien configurado"
+  "Te muestro cómo crear una campaña" → "3 decisiones que tomar ANTES de crear una campaña o quemas presupuesto"
+  "Tutorial de [software]" → "Si vas a usar [software], evita estos errores antes de invertir tiempo"
+  "Análisis de dashboard" → "Qué métricas ignora el 90% de los que usan [herramienta] — y por qué les cuesta ventas"
+
+FORMATOS ÓPTIMOS para talking-head/podcast:
+  Opinión experta contundente · Errores + consecuencias reales · Mitos vs realidad · Framework verbal
+  Checklist verbal · Historia corta con lección · Comparación A vs B en palabras · Objeciones + respuesta
+  "Lo que nadie te dice sobre X" · "Antes de hacer X entiende Y" · Lección de caso real
+`.trim();
+
 // ── Language-aware prompt helpers ─────────────────────────────────────────────
 
 /** Returns a per-language style instruction injected at the top of every prompt. */
@@ -315,6 +348,8 @@ export async function generateScript(
 
   const prompt = `${EDITORIAL_BASE}
 
+${TALKING_HEAD_CONSTRAINT}
+
 ${getLanguageInstruction(language)}
 ${criterionInstruction}${auditContext}
 Crea un guion de video para un Reel de Instagram con estas especificaciones:
@@ -331,6 +366,7 @@ ${ctaList}
 3. El hook debe ser la primera frase del guion (ya incluida dentro de "script").
 4. Sin indicaciones de escena, sin corchetes, sin asteriscos — solo texto hablado corrido.
 5. El tono debe sentirse conversacional, no como un comercial.
+6. NUNCA escribas frases que requieran que el espectador vea una pantalla o demostración en vivo: "como ves aquí", "hacemos clic en", "en esta captura verás", "voy a mostrarte en pantalla", "ahora en mi pantalla". El avatar habla directamente a cámara — el espectador solo ve su cara.
 6. NUNCA uses abreviaturas que el avatar leería mal: escribe "inteligencia artificial" (no "IA" ni "AI"), "retorno de inversión" (no "ROI"), "indicadores clave" (no "KPIs"), "director ejecutivo" (no "CEO"), etc. — todo debe sonar natural cuando se lee en voz alta.
 7. NUNCA uses diminutivos, jerga o frases incompletas. Las oraciones deben ser completas y claras para que el avatar las lea correctamente.
 
@@ -453,6 +489,15 @@ export interface ContentPlanTopicMeta {
   share_reason: string;
   novelty_level: "low" | "medium" | "high";
   specific_promise: string;
+  // ── Talking-head format fields ──────────────────────────────────────────────
+  /** How much this topic depends on screen / external visuals */
+  visual_dependency: "low" | "medium" | "high";
+  /** 0-100: how well this topic fits the avatar talking-head format */
+  format_fit_score: number;
+  /** Why this topic works (or not) without screen sharing — 1 sentence */
+  avatar_talking_head_fit_reason: string;
+  /** Visual supports recommended: captions, punch text, b-roll, zoom, overlay, etc. */
+  suggested_visual_support: string[];
 }
 
 // Keep backwards compat alias
@@ -491,7 +536,7 @@ const GENERIC_WORDS = ["tips", "consejos", "guía", "tutorial", "cómo hacer"];
 
 /** Apply programmatic scoring adjustments to a list of AI-generated topics. */
 function scoreTopics(
-  topics: Array<{ topic: string; viral_score: number; editorial_angle: string; novelty_level: string; share_reason: string }>,
+  topics: Array<{ topic: string; viral_score: number; editorial_angle: string; novelty_level: string; share_reason: string; visual_dependency?: string; format_fit_score?: number }>,
   existingAngles: string[] = []
 ): Array<typeof topics[0] & { adjusted_score: number }> {
   // Count angle occurrences in this batch + existing
@@ -523,6 +568,13 @@ function scoreTopics(
 
     // (e) Bonus for specific share_reason (> 30 chars = more thought out)
     if ((t.share_reason?.length ?? 0) > 30) score += 10;
+
+    // (f) Penalize visual dependency — topics requiring screen sharing are not producible
+    if (t.visual_dependency === "high") score -= 25;
+    else if (t.visual_dependency === "medium") score -= 8;
+
+    // (g) Bonus for confirmed strong talking-head fit
+    if ((t.format_fit_score ?? 0) >= 80) score += 8;
 
     return { ...t, adjusted_score: Math.max(0, Math.min(100, score)) };
   });
@@ -625,6 +677,8 @@ ${allPillars.map((p, i) => `  ${i + 1}. ${p}`).join("\n")}
 
   const prompt = `${EDITORIAL_BASE}
 
+${TALKING_HEAD_CONSTRAINT}
+
 ${getLanguageInstruction(language)}
 
 Eres un estratega de contenido para Instagram Reels especializado en crecimiento orgánico.
@@ -652,6 +706,7 @@ Reglas de calidad:
   • Los temas TRENDING deben referenciar contexto real 2025-2026
   • Cada tema debe desarrollarse en un Reel de 45-75 segundos sin necesidad de visuals complejas
   • Los temas deben distribuirse a lo largo de ${days} días, máximo ${postsPerDay} por día
+  • OBLIGATORIO: cada tema debe funcionar con un avatar hablando a cámara — sin pantalla compartida, sin demo de software. Si un tema generado naturalmente requería pantalla, transfórmalo al formato talking-head antes de incluirlo.
 
 Para cada tema, devuelve también:
 - viral_score: número 0-100 estimando el potencial viral (considera retención, compartibilidad, originalidad)
@@ -660,6 +715,10 @@ Para cada tema, devuelve también:
 - share_reason: por qué alguien compartiría este video (1 frase específica)
 - novelty_level: "low" | "medium" | "high" según qué tan original es el ángulo
 - specific_promise: qué aprende o gana el espectador en concreto
+- visual_dependency: "low" | "medium" | "high" — nivel de dependencia de visuales externos (low=solo voz basta; medium=soporte simple ok; high=requiere pantalla compartida — EVITAR, transformar el tema antes de incluirlo)
+- format_fit_score: 0-100 — aptitud para avatar talking-head (>70 ideal; <50 penalizado; temas con visual_dependency "high" nunca superan 40)
+- avatar_fit_reason: 1 frase explicando por qué este tema funciona (o no) sin pantalla compartida
+- suggested_visual_support: array con los apoyos visuales simples disponibles a usar — elige los apropiados: ["captions", "punch text", "zoom dramático", "b-roll simple", "checklist overlay", "hook card", "CTA card", "estadística en pantalla"]
 
 Devuelve SOLO un JSON válido:
 {
@@ -674,7 +733,11 @@ Devuelve SOLO un JSON válido:
       "audience_pain": "descripción del dolor/deseo específico",
       "share_reason": "por qué alguien lo compartiría",
       "novelty_level": "medium",
-      "specific_promise": "qué aprende o gana el espectador"
+      "specific_promise": "qué aprende o gana el espectador",
+      "visual_dependency": "low",
+      "format_fit_score": 85,
+      "avatar_fit_reason": "El tema es conceptual y se explica completamente en palabras, sin necesidad de pantalla",
+      "suggested_visual_support": ["captions", "punch text", "zoom dramático"]
     }
   ]
 }
@@ -700,12 +763,16 @@ Genera exactamente ${total} temas distintos. Verifica la lista completa antes de
       share_reason?: string;
       novelty_level?: string;
       specific_promise?: string;
+      visual_dependency?: string;
+      format_fit_score?: number;
+      avatar_fit_reason?: string;
+      suggested_visual_support?: string[];
     }>;
   };
 
   const now = new Date();
 
-  // Programmatic scoring
+  // Programmatic scoring — includes talking-head fit penalties
   const withScores = scoreTopics(
     parsed.topics.map((t) => ({
       topic: t.topic,
@@ -713,6 +780,8 @@ Genera exactamente ${total} temas distintos. Verifica la lista completa antes de
       editorial_angle: t.angle ?? "",
       novelty_level: t.novelty_level ?? "medium",
       share_reason: t.share_reason ?? "",
+      visual_dependency: t.visual_dependency ?? "low",
+      format_fit_score: t.format_fit_score ?? 70,
     }))
   );
 
@@ -735,6 +804,10 @@ Genera exactamente ${total} temas distintos. Verifica la lista completa antes de
       share_reason: orig.share_reason ?? "",
       novelty_level: (orig.novelty_level as "low" | "medium" | "high") ?? "medium",
       specific_promise: orig.specific_promise ?? "",
+      visual_dependency: (orig.visual_dependency as "low" | "medium" | "high") ?? "low",
+      format_fit_score: orig.format_fit_score ?? 70,
+      avatar_talking_head_fit_reason: orig.avatar_fit_reason ?? "",
+      suggested_visual_support: orig.suggested_visual_support ?? [],
     };
   });
 }

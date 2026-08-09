@@ -10,3 +10,4 @@
 - [Browser engine resolution bug](browser-engine-resolution.md) — PNGs must be rendered at actual video dimensions; hardcoded 1080×1920 breaks when real video is 720×1280 (clips all captions below y=1280).
 - [IG Copy generation step](ig-copy-generation.md) — `copy_status` column on content_plan_items drives a new pipeline step; atomic claim pattern; triggered from 3 scheduler points; recovery sweep in pollAndPublishVideos.
 - [Caption templates library](caption-templates-library.md) — 9 templates total; backgroundMode:"line" added to canvas renderer; overflow auto-scale in renderCueFrame; diagnostic endpoint accepts ?words= for testing.
+- [Talking-head editorial constraint](talking-head-editorial-constraint.md) — TALKING_HEAD_CONSTRAINT injected into all topic/script prompts; 4 new DB columns (visual_dependency, format_fit_score, suggested_visual_support, avatar_fit_reason); scoreTopics penalizes high visual_dependency.

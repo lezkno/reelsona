@@ -117,6 +117,9 @@ export async function synthesizeMarketStudy(opts: {
 
 Eres un estratega senior de contenido para Instagram Reels. Analiza los datos de la cuenta y el nicho para producir un Estudio de Mercado estructurado.
 
+RESTRICCIÓN DE FORMATO — CRÍTICA:
+El contenido de esta cuenta se produce con un AVATAR DE IA mirando a cámara (estilo podcast/experto). NO existe pantalla compartida, NO hay tutorial visual en vivo. Todo formato recomendado debe poder ejecutarse con avatar hablando + captions + texto en pantalla. Excluye de "working_formats" cualquier formato que requiera pantalla compartida, dashboard en vivo o demostración de software.
+
 DATOS DE LA CUENTA PROPIA:
 - Nicho: ${niche}${nicheDescription ? ` — ${nicheDescription}` : ""}
 - Keywords del creador: ${topicKeywords.join(", ") || "no especificadas"}
@@ -145,7 +148,7 @@ Devuelve SOLO un JSON con esta estructura exacta:
 
 Reglas:
 - top_themes: 5-8 temas reales basados en los captions ganadores
-- working_formats: 4-6 formatos (ej: "tutorial paso a paso", "mito vs realidad", "antes/después")
+- working_formats: 4-6 formatos COMPATIBLES con avatar talking-head (ej: "mito vs realidad", "error + consecuencia", "antes/después verbal", "checklist de decisión", "opinión experta con datos") — NUNCA incluir "tutorial paso a paso con pantalla", "walkthrough de software" u otros que requieran visuales externos
 - audience_pains: 4-6 dolores/deseos específicos de esta audiencia
 - content_gaps: 3-5 huecos reales de contenido en el nicho
 - saturated_topics: 3-5 temas a evitar
@@ -192,6 +195,9 @@ export async function generateContentStrategy(opts: {
 
 Eres un estratega de contenido para Instagram Reels. Crea una Estrategia de Contenido estructurada basada en el análisis de mercado.
 
+RESTRICCIÓN DE FORMATO — OBLIGATORIA:
+El contenido se graba con un AVATAR DE IA hablando a cámara (talking-head/podcast). NO hay pantalla compartida, NO hay tutoriales de software en vivo. TODOS los pilares, ángulos editoriales y hook_types que propongas deben poder ejecutarse con avatar hablando + captions + punch text. Ejemplos de lo que SÍ funciona: opinión experta, errores + consecuencias, mitos, checklist verbal, comparaciones A vs B en palabras, historias, "lo que nadie te dice", marcos de decisión verbal.
+
 PERFIL DEL CREADOR:
 - Nicho: ${niche}${nicheDescription ? ` — ${nicheDescription}` : ""}
 - Keywords: ${topicKeywords.join(", ") || "no especificadas"}
@@ -233,7 +239,7 @@ Devuelve SOLO un JSON con esta estructura:
 
 Reglas:
 - pillars: 3-4 pilares, frequency_pct deben sumar 100
-- editorial_angles: 5-7 ángulos específicos al nicho (ej: "El error que comete el 80% de los X")
+- editorial_angles: 5-7 ángulos específicos al nicho, todos ejecutables con avatar talking-head (ej: "El error que comete el 80% de los X", "Lo que nadie en el nicho te dice sobre Y", "Antes de hacer X entiende Y") — NINGUNO puede requerir demostración en pantalla
 - format_mix: valores suman 100, ajustados a lo que funciona en el nicho
 - unique_value_prop: específico y diferencial, NO genérico
 - hook_types: 4-6 arquetipos de hook que aplican al nicho

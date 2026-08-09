@@ -120,6 +120,10 @@ async function fillEmptyScheduledSlots(
     shareReason:  rawTopics[i].share_reason ?? null,
     audiencePain: rawTopics[i].audience_pain ?? null,
     noveltyLevel: rawTopics[i].novelty_level ?? null,
+    visualDependency: rawTopics[i].visual_dependency ?? null,
+    formatFitScore: rawTopics[i].format_fit_score ?? null,
+    suggestedVisualSupport: rawTopics[i].suggested_visual_support?.length ? JSON.stringify(rawTopics[i].suggested_visual_support) : null,
+    avatarFitReason: rawTopics[i].avatar_talking_head_fit_reason ?? null,
   }));
 
   await db.insert(contentPlanItemsTable).values(toInsert);

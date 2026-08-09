@@ -272,6 +272,15 @@ export interface ContentPlanItem {
   audience_pain?: string | null;
   /** low | medium | high @nullable */
   novelty_level?: string | null;
+  // ── Talking-head format metadata ──────────────────────────────────────────
+  /** low | medium | high — visual dependency level @nullable */
+  visual_dependency?: string | null;
+  /** 0-100 — talking-head format fit score @nullable */
+  format_fit_score?: number | null;
+  /** JSON array of suggested visual supports @nullable */
+  suggested_visual_support?: string | null;
+  /** Why this topic works/doesn't without screen sharing @nullable */
+  avatar_fit_reason?: string | null;
   // ──────────────────────────────────────────────────────────────────────────
   created_at: string;
   updated_at: string;

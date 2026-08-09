@@ -280,6 +280,10 @@ router.post("/content/plan/generate", async (req, res): Promise<void> => {
         shareReason: t.share_reason ?? null,
         audiencePain: t.audience_pain ?? null,
         noveltyLevel: t.novelty_level ?? null,
+        visualDependency: t.visual_dependency ?? null,
+        formatFitScore: t.format_fit_score ?? null,
+        suggestedVisualSupport: t.suggested_visual_support?.length ? JSON.stringify(t.suggested_visual_support) : null,
+        avatarFitReason: t.avatar_talking_head_fit_reason ?? null,
       }))
     )
     .returning();

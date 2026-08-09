@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, timestamp, real } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -32,6 +32,15 @@ export const contentPlanItemsTable = pgTable("content_plan_items", {
   audiencePain: text("audience_pain"),
   /** low | medium | high — novelty level of the topic */
   noveltyLevel: text("novelty_level"),
+  // ── Talking-head format metadata ─────────────────────────────────────────────
+  /** low | medium | high — how much this topic depends on screen/visuals */
+  visualDependency: text("visual_dependency"),
+  /** 0-100 — how well this topic fits an avatar talking-head format */
+  formatFitScore: real("format_fit_score"),
+  /** JSON array of suggested visual supports: ["captions", "punch text", ...] */
+  suggestedVisualSupport: text("suggested_visual_support"),
+  /** Why this topic works (or not) without screen sharing */
+  avatarFitReason: text("avatar_fit_reason"),
   // ─────────────────────────────────────────────────────────────────────────────
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
