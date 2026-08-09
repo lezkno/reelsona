@@ -33,14 +33,14 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const painPoints = [
   { Icon: Clock, text: "Grabas un video y no lo publicas porque tienes que editarlo, hacerle captions y encontrar el momento" },
   { Icon: Brain, text: "Cada semana empiezas de cero pensando qué publicar, sin un plan claro ni un sistema que lo genere por ti" },
-  { Icon: Zap, text: "Tienes una cuenta de HeyGen pero el avatar solo está creando contenido cuando tú tienes tiempo de sentarte a producirlo" },
-  { Icon: TrendingUp, text: "Publicas de forma intermitente porque el proceso completo es demasiado manual para hacerlo con consistencia" },
+  { Icon: Zap, text: "Sabes que los avatares de IA existen, pero no tienes claro cómo crear el tuyo de forma efectiva ni cómo conectarlo a un sistema que produzca en automático" },
+  { Icon: TrendingUp, text: "Publicas de forma intermitente porque el proceso completo — desde la idea hasta el video publicado — es demasiado manual para hacerlo con consistencia" },
 ];
 
 const whatItCovers = [
   { Icon: Target, label: "Estrategia", desc: "Análisis de nicho, temas, ángulos y hooks para los próximos 30 días" },
   { Icon: FilePen, label: "Guiones", desc: "Scripts generados con IA adaptados al formato de Reels y al estilo de avatar" },
-  { Icon: Bot, label: "Videos con avatar", desc: "Producción usando tu avatar en HeyGen, sin que tengas que grabar nada" },
+  { Icon: Bot, label: "Videos con avatar", desc: "Ruta guiada para crear tu avatar en HeyGen y producción automática desde el momento en que está listo" },
   { Icon: Sparkles, label: "Captions", desc: "Captions visuales con estilo, generados y aplicados automáticamente a cada Reel" },
   { Icon: Settings2, label: "Edición", desc: "Estructura visual y formato listo para publicar en Instagram" },
   { Icon: Calendar, label: "Publicación", desc: "Programación directa en Instagram desde la plataforma" },
@@ -58,7 +58,7 @@ const autopilotSteps = [
 const forWhom = [
   { Icon: Users, title: "Coaches y consultores", desc: "Que quieren presencia constante en Instagram sin dedicar horas cada semana a grabar contenido." },
   { Icon: Brain, title: "Emprendedores digitales", desc: "Con conocimiento que quieren monetizar a través de contenido sin contratar un equipo de producción." },
-  { Icon: MessageSquare, title: "Creadores con avatar", desc: "Que ya tienen o quieren crear un avatar en HeyGen y necesitan un sistema para que produzca en automático." },
+  { Icon: MessageSquare, title: "Quieres crear tu avatar IA", desc: "Nunca has creado un avatar digital y quieres aprender a hacerlo paso a paso para después ponerlo a crear contenido de forma automática." },
   { Icon: TrendingUp, title: "Educadores online", desc: "Que necesitan generar autoridad y comunidad con Reels constantes sin que la producción los consuma." },
 ];
 
@@ -101,8 +101,8 @@ const notJustAiToolItems = [
     right: "La publicación es la última etapa de un sistema que empieza desde la idea",
   },
   {
-    wrong: "No es una plataforma para crear avatares",
-    right: "Reelsona usa el avatar que ya tienes o que crearás en HeyGen — nosotros somos la capa operativa",
+    wrong: "No es una plataforma genérica para crear avatares desde cero",
+    right: "Te guiamos a crear tu avatar en HeyGen paso a paso — y luego Reelsona es la capa operativa que lo pone a producir en automático",
   },
 ];
 
@@ -117,7 +117,7 @@ const faqs = [
   },
   {
     q: "¿Necesito tener un avatar en HeyGen antes de empezar?",
-    a: "Puedes comenzar a configurar la estrategia y los guiones sin un avatar listo. Para la producción de videos sí necesitarás una cuenta de HeyGen. La ruta guiada dentro de Reelsona te explica cómo crear y conectar tu avatar paso a paso.",
+    a: "No. Puedes entrar sin avatar y sin cuenta de HeyGen. Dentro de Reelsona tienes una ruta guiada que te explica exactamente cómo crear tu avatar de forma efectiva — desde la grabación hasta tenerlo listo para producir contenido. Después, el sistema se encarga del resto.",
   },
   {
     q: "¿Cómo funciona el modo Autopilot?",
@@ -1230,7 +1230,7 @@ export default function Landing() {
               marginBottom: "1.25rem",
             }}
           >
-            Tu avatar ya existe.{" "}
+            Crea tu clon digital.{" "}
             <span
               style={{
                 background: "linear-gradient(135deg, #4F6EF7 10%, #9B5CF6 90%)",
@@ -1240,7 +1240,7 @@ export default function Landing() {
                 display: "block",
               }}
             >
-              Ahora dale un sistema.
+              Ponlo a trabajar por ti.
             </span>
           </h2>
           <p
@@ -1253,8 +1253,8 @@ export default function Landing() {
               margin: "0 auto 2.75rem",
             }}
           >
-            Configura tu estrategia, conecta tus herramientas y activa el Autopilot.
-            Tu clon digital puede empezar a publicar Reels esta semana.
+            Te enseñamos a crear tu avatar de forma efectiva, paso a paso.
+            Después configuras el sistema y lo dejas publicando Reels en automático.
           </p>
           <button
             onClick={() => setCheckoutOpen(true)}
