@@ -26,3 +26,4 @@ channel = "stable-25_05"
 
 [userenv.shared]
 RESEND_FROM_EMAIL = "info@reelsona.com"
+STRIPE_PRICE_ID_PROGRAM = "price_1U2cvoLYaLaJwNz7MidD0ltU"
