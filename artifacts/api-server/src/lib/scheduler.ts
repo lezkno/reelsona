@@ -533,7 +533,6 @@ async function runCopyGeneration(contentItemId: number): Promise<void> {
     return;
   }
 
-  // Declare item outside try so it's accessible in the auto-publish block below
   let item: typeof contentPlanItemsTable.$inferSelect | undefined;
 
   try {
