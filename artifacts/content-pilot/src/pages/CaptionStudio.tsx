@@ -1159,7 +1159,7 @@ export default function CaptionStudio() {
 
   // ── Template override helpers (browser engine only) ───────────────────────
   // Active base template (if browser engine is selected)
-  const activeTmpl = (local.caption_engine === "browser_experimental" && local.template_id)
+  const activeTmpl = local.template_id
     ? BROWSER_CAPTION_TEMPLATES.find((t) => t.id === local.template_id) ?? null
     : null
 
@@ -1229,7 +1229,7 @@ export default function CaptionStudio() {
         queryClient.invalidateQueries({ queryKey: getGetCaptionConfigQueryKey() })
         toast({
           title: `Plantilla "${template.name}" activada`,
-          description: "Los próximos videos usarán el Browser Caption Engine (experimental).",
+          description: `Plantilla "${template.name}" aplicada a los próximos videos.`,
         })
       },
       onError: () => {
@@ -1366,69 +1366,32 @@ export default function CaptionStudio() {
         {/* Left: preset selector + advanced */}
         <div className="lg:col-span-2 space-y-6">
 
-          {/* Preset grid */}
-          <div>
-            <h2 className="text-xl font-display font-bold mb-1">Estilos prediseñados</h2>
-            <p className="text-sm text-muted-foreground mb-4">Clic en un estilo para aplicarlo inmediatamente.</p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-              {(presets ?? []).map((preset) => (
-                <PresetCard
-                  key={preset.id}
-                  preset={preset}
-                  selected={local.caption_engine !== "browser_experimental" && local.preset_id === preset.id}
-                  saving={savingPresetId === preset.id}
-                  onClick={() => !isVideoProcessing && applyPreset(preset)}
-                />
-              ))}
-            </div>
-          </div>
-
-          {/* ── Experimental Browser Engine Templates ─────────────────────── */}
+          {/* Plantillas del motor canvas */}
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <h2 className="text-xl font-display font-bold">Plantillas Experimentales</h2>
-              <Badge variant="outline" className="border-violet-400/50 text-violet-600 dark:text-violet-400 text-[10px]">
-                🔬 Browser Engine
-              </Badge>
-              {/* Canvas availability dot — fetched once on mount */}
-              {browserEngineAvailable === null && (
-                <span className="w-2 h-2 rounded-full bg-zinc-400 animate-pulse" title="Verificando motor canvas…" />
-              )}
-              {browserEngineAvailable === true && (
-                <span className="w-2 h-2 rounded-full bg-emerald-500" title="Canvas (Skia) disponible ✓" />
-              )}
+              <h2 className="text-xl font-display font-bold">Plantillas</h2>
               {browserEngineAvailable === false && (
-                <span className="w-2 h-2 rounded-full bg-amber-400" title="Canvas no disponible — se usará fallback ASS/FFmpeg" />
+                <span className="w-2 h-2 rounded-full bg-amber-400" title="Canvas no disponible — contactá soporte" />
               )}
             </div>
             <p className="text-sm text-muted-foreground mb-4">
-              Preview y render final usan la misma definición de plantilla. El look que ves es exactamente lo que queda en el MP4.
-              Motor: Canvas 2D (Skia) — no ASS, no drawtext.
+              El preview es exactamente lo que queda en el video final. Lo que ves es lo que se renderiza.
             </p>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
               {BROWSER_CAPTION_TEMPLATES.map((tmpl) => (
                 <BrowserTemplateCard
                   key={tmpl.id}
                   template={allTmplOverrides[tmpl.id] ? { ...tmpl, ...allTmplOverrides[tmpl.id] } : tmpl}
-                  selected={local.caption_engine === "browser_experimental" && local.template_id === tmpl.id}
+                  selected={local.template_id === tmpl.id}
                   saving={savingPresetId === tmpl.id}
                   onClick={() => !isVideoProcessing && applyBrowserTemplate(tmpl)}
                 />
               ))}
             </div>
-            {local.caption_engine === "browser_experimental" && (
-              <div className="mt-3 p-3 rounded-lg bg-violet-500/10 border border-violet-500/20 text-sm text-violet-700 dark:text-violet-300 flex items-start gap-2">
-                <span className="mt-0.5 shrink-0">🎨</span>
-                <span>
-                  <strong>Browser Engine activo.</strong> Fallback automático al motor estándar ASS/FFmpeg si el render falla.
-                  Para volver al motor estándar, seleccioná cualquier preset de arriba.
-                </span>
-              </div>
-            )}
           </div>
 
           {/* ── Browser template advanced settings ─────────────────────── */}
-          {local.caption_engine === "browser_experimental" && mergedTmpl && (
+          {mergedTmpl && (
             <div>
               <div className="flex items-center justify-between mb-1">
                 <h2 className="text-xl font-display font-bold">Ajustes de plantilla</h2>
@@ -1629,24 +1592,16 @@ export default function CaptionStudio() {
             </div>
           )}
 
-          {/* Advanced config (standard engine only) */}
-          <div>
+          {/* Advanced config — hidden when a browser template is active */}
+          {!activeTmpl && (<div>
             <h2 className="text-xl font-display font-bold mb-4">Ajustes avanzados</h2>
             <div className="relative">
-              {isVideoProcessing ? (
+              {isVideoProcessing && (
                 <div className="absolute inset-0 z-10 rounded-xl backdrop-blur-[2px] bg-background/70 flex flex-col items-center justify-center gap-2 pointer-events-auto">
                   <Loader2 className="w-6 h-6 animate-spin text-amber-500" />
                   <p className="text-sm font-semibold text-center px-6">Ajustes bloqueados</p>
                   <p className="text-xs text-muted-foreground text-center px-8 leading-snug">
                     Esperá a que el video termine de procesarse.
-                  </p>
-                </div>
-              ) : local.caption_engine === "browser_experimental" && (
-                <div className="absolute inset-0 z-10 rounded-xl backdrop-blur-[2px] bg-background/60 flex flex-col items-center justify-center gap-2 pointer-events-auto">
-                  <span className="text-2xl">🎨</span>
-                  <p className="text-sm font-semibold text-center px-6">Usa los ajustes de plantilla de arriba</p>
-                  <p className="text-xs text-muted-foreground text-center px-8 leading-snug">
-                    Las plantillas experimentales tienen sus propios controles.
                   </p>
                 </div>
               )}
@@ -1779,8 +1734,9 @@ export default function CaptionStudio() {
 
               </CardContent>
             </Card>
-            </div>{/* end relative wrapper */}
+            </div>
           </div>
+          )}{/* end advanced config */}
         </div>
 
         {/* Right: live preview + pipeline — sticky on desktop so it stays visible while scrolling */}
@@ -1806,13 +1762,7 @@ export default function CaptionStudio() {
               )
             }
             <p className="text-xs text-muted-foreground mt-2 text-center">
-              {local.caption_engine === "browser_experimental"
-                ? <>Preview usa la misma definición de plantilla que el render final. <span className="text-violet-500 font-medium">WYSIWYG.</span></>
-                : "Posición, fuente, colores y outline reflejan el video final."
-              }
-              {local.highlight_mode === "zoom" && local.caption_engine !== "browser_experimental" && (
-                <><br /><span className="text-amber-500">⚡ Animación zoom: aproximada en preview.</span></>
-              )}
+              Preview usa la misma definición de plantilla que el render final. <span className="text-violet-500 font-medium">WYSIWYG.</span>
             </p>
           </div>
 
