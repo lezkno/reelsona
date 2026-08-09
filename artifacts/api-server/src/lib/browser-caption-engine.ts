@@ -38,6 +38,33 @@ import type { CaptionTemplate, CaptionCue } from "@workspace/caption-templates";
 
 const execFileAsync = promisify(execFile);
 
+// ── Dimidium "mixed" mode — function words rendered small + white ─────────────
+// Mirrors caption-engine.ts FUNCTION_WORDS. Content words (nouns, verbs,
+// adjectives) → full size + activeWordColor. Function words → 55% size + primaryColor.
+const BROWSER_FUNCTION_WORDS = new Set([
+  // English pronouns / articles / conjunctions / prepositions / auxiliaries
+  "i","me","my","you","your","he","him","his","she","her","it","its",
+  "we","us","our","they","them","their",
+  "a","an","the","this","that","these","those",
+  "and","but","or","so","yet","nor","because","when","if","as",
+  "which","who","while","although","though",
+  "in","on","at","to","for","of","by","with","from","into","up","out",
+  "about","over","under","after","before","between","through","without",
+  "more","most","very","just","also","too","even","only","not","no",
+  "is","are","was","were","be","been","being","have","has","had",
+  "do","does","did","will","would","could","should","may","might",
+  // Spanish artículos / pronombres / preposiciones / conjunciones / auxiliares
+  "el","la","los","las","un","una","unos","unas","al","del",
+  "yo","me","mi","tú","tu","te","él","ella","nosotros","ellos","se","nos",
+  "le","les","lo",
+  "a","de","en","con","por","para","sobre","bajo","entre","desde",
+  "hasta","hacia","sin","tras","ante","según","durante","mediante",
+  "y","e","o","pero","sino","aunque","también","más","solo","muy",
+  "que","cuando","porque","como","si","ya","ni","pues","así","tan",
+  "este","esta","estos","estas","ese","esa","esos","esas","su","sus",
+  "es","son","fue","era","han","hay","ser","estar","ha","he","había",
+]);
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const FONTS_DIR = path.join(__dirname, "../assets/fonts");
@@ -239,8 +266,11 @@ async function renderCueFrame(
    */
   const measureWords = (fs: number): number[] =>
     displayWords.map((word, i) => {
-      const isActive   = i === cue.activeWordIndex;
-      const wordScale  = isActive && template.highlightMode === "scale" ? template.activeWordScale : 1.0;
+      const isActive = i === cue.activeWordIndex;
+      const wordScale =
+        template.highlightMode === "scale" ? (isActive ? template.activeWordScale : 1.0)
+        : template.highlightMode === "mixed" ? (BROWSER_FUNCTION_WORDS.has(word.toLowerCase()) ? 0.55 : 1.0)
+        : 1.0;
       const wordFontSz = Math.round(fs * wordScale);
       ctx.font = `${template.fontWeight} ${wordFontSz}px '${template.fontFamily}'`;
       return ctx.measureText(word).width;
@@ -301,10 +331,17 @@ async function renderCueFrame(
     for (const wi of wordIndices) {
       const word       = displayWords[wi];
       const isActive   = wi === cue.activeWordIndex;
-      const wordScale  = isActive && template.highlightMode === "scale" ? template.activeWordScale : 1.0;
+      const isMixed    = template.highlightMode === "mixed";
+      const isFuncWord = isMixed && BROWSER_FUNCTION_WORDS.has(word.toLowerCase());
+      const wordScale  =
+        template.highlightMode === "scale" ? (isActive ? template.activeWordScale : 1.0)
+        : isMixed ? (isFuncWord ? 0.55 : 1.0)
+        : 1.0;
       const wordFontSz = Math.round(effectiveFontSize * wordScale);
-      const color      = isActive ? template.activeWordColor : template.primaryColor;
-      const alpha      = isActive ? 1.0 : template.inactiveOpacity;
+      const color      = isMixed
+        ? (isFuncWord ? template.primaryColor : template.activeWordColor)
+        : (isActive ? template.activeWordColor : template.primaryColor);
+      const alpha      = isMixed ? 1.0 : (isActive ? 1.0 : template.inactiveOpacity);
       const wordWidth  = measurements[wi];
 
       ctx.save();

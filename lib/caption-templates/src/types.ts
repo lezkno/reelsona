@@ -7,7 +7,7 @@
  * per-word startMs/endMs for future karaoke-style rendering.
  */
 
-export type HighlightMode = "color" | "scale" | "both" | "none";
+export type HighlightMode = "color" | "scale" | "both" | "none" | "mixed";
 export type CaptionAnimation = "none" | "fade" | "zoom";
 export type BackgroundMode = "none" | "word" | "active_word" | "line";
 export type TextAlign = "left" | "center" | "right";

@@ -191,6 +191,54 @@ export const BROWSER_CAPTION_TEMPLATES: CaptionTemplate[] = [
     animationDuration: 160,
   },
 
+  // ── Dimidium (Mix) ───────────────────────────────────────────────────────────
+  // Copia exacta del preset ASS "dimidium":
+  //   fontFamily: Poppins, fontSize: 130, primaryColor: #FFFFFF (palabras funcionales),
+  //   activeWordColor: #FFE600 (palabras de contenido), outlineColor: #000000,
+  //   highlightMode: "mixed" — contenido grande+amarillo, funcionales pequeñas+blanco.
+  {
+    id: "dimidium_mix",
+    name: "Dimidium (Mix)",
+    description:
+      "Palabras clave grandes en amarillo, funcionales pequeñas en blanco. El look Dimidium original.",
+
+    fontFamily: "Poppins",
+    fontSize: 130,
+    fontWeight: 800,
+    uppercase: false,
+    letterSpacing: 0.01,
+    lineHeight: 1.2,
+
+    wordsPerLine: 5,
+    yPercent: 75,
+    marginXPercent: 5,
+    textAlign: "center",
+
+    primaryColor: "#FFFFFF",
+    activeWordColor: "#FFE600",
+    inactiveOpacity: 1.0,
+
+    outlineColor: "#000000",
+    outlineWidth: 10,
+
+    shadowColor: "rgba(0,0,0,0.65)",
+    shadowOffsetX: 2,
+    shadowOffsetY: 3,
+    shadowBlur: 8,
+
+    backgroundMode: "none",
+    backgroundColor: null,
+    backgroundPaddingX: 0,
+    backgroundPaddingY: 0,
+    backgroundRadius: 0,
+
+    highlightMode: "mixed",
+    activeWordScale: 1.0,
+
+    animation: "fade",
+    animationDuration: 120,
+  },
+
   // ── Bold Stack ───────────────────────────────────────────────────────────────
   // Copia exacta del preset ASS "bold_stack":
   //   fontFamily: Poppins, fontSize: 105, primaryColor: #FFFFFF,

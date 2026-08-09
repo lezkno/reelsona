@@ -297,11 +297,15 @@ function TemplateCaptionPreview({
             ? "flex flex-col items-center gap-y-1"
             : "flex flex-wrap justify-center items-end gap-x-1 gap-y-0.5"}>
             {chunk.map((word, i) => {
-              const isActive = i === activeInChunk
+              const isActive   = i === activeInChunk
+              const isMixed    = template.highlightMode === "mixed"
+              const isFuncWord = isMixed && PREVIEW_FUNCTION_WORDS.has(word.toLowerCase())
+              const wordIsActive = isMixed ? !isFuncWord : isActive
+              const wordFS    = isMixed && isFuncWord ? scaledFS * 0.55 : scaledFS
               const span = (
                 <span
                   key={`${chunkStart}-${i}`}
-                  style={buildWordStyle(template, isActive, scaledFS, scaledOW, scaledSX, scaledSY, scaledBlur) as React.CSSProperties}
+                  style={buildWordStyle(template, wordIsActive, wordFS, scaledOW, scaledSX, scaledSY, scaledBlur) as React.CSSProperties}
                 >
                   {template.uppercase ? word.toUpperCase() : word}
                 </span>
@@ -448,7 +452,9 @@ function BrowserTemplateCard({
   const scaledBl = +scaleToHeight(template.shadowBlur,    PHONE_SCREEN_H).toFixed(1)
   const baselineY = getBaselineY(template, PHONE_SCREEN_H)
 
-  const demoWords = DEMO_WORDS.slice(0, template.wordsPerLine)
+  const demoWords = template.highlightMode === "mixed"
+    ? ["tu", "MARCA", "puede", "CRECER", "así"]
+    : DEMO_WORDS.slice(0, template.wordsPerLine)
 
   return (
     <button
@@ -495,10 +501,14 @@ function BrowserTemplateCard({
               ? "flex flex-col items-center gap-y-1"
               : "flex flex-wrap justify-center items-end gap-x-1 gap-y-0.5"}>
               {demoWords.map((word, i) => {
+                const isMixed    = template.highlightMode === "mixed"
+                const isFuncWord = isMixed && PREVIEW_FUNCTION_WORDS.has(word.toLowerCase())
+                const wordIsActive = isMixed ? !isFuncWord : (i === 1)
+                const wordFS    = isMixed && isFuncWord ? scaledFS * 0.55 : scaledFS
                 const span = (
                   <span
                     key={i}
-                    style={buildWordStyle(template, i === 1, scaledFS, scaledOW, scaledSX, scaledSY, scaledBl) as React.CSSProperties}
+                    style={buildWordStyle(template, wordIsActive, wordFS, scaledOW, scaledSX, scaledSY, scaledBl) as React.CSSProperties}
                   >
                     {template.uppercase ? word.toUpperCase() : word}
                   </span>
