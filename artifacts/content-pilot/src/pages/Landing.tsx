@@ -277,111 +277,179 @@ export default function Landing() {
           }}
         />
 
-        <div className="relative z-10 mx-auto w-full text-center" style={{ maxWidth: 780 }}>
-          {/* badge */}
+        <div className="relative z-10 mx-auto w-full" style={{ maxWidth: 1060 }}>
           <div
-            className="inline-flex items-center gap-1.5 rounded-full text-xs font-semibold tracking-widest uppercase mb-8"
-            style={{
-              backgroundColor: "rgba(79,110,247,0.08)",
-              border: "1px solid rgba(79,110,247,0.2)",
-              padding: "0.3rem 0.95rem",
-              color: "#4F6EF7",
-            }}
+            className="grid items-center"
+            style={{ gridTemplateColumns: "1fr auto", gap: "clamp(2rem, 5vw, 5rem)" }}
           >
-            <Sparkles size={11} />
-            Sistema automático de Reels con avatar IA
+            {/* ── LEFT: copy ── */}
+            <div>
+              {/* badge */}
+              <div
+                className="inline-flex items-center gap-1.5 rounded-full text-xs font-semibold tracking-widest uppercase mb-8"
+                style={{
+                  backgroundColor: "rgba(79,110,247,0.08)",
+                  border: "1px solid rgba(79,110,247,0.2)",
+                  padding: "0.3rem 0.95rem",
+                  color: "#4F6EF7",
+                }}
+              >
+                <Sparkles size={11} />
+                Sistema automático de Reels con avatar IA
+              </div>
+
+              <h1
+                className="font-bold tracking-tight"
+                style={{
+                  fontFamily: "var(--font-display, 'Outfit', sans-serif)",
+                  fontSize: "clamp(2.2rem, 5vw, 3.9rem)",
+                  lineHeight: 1.06,
+                  letterSpacing: "-0.04em",
+                  marginBottom: "1.4rem",
+                }}
+              >
+                Monta tu sistema automático de Reels{" "}
+                <span
+                  style={{
+                    background: "linear-gradient(135deg, #4F6EF7 10%, #9B5CF6 90%)",
+                    WebkitBackgroundClip: "text",
+                    WebkitTextFillColor: "transparent",
+                    backgroundClip: "text",
+                  }}
+                >
+                  sin grabarte todos los días
+                </span>
+              </h1>
+
+              <p
+                style={{
+                  fontSize: "clamp(0.95rem, 1.8vw, 1.1rem)",
+                  color: "#888",
+                  lineHeight: 1.75,
+                  maxWidth: 520,
+                  marginBottom: "2.25rem",
+                }}
+              >
+                La capa estratégica y operativa que convierte tu conocimiento en ideas,
+                guiones, videos con avatar, captions, edición y publicación en Instagram —
+                completamente en automático.
+              </p>
+
+              <div className="flex flex-wrap gap-3" style={{ marginBottom: "1.4rem" }}>
+                <button
+                  onClick={() => setCheckoutOpen(true)}
+                  className="inline-flex items-center gap-2 rounded-xl font-bold transition-opacity hover:opacity-90"
+                  style={{
+                    background: "linear-gradient(135deg, #4F6EF7, #7B5CF6)",
+                    color: "#fff",
+                    padding: "1rem 2.1rem",
+                    fontSize: "1rem",
+                    border: "none",
+                    cursor: "pointer",
+                    boxShadow: "0 0 28px rgba(79,110,247,0.35)",
+                  }}
+                >
+                  Empezar por $47 <ArrowRight size={16} />
+                </button>
+                <a
+                  href="#como-funciona"
+                  className="inline-flex items-center gap-2 rounded-xl font-semibold transition-colors"
+                  style={{
+                    backgroundColor: "rgba(255,255,255,0.04)",
+                    border: "1px solid #252525",
+                    color: "#d0d0d0",
+                    padding: "1rem 1.75rem",
+                    fontSize: "1rem",
+                    textDecoration: "none",
+                  }}
+                >
+                  <Play size={13} fill="currentColor" /> Ver cómo funciona
+                </a>
+              </div>
+
+              {/* checklist strip */}
+              <div
+                className="flex items-center gap-5 flex-wrap"
+                style={{ color: "#555", fontSize: "0.82rem", marginBottom: "1rem" }}
+              >
+                {[
+                  "Guión listo en minutos",
+                  "Video con tu avatar sin grabarte",
+                  "Autopilot publica por ti",
+                ].map((t) => (
+                  <span key={t} className="flex items-center gap-1.5">
+                    <Check size={11} color="#4F6EF7" strokeWidth={3} /> {t}
+                  </span>
+                ))}
+              </div>
+
+              {/* tools note */}
+              <p style={{ fontSize: "0.74rem", color: "#3a3a3a", lineHeight: 1.6 }}>
+                Funciona con HeyGen y OpenAI · Costos independientes · Te guiamos paso a paso
+              </p>
+            </div>
+
+            {/* ── RIGHT: avatar phone mockup ── */}
+            <div className="hidden md:block flex-shrink-0" style={{ position: "relative" }}>
+              {/* outer glow */}
+              <div
+                className="absolute pointer-events-none"
+                style={{
+                  inset: "-30px",
+                  background: "radial-gradient(ellipse at center, rgba(79,110,247,0.2) 0%, transparent 68%)",
+                  borderRadius: "9999px",
+                  zIndex: 0,
+                }}
+              />
+              {/* phone frame */}
+              <div
+                style={{
+                  position: "relative",
+                  zIndex: 1,
+                  width: "clamp(200px, 18vw, 270px)",
+                  aspectRatio: "9/16",
+                  borderRadius: "2.2rem",
+                  border: "1px solid rgba(79,110,247,0.3)",
+                  boxShadow: "0 0 60px rgba(79,110,247,0.2), 0 28px 70px rgba(0,0,0,0.7)",
+                  overflow: "hidden",
+                  backgroundColor: "#111",
+                }}
+              >
+                <img
+                  src={`${BASE}/hero-avatar.jpg`}
+                  alt="Reel generado con avatar IA"
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    objectFit: "cover",
+                    objectPosition: "top",
+                    display: "block",
+                  }}
+                />
+                {/* overlay label */}
+                <div
+                  style={{
+                    position: "absolute",
+                    bottom: "1.1rem",
+                    left: "50%",
+                    transform: "translateX(-50%)",
+                    backgroundColor: "rgba(9,9,9,0.8)",
+                    backdropFilter: "blur(10px)",
+                    border: "1px solid rgba(79,110,247,0.35)",
+                    borderRadius: "9999px",
+                    padding: "0.28rem 0.8rem",
+                    fontSize: "0.62rem",
+                    fontWeight: 700,
+                    letterSpacing: "0.07em",
+                    color: "#4F6EF7",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  ✦ GENERADO CON AVATAR IA
+                </div>
+              </div>
+            </div>
           </div>
-
-          <h1
-            className="font-bold tracking-tight"
-            style={{
-              fontFamily: "var(--font-display, 'Outfit', sans-serif)",
-              fontSize: "clamp(2.4rem, 6vw, 4.2rem)",
-              lineHeight: 1.06,
-              letterSpacing: "-0.04em",
-              marginBottom: "1.5rem",
-            }}
-          >
-            Monta tu sistema automático de Reels{" "}
-            <span
-              style={{
-                background: "linear-gradient(135deg, #4F6EF7 10%, #9B5CF6 90%)",
-                WebkitBackgroundClip: "text",
-                WebkitTextFillColor: "transparent",
-                backgroundClip: "text",
-              }}
-            >
-              sin grabarte todos los días
-            </span>
-          </h1>
-
-          <p
-            className="mx-auto"
-            style={{
-              fontSize: "clamp(1rem, 2vw, 1.175rem)",
-              color: "#888",
-              lineHeight: 1.75,
-              maxWidth: 600,
-              marginBottom: "2.5rem",
-            }}
-          >
-            La capa estratégica y operativa que convierte tu conocimiento en ideas,
-            guiones, videos con avatar, captions, edición y publicación en Instagram —
-            completamente en automático.
-          </p>
-
-          <div className="flex flex-wrap gap-3 justify-center" style={{ marginBottom: "1.5rem" }}>
-            <button
-              onClick={() => setCheckoutOpen(true)}
-              className="inline-flex items-center gap-2 rounded-xl font-bold transition-opacity hover:opacity-90"
-              style={{
-                background: "linear-gradient(135deg, #4F6EF7, #7B5CF6)",
-                color: "#fff",
-                padding: "1rem 2.25rem",
-                fontSize: "1.05rem",
-                border: "none",
-                cursor: "pointer",
-                boxShadow: "0 0 30px rgba(79,110,247,0.35)",
-              }}
-            >
-              Empezar por $47 <ArrowRight size={17} />
-            </button>
-            <a
-              href="#como-funciona"
-              className="inline-flex items-center gap-2 rounded-xl font-semibold transition-colors"
-              style={{
-                backgroundColor: "rgba(255,255,255,0.04)",
-                border: "1px solid #252525",
-                color: "#d0d0d0",
-                padding: "1rem 2rem",
-                fontSize: "1rem",
-                textDecoration: "none",
-              }}
-            >
-              <Play size={13} fill="currentColor" /> Ver cómo funciona
-            </a>
-          </div>
-
-          {/* checklist strip */}
-          <div
-            className="flex items-center gap-5 flex-wrap justify-center"
-            style={{ color: "#555", fontSize: "0.82rem", marginBottom: "1rem" }}
-          >
-            {[
-              "Guión listo en minutos",
-              "Video con tu avatar sin grabarte",
-              "Autopilot publica por ti",
-            ].map((t) => (
-              <span key={t} className="flex items-center gap-1.5">
-                <Check size={11} color="#4F6EF7" strokeWidth={3} /> {t}
-              </span>
-            ))}
-          </div>
-
-          {/* tools note */}
-          <p style={{ fontSize: "0.75rem", color: "#404040", lineHeight: 1.6 }}>
-            Funciona con tu cuenta de HeyGen y OpenAI · Sus costos son independientes · Te guiamos a configurarlas paso a paso
-          </p>
         </div>
       </section>
 
