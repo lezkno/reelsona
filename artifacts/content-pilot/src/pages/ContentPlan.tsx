@@ -17,7 +17,8 @@ import PipelineTimeline from "@/components/PipelineTimeline"
 import CalendarView from "@/components/CalendarView"
 import { useToast } from "@/hooks/use-toast"
 import { useQueryClient } from "@tanstack/react-query"
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect } from "react"
+import { useLocation } from "wouter"
 
 const statusConfig: Record<string, { label: string, variant: string, icon: any }> = {
   draft: { label: "Borrador", variant: "outline", icon: Edit3 },
@@ -69,6 +70,18 @@ export default function ContentPlan() {
   const [filter, setFilter] = useState<string>("all")
   const [dialogOpen, setDialogOpen] = useState(false)
   const [days, setDays] = useState(7)
+  const [location, navigate] = useLocation()
+
+  // Auto-open the generate dialog when coming from the strategy wizard
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get("generate") === "1") {
+      setDialogOpen(true)
+      // Clean the URL without triggering a navigation
+      const clean = window.location.pathname
+      window.history.replaceState(null, "", clean)
+    }
+  }, [location])
 
   const { data: allItems, isLoading } = useGetContentPlan({ limit: 100 })
 

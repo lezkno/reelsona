@@ -20,6 +20,7 @@ import {
   useDeleteRadarAccount,
   useRunMarketStudy,
   useRunContentStrategy,
+  useGetContentPlan,
   type StrategyProfile,
   type NicheRadarAccount,
 } from "@workspace/api-client-react"
@@ -626,6 +627,14 @@ function TabPlan({ profile }: { profile: StrategyProfile | null }) {
   const { data: radarData } = useGetRadarAccounts()
   const radarDone = (radarData?.accounts?.length ?? 0) > 0
 
+  // Content plan summary
+  const { data: allItems } = useGetContentPlan({ limit: 100 })
+  const total     = allItems?.length ?? 0
+  const published = allItems?.filter(i => i.status === "published").length ?? 0
+  const inProg    = allItems?.filter(i => i.status === "generating" || i.status === "ready").length ?? 0
+  const pending   = allItems?.filter(i => i.status === "draft" || i.status === "scripted").length ?? 0
+  const hasPlan   = total > 0
+
   const STEP_META = [
     { id: "account",  label: "Auditoría de cuenta analizada",     tab: "account",  done: steps.includes("account") },
     { id: "radar",    label: "Radar de nicho configurado",         tab: "radar",    done: radarDone, optional: true },
@@ -636,8 +645,12 @@ function TabPlan({ profile }: { profile: StrategyProfile | null }) {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold font-display">Generar Plan de Contenido</h2>
-        <p className="text-sm text-muted-foreground mt-0.5">Usá tu estrategia para crear un plan de Reels inteligente y personalizado.</p>
+        <h2 className="text-xl font-bold font-display">Plan de Contenido</h2>
+        <p className="text-sm text-muted-foreground mt-0.5">
+          {hasPlan
+            ? "Tu plan activo — revisá el estado y agregá más ideas cuando quieras."
+            : "Usá tu estrategia para crear un plan de Reels inteligente y personalizado."}
+        </p>
       </div>
 
       {/* Progress checklist */}
@@ -657,48 +670,114 @@ function TabPlan({ profile }: { profile: StrategyProfile | null }) {
         </CardContent>
       </Card>
 
-      {/* Strategy preview */}
-      {isComplete && cs && (
-        <div className="rounded-xl border border-emerald-500/30 bg-emerald-50/50 dark:bg-emerald-900/10 p-4 space-y-3">
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-            <p className="font-bold text-emerald-700 dark:text-emerald-400">Estrategia activa</p>
-          </div>
-          <p className="text-sm text-emerald-800 dark:text-emerald-300 leading-relaxed">{cs.unique_value_prop}</p>
-          <div className="flex flex-wrap gap-1.5">
-            {cs.pillars.slice(0, 3).map((p, i) => (
-              <span key={i} className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">{p.name} {p.frequency_pct}%</span>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* ── Plan already exists: summary + two actions ── */}
+      {hasPlan ? (
+        <>
+          {/* Summary card */}
+          <Card className="border-primary/20 bg-primary/5">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                <FileText className="w-4 h-4 text-primary" />
+                Tu plan activo
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-3 gap-3 text-center">
+                <div className="rounded-lg bg-background border p-3">
+                  <p className="text-2xl font-bold">{total}</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">Total</p>
+                </div>
+                <div className="rounded-lg bg-background border p-3">
+                  <p className="text-2xl font-bold text-emerald-600">{published}</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">Publicados</p>
+                </div>
+                <div className="rounded-lg bg-background border p-3">
+                  <p className="text-2xl font-bold text-amber-500">{pending + inProg}</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">Pendientes</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
 
-      {!isComplete && (
-        <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-50/50 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
-          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-          <div>
-            <p className="font-semibold">Estrategia incompleta</p>
-            <p className="text-xs mt-0.5">Completá al menos los pasos: Cuenta, Mercado y Estrategia para generar un plan con contexto estratégico. De lo contrario se usará el plan genérico.</p>
-          </div>
-        </div>
-      )}
+          {/* Strategy preview (compact) */}
+          {isComplete && cs && (
+            <div className="rounded-xl border border-emerald-500/30 bg-emerald-50/50 dark:bg-emerald-900/10 p-4 space-y-2">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">Estrategia activa</p>
+              </div>
+              <p className="text-xs text-emerald-800 dark:text-emerald-300 leading-relaxed">{cs.unique_value_prop}</p>
+            </div>
+          )}
 
-      <div className="flex flex-col gap-3">
-        <Button
-          size="lg"
-          className="gap-3 w-full bg-gradient-to-r from-primary to-violet-600 shadow-lg shadow-primary/20 text-base h-14"
-          onClick={() => navigate("/content")}
-        >
-          <Zap className="w-5 h-5" />
-          {isComplete ? "Generar Plan basado en esta Estrategia" : "Ir a Plan de Contenido"}
-          <ArrowRight className="w-5 h-5 ml-auto" />
-        </Button>
-        {isComplete && (
-          <p className="text-xs text-center text-muted-foreground">
-            El plan usará tus pilares, ángulos editoriales, dolores de audiencia y oportunidades detectadas en el estudio de mercado.
-          </p>
-        )}
-      </div>
+          {/* Two CTAs */}
+          <div className="flex flex-col gap-3">
+            <Button
+              size="lg"
+              className="gap-3 w-full bg-gradient-to-r from-primary to-violet-600 shadow-lg shadow-primary/20 text-base h-14"
+              onClick={() => navigate("/content")}
+            >
+              <FileText className="w-5 h-5" />
+              Ver mi Plan de Contenido
+              <ArrowRight className="w-5 h-5 ml-auto" />
+            </Button>
+            <Button
+              size="lg"
+              variant="outline"
+              className="gap-3 w-full h-12"
+              onClick={() => navigate("/content?generate=1")}
+            >
+              <Zap className="w-5 h-5 text-primary" />
+              Agregar más ideas al plan
+            </Button>
+          </div>
+        </>
+      ) : (
+        <>
+          {/* Strategy preview */}
+          {isComplete && cs && (
+            <div className="rounded-xl border border-emerald-500/30 bg-emerald-50/50 dark:bg-emerald-900/10 p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+                <p className="font-bold text-emerald-700 dark:text-emerald-400">Estrategia activa</p>
+              </div>
+              <p className="text-sm text-emerald-800 dark:text-emerald-300 leading-relaxed">{cs.unique_value_prop}</p>
+              <div className="flex flex-wrap gap-1.5">
+                {cs.pillars.slice(0, 3).map((p, i) => (
+                  <span key={i} className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">{p.name} {p.frequency_pct}%</span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {!isComplete && (
+            <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-50/50 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold">Estrategia incompleta</p>
+                <p className="text-xs mt-0.5">Completá al menos los pasos: Cuenta, Mercado y Estrategia para generar un plan con contexto estratégico. De lo contrario se usará el plan genérico.</p>
+              </div>
+            </div>
+          )}
+
+          <div className="flex flex-col gap-3">
+            <Button
+              size="lg"
+              className="gap-3 w-full bg-gradient-to-r from-primary to-violet-600 shadow-lg shadow-primary/20 text-base h-14"
+              onClick={() => navigate("/content?generate=1")}
+            >
+              <Zap className="w-5 h-5" />
+              {isComplete ? "Generar Plan basado en esta Estrategia" : "Ir a Plan de Contenido"}
+              <ArrowRight className="w-5 h-5 ml-auto" />
+            </Button>
+            {isComplete && (
+              <p className="text-xs text-center text-muted-foreground">
+                El plan usará tus pilares, ángulos editoriales, dolores de audiencia y oportunidades detectadas en el estudio de mercado.
+              </p>
+            )}
+          </div>
+        </>
+      )}
     </div>
   )
 }
