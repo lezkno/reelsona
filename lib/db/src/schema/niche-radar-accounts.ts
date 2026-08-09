@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, boolean, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, boolean, timestamp, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 
 /**
@@ -17,6 +17,8 @@ export const nicheRadarAccountsTable = pgTable("niche_radar_accounts", {
   useAsReference: boolean("use_as_reference").notNull().default(true),
   /** 'manual' | 'ai_suggested' | 'apify' */
   source:         text("source").notNull().default("manual"),
+  /** Top posts fetched from Apify — array of { url, caption, likesCount, commentsCount } */
+  topPostsJson:   jsonb("top_posts_json"),
   lastSyncedAt:   timestamp("last_synced_at"),
   createdAt:      timestamp("created_at").notNull().defaultNow(),
 });

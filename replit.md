@@ -59,6 +59,10 @@ Máquina de generación de contenido automático para Instagram Reels usando ava
 - Idioma: Español (UI completamente en español)
 - Nicho configurable desde la app
 
+## Integrations & External APIs
+
+- **Apify** (`APIFY_TOKEN` secret): Used to enrich niche radar accounts with real Instagram data (followers, bio, top posts) via `apify/instagram-profile-scraper` Actor. Set `APIFY_TOKEN` in Replit Secrets. If not set, enrichment is silently skipped and the system uses manually entered data. Endpoint `GET /strategy/radar/status` returns `{ apify_available: bool }`. Sync a specific account via `POST /strategy/radar/:id/sync`.
+
 ## Gotchas
 
 - Para publicar Reels, el video HeyGen debe estar en una URL pública. HeyGen devuelve la URL directa.

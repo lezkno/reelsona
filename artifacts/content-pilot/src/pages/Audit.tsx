@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useLocation } from "wouter"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
@@ -687,6 +687,21 @@ export default function Audit() {
   const { data, isLoading } = useGetStrategyProfile()
   const profile = data?.profile ?? null
   const steps = profile?.steps_completed ?? []
+
+  // On first profile load, jump to the step after the last completed one so
+  // returning to this page doesn't reset the user back to step 1.
+  const initialTabSet = useRef(false)
+  useEffect(() => {
+    if (!profile || initialTabSet.current) return
+    initialTabSet.current = true
+    const completedIds = STEPS.map((s) => s.id).filter((id) =>
+      profile.steps_completed.includes(id)
+    )
+    if (completedIds.length === 0) return
+    const lastIdx = STEPS.findIndex((s) => s.id === completedIds[completedIds.length - 1])
+    const nextIdx = Math.min(lastIdx + 1, STEPS.length - 1)
+    setTab(STEPS[nextIdx].id)
+  }, [profile])
 
   const goNext = (current: StepId) => {
     const idx = STEPS.findIndex((s) => s.id === current)

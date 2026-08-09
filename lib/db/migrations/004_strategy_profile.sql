@@ -21,6 +21,10 @@ CREATE TABLE IF NOT EXISTS niche_radar_accounts (
   relevance_score   INTEGER DEFAULT 5,
   use_as_reference  BOOLEAN NOT NULL DEFAULT TRUE,
   source            TEXT NOT NULL DEFAULT 'manual',
+  top_posts_json    JSONB,
   last_synced_at    TIMESTAMP,
   created_at        TIMESTAMP NOT NULL DEFAULT NOW()
 );
+
+-- Ensure top_posts_json exists for databases created before this column was added
+ALTER TABLE niche_radar_accounts ADD COLUMN IF NOT EXISTS top_posts_json JSONB;

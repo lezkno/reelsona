@@ -32,6 +32,7 @@ import {
   upsertStrategyProfile,
 } from "../lib/strategy-profile";
 import type { AccountData } from "../lib/ai-strategy";
+import { enrichProfileWithApify } from "../lib/apify";
 import OpenAI from "openai";
 import { logger } from "../lib/logger";
 
@@ -211,10 +212,11 @@ router.post("/strategy/radar", async (req, res): Promise<void> => {
     res.status(400).json({ error: "ig_username is required" });
     return;
   }
+  const username = ig_username.trim().toLowerCase();
   const [existing] = await db
     .select()
     .from(nicheRadarAccountsTable)
-    .where(eq(nicheRadarAccountsTable.igUsername, ig_username.trim().toLowerCase()))
+    .where(eq(nicheRadarAccountsTable.igUsername, username))
     .limit(1);
   if (existing) {
     res.status(409).json({ error: "Account already in radar", account: existing });
@@ -223,7 +225,7 @@ router.post("/strategy/radar", async (req, res): Promise<void> => {
   const [inserted] = await db
     .insert(nicheRadarAccountsTable)
     .values({
-      igUsername:     ig_username.trim().toLowerCase(),
+      igUsername:     username,
       profileUrl:     profile_url ?? null,
       bio:            bio ?? null,
       followers:      followers ? Number(followers) : null,
@@ -231,8 +233,72 @@ router.post("/strategy/radar", async (req, res): Promise<void> => {
       source:         source ?? "manual",
     })
     .returning();
+
+  // Fire-and-forget Apify enrichment if token is available
+  if (process.env.APIFY_TOKEN) {
+    enrichProfileWithApify(username).then(async (apifyData) => {
+      if (!apifyData) return;
+      await db
+        .update(nicheRadarAccountsTable)
+        .set({
+          bio:          apifyData.biography ?? inserted.bio,
+          followers:    apifyData.followersCount ?? inserted.followers,
+          profileUrl:   apifyData.profilePicUrl ?? inserted.profileUrl,
+          topPostsJson: apifyData.topPosts.length > 0 ? apifyData.topPosts : null,
+          lastSyncedAt: new Date(),
+        })
+        .where(eq(nicheRadarAccountsTable.id, inserted.id));
+      logger.info({ igUsername: username }, "Apify enrichment completed for new radar account");
+    }).catch((err) => logger.error({ err, igUsername: username }, "Background Apify enrichment failed"));
+  }
+
   res.status(201).json({ account: inserted });
 });
+
+// ── POST /strategy/radar/:id/sync — manually trigger Apify enrichment ─────────
+
+router.post("/strategy/radar/:id/sync", async (req, res): Promise<void> => {
+  const id = Number(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  if (!process.env.APIFY_TOKEN) {
+    res.status(503).json({ error: "APIFY_TOKEN not configured" });
+    return;
+  }
+
+  const [account] = await db
+    .select()
+    .from(nicheRadarAccountsTable)
+    .where(eq(nicheRadarAccountsTable.id, id))
+    .limit(1);
+  if (!account) { res.status(404).json({ error: "Not found" }); return; }
+
+  try {
+    const apifyData = await enrichProfileWithApify(account.igUsername);
+    if (!apifyData) {
+      res.status(502).json({ error: "Apify enrichment returned no data" });
+      return;
+    }
+
+    const [updated] = await db
+      .update(nicheRadarAccountsTable)
+      .set({
+        bio:          apifyData.biography ?? account.bio,
+        followers:    apifyData.followersCount ?? account.followers,
+        profileUrl:   apifyData.profilePicUrl ?? account.profileUrl,
+        topPostsJson: apifyData.topPosts.length > 0 ? apifyData.topPosts : account.topPostsJson,
+        lastSyncedAt: new Date(),
+      })
+      .where(eq(nicheRadarAccountsTable.id, id))
+      .returning();
+
+    res.json({ account: updated });
+  } catch (err: any) {
+    logger.error({ err, id }, "Apify sync failed");
+    res.status(500).json({ error: err?.message ?? "Sync failed" });
+  }
+});
+
 
 // ── PATCH /strategy/radar/:id ─────────────────────────────────────────────────
 
@@ -290,6 +356,8 @@ router.post("/strategy/market", async (_req, res): Promise<void> => {
         bio:              r.bio,
         followers:        r.followers,
         use_as_reference: r.useAsReference,
+        top_posts:        r.topPostsJson as any ?? null,
+        last_synced_at:   r.lastSyncedAt,
       })),
     });
 

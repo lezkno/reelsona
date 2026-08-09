@@ -35,11 +35,20 @@ export interface AccountData {
   fetched_at: string;
 }
 
+export interface RadarTopPost {
+  url: string | null;
+  caption: string | null;
+  likesCount: number;
+  commentsCount: number;
+}
+
 export interface RadarAccount {
   ig_username: string;
   bio: string | null;
   followers: number | null;
   use_as_reference: boolean;
+  top_posts?: RadarTopPost[] | null;
+  last_synced_at?: Date | null;
 }
 
 export interface MarketInsights {
@@ -109,8 +118,17 @@ export async function synthesizeMarketStudy(opts: {
   const client = getClient();
 
   const topCaptionsBlock = accountData.top_captions.slice(0, 5).map((c, i) => `  ${i + 1}. "${c.substring(0, 120)}"`).join("\n");
+
   const radarBlock = radarAccounts.filter((r) => r.use_as_reference && r.bio).slice(0, 6)
-    .map((r) => `  - @${r.ig_username} (${r.followers?.toLocaleString() ?? "?"} seguidores): ${r.bio?.substring(0, 100)}`)
+    .map((r) => {
+      const base = `  - @${r.ig_username} (${r.followers?.toLocaleString() ?? "?"} seguidores): ${r.bio?.substring(0, 100)}`;
+      const posts = (r.top_posts ?? []).slice(0, 3);
+      if (posts.length === 0) return base;
+      const postLines = posts
+        .map((p) => `      • ${p.caption?.substring(0, 80) ?? "(sin caption)"} [❤ ${p.likesCount} | 💬 ${p.commentsCount}]`)
+        .join("\n");
+      return `${base}\n    Top posts:\n${postLines}`;
+    })
     .join("\n") || "  (ninguno agregado aún)";
 
   const prompt = `${getLanguageInstruction(language)}
