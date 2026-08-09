@@ -45,6 +45,24 @@ export function welcomeEmail(name: string) {
   }
 }
 
+export function verificationEmail(name: string, verifyUrl: string) {
+  return {
+    subject: "Confirma tu correo — Reelsona",
+    html: `
+      <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#111">
+        <h1 style="font-size:22px;margin-bottom:8px">Hola${name ? `, ${name}` : ""}! 👋</h1>
+        <p style="color:#555">Gracias por registrarte en <strong>Reelsona</strong>. Solo falta un paso: confirma tu correo electrónico para activar tu cuenta.</p>
+        <a href="${verifyUrl}"
+           style="display:inline-block;margin-top:20px;padding:12px 28px;background:#6366f1;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;font-size:15px">
+          Confirmar mi correo →
+        </a>
+        <p style="margin-top:20px;color:#888;font-size:13px">Este enlace expira en 24 horas. Si no creaste esta cuenta, puedes ignorar este correo.</p>
+        <p style="margin-top:32px;font-size:12px;color:#999">Reelsona · info@reelsona.com</p>
+      </div>`,
+    text: `Hola${name ? ` ${name}` : ""}! Confirma tu correo en Reelsona: ${verifyUrl}`,
+  }
+}
+
 export function passwordChangedEmail(name: string) {
   return {
     subject: "Tu contraseña fue cambiada — Reelsona",

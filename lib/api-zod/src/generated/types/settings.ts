@@ -18,4 +18,5 @@ export interface Settings {
   include_captions: boolean;
   /** @nullable */
   watermark_text?: string | null;
+  welcome_dismissed: boolean;
 }

@@ -80,6 +80,13 @@ export default function Login({ onSuccess }: LoginProps) {
                 "Entrar"
               )}
             </Button>
+
+            <p className="text-center text-sm text-muted-foreground pt-1">
+              ¿No tienes cuenta?{" "}
+              <Link href="/register" className="text-primary hover:underline font-medium">
+                Crear cuenta
+              </Link>
+            </p>
           </form>
         </CardContent>
       </Card>

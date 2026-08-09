@@ -19,6 +19,8 @@ import UsersPage from "@/pages/Users"
 import Profile from "@/pages/Profile"
 import Course from "@/pages/Course"
 import Login from "@/pages/Login"
+import Register from "@/pages/Register"
+import VerifyEmail from "@/pages/VerifyEmail"
 import PrivacyPolicy from "@/pages/PrivacyPolicy"
 import TermsAndConditions from "@/pages/TermsAndConditions"
 import { useAuthStatus } from "@workspace/api-client-react"
@@ -81,6 +83,8 @@ function App() {
           <Switch>
             <Route path="/privacy" component={PrivacyPolicy} />
             <Route path="/terms" component={TermsAndConditions} />
+            <Route path="/register" component={Register} />
+            <Route path="/verify-email" component={VerifyEmail} />
             <Route>
               <AuthGuard>
                 <Router />
