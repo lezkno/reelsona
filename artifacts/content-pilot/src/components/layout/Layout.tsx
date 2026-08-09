@@ -1,8 +1,63 @@
 import * as React from "react"
 import { useState } from "react"
+import { Link } from "wouter"
 import { Sidebar } from "./Sidebar"
 import { WelcomeModal } from "@/components/WelcomeModal"
-import { Menu } from "lucide-react"
+import { Menu, AlertTriangle, Clock } from "lucide-react"
+import { useEntitlement } from "@/hooks/useEntitlement"
+import { cn } from "@/lib/utils"
+
+// ── Access alert banner ───────────────────────────────────────────────────────
+
+function AccessBanner() {
+  const { data } = useEntitlement()
+
+  // Nothing to show for admins, loading state, or users with active access > 7 days
+  if (!data || data.isAdmin) return null
+  if (data.toolAccessActive && (data.daysRemaining === null || data.daysRemaining > 7)) return null
+
+  const isExpired = !data.toolAccessActive
+
+  return (
+    <div className={cn(
+      "shrink-0 flex items-center gap-3 px-4 py-2.5 text-sm font-medium",
+      isExpired
+        ? "bg-destructive/10 text-destructive border-b border-destructive/20"
+        : "bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 border-b border-amber-200 dark:border-amber-800/40"
+    )}>
+      {isExpired
+        ? <AlertTriangle className="w-4 h-4 shrink-0" />
+        : <Clock className="w-4 h-4 shrink-0" />
+      }
+      <span className="flex-1 min-w-0">
+        {isExpired ? (
+          <>
+            Tu acceso a la herramienta venció.{" "}
+            {data.courseAccess && (
+              <Link href="/course" className="underline underline-offset-2 hover:no-underline">
+                Puedes seguir accediendo al curso →
+              </Link>
+            )}
+          </>
+        ) : (
+          <>
+            Tu acceso vence en{" "}
+            <strong>
+              {data.daysRemaining === 0
+                ? "hoy"
+                : `${data.daysRemaining} día${data.daysRemaining !== 1 ? "s" : ""}`}
+            </strong>.{" "}
+            <a href="mailto:info@reelsona.com" className="underline underline-offset-2 hover:no-underline">
+              Contacta a tu asesor para renovar
+            </a>
+          </>
+        )}
+      </span>
+    </div>
+  )
+}
+
+// ── Layout ────────────────────────────────────────────────────────────────────
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -42,6 +97,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
             <span className="font-display font-bold text-sidebar-foreground tracking-tight">Reelsona</span>
           </div>
         </div>
+
+        {/* Access alert banner — only visible when expiring soon or expired */}
+        <AccessBanner />
 
         <div className="flex-1 w-full max-w-6xl mx-auto p-4 md:p-8 relative">
           {children}

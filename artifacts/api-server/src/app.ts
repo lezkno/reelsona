@@ -6,6 +6,7 @@ import pinoHttp from "pino-http";
 import cookieParser from "cookie-parser";
 import { logger } from "./lib/logger";
 import { requireAuth } from "./middleware/auth";
+import { requireToolAccess } from "./middleware/requireToolAccess";
 import authRouter from "./routes/auth";
 import adminRouter from "./routes/admin";
 import captionedRouter from "./routes/captioned";
@@ -91,6 +92,10 @@ app.use("/api", requireAuth);
 
 // Admin user management (requires auth, handled by requireAuth above)
 app.use("/api", usersRouter);
+
+// Tool-access guard — blocks expired/unlicensed users from tool routes.
+// Admins always pass. Course, auth, admin, dashboard paths are exempt.
+app.use("/api", requireToolAccess);
 
 // Main API router (all other routes)
 app.use("/api", router);

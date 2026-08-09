@@ -10,6 +10,26 @@ export interface SendEmailOptions {
   text?: string
 }
 
+/**
+ * Returns the canonical app URL for building links inside emails.
+ * Logs a warning on first use if APP_URL is not configured.
+ */
+let _appUrlWarningLogged = false
+export function getAppUrl(): string {
+  const url = process.env.APP_URL?.trim().replace(/\/$/, "")
+  if (!url) {
+    if (!_appUrlWarningLogged) {
+      console.warn(
+        "[email] WARNING: APP_URL environment variable is not set. " +
+        "Email links will fall back to https://reelsona.com — set APP_URL to the real deployment URL."
+      )
+      _appUrlWarningLogged = true
+    }
+    return "https://reelsona.com"
+  }
+  return url
+}
+
 export async function sendEmail(opts: SendEmailOptions) {
   const { data, error } = await resend.emails.send({
     from: `Reelsona <${FROM}>`,
@@ -28,7 +48,8 @@ export async function sendEmail(opts: SendEmailOptions) {
 
 // ── Plantillas ────────────────────────────────────────────────────────────────
 
-export function welcomeEmail(name: string) {
+export function welcomeEmail(name: string, appUrl?: string) {
+  const baseUrl = appUrl ?? getAppUrl()
   return {
     subject: "¡Bienvenido a Reelsona!",
     html: `
@@ -36,17 +57,17 @@ export function welcomeEmail(name: string) {
         <h1 style="font-size:24px;margin-bottom:8px">Hola${name ? `, ${name}` : ""}! 👋</h1>
         <p style="color:#555">Ya eres parte de <strong>Reelsona</strong> — tu máquina de contenido con IA para Instagram.</p>
         <p style="color:#555">Conecta tu cuenta de Instagram y en minutos estarás generando reels automatizados con avatar.</p>
-        <a href="https://reelsona.com" style="display:inline-block;margin-top:16px;padding:12px 24px;background:#6366f1;color:#fff;border-radius:8px;text-decoration:none;font-weight:600">
+        <a href="${baseUrl}" style="display:inline-block;margin-top:16px;padding:12px 24px;background:#6366f1;color:#fff;border-radius:8px;text-decoration:none;font-weight:600">
           Empezar ahora →
         </a>
         <p style="margin-top:32px;font-size:12px;color:#999">Reelsona · info@reelsona.com</p>
       </div>`,
-    text: `Hola${name ? ` ${name}` : ""}! Bienvenido a Reelsona. Conecta tu cuenta de Instagram en https://reelsona.com`,
+    text: `Hola${name ? ` ${name}` : ""}! Bienvenido a Reelsona. Entra en ${baseUrl}`,
   }
 }
 
 export function activationEmail(name: string, activateUrl: string, toolAccessDays: number) {
-  const plural = toolAccessDays === 1 ? "día" : "días";
+  const plural = toolAccessDays === 1 ? "día" : "días"
   return {
     subject: "Tu acceso a Reelsona está listo 🎉",
     html: `

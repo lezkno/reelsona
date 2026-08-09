@@ -5,7 +5,7 @@ import { db } from "@workspace/db";
 import { users } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
 import { verifyPassword, hashPassword } from "../lib/password";
-import { sendEmail, passwordChangedEmail, verificationEmail } from "../lib/email";
+import { sendEmail, passwordChangedEmail, verificationEmail, getAppUrl } from "../lib/email";
 import { getUserAccess } from "../lib/access";
 
 const router = Router();
@@ -321,9 +321,7 @@ router.post("/auth/register", async (req: Request, res: Response): Promise<void>
       verificationTokenExpiresAt: expiresAt,
     });
 
-    // Build the verification URL from APP_URL env or a sensible default
-    const appUrl = (process.env.APP_URL ?? "").replace(/\/$/, "") || "https://reelsona.com";
-    const verifyUrl = `${appUrl}/verify-email?token=${token}`;
+    const verifyUrl = `${getAppUrl()}/verify-email?token=${token}`;
 
     const tpl = verificationEmail(fullName?.trim() ?? username, verifyUrl);
     sendEmail({ to: username, ...tpl }).catch((err) => {

@@ -1,8 +1,10 @@
 import { useState } from "react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   Shield, UserPlus, Trash2, Loader2, ShieldCheck,
   Pencil, Mail, Phone, StickyNote, KeyRound,
-  CheckCircle2, XCircle, Clock,
+  CheckCircle2, XCircle, Clock, Zap, BookOpen, Wrench,
+  AlertCircle,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -23,12 +25,15 @@ import { Badge } from "@/components/ui/badge"
 import {
   Tooltip, TooltipContent, TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { Skeleton } from "@/components/ui/skeleton"
 import { useToast } from "@/hooks/use-toast"
 import {
   useAdminUsers, useCreateAdminUser, useUpdateAdminUser,
   useDeleteAdminUser, useAuthStatus,
   type AdminUser, type UpdateAdminUserInput,
 } from "@workspace/api-client-react"
+
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "")
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -383,6 +388,277 @@ function DeleteUserButton({ user, selfUsername }: { user: AdminUser; selfUsernam
   )
 }
 
+// ── Provision dialog (create student access) ─────────────────────────────────
+
+interface ProvisionResult {
+  ok: boolean
+  userId?: number
+  created?: boolean
+  emailSent?: boolean
+  warning?: string
+  error?: string
+}
+
+function ProvisionDialog({ onDone }: { onDone?: () => void }) {
+  const [open, setOpen] = useState(false)
+  const [form, setForm] = useState({
+    email: "", fullName: "", toolAccessDays: "30", source: "manual",
+  })
+  const [loading, setLoading] = useState(false)
+  const [result, setResult] = useState<ProvisionResult | null>(null)
+  const { toast } = useToast()
+
+  const set = (k: keyof typeof form) =>
+    (e: React.ChangeEvent<HTMLInputElement>) =>
+      setForm((f) => ({ ...f, [k]: e.target.value }))
+
+  const handleClose = (v: boolean) => {
+    setOpen(v)
+    if (!v) { setResult(null); setForm({ email: "", fullName: "", toolAccessDays: "30", source: "manual" }) }
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+    setResult(null)
+    try {
+      const res = await fetch(`${BASE}/api/admin/provision`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: form.email.trim(),
+          fullName: form.fullName.trim() || undefined,
+          toolAccessDays: Number(form.toolAccessDays) || 30,
+          source: form.source.trim() || "manual",
+        }),
+      })
+      const data: ProvisionResult = await res.json()
+      if (!res.ok || !data.ok) {
+        setResult({ ok: false, error: data.error ?? "Error al provisionar" })
+        return
+      }
+      setResult(data)
+      if (data.emailSent) {
+        toast({ title: "Alumno registrado", description: `Email de activación enviado a ${form.email}` })
+      } else {
+        toast({ title: "Alumno registrado", description: data.warning ?? "Revisa el email manualmente.", variant: "default" })
+      }
+      onDone?.()
+    } catch (err: any) {
+      setResult({ ok: false, error: err?.message ?? "Error de red" })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={handleClose}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="default" className="gap-2">
+          <Zap className="w-4 h-4" /> Dar de alta alumno
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Zap className="w-4 h-4 text-primary" /> Dar de alta alumno
+          </DialogTitle>
+          <DialogDescription>
+            Crea el acceso del alumno y envía el link de activación por email.
+          </DialogDescription>
+        </DialogHeader>
+
+        {result?.ok ? (
+          <div className="py-4 space-y-3">
+            <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
+              <CheckCircle2 className="w-5 h-5 shrink-0" />
+              <span className="font-medium">
+                {result.created ? "Alumno creado correctamente" : "Acceso actualizado"}
+              </span>
+            </div>
+            {result.emailSent ? (
+              <p className="text-sm text-muted-foreground">
+                Email de activación enviado a <strong>{form.email}</strong>.
+              </p>
+            ) : (
+              <div className="flex items-start gap-2 rounded-lg bg-amber-50 dark:bg-amber-950/30 px-3 py-2.5 text-amber-800 dark:text-amber-300 text-sm">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{result.warning ?? "No se pudo enviar el email. Comprueba la configuración de Resend."}</span>
+              </div>
+            )}
+            <DialogFooter>
+              <Button onClick={() => handleClose(false)}>Cerrar</Button>
+            </DialogFooter>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} className="space-y-4 py-1">
+            <div className="space-y-1.5">
+              <Label htmlFor="p-email">Email del alumno *</Label>
+              <Input id="p-email" type="email" placeholder="alumno@ejemplo.com"
+                value={form.email} onChange={set("email")} required autoComplete="off" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="p-name">Nombre completo</Label>
+              <Input id="p-name" placeholder="María García"
+                value={form.fullName} onChange={set("fullName")} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="p-days">Días de acceso *</Label>
+                <Input id="p-days" type="number" min={1} max={3650}
+                  value={form.toolAccessDays} onChange={set("toolAccessDays")} required />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="p-source">Fuente / Notas</Label>
+                <Input id="p-source" placeholder="manual, stripe…"
+                  value={form.source} onChange={set("source")} />
+              </div>
+            </div>
+            {result?.error && (
+              <p className="text-sm text-destructive flex items-center gap-1.5">
+                <XCircle className="w-4 h-4 shrink-0" /> {result.error}
+              </p>
+            )}
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => handleClose(false)}>Cancelar</Button>
+              <Button type="submit" disabled={loading || !form.email}>
+                {loading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Procesando…</> : "Dar de alta"}
+              </Button>
+            </DialogFooter>
+          </form>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ── Entitlements section ──────────────────────────────────────────────────────
+
+interface EntitlementRow {
+  id:                 number
+  userId:             number
+  courseAccess:       boolean
+  toolAccessStatus:   string
+  toolAccessEndsAt:   string | null
+  source:             string | null
+  createdAt:          string
+  user: {
+    username:  string
+    email:     string | null
+    fullName:  string | null
+  }
+}
+
+const TOOL_STATUS_BADGE: Record<string, { label: string; cls: string }> = {
+  active:   { label: "Activo",     cls: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" },
+  trialing: { label: "En prueba",  cls: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" },
+  expired:  { label: "Vencido",    cls: "bg-destructive/10 text-destructive" },
+  disabled: { label: "Sin acceso", cls: "bg-muted text-muted-foreground" },
+}
+
+function EntitlementsSection() {
+  const queryClient = useQueryClient()
+
+  const { data, isLoading, error, refetch } = useQuery<EntitlementRow[]>({
+    queryKey: ["admin", "entitlements"],
+    queryFn: async () => {
+      const res = await fetch(`${BASE}/api/admin/entitlements`, { credentials: "include" })
+      if (!res.ok) throw new Error("Error al cargar licencias")
+      return res.json()
+    },
+    staleTime: 60_000,
+  })
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-base font-semibold text-foreground">Licencias de alumnos</h2>
+          <p className="text-xs text-muted-foreground">
+            {data ? `${data.length} alumno${data.length !== 1 ? "s" : ""} registrado${data.length !== 1 ? "s" : ""}` : "Accesos otorgados a través de /admin/provision"}
+          </p>
+        </div>
+        <ProvisionDialog onDone={() => { refetch(); queryClient.invalidateQueries({ queryKey: ["admin", "entitlements"] }) }} />
+      </div>
+
+      <div className="rounded-xl border border-border overflow-hidden bg-card">
+        {isLoading && (
+          <div className="p-6 space-y-3">
+            {[1,2,3].map(i => <Skeleton key={i} className="h-8 w-full" />)}
+          </div>
+        )}
+        {error && (
+          <div className="py-10 text-center text-destructive text-sm">Error al cargar licencias</div>
+        )}
+        {!isLoading && !error && data?.length === 0 && (
+          <div className="py-10 text-center text-muted-foreground text-sm">
+            Todavía no hay alumnos. Usa «Dar de alta alumno» para crear el primer acceso.
+          </div>
+        )}
+        {!isLoading && !error && data && data.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-muted/40">
+                  <th className="text-left px-5 py-3 font-medium text-muted-foreground whitespace-nowrap">Alumno</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">
+                    <span className="flex items-center gap-1"><BookOpen className="w-3.5 h-3.5" /> Curso</span>
+                  </th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">
+                    <span className="flex items-center gap-1"><Wrench className="w-3.5 h-3.5" /> Herramienta</span>
+                  </th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">
+                    <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5" /> Vence</span>
+                  </th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Fuente</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.map((row) => {
+                  const badge = TOOL_STATUS_BADGE[row.toolAccessStatus] ?? TOOL_STATUS_BADGE.disabled
+                  const endDate = row.toolAccessEndsAt
+                    ? new Date(row.toolAccessEndsAt).toLocaleDateString("es-ES", { day: "2-digit", month: "short", year: "numeric" })
+                    : "—"
+                  const isExpired = row.toolAccessStatus === "expired" ||
+                    (row.toolAccessEndsAt ? new Date(row.toolAccessEndsAt) < new Date() : false)
+                  return (
+                    <tr key={row.id} className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors">
+                      <td className="px-5 py-3.5">
+                        <p className="font-medium text-foreground leading-tight">
+                          {row.user.fullName ?? row.user.username}
+                        </p>
+                        {row.user.email && (
+                          <p className="text-xs text-muted-foreground truncate max-w-[200px]">{row.user.email}</p>
+                        )}
+                      </td>
+                      <td className="px-4 py-3.5">
+                        {row.courseAccess
+                          ? <span className="flex items-center gap-1 text-emerald-600 text-xs font-medium"><CheckCircle2 className="w-3.5 h-3.5" /> Sí</span>
+                          : <span className="flex items-center gap-1 text-muted-foreground text-xs"><XCircle className="w-3.5 h-3.5" /> No</span>
+                        }
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${badge.cls}`}>
+                          {badge.label}
+                        </span>
+                      </td>
+                      <td className={`px-4 py-3.5 text-xs whitespace-nowrap ${isExpired ? "text-destructive font-medium" : "text-muted-foreground"}`}>
+                        {endDate}
+                      </td>
+                      <td className="px-4 py-3.5 text-xs text-muted-foreground">{row.source ?? "—"}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function Users() {
@@ -534,8 +810,12 @@ export default function Users() {
       </div>
 
       <p className="text-xs text-muted-foreground text-center">
-        Todos los usuarios activos tienen acceso de administrador completo a ContentPilot.
+        Los usuarios de esta tabla tienen acceso de administrador completo.
+        Los alumnos se gestionan en la sección siguiente.
       </p>
+
+      {/* Entitlements section */}
+      <EntitlementsSection />
     </div>
   )
 }

@@ -22,9 +22,11 @@ import Login from "@/pages/Login"
 import Register from "@/pages/Register"
 import VerifyEmail from "@/pages/VerifyEmail"
 import Activate from "@/pages/Activate"
+import AccessExpired from "@/pages/AccessExpired"
 import PrivacyPolicy from "@/pages/PrivacyPolicy"
 import TermsAndConditions from "@/pages/TermsAndConditions"
 import { useAuthStatus } from "@workspace/api-client-react"
+import { useEntitlement } from "@/hooks/useEntitlement"
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -35,22 +37,54 @@ const queryClient = new QueryClient({
   },
 })
 
+/**
+ * Renders the given component only if the user has active tool access.
+ * Falls back to AccessExpired otherwise.
+ * React Query deduplicates the entitlement query — no extra network request.
+ */
+function ToolRoute({ component: Component }: { component: React.ComponentType }) {
+  const { data } = useEntitlement()
+  if (data && !data.isAdmin && !data.toolAccessActive) {
+    return <AccessExpired />
+  }
+  return <Component />
+}
+
 function Router() {
   return (
     <Layout>
       <Switch>
+        {/* Always accessible after login */}
         <Route path="/" component={Dashboard} />
-        <Route path="/connect" component={Connect} />
-        <Route path="/audit" component={Audit} />
-        <Route path="/content" component={ContentPlan} />
-        <Route path="/avatars" component={Avatars} />
-        <Route path="/videos" component={Videos} />
         <Route path="/settings" component={Settings} />
-        <Route path="/automation" component={Automation} />
-        <Route path="/captions" component={CaptionStudio} />
-        <Route path="/users" component={UsersPage} />
         <Route path="/profile" component={Profile} />
         <Route path="/course" component={Course} />
+        <Route path="/users" component={UsersPage} />
+        <Route path="/access-expired" component={AccessExpired} />
+
+        {/* Tool routes — blocked for expired access */}
+        <Route path="/connect">
+          {() => <ToolRoute component={Connect} />}
+        </Route>
+        <Route path="/audit">
+          {() => <ToolRoute component={Audit} />}
+        </Route>
+        <Route path="/content">
+          {() => <ToolRoute component={ContentPlan} />}
+        </Route>
+        <Route path="/avatars">
+          {() => <ToolRoute component={Avatars} />}
+        </Route>
+        <Route path="/videos">
+          {() => <ToolRoute component={Videos} />}
+        </Route>
+        <Route path="/automation">
+          {() => <ToolRoute component={Automation} />}
+        </Route>
+        <Route path="/captions">
+          {() => <ToolRoute component={CaptionStudio} />}
+        </Route>
+
         <Route component={NotFound} />
       </Switch>
     </Layout>

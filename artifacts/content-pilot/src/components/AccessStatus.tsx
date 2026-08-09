@@ -1,38 +1,14 @@
 /**
  * AccessStatus — shows the current user's course and tool access.
- * Used in the Settings page. Admins always see "Acceso completo".
+ * Used in the Settings page.
  */
 
-import { useQuery } from "@tanstack/react-query"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { CheckCircle2, XCircle, Clock, BookOpen, Wrench, ShieldCheck } from "lucide-react"
 import { cn } from "@/lib/utils"
-
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "")
-
-export interface EntitlementData {
-  isAdmin:            boolean
-  courseAccess:       boolean
-  toolAccessStatus:   "active" | "trialing" | "expired" | "disabled"
-  toolAccessActive:   boolean
-  toolAccessEndsAt:   string | null  // ISO string
-  daysRemaining:      number | null
-  source:             string | null
-}
-
-export function useGetEntitlement() {
-  return useQuery<EntitlementData>({
-    queryKey: ["auth", "entitlement"],
-    queryFn: async () => {
-      const res = await fetch(`${BASE}/api/auth/entitlement`, { credentials: "include" })
-      if (!res.ok) throw new Error("Error al cargar licencia")
-      return res.json()
-    },
-    staleTime: 1000 * 60 * 5,
-  })
-}
+import { useEntitlement, type EntitlementData } from "@/hooks/useEntitlement"
 
 const STATUS_LABEL: Record<EntitlementData["toolAccessStatus"], string> = {
   active:   "Activo",
@@ -53,14 +29,12 @@ const STATUS_VARIANT: Record<
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("es-ES", {
-    day:   "numeric",
-    month: "long",
-    year:  "numeric",
+    day: "numeric", month: "long", year: "numeric",
   })
 }
 
 export default function AccessStatus() {
-  const { data, isLoading } = useGetEntitlement()
+  const { data, isLoading } = useEntitlement()
 
   if (isLoading) {
     return (
@@ -78,7 +52,6 @@ export default function AccessStatus() {
 
   if (!data) return null
 
-  // ── Admin shortcut ───────────────────────────────────────────────────────────
   if (data.isAdmin) {
     return (
       <Card className="border-primary/20">
@@ -98,7 +71,6 @@ export default function AccessStatus() {
     )
   }
 
-  // ── Regular user ─────────────────────────────────────────────────────────────
   const endDate = data.toolAccessEndsAt ? formatDate(data.toolAccessEndsAt) : null
 
   return (
@@ -111,7 +83,6 @@ export default function AccessStatus() {
       </CardHeader>
       <CardContent className="space-y-4">
 
-        {/* Course access */}
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-sm font-medium">
             <BookOpen className="w-4 h-4 text-muted-foreground" />
@@ -127,7 +98,6 @@ export default function AccessStatus() {
           }
         </div>
 
-        {/* Tool access */}
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-sm font-medium">
             <Wrench className="w-4 h-4 text-muted-foreground" />
@@ -138,13 +108,10 @@ export default function AccessStatus() {
           </Badge>
         </div>
 
-        {/* Expiry info */}
         {endDate && (
           <div className={cn(
             "flex items-start gap-2 rounded-lg px-3 py-2.5 text-sm",
-            data.toolAccessActive
-              ? "bg-muted/50"
-              : "bg-destructive/10 text-destructive",
+            data.toolAccessActive ? "bg-muted/50" : "bg-destructive/10 text-destructive",
           )}>
             <Clock className="w-4 h-4 shrink-0 mt-0.5" />
             <div>
@@ -177,7 +144,6 @@ export default function AccessStatus() {
           </div>
         )}
 
-        {/* No entitlement at all */}
         {!data.courseAccess && !data.toolAccessActive && !endDate && (
           <p className="text-sm text-muted-foreground">
             Aún no tienes una licencia activa. Contacta a tu asesor para obtener acceso.

@@ -11,7 +11,7 @@ import { db } from "@workspace/db";
 import { users } from "@workspace/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { hashPassword } from "../lib/password";
-import { sendEmail, welcomeEmail } from "../lib/email";
+import { sendEmail, welcomeEmail, getAppUrl } from "../lib/email";
 
 const router = Router();
 
@@ -84,8 +84,10 @@ router.post("/users", async (req: Request, res: Response): Promise<void> => {
 
     // Fire-and-forget welcome email
     if (email) {
-      const tpl = welcomeEmail(fullName ?? username)
-      sendEmail({ to: email, ...tpl }).catch(() => {})
+      const tpl = welcomeEmail(fullName ?? username, getAppUrl())
+      sendEmail({ to: email, ...tpl }).catch((err) =>
+        console.warn("[users/create] Failed to send welcome email to", email, "—", err?.message)
+      )
     }
 
     res.status(201).json(created);
