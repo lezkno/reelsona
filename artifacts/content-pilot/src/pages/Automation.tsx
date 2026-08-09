@@ -94,13 +94,10 @@ export default function Automation() {
 
   const setDailyCount = (n: number) => {
     if (!formData || !recommended) return
-    // Pick top-n recommended times sorted by time string
+    // Set EXACTLY the top-n recommended times — replaces the current schedule.
+    // Custom times are not carried over so the button count always matches the result.
     const topN = recommended.recommended.slice(0, n).map((s) => s.time)
-    // Keep any custom times the user added that aren't in the recommended list
-    const recSet = new Set(recommended.recommended.map((s) => s.time))
-    const custom = (formData.posting_times ?? []).filter((t: string) => !recSet.has(t))
-    const next = [...new Set([...topN, ...custom])].sort()
-    saveChange({ posting_times: next })
+    saveChange({ posting_times: topN })
   }
 
   const { data: recommended } = useQuery<RecommendedTimesResponse>({
