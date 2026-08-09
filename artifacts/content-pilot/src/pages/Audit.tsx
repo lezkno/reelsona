@@ -21,6 +21,7 @@ import {
   useRunMarketStudy,
   useRunContentStrategy,
   useGetContentPlan,
+  useGetInstagramAccount,
   type StrategyProfile,
   type NicheRadarAccount,
 } from "@workspace/api-client-react"
@@ -28,7 +29,7 @@ import {
   TrendingUp, Users, Clock, BarChart2, Target, Lightbulb, Zap,
   AlertTriangle, CheckCircle2, Circle, RefreshCw, Loader2, Plus,
   Trash2, ExternalLink, Wifi, WifiOff, ChevronRight, Star,
-  Heart, Flame, Sparkles,
+  Heart, Flame, Sparkles, Instagram,
   Map, FileText, ArrowRight, Award,
 } from "lucide-react"
 
@@ -788,6 +789,9 @@ export default function Audit() {
   const { data, isLoading } = useGetStrategyProfile()
   const profile = data?.profile ?? null
   const steps = profile?.steps_completed ?? []
+  const { data: igStatus } = useGetInstagramAccount()
+  const igConnected = !!(igStatus?.connected && igStatus.account)
+  const [, navigate] = useLocation()
 
   // On first profile load, jump to the step after the last completed one so
   // returning to this page doesn't reset the user back to step 1.
@@ -833,6 +837,21 @@ export default function Audit() {
           )}
         </div>
       </div>
+
+      {/* Instagram not connected banner */}
+      {!igConnected && (
+        <div className="flex items-center justify-between gap-4 rounded-xl border border-amber-500/30 bg-amber-50/60 dark:bg-amber-900/10 px-5 py-4">
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
+            <p className="text-sm text-amber-800 dark:text-amber-300 font-medium">
+              Necesitás conectar tu cuenta de Instagram para usar el Estudio Estratégico.
+            </p>
+          </div>
+          <Button size="sm" className="shrink-0 gap-2" onClick={() => navigate("/connect")}>
+            <Instagram className="w-4 h-4" /> Conectar cuenta
+          </Button>
+        </div>
+      )}
 
       {/* Step progress */}
       <div className="flex items-center gap-1 overflow-x-auto pb-1">
