@@ -49,8 +49,7 @@ export function Sidebar({ onClose }: SidebarProps) {
   const handleLogout = () => {
     logout.mutate(undefined, {
       onSuccess: () => {
-        queryClient.clear()
-        navigate("/login")
+        queryClient.invalidateQueries({ queryKey: ["auth", "me"] })
       },
     })
   }
