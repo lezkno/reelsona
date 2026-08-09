@@ -5,10 +5,20 @@ import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Skeleton } from "@/components/ui/skeleton"
-import { useQueryClient } from "@tanstack/react-query"
+import { Badge } from "@/components/ui/badge"
+import { useQueryClient, useQuery } from "@tanstack/react-query"
 import { useToast } from "@/hooks/use-toast"
 import { useEffect, useState } from "react"
-import { Zap, Clock, CalendarDays, Plus, X, Lock, ExternalLink, Sparkles } from "lucide-react"
+import { Zap, Clock, CalendarDays, Plus, X, Lock, ExternalLink, Sparkles, CheckCircle2, Circle } from "lucide-react"
+
+type RecommendedSlot = { time: string; label: string; reason: string }
+type RecommendedTimesResponse = {
+  recommended: RecommendedSlot[]
+  niche: string | null
+  niche_matched: string | null
+  account_username: string | null
+  source: "niche" | "default"
+}
 
 const DAYS = [
   { value: 1, label: "Lunes" },
@@ -72,6 +82,32 @@ export default function Automation() {
       saveChange({ posting_times: [...formData.posting_times, newTime].sort() })
     }
   }
+
+  const toggleRecommended = (time: string) => {
+    if (!formData?.posting_times) return
+    const has = formData.posting_times.includes(time)
+    const next = has
+      ? formData.posting_times.filter((t: string) => t !== time)
+      : [...formData.posting_times, time].sort()
+    saveChange({ posting_times: next })
+  }
+
+  const setDailyCount = (n: number) => {
+    if (!formData || !recommended) return
+    // Pick top-n recommended times sorted by time string
+    const topN = recommended.recommended.slice(0, n).map((s) => s.time)
+    // Keep any custom times the user added that aren't in the recommended list
+    const recSet = new Set(recommended.recommended.map((s) => s.time))
+    const custom = (formData.posting_times ?? []).filter((t: string) => !recSet.has(t))
+    const next = [...new Set([...topN, ...custom])].sort()
+    saveChange({ posting_times: next })
+  }
+
+  const { data: recommended } = useQuery<RecommendedTimesResponse>({
+    queryKey: ["automation-recommended-times"],
+    queryFn: () => fetch(`${import.meta.env.BASE_URL}api/automation/recommended-times`).then((r) => r.json()),
+    staleTime: 5 * 60 * 1000,
+  })
 
   if (isLoading || !formData) {
     return <div className="p-8"><Skeleton className="h-64 rounded-xl" /></div>
@@ -163,34 +199,126 @@ export default function Automation() {
         <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2"><Clock className="w-5 h-5" /> Horarios</CardTitle>
-              <CardDescription>A qué horas se publicará en los días activos</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-wrap gap-3 mb-4">
-                {formData.posting_times?.map((time: string) => (
-                  <div key={time} className="flex items-center gap-2 px-3 py-1.5 bg-primary/10 text-primary border border-primary/20 rounded-full font-medium">
-                    {time}
-                    <button onClick={() => removeTime(time)} className="text-primary/70 hover:text-primary rounded-full p-0.5 hover:bg-primary/20 transition-colors">
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
-                ))}
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <CardTitle className="flex items-center gap-2"><Clock className="w-5 h-5" /> Horarios de Publicación</CardTitle>
+                  <CardDescription className="mt-1">
+                    {recommended?.niche
+                      ? <>Sugerencias basadas en tu nicho: <span className="font-medium text-foreground capitalize">{recommended.niche}</span></>
+                      : "Activá los horarios sugeridos o añadí los tuyos"}
+                  </CardDescription>
+                </div>
+                {recommended?.account_username && (
+                  <Badge variant="outline" className="shrink-0 text-[11px]">@{recommended.account_username}</Badge>
+                )}
               </div>
-              <div className="flex gap-2">
+            </CardHeader>
+            <CardContent className="space-y-5">
+
+              {/* Daily count quick-select */}
+              <div>
+                <p className="text-sm font-medium mb-2">¿Cuántos videos por día?</p>
+                <div className="flex gap-2">
+                  {[1, 2, 3, 4].map((n) => {
+                    const active = (formData.posting_times?.length ?? 0) === n
+                    return (
+                      <button
+                        key={n}
+                        onClick={() => setDailyCount(n)}
+                        className={`flex-1 py-2 rounded-lg border text-sm font-semibold transition-all ${
+                          active
+                            ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                            : "bg-background text-muted-foreground border-border hover:border-primary/50 hover:text-foreground"
+                        }`}
+                      >
+                        {n}
+                      </button>
+                    )
+                  })}
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-1.5">
+                  Seleccioná una cantidad para aplicar los mejores horarios automáticamente.
+                </p>
+              </div>
+
+              {/* Recommended time chips */}
+              <div>
+                <p className="text-sm font-medium mb-2.5">
+                  Horarios recomendados
+                  {recommended?.source === "niche" && (
+                    <span className="ml-2 text-[11px] font-normal text-violet-500">✦ Para tu nicho</span>
+                  )}
+                </p>
+                {!recommended ? (
+                  <div className="flex gap-2">
+                    {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-16 flex-1 rounded-xl" />)}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2">
+                    {recommended.recommended.map((slot) => {
+                      const isActive = formData.posting_times?.includes(slot.time)
+                      return (
+                        <button
+                          key={slot.time}
+                          onClick={() => toggleRecommended(slot.time)}
+                          className={`relative flex flex-col items-start p-3 rounded-xl border text-left transition-all ${
+                            isActive
+                              ? "bg-primary/8 border-primary/40 ring-1 ring-primary/20"
+                              : "bg-muted/30 border-border hover:border-primary/30 hover:bg-muted/60"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between w-full mb-1">
+                            <span className={`text-base font-bold tabular-nums ${isActive ? "text-primary" : "text-foreground"}`}>
+                              {slot.time}
+                            </span>
+                            {isActive
+                              ? <CheckCircle2 className="w-4 h-4 text-primary shrink-0" />
+                              : <Circle className="w-4 h-4 text-muted-foreground/40 shrink-0" />
+                            }
+                          </div>
+                          <span className={`text-xs font-medium ${isActive ? "text-primary/80" : "text-foreground/70"}`}>{slot.label}</span>
+                          <span className="text-[10px] text-muted-foreground mt-0.5 leading-tight">{slot.reason}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Custom times not in recommended list */}
+              {(() => {
+                const recSet = new Set(recommended?.recommended.map((s) => s.time) ?? [])
+                const custom = (formData.posting_times ?? []).filter((t: string) => !recSet.has(t))
+                return custom.length > 0 ? (
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground mb-2">Horarios personalizados</p>
+                    <div className="flex flex-wrap gap-2">
+                      {custom.map((time: string) => (
+                        <div key={time} className="flex items-center gap-1.5 px-3 py-1.5 bg-secondary/50 border border-border rounded-full text-sm font-medium">
+                          {time}
+                          <button onClick={() => removeTime(time)} className="text-muted-foreground hover:text-foreground rounded-full p-0.5 transition-colors">
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null
+              })()}
+
+              {/* Add custom time */}
+              <div className="flex gap-2 pt-1 border-t">
                 <input
                   type="time"
                   value={newTime}
                   onChange={(e) => setNewTime(e.target.value)}
                   className="flex-1 h-9 rounded-md border bg-background px-3 text-sm"
                 />
-                <Button variant="outline" size="sm" onClick={addTime} className="border-dashed">
-                  <Plus className="w-4 h-4 mr-2" /> Añadir
+                <Button variant="outline" size="sm" onClick={addTime} className="border-dashed shrink-0">
+                  <Plus className="w-4 h-4 mr-1" /> Personalizado
                 </Button>
               </div>
-              <p className="text-[11px] text-muted-foreground mt-2">
-                Cada horario es un video por día: añadí más horarios para publicar varios videos al día.
-              </p>
+
             </CardContent>
           </Card>
 
