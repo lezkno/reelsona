@@ -608,9 +608,16 @@ function PipelineStatusCard({ planItems, planLoading, strategyProfile, strategyL
   const activeStatuses = ["draft", "scripted", "generating", "ready"] as const
   const totalActive = activeStatuses.reduce((s, k) => s + (counts[k] ?? 0), 0)
 
+  // Items currently rendering in HeyGen
+  const generatingItems = planItems.filter(i => i.status === "generating")
+  // Next item queued to be sent to HeyGen (first scripted, by id asc)
+  const nextToGenerate = planItems
+    .filter(i => i.status === "scripted")
+    .sort((a, b) => a.id - b.id)[0] ?? null
+
   return (
     <Card>
-      <CardContent className="p-5">
+      <CardContent className="p-5 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-start gap-4">
           {/* Left: heading + badge counts */}
           <div className="flex-1 min-w-0">
@@ -665,6 +672,42 @@ function PipelineStatusCard({ planItems, planLoading, strategyProfile, strategyL
             </Button>
           </div>
         </div>
+
+        {/* ── Generating now + next up ── */}
+        {(generatingItems.length > 0 || nextToGenerate) && (
+          <div className="border-t pt-4 space-y-3">
+            {/* Generating items with animated progress bar */}
+            {generatingItems.map(item => (
+              <div key={item.id} className="rounded-lg bg-purple-500/5 border border-purple-500/20 px-4 py-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <Loader2 className="w-3.5 h-3.5 text-purple-500 animate-spin shrink-0" />
+                  <p className="text-xs font-semibold text-purple-700 dark:text-purple-400 uppercase tracking-wide">Generando video</p>
+                </div>
+                <p className="text-sm font-medium text-foreground truncate mb-2">{item.topic}</p>
+                {/* Indeterminate progress bar */}
+                <div className="h-1.5 w-full rounded-full bg-purple-500/15 overflow-hidden">
+                  <div className="h-full w-2/5 rounded-full bg-purple-500 animate-pulse" />
+                </div>
+              </div>
+            ))}
+
+            {/* Next up to generate */}
+            {nextToGenerate && (
+              <div className="rounded-lg bg-blue-500/5 border border-blue-500/20 px-4 py-3 flex items-center gap-3">
+                <div className="w-7 h-7 rounded-full bg-blue-500/10 flex items-center justify-center shrink-0">
+                  <Video className="w-3.5 h-3.5 text-blue-500" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[11px] text-blue-600 dark:text-blue-400 font-semibold uppercase tracking-wide mb-0.5">Próximo a generar</p>
+                  <p className="text-sm font-medium text-foreground truncate">{nextToGenerate.topic}</p>
+                </div>
+                <Button size="sm" variant="ghost" className="shrink-0 text-xs gap-1 text-blue-600 hover:text-blue-700 hover:bg-blue-500/10" asChild>
+                  <Link href="/content">Ver <ArrowRight className="w-3 h-3" /></Link>
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
       </CardContent>
     </Card>
   )
