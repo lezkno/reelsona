@@ -18,6 +18,7 @@ import { eq, and, lte, gte, inArray, isNull, isNotNull, or } from "drizzle-orm";
 import { logger } from "./logger";
 import { generateScript, regenerateCaption, generateContentTopics } from "./ai-scripts";
 import { getLatestAuditCache } from "./audit-cache";
+import { getStrategyProfile, toStrategyContext } from "./strategy-profile";
 import { generateVideo, getVideoStatus, listVoices, getAvatarDefaultVoiceId } from "./heygen";
 import { createReelContainer, checkContainerStatus, publishContainer, getPermalink } from "./instagram-api";
 
@@ -88,8 +89,12 @@ async function fillEmptyScheduledSlots(
     .limit(20);
   const existingTopics = recentRows.map((r) => r.topic).filter(Boolean);
 
-  // Load audit cache to improve topic quality
-  const auditInsights = await getLatestAuditCache().catch(() => null);
+  // Load strategy profile (primary) + audit cache (fallback)
+  const [auditInsights, strategyProfile] = await Promise.all([
+    getLatestAuditCache().catch(() => null),
+    getStrategyProfile().catch(() => null),
+  ]);
+  const strategyContext = strategyProfile ? toStrategyContext(strategyProfile) : undefined;
 
   // Ask AI to generate one topic per empty slot
   const rawTopics = await generateContentTopics(
@@ -100,7 +105,8 @@ async function fillEmptyScheduledSlots(
     emptySlots.length,
     1,
     existingTopics,
-    auditInsights ?? undefined
+    auditInsights ?? undefined,
+    strategyContext ?? undefined
   );
 
   if (rawTopics.length === 0) return 0;

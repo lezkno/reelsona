@@ -240,3 +240,123 @@ export function useRegenerateScript() {
       }),
   });
 }
+
+// ── Strategic Audit ───────────────────────────────────────────────────────────
+
+import type {
+  StrategyProfile,
+  NicheRadarAccount,
+  RadarSuggestion,
+  RadarStatus,
+} from "./generated/api.schemas";
+
+export type { StrategyProfile, NicheRadarAccount, RadarSuggestion, RadarStatus };
+
+const STRATEGY_PROFILE_KEY  = ["strategy", "profile"] as const;
+const RADAR_ACCOUNTS_KEY    = ["strategy", "radar"]   as const;
+const RADAR_STATUS_KEY      = ["strategy", "radar", "status"] as const;
+const RADAR_SUGGESTIONS_KEY = ["strategy", "radar", "suggestions"] as const;
+
+/** Current strategy profile (null if not yet built). */
+export function useGetStrategyProfile() {
+  return useQuery<{ profile: StrategyProfile | null }>({
+    queryKey: STRATEGY_PROFILE_KEY,
+    queryFn:  () => customFetch<{ profile: StrategyProfile | null }>("/api/strategy/profile"),
+    staleTime: 1000 * 60 * 5,
+  });
+}
+
+/** Run the Instagram account audit and save account_data to the strategy profile. */
+export function useRunAccountAudit() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      customFetch<{ profile: StrategyProfile }>("/api/strategy/account", { method: "POST" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: STRATEGY_PROFILE_KEY }),
+  });
+}
+
+/** Whether the Apify radar is connected (APIFY_TOKEN env var set). */
+export function useGetRadarStatus() {
+  return useQuery<RadarStatus>({
+    queryKey: RADAR_STATUS_KEY,
+    queryFn:  () => customFetch<RadarStatus>("/api/strategy/radar/status"),
+    staleTime: Infinity,
+  });
+}
+
+/** AI-suggested accounts for the user's niche. */
+export function useGetRadarSuggestions() {
+  return useQuery<{ suggestions: RadarSuggestion[] }>({
+    queryKey: RADAR_SUGGESTIONS_KEY,
+    queryFn:  () => customFetch<{ suggestions: RadarSuggestion[] }>("/api/strategy/radar/suggestions"),
+    staleTime: 1000 * 60 * 30,
+  });
+}
+
+/** List saved niche radar accounts. */
+export function useGetRadarAccounts() {
+  return useQuery<{ accounts: NicheRadarAccount[] }>({
+    queryKey: RADAR_ACCOUNTS_KEY,
+    queryFn:  () => customFetch<{ accounts: NicheRadarAccount[] }>("/api/strategy/radar"),
+    staleTime: 1000 * 30,
+  });
+}
+
+/** Add an account to the niche radar. */
+export function useAddRadarAccount() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { ig_username: string; bio?: string; followers?: number; relevance_score?: number; source?: string }) =>
+      customFetch<{ account: NicheRadarAccount }>("/api/strategy/radar", {
+        method: "POST",
+        body: JSON.stringify(data),
+        headers: { "Content-Type": "application/json" },
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: RADAR_ACCOUNTS_KEY }),
+  });
+}
+
+/** Update use_as_reference / relevance_score for a radar account. */
+export function useUpdateRadarAccount() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...data }: { id: number; use_as_reference?: boolean; relevance_score?: number; bio?: string; followers?: number }) =>
+      customFetch<{ account: NicheRadarAccount }>(`/api/strategy/radar/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+        headers: { "Content-Type": "application/json" },
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: RADAR_ACCOUNTS_KEY }),
+  });
+}
+
+/** Remove an account from the niche radar. */
+export function useDeleteRadarAccount() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) =>
+      customFetch<{ success: boolean }>(`/api/strategy/radar/${id}`, { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: RADAR_ACCOUNTS_KEY }),
+  });
+}
+
+/** Synthesize market insights from account data + radar. */
+export function useRunMarketStudy() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      customFetch<{ profile: StrategyProfile }>("/api/strategy/market", { method: "POST" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: STRATEGY_PROFILE_KEY }),
+  });
+}
+
+/** Generate the content strategy from market insights. */
+export function useRunContentStrategy() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      customFetch<{ profile: StrategyProfile }>("/api/strategy/strategy", { method: "POST" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: STRATEGY_PROFILE_KEY }),
+  });
+}

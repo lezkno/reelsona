@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { logger } from "./logger";
+import type { StrategyContext } from "./ai-strategy";
 
 function getClient(): OpenAI {
   return new OpenAI({
@@ -556,7 +557,8 @@ export async function generateContentTopics(
   days: number,
   postsPerDay: number,
   topPerformingTopics: string[] = [],
-  auditInsights?: AuditInsights
+  auditInsights?: AuditInsights,
+  strategyContext?: StrategyContext   // 9th param — takes priority over auditInsights when present
 ): Promise<ContentPlanTopicMeta[]> {
   const client = getClient();
   const total = days * postsPerDay;
@@ -572,8 +574,23 @@ export async function generateContentTopics(
   const allPillars = [...rawPillars, ...extraKeywords];
   const maxPerPillar = Math.ceil(total / Math.max(allPillars.length, 1));
 
-  // Build audit insights context
-  const auditBlock = auditInsights
+  // ── Strategy context block (takes priority over raw audit insights) ────────
+  const strategyBlock = strategyContext
+    ? `
+ESTRATEGIA DE CONTENIDO ACTIVA — úsala como contexto principal para este plan:
+- Propuesta de valor única del creador: ${strategyContext.content_strategy.unique_value_prop}
+- Ángulos editoriales aprobados: ${strategyContext.content_strategy.editorial_angles.join(", ")}
+- Dolores/deseos de la audiencia: ${strategyContext.market_insights.audience_pains.slice(0, 5).join("; ")}
+- Huecos de contenido a explotar: ${strategyContext.market_insights.content_gaps.slice(0, 4).join("; ")}
+- Oportunidades detectadas: ${strategyContext.market_insights.opportunities.slice(0, 4).join("; ")}
+- Temas saturados (EVITAR totalmente): ${strategyContext.market_insights.saturated_topics.slice(0, 4).join("; ")}
+- Hooks que generan shares en este nicho: ${strategyContext.market_insights.shareable_hooks.slice(0, 4).join("; ")}
+- Formatos que funcionan en este nicho: ${strategyContext.market_insights.working_formats.slice(0, 4).join("; ")}
+`
+    : "";
+
+  // ── Audit insights fallback (when no full strategy) ───────────────────────
+  const auditBlock = !strategyContext && auditInsights
     ? `
 DATOS REALES DE LA CUENTA (úsalos para mejorar la relevancia):
 - Engagement promedio: ${auditInsights.avgEngagement.toFixed(1)}%
@@ -583,21 +600,18 @@ ${auditInsights.topCaptions.length ? `- Los captions con mejor engagement incluy
 `
     : "";
 
-  const prompt = `${EDITORIAL_BASE}
+  // ── Pillars section: use strategy pillars when available ─────────────────
+  const pillarSection = strategyContext
+    ? `PILARES DE CONTENIDO (de la estrategia aprobada — respétalos y distribúyelos así):
+${strategyContext.content_strategy.pillars.map((p, i) => `  ${i + 1}. ${p.name} (~${p.frequency_pct}% del plan) — objetivo: ${p.objective}`).join("\n")}
 
-${getLanguageInstruction(language)}
+ÁNGULOS EDITORIALES RECOMENDADOS POR LA ESTRATEGIA (varía entre ellos):
+${strategyContext.content_strategy.editorial_angles.map((a, i) => `  ${i + 1}. ${a}`).join("\n")}
 
-Eres un estratega de contenido para Instagram Reels especializado en crecimiento orgánico.
-${auditBlock}
-Genera un plan de contenido con EXACTAMENTE ${total} temas únicos para:
-- Nicho: ${niche}
-- Tono: ${tone}
-- Idioma: ${language}
-
-TEMAS PROHIBIDOS — NO repetir, NO parafrasear, NO abordar el mismo ángulo:
-${topPerformingTopics.slice(0, 12).join("\n") || "N/A"}
-
-PILARES DE CONTENIDO — distribuye los ${total} temas entre estos pilares (máx ${maxPerPillar} por pilar, nunca 2 seguidos del mismo):
+TIPOS DE HOOKS DE LA ESTRATEGIA (úsalos como inspiración para los hooks de cada tema):
+${(strategyContext.content_strategy.hook_types ?? []).slice(0, 5).map((h, i) => `  ${i + 1}. ${h}`).join("\n")}
+`
+    : `PILARES DE CONTENIDO — distribuye los ${total} temas entre estos pilares (máx ${maxPerPillar} por pilar, nunca 2 seguidos del mismo):
 ${allPillars.map((p, i) => `  ${i + 1}. ${p}`).join("\n")}
 
 ÁNGULOS POSIBLES POR PILAR (varía entre ellos):
@@ -607,6 +621,23 @@ ${allPillars.map((p, i) => `  ${i + 1}. ${p}`).join("\n")}
   - Tendencia reciente: "qué cambió en X en 2026 y cómo te afecta"
   - Resultado medible: "qué logra una empresa que usa X bien vs una que lo usa mal"
   - Desmitificación: "por qué la mayoría cree que X es difícil (y están equivocados)"
+`;
+
+  const prompt = `${EDITORIAL_BASE}
+
+${getLanguageInstruction(language)}
+
+Eres un estratega de contenido para Instagram Reels especializado en crecimiento orgánico.
+${strategyBlock}${auditBlock}
+Genera un plan de contenido con EXACTAMENTE ${total} temas únicos para:
+- Nicho: ${niche}
+- Tono: ${tone}
+- Idioma: ${language}
+
+TEMAS PROHIBIDOS — NO repetir, NO parafrasear, NO abordar el mismo ángulo:
+${topPerformingTopics.slice(0, 12).join("\n") || "N/A"}
+
+${pillarSection}
 
 ${TOPIC_CATEGORIES}
 

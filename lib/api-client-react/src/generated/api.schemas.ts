@@ -670,3 +670,96 @@ export const GetVideosStatus = {
   all: 'all',
 } as const;
 
+// ── Strategic Audit / Strategy Profile types ──────────────────────────────────
+
+export interface StrategyTopPost {
+  id: string;
+  thumbnail_url: string | null;
+  caption: string | null;
+  like_count: number;
+  comments_count: number;
+  plays: number | null;
+  engagement_rate: number | null;
+  permalink: string | null;
+}
+
+export interface StrategyAccountData {
+  avg_engagement: number;
+  avg_reach: number;
+  best_posting_times: string[];
+  top_posts: StrategyTopPost[];
+  top_captions: string[];
+  follower_count: number;
+  media_count: number;
+  fetched_at: string;
+}
+
+export interface StrategyMarketInsights {
+  top_themes: string[];
+  working_formats: string[];
+  audience_pains: string[];
+  content_gaps: string[];
+  saturated_topics: string[];
+  opportunities: string[];
+  shareable_hooks: string[];
+  analyzed_at: string;
+}
+
+export interface StrategyPillar {
+  name: string;
+  objective: string;
+  frequency_pct: number;
+  example_topics: string[];
+}
+
+export interface StrategyContentStrategy {
+  pillars: StrategyPillar[];
+  editorial_angles: string[];
+  format_mix: {
+    educational: number;
+    emotional: number;
+    sales: number;
+    controversial: number;
+    storytelling: number;
+  };
+  unique_value_prop: string;
+  hook_types: string[];
+  recommended_ctas: string[];
+  posting_frequency: string;
+  generated_at: string;
+}
+
+export interface StrategyProfile {
+  id: number;
+  account_data: StrategyAccountData | null;
+  market_insights: StrategyMarketInsights | null;
+  content_strategy: StrategyContentStrategy | null;
+  steps_completed: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NicheRadarAccount {
+  id: number;
+  ig_username: string;
+  profile_url: string | null;
+  bio: string | null;
+  followers: number | null;
+  relevance_score: number | null;
+  use_as_reference: boolean;
+  source: string;
+  last_synced_at: string | null;
+  created_at: string;
+}
+
+export interface RadarSuggestion {
+  ig_username: string;
+  reason: string;
+  approximate_followers: string;
+  content_type: string;
+}
+
+export interface RadarStatus {
+  apify_available: boolean;
+}
+
