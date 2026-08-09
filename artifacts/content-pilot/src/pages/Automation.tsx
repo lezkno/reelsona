@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge"
 import { useQueryClient, useQuery } from "@tanstack/react-query"
 import { useToast } from "@/hooks/use-toast"
 import { useEffect, useState } from "react"
-import { Zap, Clock, CalendarDays, Plus, X, Lock, ExternalLink, Sparkles, CheckCircle2, Circle, Globe } from "lucide-react"
+import { Zap, Clock, CalendarDays, Plus, X, Lock, ExternalLink, Sparkles, CheckCircle2, Circle, Globe, PauseCircle, Eye } from "lucide-react"
 
 type RecommendedSlot = { time: string; label: string; reason: string }
 type RecommendedTimesResponse = {
@@ -122,6 +122,32 @@ export default function Automation() {
     return <div className="p-8"><Skeleton className="h-64 rounded-xl" /></div>
   }
 
+  const mode = !formData.enabled ? "paused" : !formData.auto_publish ? "manual" : "auto"
+  const MODE_CONFIG = {
+    paused: {
+      iconBg: "bg-muted-foreground/20 text-muted-foreground",
+      title: "Sistema Pausado",
+      desc: "Nada corre. No se genera ni publica nada hasta que cambies el modo.",
+      cardBorder: "border-border",
+      cardBg: "bg-muted/30",
+    },
+    manual: {
+      iconBg: "bg-amber-500/20 text-amber-600",
+      title: "Modo Manual",
+      desc: "ContentPilot genera guiones y videos automáticamente, pero tú aprobás y publicás cada reel.",
+      cardBorder: "border-amber-500/40 shadow-xl shadow-amber-500/10",
+      cardBg: "bg-amber-500/5",
+    },
+    auto: {
+      iconBg: "bg-primary text-primary-foreground shadow-[0_0_30px_rgba(100,50,255,0.4)]",
+      title: "Automatización Completa",
+      desc: "ContentPilot genera guiones, crea videos y publica reels en los horarios configurados.",
+      cardBorder: "border-primary shadow-xl shadow-primary/10",
+      cardBg: "bg-primary/5",
+    },
+  } as const
+  const mc = MODE_CONFIG[mode]
+
   return (
     <div className="space-y-8 max-w-4xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div>
@@ -142,35 +168,76 @@ export default function Automation() {
         </div>
       )}
 
-      <Card className={`overflow-hidden border-2 transition-colors duration-500 ${isLocked ? 'border-amber-500/30 opacity-60' : formData.enabled ? 'border-primary shadow-xl shadow-primary/10' : 'border-border'}`}>
-        <div className={`p-5 md:p-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-5 ${formData.enabled && !isLocked ? 'bg-primary/5' : 'bg-muted/30'}`}>
+      {/* ── Mode selector card ────────────────────────────────────────────────── */}
+      <Card className={`overflow-hidden border-2 transition-all duration-500 ${isLocked ? 'border-amber-500/30 opacity-60' : mc.cardBorder}`}>
+        <div className={`p-5 md:p-8 flex flex-col gap-6 ${isLocked ? 'bg-muted/30' : mc.cardBg}`}>
+          {/* Status row */}
           <div className="flex items-center gap-4">
-            <div className={`w-14 h-14 md:w-16 md:h-16 shrink-0 rounded-full flex items-center justify-center transition-colors duration-500 ${isLocked ? 'bg-amber-500/20 text-amber-600' : formData.enabled ? 'bg-primary text-primary-foreground shadow-[0_0_30px_rgba(100,50,255,0.4)]' : 'bg-muted-foreground/20 text-muted-foreground'}`}>
-              {isLocked ? <Lock className="w-7 h-7 md:w-8 md:h-8" /> : <Zap className="w-7 h-7 md:w-8 md:h-8" />}
+            <div className={`w-14 h-14 shrink-0 rounded-full flex items-center justify-center transition-colors duration-500 ${isLocked ? 'bg-amber-500/20 text-amber-600' : mc.iconBg}`}>
+              {isLocked ? <Lock className="w-7 h-7" /> : mode === "paused" ? <PauseCircle className="w-7 h-7" /> : mode === "manual" ? <Eye className="w-7 h-7" /> : <Zap className="w-7 h-7" />}
             </div>
             <div>
-              <h2 className="text-xl md:text-3xl font-display font-bold mb-1">
-                {isLocked ? "Video procesándose…" : formData.enabled ? "Sistema Operativo" : "Sistema Pausado"}
+              <h2 className="text-xl md:text-2xl font-display font-bold mb-0.5">
+                {isLocked ? "Video procesándose…" : mc.title}
               </h2>
               <p className="text-sm text-muted-foreground max-w-sm">
-                {isLocked
-                  ? "La configuración está bloqueada hasta que el video termine de procesarse."
-                  : formData.enabled
-                    ? "ContentPilot está generando guiones, creando videos y publicando reels automáticamente."
-                    : "El sistema no ejecutará ninguna acción automática hasta que lo actives."}
+                {isLocked ? "La configuración está bloqueada hasta que el video termine de procesarse." : mc.desc}
               </p>
             </div>
           </div>
-          <div className="shrink-0 self-center sm:self-auto">
-            <Switch 
-              checked={formData.enabled} 
-              onCheckedChange={(v) => saveChange({ enabled: v })}
+
+          {/* Three-mode selector */}
+          <div className="grid grid-cols-3 gap-3">
+            <button
               disabled={isLocked}
-              className="data-[state=checked]:bg-primary scale-125 disabled:opacity-40 disabled:cursor-not-allowed"
-            />
+              onClick={() => saveChange({ enabled: false })}
+              className={`flex flex-col items-center gap-2 p-3 md:p-4 rounded-xl border-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
+                mode === "paused"
+                  ? "border-muted-foreground/40 bg-muted/60 text-foreground"
+                  : "border-border bg-background text-muted-foreground hover:bg-muted/50"
+              }`}
+            >
+              <PauseCircle className="w-5 h-5" />
+              <div className="text-center">
+                <p className="text-xs font-bold leading-tight">Pausado</p>
+                <p className="text-[10px] mt-0.5 leading-tight opacity-70">Nada corre</p>
+              </div>
+            </button>
+
+            <button
+              disabled={isLocked}
+              onClick={() => saveChange({ enabled: true, auto_generate_script: true, auto_generate_video: true, auto_publish: false })}
+              className={`flex flex-col items-center gap-2 p-3 md:p-4 rounded-xl border-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
+                mode === "manual"
+                  ? "border-amber-500/60 bg-amber-500/10 text-amber-700 dark:text-amber-400"
+                  : "border-border bg-background text-muted-foreground hover:bg-amber-500/5"
+              }`}
+            >
+              <Eye className="w-5 h-5" />
+              <div className="text-center">
+                <p className="text-xs font-bold leading-tight">Manual</p>
+                <p className="text-[10px] mt-0.5 leading-tight opacity-70">Genera, tú publicás</p>
+              </div>
+            </button>
+
+            <button
+              disabled={isLocked}
+              onClick={() => saveChange({ enabled: true, auto_generate_script: true, auto_generate_video: true, auto_publish: true })}
+              className={`flex flex-col items-center gap-2 p-3 md:p-4 rounded-xl border-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
+                mode === "auto"
+                  ? "border-primary/60 bg-primary/10 text-primary"
+                  : "border-border bg-background text-muted-foreground hover:bg-primary/5"
+              }`}
+            >
+              <Zap className="w-5 h-5" />
+              <div className="text-center">
+                <p className="text-xs font-bold leading-tight">Automático</p>
+                <p className="text-[10px] mt-0.5 leading-tight opacity-70">Pipeline completo</p>
+              </div>
+            </button>
           </div>
         </div>
-        
+
         {config?.last_run_at && (
           <div className="bg-background border-t px-5 py-3 text-sm flex flex-wrap items-center justify-between gap-2">
             <span className="text-muted-foreground">Última ejecución: {new Date(config.last_run_at).toLocaleString()}</span>
