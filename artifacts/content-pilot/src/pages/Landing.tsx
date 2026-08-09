@@ -105,7 +105,7 @@ const forWhom = [
   { Icon: TrendingUp, title: "Educadores online", desc: "Que necesitan generar autoridad y comunidad con Reels constantes sin que la producción los consuma." },
 ];
 
-// Programa educativo ($47 acceso de por vida)
+// Guía Paso a Paso de Implementación ($47 acceso de por vida)
 const programIncludes = [
   "7 módulos completos con 23 clases en video",
   "Módulo 1 — Fundamentos de la máquina de contenido con avatar",
@@ -143,7 +143,7 @@ const faqs = [
   { q: "¿Cómo funciona el modo Autopilot?", a: "Cuando tienes tu estrategia, herramientas y preferencias configuradas, Autopilot ejecuta el pipeline completo: genera guiones, produce los videos con tu avatar, aplica captions y los publica en Instagram según el calendario que definiste." },
   { q: "¿Necesito saber editar videos?", a: "No. El sistema genera los videos completos con tu avatar y captions incluidos. No necesitas abrir ningún editor de video." },
   { q: "¿Tengo que grabarme frente a una cámara?", a: "No. Tu avatar IA habla por ti en cada Reel. Tú defines la estrategia y el guión — el sistema produce el video." },
-  { q: "¿Qué pasa después de comprar?", a: "Recibirás un email de activación. Con ese link creas tu contraseña y accedes al programa educativo completo (7 módulos, 23 clases) de inmediato, más 30 días gratis de acceso a todas las herramientas de automatización de Instagram." },
+  { q: "¿Qué pasa después de comprar?", a: "Recibirás un email de activación. Con ese link creas tu contraseña y accedes a la Guía Paso a Paso de Implementación completa (7 módulos, 23 clases) de inmediato, más 30 días gratis de acceso a todas las herramientas de automatización de Instagram." },
   { q: "¿Puedo publicar directamente en Instagram?", a: "Sí. Conectas tu cuenta de Instagram Business desde la plataforma y programas la publicación de tus Reels desde ahí." },
 ];
 
@@ -719,12 +719,12 @@ export default function Landing() {
         <div className="mx-auto" style={{ maxWidth: 900 }}>
           <div className="text-center reveal-up" style={{ marginBottom: "3rem" }}>
             <SectionLabel>Lo que obtienes</SectionLabel>
-            <h2 style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "clamp(1.6rem,4vw,2.4rem)", fontWeight: 800, letterSpacing: "-0.025em", lineHeight: 1.15 }}>Un programa educativo + 30 días de herramientas</h2>
+            <h2 style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "clamp(1.6rem,4vw,2.4rem)", fontWeight: 800, letterSpacing: "-0.025em", lineHeight: 1.15 }}>Guía Paso a Paso de Implementación + 30 días de herramientas</h2>
             <p style={{ color: "#666", fontSize: "0.9rem", lineHeight: 1.75, maxWidth: 520, margin: "0.75rem auto 0" }}>Los $47 son acceso de por vida al programa paso a paso. Las herramientas de automatización están incluidas gratis los primeros 30 días.</p>
           </div>
 
           <div className="grid gap-5 reveal-up stagger-1" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(360px,1fr))" }}>
-            {/* Programa educativo */}
+            {/* Guía Paso a Paso */}
             <div style={{ borderRadius: 20, backgroundColor: "#0f0f0f", border: "1px solid rgba(79,110,247,0.22)", padding: "2rem", position: "relative", overflow: "hidden" }}>
               <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: "linear-gradient(90deg,#4F6EF7,#9B5CF6)" }} />
               <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1.5rem" }}>
@@ -732,7 +732,7 @@ export default function Landing() {
                   <Layers size={18} color="#4F6EF7" />
                 </div>
                 <div>
-                  <p style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontWeight: 800, fontSize: "0.95rem", color: "#e0e0e0", margin: 0 }}>Programa educativo</p>
+                  <p style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontWeight: 800, fontSize: "0.95rem", color: "#e0e0e0", margin: 0 }}>Guía Paso a Paso de Implementación</p>
                   <p style={{ fontSize: "0.72rem", color: "#4F6EF7", fontWeight: 700, margin: 0 }}>Acceso de por vida · 7 módulos · 23 clases</p>
                 </div>
               </div>
@@ -806,7 +806,7 @@ export default function Landing() {
                 <div style={{ display: "flex", gap: "0.85rem", alignItems: "flex-start", backgroundColor: "rgba(79,110,247,0.06)", border: "1px solid rgba(79,110,247,0.18)", borderRadius: 12, padding: "1rem 1.1rem" }}>
                   <Layers size={18} color="#4F6EF7" style={{ flexShrink: 0, marginTop: 1 }} />
                   <div>
-                    <p style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontWeight: 700, fontSize: "0.9rem", color: "#e0e0e0", margin: "0 0 0.2rem" }}>Programa educativo completo</p>
+                    <p style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontWeight: 700, fontSize: "0.9rem", color: "#e0e0e0", margin: "0 0 0.2rem" }}>Guía Paso a Paso de Implementación</p>
                     <p style={{ fontSize: "0.78rem", color: "#666", margin: 0 }}>7 módulos · 23 clases paso a paso · Acceso de por vida</p>
                   </div>
                 </div>
