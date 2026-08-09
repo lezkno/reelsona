@@ -1,12 +1,13 @@
-import { useGetDashboard, useGetVideos, usePublishVideo, useScheduleVideo, useGetInstagramAccount, useGetInstagramPosts, getGetDashboardQueryKey, getGetVideosQueryKey, getGetInstagramAccountQueryKey, getGetInstagramPostsQueryKey } from "@workspace/api-client-react"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { useGetDashboard, useTriggerAutomation, useGetVideos, usePublishVideo, useScheduleVideo, useGetInstagramAccount, useGetInstagramPosts, getGetDashboardQueryKey, getGetVideosQueryKey, getGetInstagramAccountQueryKey, getGetInstagramPostsQueryKey, useGetContentPlan, useGetStrategyProfile } from "@workspace/api-client-react"
+import type { ContentPlanItem, StrategyProfile } from "@workspace/api-client-react"
+import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
-import { Zap, Play, BarChart, Calendar, Video, Clock, Instagram, CalendarClock, Send, ExternalLink, Film, Heart, MessageCircle } from "lucide-react"
+import { Zap, Play, PlayCircle, BarChart, Calendar, Video, Clock, Instagram, CalendarClock, Send, ExternalLink, Film, Heart, MessageCircle, Map, CheckCircle2, CircleDot, FileText, Loader2, AlertCircle, ArrowRight, ListChecks } from "lucide-react"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
 import { Link } from "wouter"
@@ -17,6 +18,9 @@ import { useState, useEffect } from "react"
 export default function Dashboard() {
   const { data: dashboard, isLoading } = useGetDashboard()
   const { data: allVideos } = useGetVideos({ status: 'ready' })
+  const { data: planData, isLoading: planLoading } = useGetContentPlan({ limit: 10000, status: "all" })
+  const { data: strategyData, isLoading: strategyLoading } = useGetStrategyProfile()
+  const triggerAutomation = useTriggerAutomation()
   const publishVideo = usePublishVideo()
   const scheduleVideo = useScheduleVideo()
   const queryClient = useQueryClient()
@@ -48,6 +52,18 @@ export default function Dashboard() {
     const d = new Date(Date.now() + 5 * 60 * 1000)
     d.setSeconds(0, 0)
     return d.toISOString().slice(0, 16)
+  }
+
+  const handleTrigger = () => {
+    triggerAutomation.mutate(undefined, {
+      onSuccess: (result) => {
+        toast({ title: "Automatización activada", description: result.message })
+        queryClient.invalidateQueries({ queryKey: getGetDashboardQueryKey() })
+      },
+      onError: () => {
+        toast({ title: "Error", description: "No se pudo activar la automatización", variant: "destructive" })
+      }
+    })
   }
 
   const handlePublishNow = (id: number) => {
@@ -104,6 +120,15 @@ export default function Dashboard() {
         <div>
           <h1 className="text-3xl md:text-4xl font-display font-bold tracking-tight">Dashboard</h1>
           <p className="text-muted-foreground mt-1">Resumen de tu máquina de contenido</p>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button variant="outline" size="sm" asChild>
+            <Link href="/content">Generar Script</Link>
+          </Button>
+          <Button size="sm" onClick={handleTrigger} disabled={triggerAutomation.isPending} className="gap-2 shadow-lg shadow-primary/20">
+            <PlayCircle className="w-4 h-4" />
+            {triggerAutomation.isPending ? "Ejecutando..." : "Ejecutar Ahora"}
+          </Button>
         </div>
       </div>
 
@@ -217,6 +242,14 @@ export default function Dashboard() {
               </CardContent>
             </Card>
           </div>
+
+          {/* ── Pipeline Status ──────────────────────────────────────────────────── */}
+          <PipelineStatusCard
+            planItems={planData ?? []}
+            planLoading={planLoading}
+            strategyProfile={strategyData?.profile ?? null}
+            strategyLoading={strategyLoading}
+          />
 
           {/* ── Listos para publicar ─────────────────────────────────────────────── */}
           {readyVideos.length > 0 && (
@@ -416,4 +449,233 @@ export default function Dashboard() {
       </Dialog>
     </div>
   )
+}
+
+interface PipelineStatusCardProps {
+  planItems: ContentPlanItem[]
+  planLoading: boolean
+  strategyProfile: StrategyProfile | null
+  strategyLoading: boolean
+}
+
+const STATUS_META: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
+  draft:      { label: "Borrador",    color: "text-muted-foreground bg-muted",       icon: <FileText className="w-3.5 h-3.5" /> },
+  scripted:   { label: "Con Script",  color: "text-blue-600 bg-blue-500/10",         icon: <FileText className="w-3.5 h-3.5" /> },
+  generating: { label: "Generando",   color: "text-purple-600 bg-purple-500/10",     icon: <Loader2 className="w-3.5 h-3.5 animate-spin" /> },
+  ready:      { label: "Listo",       color: "text-emerald-600 bg-emerald-500/10",   icon: <CheckCircle2 className="w-3.5 h-3.5" /> },
+  published:  { label: "Publicado",   color: "text-green-600 bg-green-500/10",       icon: <Play className="w-3.5 h-3.5" /> },
+  failed:     { label: "Error",       color: "text-destructive bg-destructive/10",   icon: <AlertCircle className="w-3.5 h-3.5" /> },
+}
+
+function PipelineStatusCard({ planItems, planLoading, strategyProfile, strategyLoading }: PipelineStatusCardProps) {
+  const loading = planLoading || strategyLoading
+
+  // Strategy completeness
+  const steps = strategyProfile?.steps_completed ?? []
+  const strategy = strategyLabel(steps)
+  const hasStrategy = strategy.done
+
+  // Plan summary
+  const hasPlan = planItems.length > 0
+  const counts = planItems.reduce<Record<string, number>>((acc, item) => {
+    acc[item.status] = (acc[item.status] ?? 0) + 1
+    return acc
+  }, {})
+
+  // Next scheduled item: soonest future scheduled_at that isn't published/failed
+  const now = Date.now()
+  const upcoming = planItems
+    .filter(i => {
+      if (!i.scheduled_at || ["published", "failed"].includes(i.status)) return false
+      const ts = new Date(i.scheduled_at).getTime()
+      return !isNaN(ts) && ts > now
+    })
+    .map(i => new Date(i.scheduled_at!).getTime())
+    .sort((a, b) => a - b)[0]
+
+  // ── Loading skeleton ──
+  if (loading) {
+    return (
+      <Card>
+        <CardContent className="p-5 space-y-3">
+          <Skeleton className="h-4 w-40" />
+          <div className="flex gap-2 flex-wrap">
+            <Skeleton className="h-7 w-24 rounded-full" />
+            <Skeleton className="h-7 w-24 rounded-full" />
+            <Skeleton className="h-7 w-24 rounded-full" />
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  // ── No strategy yet ──
+  if (!strategyProfile) {
+    return (
+      <Card className="border-dashed border-primary/20 bg-primary/5">
+        <CardContent className="p-5 flex flex-col sm:flex-row sm:items-center gap-4">
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary shrink-0">
+              <Map className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <p className="font-semibold text-sm">Estudio estratégico pendiente</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Completa el estudio para que ContentPilot pueda generar un plan de contenido personalizado.
+              </p>
+            </div>
+          </div>
+          <Button size="sm" className="gap-1.5 shrink-0" asChild>
+            <Link href="/audit">
+              Iniciar Estudio <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+          </Button>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  // ── Strategy incomplete ──
+  if (!hasStrategy) {
+    return (
+      <Card className="border-dashed border-amber-500/30 bg-amber-500/5">
+        <CardContent className="p-5 flex flex-col sm:flex-row sm:items-center gap-4">
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            <div className="w-10 h-10 rounded-lg bg-amber-500/10 flex items-center justify-center text-amber-600 shrink-0">
+              <CircleDot className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <p className="font-semibold text-sm">{strategy.label}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                El estudio está en progreso. Termínalo para desbloquear la generación del plan.
+              </p>
+              <div className="flex gap-1.5 mt-2 flex-wrap">
+                {(["account", "market", "strategy"] as const).map((step) => {
+                  const done = steps.includes(step)
+                  const labels: Record<string, string> = { account: "Cuenta", market: "Mercado", strategy: "Estrategia" }
+                  return (
+                    <span
+                      key={step}
+                      className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full font-medium ${done ? "bg-emerald-500/15 text-emerald-700" : "bg-muted text-muted-foreground"}`}
+                    >
+                      {done ? <CheckCircle2 className="w-3 h-3" /> : <CircleDot className="w-3 h-3" />}
+                      {labels[step]}
+                    </span>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+          <Button size="sm" variant="outline" className="gap-1.5 shrink-0 border-amber-500/40 hover:bg-amber-500/10" asChild>
+            <Link href="/audit">
+              {strategy.nextStep} <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+          </Button>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  // ── Strategy done, no plan yet ──
+  if (!hasPlan) {
+    return (
+      <Card className="border-dashed border-secondary/30 bg-secondary/5">
+        <CardContent className="p-5 flex flex-col sm:flex-row sm:items-center gap-4">
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            <div className="w-10 h-10 rounded-lg bg-secondary/10 flex items-center justify-center text-secondary shrink-0">
+              <ListChecks className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <p className="font-semibold text-sm">Estrategia lista</p>
+                <Badge className="bg-emerald-500/15 text-emerald-700 hover:bg-emerald-500/15 text-[10px] font-medium px-1.5">
+                  <CheckCircle2 className="w-3 h-3 mr-1" /> Completa
+                </Badge>
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Todavía no hay un plan de contenido. Generá los primeros Reels para arrancar el pipeline.
+              </p>
+            </div>
+          </div>
+          <Button size="sm" className="gap-1.5 shrink-0" asChild>
+            <Link href="/content">
+              Generar Plan <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+          </Button>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  // ── Full pipeline summary ──
+  const activeStatuses = ["draft", "scripted", "generating", "ready"] as const
+  const totalActive = activeStatuses.reduce((s, k) => s + (counts[k] ?? 0), 0)
+
+  return (
+    <Card>
+      <CardContent className="p-5">
+        <div className="flex flex-col sm:flex-row sm:items-start gap-4">
+          {/* Left: heading + badge counts */}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-8 h-8 rounded-lg bg-secondary/10 flex items-center justify-center text-secondary">
+                <ListChecks className="w-4 h-4" />
+              </div>
+              <div>
+                <p className="font-semibold text-sm leading-tight">Pipeline de contenido</p>
+                <p className="text-[11px] text-muted-foreground">
+                  {totalActive} item{totalActive !== 1 ? "s" : ""} activos · {counts["published"] ?? 0} publicados
+                </p>
+              </div>
+            </div>
+
+            {/* Status badges */}
+            <div className="flex flex-wrap gap-2">
+              {(["draft", "scripted", "generating", "ready", "published", "failed"] as const).map((status) => {
+                const count = counts[status]
+                if (!count) return null
+                const meta = STATUS_META[status]
+                return (
+                  <span
+                    key={status}
+                    className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-medium ${meta.color}`}
+                  >
+                    {meta.icon}
+                    {meta.label}
+                    <span className="font-bold">{count}</span>
+                  </span>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Right: next scheduled + CTA */}
+          <div className="flex flex-col gap-2 sm:items-end shrink-0">
+            {upcoming && (
+              <div className="text-right">
+                <p className="text-[11px] text-muted-foreground mb-0.5 flex items-center gap-1 sm:justify-end">
+                  <CalendarClock className="w-3 h-3" /> Próx. programado
+                </p>
+                <p className="text-sm font-semibold text-foreground">
+                  {format(new Date(upcoming), "d MMM, HH:mm", { locale: es })}
+                </p>
+              </div>
+            )}
+            <Button size="sm" variant="outline" className="gap-1.5" asChild>
+              <Link href="/content">
+                Ver plan <ExternalLink className="w-3 h-3" />
+              </Link>
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function strategyLabel(steps: string[]): { done: boolean; label: string; nextStep: string } {
+  if (steps.includes("strategy")) return { done: true, label: "Estrategia completa", nextStep: "" }
+  if (steps.includes("market")) return { done: false, label: "Falta generar estrategia", nextStep: "Continuar" }
+  if (steps.includes("account")) return { done: false, label: "Falta el estudio de mercado", nextStep: "Continuar" }
+  return { done: false, label: "Estudio estratégico pendiente", nextStep: "Iniciar" }
 }
