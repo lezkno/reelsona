@@ -489,55 +489,7 @@ export default function Landing() {
             </p>
           </div>
 
-          {/* 3 Pillars */}
-          <div className="grid gap-4 reveal-up stagger-1" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", marginBottom: "3.5rem" }}>
-            {[
-              { Icon: Settings2, color: "#4F6EF7", bg: "rgba(79,110,247,0.08)", border: "rgba(79,110,247,0.2)", title: "1. Configuras una sola vez", desc: "Defines tu nicho, audiencia, el tono de tu contenido y los horarios de publicación." },
-              { Icon: Bot,       color: "#9B5CF6", bg: "rgba(155,92,246,0.08)", border: "rgba(155,92,246,0.2)", title: "2. El sistema produce", desc: "Reelsona genera temas, escribe guiones, produce videos con tu avatar y aplica captions." },
-              { Icon: Calendar,  color: "#4F6EF7", bg: "rgba(79,110,247,0.08)", border: "rgba(79,110,247,0.2)", title: "3. Instagram se actualiza solo", desc: "Los Reels se publican en tu cuenta según el calendario que configuraste." },
-            ].map(({ Icon, color, bg, border, title, desc }) => (
-              <div key={title} className="rounded-2xl" style={{ backgroundColor: "#0f0f0f", border: `1px solid ${border}`, padding: "1.75rem" }}>
-                <div className="flex items-center justify-center rounded-xl" style={{ width: 44, height: 44, backgroundColor: bg, color, marginBottom: "1rem" }}><Icon size={20} /></div>
-                <h3 style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontWeight: 700, fontSize: "0.95rem", color: "#e8e8e8", marginBottom: "0.5rem" }}>{title}</h3>
-                <p style={{ color: "#666", fontSize: "0.86rem", lineHeight: 1.7, margin: 0 }}>{desc}</p>
-              </div>
-            ))}
-          </div>
-
-          {/* Visual Pipeline — node diagram */}
-          <p className="text-center reveal-up" style={{ fontSize: "0.72rem", letterSpacing: "0.1em", textTransform: "uppercase", color: "#444", marginBottom: "1.25rem", fontWeight: 700 }}>
-            El pipeline que Autopilot ejecuta en cada ciclo
-          </p>
-
-          {/* Desktop nodes */}
-          <div className="hidden md:block reveal-up stagger-2" style={{ position: "relative", paddingTop: "1.5rem", paddingBottom: "1.5rem", marginBottom: "3rem" }}>
-            <div style={{ position: "absolute", top: "50%", left: 0, right: 0, height: 2, backgroundColor: "#1a1a1a", transform: "translateY(-50%)", zIndex: 0 }} />
-            <div style={{ position: "absolute", top: "50%", left: 0, width: "80%", height: 2, background: "linear-gradient(90deg,#4F6EF7,#9B5CF6)", transform: "translateY(-50%)", zIndex: 0, opacity: 0.7 }} />
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: "1rem", position: "relative", zIndex: 1 }}>
-              {[
-                { Icon: Target,   title: "Estrategia",  desc: "Nicho & Ángulos",         color: "#4F6EF7" },
-                { Icon: FilePen,  title: "Guión IA",    desc: "Hooks & Retención",        color: "#6366f1" },
-                { Icon: Bot,      title: "Avatar",      desc: "HeyGen Render",            color: "#8b5cf6" },
-                { Icon: Sparkles, title: "Captions",    desc: "Estilo Visual",            color: "#a855f7" },
-                { Icon: Instagram,title: "Instagram",   desc: "Publicación Automática",   color: "#d946ef" },
-              ].map(({ Icon, title, desc, color }, i) => (
-                <div key={title} className="flex flex-col items-center" style={{ position: "relative" }}>
-                  <div style={{ width: 60, height: 60, borderRadius: 16, backgroundColor: "#111", border: `2px solid ${color}`, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "0.85rem", boxShadow: `0 0 18px ${color}44` }}>
-                    <Icon size={24} color={color} />
-                  </div>
-                  <span style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontWeight: 700, fontSize: "0.88rem", color: "#e0e0e0", textAlign: "center", marginBottom: "0.2rem" }}>{title}</span>
-                  <span style={{ fontSize: "0.72rem", color: "#555", textAlign: "center" }}>{desc}</span>
-                  {i < 4 && (
-                    <div className="node-pulse" style={{ position: "absolute", top: 30, right: -18, color: "#4F6EF7" }}>
-                      <ArrowRight size={18} />
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Sequential card animation (mobile-friendly) */}
+          {/* Sequential card animation */}
           <div className="flex items-stretch reveal-up stagger-3" style={{ gap: 0, overflowX: "auto", marginBottom: "3rem" }}>
             {autopilotSteps.flatMap(({ n, title, desc }, idx) => {
               const items = [
