@@ -51,7 +51,6 @@ export default function ContentPlan() {
   const [filter, setFilter] = useState<string>("all")
   const [dialogOpen, setDialogOpen] = useState(false)
   const [days, setDays] = useState(7)
-  const [postsPerDay, setPostsPerDay] = useState(1)
 
   // Always fetch everything — filtering is done client-side so tab counts are
   // always accurate and switching tabs is instant (no extra network round-trips).
@@ -293,11 +292,14 @@ export default function ContentPlan() {
   const { toast } = useToast()
   const queryClient = useQueryClient()
 
+  // Derive posts per day directly from the configured posting times
+  const derivedPostsPerDay = Math.max(1, (automation?.posting_times as string[] | undefined)?.length ?? 1)
+
   const handleGenerate = () => {
-    generatePlan.mutate({ data: { days, posts_per_day: postsPerDay } }, {
+    generatePlan.mutate({ data: { days, posts_per_day: derivedPostsPerDay } }, {
       onSuccess: (created) => {
         setDialogOpen(false)
-        toast({ title: "Plan Generado", description: `Se crearon ${created.length} ideas, programadas según tus días y horarios de Automatización.` })
+        toast({ title: "Plan Generado", description: `Se crearon ${created.length} ideas, programadas según tu configuración de Automatización.` })
         queryClient.invalidateQueries({ queryKey: getGetContentPlanQueryKey() })
       },
       onError: (err: any) => {
@@ -376,32 +378,106 @@ export default function ContentPlan() {
             </DialogTrigger>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
-              <DialogTitle>Generar Plan de Contenido</DialogTitle>
+              <DialogTitle>Generar Ideas de Contenido</DialogTitle>
               <DialogDescription>
-                Las ideas se programan automáticamente en los días y horarios que configuraste en Automatización, llenando los espacios libres (sin duplicar horarios ya ocupados).
+                La IA revisa tu plan actual y genera ideas nuevas para los espacios libres, según tu programación de Automatización.
               </DialogDescription>
             </DialogHeader>
-            <div className="grid grid-cols-2 gap-4 py-2">
+
+            <div className="space-y-4 py-1">
+              {/* Automation schedule summary */}
+              {(() => {
+                const DAY_SHORT: Record<number, string> = { 0: "Dom", 1: "Lun", 2: "Mar", 3: "Mié", 4: "Jue", 5: "Vie", 6: "Sáb" }
+                const configDays   = (automation?.days_of_week  as number[] | undefined) ?? []
+                const configTimes  = (automation?.posting_times as string[]  | undefined) ?? []
+                const futureItems  = (items ?? []).filter(i => i.scheduled_at && new Date(i.scheduled_at) > new Date())
+                const lastItem     = futureItems.length > 0
+                  ? futureItems.reduce((a, b) =>
+                      new Date(a.scheduled_at!) > new Date(b.scheduled_at!) ? a : b)
+                  : null
+
+                return (
+                  <div className="rounded-xl border bg-muted/30 p-4 space-y-3 text-sm">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Tu configuración de Automatización</p>
+
+                    <div className="flex items-start gap-3">
+                      <CalendarDays className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-medium leading-tight">Días activos</p>
+                        {configDays.length > 0 ? (
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {[1,2,3,4,5,6,0].map((d) => (
+                              <span key={d} className={`text-[11px] font-semibold px-1.5 py-0.5 rounded ${configDays.includes(d) ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground opacity-40"}`}>
+                                {DAY_SHORT[d]}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-muted-foreground mt-0.5">Sin días configurados — configurá Automatización primero.</p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-start gap-3">
+                      <Clock className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-medium leading-tight">Horarios · {derivedPostsPerDay} publicación{derivedPostsPerDay !== 1 ? "es" : ""} por día</p>
+                        {configTimes.length > 0 ? (
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {configTimes.map((t) => (
+                              <span key={t} className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-primary/15 text-primary">{t}</span>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-muted-foreground mt-0.5">Sin horarios configurados.</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {lastItem && (
+                      <div className="flex items-start gap-3 pt-1 border-t">
+                        <Zap className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="font-medium leading-tight">Continúa desde</p>
+                          <p className="text-xs text-muted-foreground mt-0.5 capitalize">
+                            {format(new Date(lastItem.scheduled_at!), "EEEE d 'de' MMMM 'a las' HH:mm", { locale: es })}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
+
+              {/* Only ask how many scheduling days ahead */}
               <div className="space-y-2">
-                <Label>Días de publicación</Label>
-                <select value={days} onChange={(e) => setDays(Number(e.target.value))} className="w-full h-10 rounded-md border bg-background px-3 text-sm">
-                  {[3, 5, 7, 10, 14].map((d) => <option key={d} value={d}>{d} días</option>)}
-                </select>
-              </div>
-              <div className="space-y-2">
-                <Label>Videos por día</Label>
-                <select value={postsPerDay} onChange={(e) => setPostsPerDay(Number(e.target.value))} className="w-full h-10 rounded-md border bg-background px-3 text-sm">
-                  {[1, 2, 3].map((n) => <option key={n} value={n}>{n} video{n > 1 ? "s" : ""}</option>)}
-                </select>
+                <Label className="text-sm font-medium">¿Cuántos días de publicación planificar?</Label>
+                <div className="flex gap-2">
+                  {[3, 5, 7, 10, 14].map((d) => (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() => setDays(d)}
+                      className={`flex-1 py-2 rounded-lg border text-sm font-semibold transition-all ${
+                        days === d
+                          ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                          : "bg-background text-muted-foreground border-border hover:border-primary/50 hover:text-foreground"
+                      }`}
+                    >
+                      {d}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Hasta {days * derivedPostsPerDay} ideas nuevas · sin pisar horarios ya ocupados.
+                </p>
               </div>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Total: hasta {days * postsPerDay} ideas nuevas.
-            </p>
+
             <DialogFooter>
               <Button onClick={handleGenerate} disabled={generatePlan.isPending} className="gap-2 w-full">
                 <Wand2 className="w-4 h-4" />
-                {generatePlan.isPending ? "Generando..." : "Generar y Programar"}
+                {generatePlan.isPending ? "Generando ideas…" : "Generar y Programar"}
               </Button>
             </DialogFooter>
           </DialogContent>
