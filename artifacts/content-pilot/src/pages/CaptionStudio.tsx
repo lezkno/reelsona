@@ -1485,7 +1485,7 @@ export default function CaptionStudio() {
           </div>
 
           {/* ── Browser template advanced settings ─────────────────────── */}
-          {mergedTmpl && (
+          {!rotationEnabled && mergedTmpl && (
             <div>
               <div className="flex items-center justify-between mb-1">
                 <h2 className="text-xl font-display font-bold">Ajustes de plantilla</h2>
@@ -1686,8 +1686,8 @@ export default function CaptionStudio() {
             </div>
           )}
 
-          {/* Advanced config — hidden when a browser template is active */}
-          {!activeTmpl && (<div>
+          {/* Advanced config — hidden when a browser template is active or rotation is on */}
+          {!rotationEnabled && !activeTmpl && (<div>
             <h2 className="text-xl font-display font-bold mb-4">Ajustes avanzados</h2>
             <div className="relative">
               {isVideoProcessing && (
