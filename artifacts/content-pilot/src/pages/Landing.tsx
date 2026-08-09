@@ -187,7 +187,7 @@ export default function Landing() {
         </div>
         <div className="flex items-center gap-3">
           <a
-            href={`${BASE}/login`}
+            href={`${BASE}/`}
             className="text-sm transition-colors"
             style={{ color: "#666", textDecoration: "none" }}
           >
@@ -971,7 +971,7 @@ export default function Landing() {
           {[
             { label: "Privacidad", href: `${BASE}/privacy` },
             { label: "Términos", href: `${BASE}/terms` },
-            { label: "Acceder", href: `${BASE}/login` },
+            { label: "Acceder", href: `${BASE}/` },
           ].map(({ label, href }) => (
             <a
               key={label}

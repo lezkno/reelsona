@@ -1,4 +1,4 @@
-import { Route, Switch, Router as WouterRouter } from "wouter"
+import { Route, Switch, Router as WouterRouter, useLocation } from "wouter"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { Toaster } from "@/components/ui/toaster"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -98,6 +98,7 @@ function Router() {
 /** Checks session status and renders Login or the app accordingly. */
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { data, isLoading, refetch } = useAuthStatus()
+  const [, navigate] = useLocation()
 
   if (isLoading) {
     return (
@@ -108,7 +109,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   }
 
   if (!data?.authenticated) {
-    return <Login onSuccess={() => refetch()} />
+    return <Login onSuccess={() => { refetch(); navigate("/") }} />
   }
 
   return <>{children}</>
