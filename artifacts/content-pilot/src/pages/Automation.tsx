@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge"
 import { useQueryClient, useQuery } from "@tanstack/react-query"
 import { useToast } from "@/hooks/use-toast"
 import { useEffect, useState } from "react"
-import { Zap, Clock, CalendarDays, Plus, X, Lock, ExternalLink, Sparkles, CheckCircle2, Circle } from "lucide-react"
+import { Zap, Clock, CalendarDays, Plus, X, Lock, ExternalLink, Sparkles, CheckCircle2, Circle, Globe } from "lucide-react"
 
 type RecommendedSlot = { time: string; label: string; reason: string }
 type RecommendedTimesResponse = {
@@ -78,6 +78,15 @@ export default function Automation() {
   }
 
   const [newTime, setNewTime] = useState("12:00")
+  const [browserTz] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone)
+
+  // Auto-sync timezone on first load if it differs from the stored value
+  useEffect(() => {
+    if (config && formData && formData.timezone !== browserTz) {
+      saveChange({ timezone: browserTz })
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config?.timezone])
 
   const addTime = () => {
     if (!formData?.posting_times || !newTime) return
@@ -207,6 +216,19 @@ export default function Automation() {
                       ? <>Sugerencias basadas en tu nicho: <span className="font-medium text-foreground capitalize">{recommended.niche}</span></>
                       : "Activá los horarios sugeridos o añadí los tuyos"}
                   </CardDescription>
+                  {/* Timezone indicator */}
+                  <div className="flex items-center gap-1.5 mt-2">
+                    <Globe className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                    <span className="text-xs text-muted-foreground">{formData.timezone ?? browserTz}</span>
+                    {formData.timezone !== browserTz && (
+                      <button
+                        onClick={() => saveChange({ timezone: browserTz })}
+                        className="text-xs text-primary underline underline-offset-2 hover:no-underline ml-1"
+                      >
+                        Usar mi zona ({browserTz})
+                      </button>
+                    )}
+                  </div>
                 </div>
                 {recommended?.account_username && (
                   <Badge variant="outline" className="shrink-0 text-[11px]">@{recommended.account_username}</Badge>
