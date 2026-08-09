@@ -8,12 +8,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Zap, Play, BarChart, Calendar, Video, Clock, Instagram, CalendarClock, Send, ExternalLink, Film, Heart, MessageCircle, Map, CheckCircle2, CircleDot, FileText, Loader2, AlertCircle, ArrowRight, ListChecks } from "lucide-react"
-import { format } from "date-fns"
 import { es } from "date-fns/locale"
 import { Link } from "wouter"
 import { useQueryClient } from "@tanstack/react-query"
 import { useToast } from "@/hooks/use-toast"
 import { useState, useEffect } from "react"
+import { Zap, Play, PlayCircle, BarChart, Calendar, Video, Clock, Instagram, CalendarClock, Send, ExternalLink, Film, Heart, MessageCircle, Map, CheckCircle2, CircleDot, FileText, Loader2, AlertCircle, ArrowRight, ListChecks, Activity } from "lucide-react"
+import { format, formatDistanceToNow } from "date-fns"
 
 export default function Dashboard() {
   const { data: dashboard, isLoading } = useGetDashboard()
@@ -244,6 +245,9 @@ export default function Dashboard() {
             strategyProfile={strategyData?.profile ?? null}
             strategyLoading={strategyLoading}
           />
+
+          {/* ── Actividad reciente ───────────────────────────────────────────────── */}
+          <RecentActivityCard planItems={planData ?? []} planLoading={planLoading} />
 
           {/* ── Listos para publicar ─────────────────────────────────────────────── */}
           {readyVideos.length > 0 && (
@@ -667,9 +671,79 @@ function PipelineStatusCard({ planItems, planLoading, strategyProfile, strategyL
   )
 }
 
+const ACTIVITY_META: Record<string, { label: string; color: string; dot: string; icon: React.ReactNode }> = {
+  ready:     { label: "Listo",     color: "text-emerald-700 bg-emerald-500/10", dot: "bg-emerald-500", icon: <CheckCircle2 className="w-3.5 h-3.5" /> },
+  published: { label: "Publicado", color: "text-green-700 bg-green-500/10",     dot: "bg-green-500",   icon: <Play className="w-3.5 h-3.5" /> },
+  failed:    { label: "Error",     color: "text-destructive bg-destructive/10", dot: "bg-destructive",  icon: <AlertCircle className="w-3.5 h-3.5" /> },
+}
 function strategyLabel(steps: string[]): { done: boolean; label: string; nextStep: string } {
   if (steps.includes("strategy")) return { done: true, label: "Estrategia completa", nextStep: "" }
   if (steps.includes("market")) return { done: false, label: "Falta generar estrategia", nextStep: "Continuar" }
   if (steps.includes("account")) return { done: false, label: "Falta el estudio de mercado", nextStep: "Continuar" }
   return { done: false, label: "Estudio estratégico pendiente", nextStep: "Iniciar" }
+}
+
+function RecentActivityCard({ planItems, planLoading }: { planItems: ContentPlanItem[]; planLoading: boolean }) {
+  const cutoff = Date.now() - 24 * 60 * 60 * 1000
+
+  const recentItems = planItems
+    .filter(item => {
+      if (!["ready", "published", "failed"].includes(item.status)) return false
+      return new Date(item.updated_at).getTime() >= cutoff
+    })
+    .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+    .slice(0, 10)
+
+  if (planLoading) {
+    return (
+      <Card>
+        <CardContent className="p-5 space-y-3">
+          <Skeleton className="h-4 w-40" />
+          <div className="space-y-2">
+            {[1, 2, 3].map(i => <Skeleton key={i} className="h-10 rounded-lg" />)}
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  if (recentItems.length === 0) return null
+
+  return (
+    <Card>
+      <CardContent className="p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
+            <Activity className="w-4 h-4" />
+          </div>
+          <div>
+            <p className="font-semibold text-sm leading-tight">Actividad reciente</p>
+            <p className="text-[11px] text-muted-foreground">Últimas 24 horas del pipeline</p>
+          </div>
+        </div>
+
+        <ul className="space-y-2">
+          {recentItems.map(item => {
+            const meta = ACTIVITY_META[item.status]
+            if (!meta) return null
+            return (
+              <li key={item.id} className="flex items-center gap-3 rounded-lg px-3 py-2.5 bg-muted/40 hover:bg-muted/70 transition-colors">
+                <span className={`w-2 h-2 rounded-full shrink-0 ${meta.dot}`} />
+                <span className={`inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full shrink-0 ${meta.color}`}>
+                  {meta.icon}
+                  {meta.label}
+                </span>
+                <p className="text-sm text-foreground line-clamp-1 flex-1 min-w-0">
+                  {item.topic ?? `Item #${item.id}`}
+                </p>
+                <span className="text-[11px] text-muted-foreground shrink-0 whitespace-nowrap">
+                  {formatDistanceToNow(new Date(item.updated_at), { addSuffix: true, locale: es })}
+                </span>
+              </li>
+            )
+          })}
+        </ul>
+      </CardContent>
+    </Card>
+  )
 }
