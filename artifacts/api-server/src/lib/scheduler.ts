@@ -266,15 +266,21 @@ export async function runAutomationCycle(targetItemId?: number): Promise<{
   // Load automation config (a manual "create now" run ignores the enabled flag)
   const [automation] = await db.select().from(automationConfigTable).limit(1);
   if (!automation) {
+    logger.warn("Automation cycle aborted: automation_config row missing");
     return { success: false, message: "Automation not configured" };
   }
   if (!automation.enabled && targetItemId === undefined) {
+    logger.warn("Automation cycle aborted: automation is disabled");
     return { success: false, message: "Automation disabled" };
   }
 
   // Load settings (scoped to automation owner if possible, else first available)
   const [settings] = await db.select().from(settingsTable).limit(1);
   if (!settings?.niche) {
+    logger.warn(
+      { hasSettingsRow: !!settings },
+      "Automation cycle aborted: niche not configured in settings — go to Settings and fill in your niche"
+    );
     return { success: false, message: "Niche not configured" };
   }
   const heygenApiKey = settings.heygenApiKey ?? process.env.HEYGEN_API_KEY ?? undefined;
@@ -282,6 +288,7 @@ export async function runAutomationCycle(targetItemId?: number): Promise<{
   // Load avatar config
   const [avatarCfg] = await db.select().from(avatarConfigTable).limit(1);
   if (!avatarCfg?.selectedAvatarIds?.length) {
+    logger.warn("Automation cycle aborted: no avatars configured — go to Avatar Config and select at least one");
     return { success: false, message: "No avatars configured" };
   }
 
@@ -289,6 +296,7 @@ export async function runAutomationCycle(targetItemId?: number): Promise<{
   // Script and video generation should work even without an IG account connected.
   const [igAccount] = await db.select().from(instagramAccountsTable).limit(1);
   if (!igAccount && automation.autoPublish && targetItemId === undefined) {
+    logger.warn("Automation cycle aborted: auto-publish is on but no Instagram account is connected");
     return { success: false, message: "Instagram account not connected" };
   }
 
