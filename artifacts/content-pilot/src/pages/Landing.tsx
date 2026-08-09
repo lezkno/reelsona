@@ -2,7 +2,6 @@ import { useState } from "react";
 import {
   ArrowRight,
   Calendar,
-  Camera,
   Check,
   ChevronDown,
   Clock,
@@ -13,6 +12,8 @@ import {
   Sparkles,
   TrendingUp,
   Zap,
+  Rocket,
+  MonitorPlay,
 } from "lucide-react";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -22,37 +23,37 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const steps = [
   {
     n: "01",
-    Icon: Camera,
-    title: "Configura tu avatar",
-    desc: "Conecta tus APIs y elige el avatar que te representará en tus Reels.",
+    Icon: Brain,
+    title: "Define tu estrategia",
+    desc: "El sistema analiza tu nicho y genera un plan de temas con hooks para los próximos 30 días.",
   },
   {
     n: "02",
-    Icon: Brain,
-    title: "Genera tu estrategia",
-    desc: "El sistema analiza tu nicho y crea un plan de contenido con hooks y guiones listos.",
+    Icon: MessageSquare,
+    title: "Genera los guiones",
+    desc: "IA escribe los guiones adaptados a tu audiencia y al formato de Reels, listos para revisar.",
   },
   {
     n: "03",
     Icon: Zap,
-    title: "Crea tus Reels",
-    desc: "Genera los videos con tu avatar, captions y estructura visual optimizada.",
+    title: "El avatar lo graba por ti",
+    desc: "Tu avatar IA narra el video con captions y estructura visual incluidos. Sin editar nada.",
   },
   {
     n: "04",
     Icon: Calendar,
     title: "Publica y repite",
-    desc: "Programa la publicación en Instagram y mantén el flujo sin esfuerzo manual.",
+    desc: "Programa la publicación en Instagram y mantén el flujo de contenido sin trabajo manual.",
   },
 ];
 
 const benefits = [
-  { Icon: Sparkles, text: "Sin quedarte sin ideas de contenido" },
-  { Icon: Clock, text: "Sin grabarte frente a cámara todos los días" },
-  { Icon: MessageSquare, text: "Guiones y hooks pensados para formato avatar" },
-  { Icon: LayoutTemplate, text: "Captions y estructura visual incluida" },
-  { Icon: Calendar, text: "Calendario y automatización de publicaciones" },
-  { Icon: TrendingUp, text: "Sistema guiado paso a paso desde cero" },
+  { Icon: Sparkles, text: "Sin quedarte sin ideas: el sistema genera el plan de contenido por ti" },
+  { Icon: Clock, text: "Sin grabarte a diario: tu avatar habla por ti en cada Reel" },
+  { Icon: MessageSquare, text: "Guiones y hooks listos, pensados para el formato de avatar" },
+  { Icon: LayoutTemplate, text: "Captions y estructura visual generados automáticamente" },
+  { Icon: Calendar, text: "Publicación programada en Instagram desde la plataforma" },
+  { Icon: TrendingUp, text: "Ruta guiada paso a paso, desde cero hasta tu primer Reel publicado" },
 ];
 
 const includes = [
@@ -60,42 +61,46 @@ const includes = [
   "Plataforma para generar estrategia, guiones y videos",
   "Estudio de mercado con análisis de competidores",
   "Generador de guiones con hooks para Reels",
-  "Creación de videos con avatar IA",
+  "Videos producidos con tu avatar IA en HeyGen",
   "Captions con estilo visual automáticos",
   "Publicación programada en Instagram",
-  "Área de clases paso a paso",
+  "Área de clases paso a paso incluida",
   "Plantillas y checklists de producción",
 ];
 
-const demoItems = [
-  "Configurar avatar y conectar APIs",
-  "Estudio de mercado automático",
-  "Estrategia y plan de contenido",
-  "Generación de guiones con hooks",
-  "Crear videos con avatar IA",
-  "Captions y publicación en Instagram",
+const flowItems = [
+  "Dashboard con tu plan de contenido activo",
+  "Generador de estrategia y análisis de nicho",
+  "Editor de guiones con hooks por Reel",
+  "Producción de videos con tu avatar en HeyGen",
+  "Estudio de captions con plantillas visuales",
+  "Publicación directa en Instagram",
 ];
 
 const faqs = [
   {
-    q: "¿Necesito saber editar videos?",
-    a: "No. El sistema genera los videos completos con tu avatar. No necesitas editar nada manualmente.",
+    q: "¿Reelsona es una herramienta para crear avatares?",
+    a: "No. Reelsona no crea avatares ni compite con HeyGen. Es un sistema que usa tu avatar existente en HeyGen para automatizar todo el proceso: estrategia, guiones, producción del video y publicación. Piénsalo como el sistema de operaciones detrás de tus Reels, no como el generador del avatar.",
   },
   {
-    q: "¿Tengo que grabarme frente a una cámara?",
-    a: "No. Usas un avatar IA que habla por ti. Tú escribes o editas el guión, el sistema hace el video.",
+    q: "¿Necesito tener un avatar en HeyGen antes de empezar?",
+    a: "Puedes empezar a configurar la estrategia y guiones sin un avatar listo. Para la producción de videos sí necesitarás una cuenta en HeyGen. Dentro de Reelsona tienes una ruta guiada que te explica cómo crear y conectar tu avatar paso a paso.",
   },
   {
     q: "¿Qué herramientas externas necesito?",
-    a: "Para generar los videos necesitarás cuentas en HeyGen y OpenAI. Sus costos no están incluidos y te guiamos paso a paso para configurarlas desde cero.",
+    a: "Para generar los videos necesitarás cuentas en HeyGen y OpenAI. Sus costos no están incluidos en Reelsona — te guiamos a configurarlas desde cero y son herramientas que usarías de todas formas para crear contenido con avatar IA.",
+  },
+  {
+    q: "¿Necesito saber editar videos?",
+    a: "No. El sistema genera los videos completos con tu avatar, captions incluidos. No necesitas abrir ningún editor de video.",
+  },
+  {
+    q: "¿Tengo que grabarme frente a una cámara?",
+    a: "No. Tu avatar IA habla por ti en cada Reel. Tú revisas o editas el guión si quieres, y el sistema produce el video.",
   },
   {
     q: "¿Esto funciona si no tengo experiencia técnica?",
-    a: "Sí. El sistema está diseñado para que sigas una ruta guiada. No necesitas conocimientos técnicos previos.",
-  },
-  {
-    q: "¿Puedo usar mi propio avatar personalizado?",
-    a: "Sí. Puedes crear y conectar tu propio avatar en HeyGen y usarlo dentro de la plataforma.",
+    a: "Sí. El sistema tiene una ruta guiada diseñada para llevarte desde cero. No necesitas conocimientos técnicos previos.",
   },
   {
     q: "¿Qué pasa después de comprar?",
@@ -103,46 +108,11 @@ const faqs = [
   },
   {
     q: "¿Puedo publicar directamente en Instagram?",
-    a: "Sí, puedes conectar tu cuenta de Instagram Business desde la plataforma y programar la publicación de tus Reels.",
+    a: "Sí. Puedes conectar tu cuenta de Instagram Business desde la plataforma y programar la publicación de tus Reels.",
   },
 ];
 
 // ─── Sub-components ────────────────────────────────────────────────────────────
-
-function VideoPlaceholder({ label, tall }: { label: string; tall?: boolean }) {
-  return (
-    <div
-      className="relative w-full rounded-2xl overflow-hidden"
-      style={{
-        paddingTop: tall ? "75%" : "56.25%",
-        backgroundColor: "#111",
-        border: "1px solid #1e1e1e",
-      }}
-    >
-      <div
-        className="absolute inset-0 flex flex-col items-center justify-center gap-3"
-        style={{
-          background: "linear-gradient(135deg, #0f0f0f 0%, #161616 100%)",
-        }}
-      >
-        <div
-          className="flex items-center justify-center rounded-full"
-          style={{
-            width: 64,
-            height: 64,
-            backgroundColor: "rgba(79,110,247,0.12)",
-            border: "2px solid rgba(79,110,247,0.35)",
-          }}
-        >
-          <Play size={26} color="#4F6EF7" fill="#4F6EF7" />
-        </div>
-        <span className="text-sm" style={{ color: "#444" }}>
-          {label}
-        </span>
-      </div>
-    </div>
-  );
-}
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -198,7 +168,11 @@ export default function Landing() {
         }}
       >
         <div className="flex items-center gap-2">
-          <img src={`${BASE}/logo.png`} alt="Reelsona" style={{ width: 30, height: 30, objectFit: "contain" }} />
+          <img
+            src={`${BASE}/logo.png`}
+            alt="Reelsona"
+            style={{ width: 30, height: 30, objectFit: "contain" }}
+          />
           <span
             className="font-bold tracking-tight"
             style={{
@@ -234,7 +208,7 @@ export default function Landing() {
 
       {/* ── HERO ── */}
       <section
-        className="relative flex flex-col items-center justify-center text-center overflow-hidden"
+        className="relative flex items-center justify-center overflow-hidden"
         style={{
           minHeight: "calc(100vh - 60px)",
           padding: "5rem 1.5rem 4rem",
@@ -260,20 +234,7 @@ export default function Landing() {
             transform: "translate(-50%, -50%)",
             width: 700,
             height: 420,
-            background:
-              "radial-gradient(ellipse, rgba(79,110,247,0.11) 0%, transparent 70%)",
-          }}
-        />
-        {/* coral accent glow */}
-        <div
-          className="absolute pointer-events-none"
-          style={{
-            bottom: "10%",
-            right: "5%",
-            width: 350,
-            height: 250,
-            background:
-              "radial-gradient(ellipse, rgba(255,94,91,0.07) 0%, transparent 70%)",
+            background: "radial-gradient(ellipse, rgba(79,110,247,0.11) 0%, transparent 70%)",
           }}
         />
 
@@ -298,7 +259,7 @@ export default function Landing() {
                 }}
               >
                 <Sparkles size={11} />
-                Avatar Content Machine
+                Sistema guiado de Reels con IA
               </div>
 
               <h1
@@ -308,10 +269,10 @@ export default function Landing() {
                   fontSize: "clamp(2.1rem, 5vw, 3.8rem)",
                   lineHeight: 1.08,
                   letterSpacing: "-0.035em",
-                  marginBottom: "1.5rem",
+                  marginBottom: "1.4rem",
                 }}
               >
-                Crea Reels con tu avatar{" "}
+                Publica Reels con tu avatar{" "}
                 <span
                   style={{
                     background: "linear-gradient(135deg, #4F6EF7 10%, #9B5CF6 90%)",
@@ -321,24 +282,24 @@ export default function Landing() {
                     display: "block",
                   }}
                 >
-                  sin grabarte todos los días
+                  sin grabarte ni editar a diario
                 </span>
               </h1>
 
               <p
                 style={{
-                  fontSize: "clamp(0.95rem, 1.8vw, 1.15rem)",
-                  color: "#777",
+                  fontSize: "clamp(0.95rem, 1.8vw, 1.1rem)",
+                  color: "#999",
                   lineHeight: 1.75,
                   maxWidth: 500,
-                  marginBottom: "2.5rem",
+                  marginBottom: "2rem",
                 }}
               >
-                Accede a un sistema guiado que te lleva desde la estrategia hasta
-                tus primeros videos listos para publicar.
+                Un sistema guiado que crea la estrategia, genera los guiones, produce
+                los videos con tu avatar y los prepara para publicar en Instagram.
               </p>
 
-              <div className="flex flex-wrap gap-3">
+              <div className="flex flex-wrap gap-3" style={{ marginBottom: "1.25rem" }}>
                 <a
                   href={`${BASE}/checkout`}
                   className="inline-flex items-center gap-2 rounded-xl font-bold transition-opacity hover:opacity-90"
@@ -350,10 +311,10 @@ export default function Landing() {
                     textDecoration: "none",
                   }}
                 >
-                  Acceder ahora <ArrowRight size={16} />
+                  Empezar a crear Reels <ArrowRight size={16} />
                 </a>
                 <a
-                  href="#video-ventas"
+                  href="#como-funciona"
                   className="inline-flex items-center gap-2 rounded-xl font-semibold transition-colors"
                   style={{
                     backgroundColor: "rgba(255,255,255,0.04)",
@@ -364,22 +325,39 @@ export default function Landing() {
                     textDecoration: "none",
                   }}
                 >
-                  <Play size={14} fill="currentColor" /> Ver demo
+                  <Play size={14} fill="currentColor" /> Ver cómo funciona
                 </a>
               </div>
 
+              {/* tools note */}
+              <p
+                style={{
+                  fontSize: "0.78rem",
+                  color: "#555",
+                  lineHeight: 1.6,
+                  marginBottom: "1.5rem",
+                }}
+              >
+                Funciona con tu cuenta de HeyGen y OpenAI.{" "}
+                <span style={{ color: "#444" }}>
+                  Te guiamos a configurarlas paso a paso.
+                </span>
+              </p>
+
               {/* social proof strip */}
               <div
-                className="flex items-center gap-5 flex-wrap mt-9"
-                style={{ color: "#444", fontSize: "0.8rem" }}
+                className="flex items-center gap-5 flex-wrap"
+                style={{ color: "#555", fontSize: "0.8rem" }}
               >
-                {["Sin grabar cámara", "Avatar IA", "Publicación automática"].map(
-                  (t) => (
-                    <span key={t} className="flex items-center gap-1.5">
-                      <Check size={11} color="#4F6EF7" strokeWidth={3} /> {t}
-                    </span>
-                  )
-                )}
+                {[
+                  "Guión listo en minutos",
+                  "Video producido con tu avatar",
+                  "Publicación automática en Instagram",
+                ].map((t) => (
+                  <span key={t} className="flex items-center gap-1.5">
+                    <Check size={11} color="#4F6EF7" strokeWidth={3} /> {t}
+                  </span>
+                ))}
               </div>
             </div>
 
@@ -388,19 +366,19 @@ export default function Landing() {
               className="hidden md:block flex-shrink-0"
               style={{ position: "relative" }}
             >
-              {/* glow behind image */}
               <div
                 className="absolute pointer-events-none"
                 style={{
                   inset: "-20px",
-                  background: "radial-gradient(ellipse at center, rgba(79,110,247,0.22) 0%, transparent 70%)",
+                  background:
+                    "radial-gradient(ellipse at center, rgba(79,110,247,0.22) 0%, transparent 70%)",
                   borderRadius: "9999px",
                   zIndex: 0,
                 }}
               />
               <img
                 src={`${BASE}/hero-avatar.jpg`}
-                alt="Avatar IA presentador"
+                alt="Video de Reel generado con avatar IA"
                 style={{
                   position: "relative",
                   zIndex: 1,
@@ -410,9 +388,32 @@ export default function Landing() {
                   objectPosition: "top",
                   borderRadius: "2rem",
                   border: "1px solid rgba(79,110,247,0.25)",
-                  boxShadow: "0 0 60px rgba(79,110,247,0.18), 0 24px 60px rgba(0,0,0,0.6)",
+                  boxShadow:
+                    "0 0 60px rgba(79,110,247,0.18), 0 24px 60px rgba(0,0,0,0.6)",
                 }}
               />
+              {/* "Generado con IA" label */}
+              <div
+                style={{
+                  position: "absolute",
+                  bottom: "1.2rem",
+                  left: "50%",
+                  transform: "translateX(-50%)",
+                  zIndex: 2,
+                  backgroundColor: "rgba(9,9,9,0.82)",
+                  backdropFilter: "blur(8px)",
+                  border: "1px solid rgba(79,110,247,0.3)",
+                  borderRadius: "9999px",
+                  padding: "0.3rem 0.85rem",
+                  fontSize: "0.68rem",
+                  fontWeight: 600,
+                  letterSpacing: "0.06em",
+                  color: "#4F6EF7",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                ✦ VIDEO GENERADO CON AVATAR IA
+              </div>
             </div>
           </div>
         </div>
@@ -420,25 +421,68 @@ export default function Landing() {
 
       {/* ── VIDEO VENTAS ── */}
       <section
-        id="video-ventas"
+        id="como-funciona-video"
         className="mx-auto px-6"
         style={{ maxWidth: 900, paddingTop: "5rem", paddingBottom: "5rem" }}
       >
         <div className="text-center mb-8">
-          <SectionTitle>Mira cómo funciona el sistema</SectionTitle>
+          <SectionTitle>Mira el sistema en acción</SectionTitle>
           <p
             className="mx-auto mt-4"
-            style={{ color: "#666", maxWidth: 520, lineHeight: 1.75, fontSize: "0.95rem" }}
+            style={{
+              color: "#666",
+              maxWidth: 520,
+              lineHeight: 1.75,
+              fontSize: "0.95rem",
+            }}
           >
-            En este video te explico la transformación: cómo pasar de no saber
-            qué publicar a tener un flujo para crear contenido con avatar.
+            Cómo pasar de no saber qué publicar a tener Reels con avatar
+            produciéndose y publicándose en piloto automático.
           </p>
         </div>
-        <VideoPlaceholder label="Video de presentación próximamente" />
+
+        {/* Video placeholder — intencional, próximamente */}
+        <div
+          className="relative w-full rounded-2xl overflow-hidden"
+          style={{
+            paddingTop: "56.25%",
+            backgroundColor: "#0e0e0e",
+            border: "1px solid #1e1e1e",
+          }}
+        >
+          <div
+            className="absolute inset-0 flex flex-col items-center justify-center gap-4"
+            style={{
+              background: "linear-gradient(135deg, #0c0c0c 0%, #141420 100%)",
+            }}
+          >
+            <div
+              className="flex items-center justify-center rounded-full"
+              style={{
+                width: 72,
+                height: 72,
+                background: "linear-gradient(135deg, rgba(79,110,247,0.15), rgba(155,92,246,0.15))",
+                border: "2px solid rgba(79,110,247,0.35)",
+              }}
+            >
+              <MonitorPlay size={28} color="#4F6EF7" />
+            </div>
+            <div className="text-center">
+              <p
+                className="font-semibold mb-1"
+                style={{ color: "#ccc", fontSize: "0.95rem" }}
+              >
+                Video de presentación
+              </p>
+              <p style={{ color: "#444", fontSize: "0.78rem" }}>Próximamente</p>
+            </div>
+          </div>
+        </div>
       </section>
 
       {/* ── PASOS ── */}
       <section
+        id="como-funciona"
         style={{
           backgroundColor: "#0d0d0d",
           borderTop: "1px solid #161616",
@@ -449,10 +493,20 @@ export default function Landing() {
         <div className="mx-auto" style={{ maxWidth: 1040 }}>
           <div className="text-center mb-14">
             <SectionLabel>El proceso</SectionLabel>
-            <SectionTitle>Cómo funciona</SectionTitle>
+            <SectionTitle>Cómo funciona Reelsona</SectionTitle>
+            <p
+              className="mx-auto mt-4"
+              style={{ color: "#666", maxWidth: 500, fontSize: "0.9rem", lineHeight: 1.7 }}
+            >
+              No configuramos avatares — usamos el tuyo para automatizar
+              la producción de Reels de principio a fin.
+            </p>
           </div>
 
-          <div className="grid gap-5" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
+          <div
+            className="grid gap-5"
+            style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}
+          >
             {steps.map(({ n, Icon, title, desc }) => (
               <div
                 key={n}
@@ -463,7 +517,6 @@ export default function Landing() {
                   padding: "1.75rem 1.5rem",
                 }}
               >
-                {/* ghost number */}
                 <span
                   className="absolute select-none"
                   style={{
@@ -498,7 +551,7 @@ export default function Landing() {
                 >
                   {title}
                 </h3>
-                <p style={{ color: "#555", fontSize: "0.855rem", lineHeight: 1.65 }}>
+                <p style={{ color: "#666", fontSize: "0.855rem", lineHeight: 1.65 }}>
                   {desc}
                 </p>
               </div>
@@ -507,21 +560,31 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* ── VIDEO DEMO ── */}
+      {/* ── FLUJO DE LA PLATAFORMA (reemplaza video demo) ── */}
       <section
-        id="video-demo"
         className="mx-auto px-6"
         style={{ maxWidth: 960, paddingTop: "5rem", paddingBottom: "5rem" }}
       >
-        <div className="grid gap-12 items-center" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))" }}>
+        <div
+          className="grid gap-12 items-center"
+          style={{ gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))" }}
+        >
           {/* text */}
           <div>
-            <SectionLabel>Demo de la plataforma</SectionLabel>
+            <SectionLabel>Dentro de la plataforma</SectionLabel>
             <SectionTitle>
-              Ve la plataforma<br />por dentro
+              Todo el flujo en<br />un solo lugar
             </SectionTitle>
-            <ul className="mt-6 flex flex-col gap-3">
-              {demoItems.map((item) => (
+            <p
+              className="mt-4 mb-6"
+              style={{ color: "#666", fontSize: "0.9rem", lineHeight: 1.7 }}
+            >
+              Desde la estrategia hasta la publicación, cada paso del proceso
+              tiene su módulo dentro de Reelsona. Sin saltar entre herramientas,
+              sin perder el hilo.
+            </p>
+            <ul className="flex flex-col gap-3">
+              {flowItems.map((item) => (
                 <li key={item} className="flex items-center gap-3">
                   <span
                     className="flex-shrink-0 flex items-center justify-center rounded-full"
@@ -539,8 +602,49 @@ export default function Landing() {
               ))}
             </ul>
           </div>
-          {/* video */}
-          <VideoPlaceholder label="Demo próximamente" tall />
+
+          {/* platform mockup placeholder */}
+          <div
+            className="relative rounded-2xl overflow-hidden"
+            style={{
+              backgroundColor: "#0e0e0e",
+              border: "1px solid #1e1e1e",
+              minHeight: 320,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "1rem",
+              padding: "2.5rem",
+            }}
+          >
+            <div
+              style={{
+                width: 56,
+                height: 56,
+                borderRadius: "1rem",
+                background: "linear-gradient(135deg, rgba(79,110,247,0.18), rgba(155,92,246,0.18))",
+                border: "1px solid rgba(79,110,247,0.3)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Rocket size={24} color="#4F6EF7" />
+            </div>
+            <p
+              className="font-semibold text-center"
+              style={{ color: "#ccc", fontSize: "0.95rem" }}
+            >
+              Demo de la plataforma
+            </p>
+            <p
+              className="text-center"
+              style={{ color: "#444", fontSize: "0.78rem", maxWidth: 220 }}
+            >
+              Capturas y recorrido visual próximamente
+            </p>
+          </div>
         </div>
       </section>
 
@@ -586,7 +690,14 @@ export default function Landing() {
                 >
                   <Icon size={16} />
                 </div>
-                <span style={{ color: "#bbb", fontSize: "0.875rem", lineHeight: 1.55, paddingTop: 2 }}>
+                <span
+                  style={{
+                    color: "#bbb",
+                    fontSize: "0.875rem",
+                    lineHeight: 1.55,
+                    paddingTop: 2,
+                  }}
+                >
                   {text}
                 </span>
               </div>
@@ -600,10 +711,22 @@ export default function Landing() {
         className="mx-auto px-6"
         style={{ maxWidth: 820, paddingTop: "5rem", paddingBottom: "5rem" }}
       >
-        <div className="text-center mb-10">
+        <div className="text-center mb-4">
           <SectionLabel>Dentro del sistema</SectionLabel>
           <SectionTitle>Qué obtienes al entrar</SectionTitle>
         </div>
+        <p
+          className="text-center mx-auto mb-10"
+          style={{
+            color: "#666",
+            fontSize: "0.9rem",
+            lineHeight: 1.75,
+            maxWidth: 520,
+          }}
+        >
+          Dentro encuentras la ruta guiada, la plataforma y los pasos
+          prácticos para configurar tu sistema de contenido de Reels.
+        </p>
 
         <div
           className="rounded-2xl"
@@ -613,7 +736,6 @@ export default function Landing() {
             padding: "2.25rem 2rem",
           }}
         >
-          {/* accent line top */}
           <div
             className="rounded-t-2xl absolute"
             style={{
@@ -690,7 +812,7 @@ export default function Landing() {
                 {openFaq === i && (
                   <p
                     className="pb-5 m-0"
-                    style={{ color: "#666", fontSize: "0.875rem", lineHeight: 1.75 }}
+                    style={{ color: "#777", fontSize: "0.875rem", lineHeight: 1.75 }}
                   >
                     {faq.a}
                   </p>
@@ -698,6 +820,65 @@ export default function Landing() {
               </div>
             ))}
           </div>
+        </div>
+      </section>
+
+      {/* ── PRECIO / ACCESO ── */}
+      <section
+        className="mx-auto px-6"
+        style={{ maxWidth: 560, paddingTop: "5rem", paddingBottom: "5rem" }}
+      >
+        <div
+          className="rounded-2xl text-center"
+          style={{
+            backgroundColor: "#111",
+            border: "1px solid rgba(79,110,247,0.25)",
+            padding: "2.5rem 2rem",
+          }}
+        >
+          <SectionLabel>Acceso de lanzamiento</SectionLabel>
+          <div
+            className="font-bold"
+            style={{
+              fontFamily: "var(--font-display, 'Outfit', sans-serif)",
+              fontSize: "3rem",
+              lineHeight: 1,
+              marginBottom: "0.4rem",
+              background: "linear-gradient(135deg, #4F6EF7 10%, #9B5CF6 90%)",
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+              backgroundClip: "text",
+            }}
+          >
+            $47 USD
+          </div>
+          <p style={{ color: "#555", fontSize: "0.8rem", marginBottom: "1.75rem" }}>
+            Pago único · Acceso completo
+          </p>
+          <a
+            href={`${BASE}/checkout`}
+            className="inline-flex items-center gap-2 rounded-xl font-bold transition-opacity hover:opacity-90 w-full justify-center"
+            style={{
+              backgroundColor: "#4F6EF7",
+              color: "#fff",
+              padding: "1rem 2rem",
+              fontSize: "1rem",
+              textDecoration: "none",
+            }}
+          >
+            Empezar a crear Reels <ArrowRight size={16} />
+          </a>
+          <p
+            style={{
+              color: "#444",
+              fontSize: "0.75rem",
+              marginTop: "1rem",
+              lineHeight: 1.6,
+            }}
+          >
+            Requiere cuentas en HeyGen y OpenAI (costos separados).
+            Recibirás un email de activación al completar el pago.
+          </p>
         </div>
       </section>
 
@@ -709,7 +890,6 @@ export default function Landing() {
           padding: "7rem 1.5rem",
         }}
       >
-        {/* bg glows */}
         <div
           className="absolute pointer-events-none"
           style={{
@@ -718,19 +898,7 @@ export default function Landing() {
             transform: "translate(-50%, -50%)",
             width: 600,
             height: 360,
-            background:
-              "radial-gradient(ellipse, rgba(79,110,247,0.09) 0%, transparent 70%)",
-          }}
-        />
-        <div
-          className="absolute pointer-events-none"
-          style={{
-            top: "40%",
-            left: "30%",
-            width: 300,
-            height: 200,
-            background:
-              "radial-gradient(ellipse, rgba(255,94,91,0.06) 0%, transparent 70%)",
+            background: "radial-gradient(ellipse, rgba(79,110,247,0.09) 0%, transparent 70%)",
           }}
         />
 
@@ -745,30 +913,29 @@ export default function Landing() {
               marginBottom: "1.1rem",
             }}
           >
-            Empieza a crear Reels{" "}
+            Empieza a publicar Reels{" "}
             <span
               style={{
-                background:
-                  "linear-gradient(135deg, #4F6EF7 10%, #9B5CF6 90%)",
+                background: "linear-gradient(135deg, #4F6EF7 10%, #9B5CF6 90%)",
                 WebkitBackgroundClip: "text",
                 WebkitTextFillColor: "transparent",
                 backgroundClip: "text",
                 display: "block",
               }}
             >
-              sin grabarte todos los días
+              con tu avatar esta semana
             </span>
           </h2>
           <p
             style={{
-              color: "#555",
+              color: "#666",
               fontSize: "1rem",
               lineHeight: 1.75,
               marginBottom: "2.75rem",
             }}
           >
-            Accede al sistema, configura tu avatar y publica tus primeros Reels
-            con IA esta semana.
+            Configura tu sistema, conecta tu avatar y publica tus primeros
+            Reels con IA en días, no semanas.
           </p>
           <a
             href={`${BASE}/checkout`}
@@ -781,7 +948,7 @@ export default function Landing() {
               textDecoration: "none",
             }}
           >
-            Acceder ahora <ArrowRight size={18} />
+            Empezar a crear Reels <ArrowRight size={18} />
           </a>
         </div>
       </section>
@@ -800,18 +967,14 @@ export default function Landing() {
             <a
               key={label}
               href={href}
-              style={{
-                color: "#444",
-                fontSize: "0.8rem",
-                textDecoration: "none",
-              }}
+              style={{ color: "#555", fontSize: "0.8rem", textDecoration: "none" }}
             >
               {label}
             </a>
           ))}
         </div>
-        <p style={{ color: "#2a2a2a", fontSize: "0.75rem" }}>
-          © 2025 Reelsona. Todos los derechos reservados.
+        <p style={{ color: "#444", fontSize: "0.75rem" }}>
+          © 2026 Reelsona. Todos los derechos reservados.
         </p>
       </footer>
     </div>
