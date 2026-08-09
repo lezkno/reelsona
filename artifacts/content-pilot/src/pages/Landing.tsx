@@ -579,27 +579,42 @@ export default function Landing() {
 
           {/* Steps */}
           <style>{`
-            @keyframes flow-arrow {
-              0%   { opacity: 0.15; transform: translateX(-4px); }
-              50%  { opacity: 1;    transform: translateX(4px);  }
-              100% { opacity: 0.15; transform: translateX(-4px); }
+            @keyframes card-light {
+              0%   { border-color: rgba(79,110,247,0.6); box-shadow: 0 0 32px rgba(79,110,247,0.22), inset 0 0 24px rgba(79,110,247,0.05); background-color: rgba(79,110,247,0.06); }
+              20%  { border-color: #1d1d1d; box-shadow: none; background-color: #0f0f0f; }
+              100% { border-color: #1d1d1d; box-shadow: none; background-color: #0f0f0f; }
             }
-            .ap-arrow-1 { animation: flow-arrow 2s ease-in-out infinite; }
-            .ap-arrow-2 { animation: flow-arrow 2s ease-in-out 0.35s infinite; }
-            .ap-arrow-3 { animation: flow-arrow 2s ease-in-out 0.7s infinite; }
+            @keyframes arr-light {
+              0%   { opacity: 1; }
+              20%  { opacity: 0.15; }
+              100% { opacity: 0.15; }
+            }
+            .ap-c1 { animation: card-light 5s ease-in-out 0s   infinite; }
+            .ap-c2 { animation: card-light 5s ease-in-out 1s   infinite; }
+            .ap-c3 { animation: card-light 5s ease-in-out 2s   infinite; }
+            .ap-c4 { animation: card-light 5s ease-in-out 3s   infinite; }
+            .ap-c5 { animation: card-light 5s ease-in-out 4s   infinite; }
+            .ap-a1 { animation: arr-light  5s ease-in-out 0s   infinite; }
+            .ap-a2 { animation: arr-light  5s ease-in-out 1s   infinite; }
+            .ap-a3 { animation: arr-light  5s ease-in-out 2s   infinite; }
+            .ap-a4 { animation: arr-light  5s ease-in-out 3s   infinite; }
           `}</style>
 
-          <div className="flex flex-wrap items-start justify-center gap-0">
-            {autopilotSteps.map(({ n, title, desc }, idx) => (
-              <div key={n} className="flex items-start">
-                {/* Step card */}
+          <div style={{ display: "flex", alignItems: "stretch", gap: 0, overflowX: "auto" }}>
+            {autopilotSteps.flatMap(({ n, title, desc }, idx) => {
+              const cardClass = `ap-c${idx + 1}`;
+              const arrClass  = `ap-a${idx + 1}`;
+              const items = [
                 <div
-                  className="relative rounded-2xl text-center"
+                  key={`card-${n}`}
+                  className={`${cardClass} rounded-2xl text-center`}
                   style={{
-                    backgroundColor: "#0f0f0f",
+                    flex: "1 1 0",
+                    minWidth: 130,
                     border: "1px solid #1d1d1d",
-                    padding: "1.75rem 1.25rem 1.5rem",
-                    width: "clamp(150px, 17vw, 185px)",
+                    backgroundColor: "#0f0f0f",
+                    padding: "1.75rem 1rem 1.5rem",
+                    transition: "border-color 0.3s, box-shadow 0.3s",
                   }}
                 >
                   <div
@@ -622,30 +637,34 @@ export default function Landing() {
                     className="font-bold mb-2"
                     style={{
                       fontFamily: "var(--font-display, 'Outfit', sans-serif)",
-                      fontSize: "0.85rem",
+                      fontSize: "0.83rem",
                       color: "#e0e0e0",
                     }}
                   >
                     {title}
                   </h3>
-                  <p style={{ color: "#5a5a5a", fontSize: "0.78rem", lineHeight: 1.6, margin: 0 }}>
+                  <p style={{ color: "#5a5a5a", fontSize: "0.77rem", lineHeight: 1.6, margin: 0 }}>
                     {desc}
                   </p>
-                </div>
+                </div>,
+              ];
 
-                {/* Animated arrow connector */}
-                {idx < autopilotSteps.length - 1 && (
+              if (idx < autopilotSteps.length - 1) {
+                items.push(
                   <div
-                    className="hidden md:flex flex-col items-center justify-center gap-1 self-center flex-shrink-0"
-                    style={{ width: 40, paddingTop: "1rem" }}
+                    key={`arr-${idx}`}
+                    className={`${arrClass} flex flex-col items-center justify-center gap-0.5 flex-shrink-0`}
+                    style={{ width: 32, alignSelf: "center" }}
                   >
-                    <ArrowRight size={13} color="#4F6EF7" className="ap-arrow-1" />
-                    <ArrowRight size={13} color="#7B5CF6" className="ap-arrow-2" />
-                    <ArrowRight size={13} color="#4F6EF7" className="ap-arrow-3" />
+                    <ArrowRight size={11} color="#4F6EF7" />
+                    <ArrowRight size={11} color="#7B5CF6" />
+                    <ArrowRight size={11} color="#4F6EF7" />
                   </div>
-                )}
-              </div>
-            ))}
+                );
+              }
+
+              return items;
+            })}
           </div>
 
           {/* Autopilot outcome */}
