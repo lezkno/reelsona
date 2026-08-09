@@ -240,6 +240,8 @@ async function renderCueFrame(
   videoH = VIDEO_HEIGHT_DEFAULT,
   /** typewriter: show only the first N words of the cue (undefined = show all) */
   revealedWords?: number,
+  /** zoom: scale factor 0–1 applied around the text anchor point (1.0 = full size) */
+  zoomScale = 1.0,
 ): Promise<Buffer> {
   const cvs = canvas.createCanvas(videoW, videoH);
   const ctx = cvs.getContext("2d");
@@ -300,6 +302,14 @@ async function renderCueFrame(
   const lines = template.stackWords
     ? measurements.map((w, i) => ({ wordIndices: [i], lineWidth: w }))
     : buildWrappedLines(measurements, wordGapScaled, availableW);
+
+  // Zoom animation: scale the entire text block around its anchor point
+  if (zoomScale !== 1.0) {
+    ctx.save();
+    ctx.translate(videoW / 2, baselineY);
+    ctx.scale(zoomScale, zoomScale);
+    ctx.translate(-videoW / 2, -baselineY);
+  }
 
   // Draw lines bottom-up: last line baseline = baselineY, earlier lines shifted up
   for (let li = 0; li < lines.length; li++) {
@@ -405,6 +415,8 @@ async function renderCueFrame(
       x += wordWidth + wordGapScaled;
     }
   }
+
+  if (zoomScale !== 1.0) ctx.restore();
 
   return cvs.encode("png");
 }
@@ -585,6 +597,7 @@ export async function applyCaptionsBrowser(
     // Building mode templates already have one cue per word — no sub-frames.
     const segments: Array<{ pngPath: string; startSec: number; endSec: number }> = [];
     const isTypewriter = template.animation === "typewriter" && !template.buildingMode;
+    const isZoom       = template.animation === "zoom";
     let prevWordsKey   = "";
 
     for (let i = 0; i < cues.length; i++) {
@@ -595,7 +608,34 @@ export async function applyCaptionsBrowser(
       const isNewWindow = wordsKey !== prevWordsKey;
       prevWordsKey = wordsKey;
 
-      if (isTypewriter && isNewWindow && cue.words.length > 1) {
+      if (isZoom && isNewWindow) {
+        // Zoom-in animation: 3 sub-frames scaling from 65% → 82% → 100%
+        // Each sub-frame lasts ~60ms (capped at 40% of the word duration)
+        const ZOOM_STEPS  = [0.65, 0.82, 1.0] as const;
+        const zoomDur     = Math.min(180, cueDur * 0.40);
+        const msPerStep   = zoomDur / ZOOM_STEPS.length;
+
+        for (let s = 0; s < ZOOM_STEPS.length - 1; s++) {
+          const subPng  = await renderCueFrame(canvas, template, cue, videoDims.width, videoDims.height, undefined, ZOOM_STEPS[s]);
+          const subPath = path.join(tmpDir, `cue_${String(i).padStart(4, "0")}_z${s}.png`);
+          await fs.writeFile(subPath, subPng);
+          segments.push({
+            pngPath:  subPath,
+            startSec: (cue.startMs + s * msPerStep) / 1000,
+            endSec:   (cue.startMs + (s + 1) * msPerStep) / 1000,
+          });
+        }
+        // Full-size frame held for the rest of the cue
+        const fullPng  = await renderCueFrame(canvas, template, cue, videoDims.width, videoDims.height);
+        const fullPath = path.join(tmpDir, `cue_${String(i).padStart(4, "0")}.png`);
+        await fs.writeFile(fullPath, fullPng);
+        segments.push({
+          pngPath:  fullPath,
+          startSec: (cue.startMs + (ZOOM_STEPS.length - 1) * msPerStep) / 1000,
+          endSec:    endMs / 1000,
+        });
+
+      } else if (isTypewriter && isNewWindow && cue.words.length > 1) {
         // Word-by-word reveal at the start of each new visible window
         const numWords   = cue.words.length;
         const msPerWord  = Math.min(80, cueDur / (numWords * 2));

@@ -88,7 +88,7 @@ router.put("/automation", async (req, res): Promise<void> => {
     [config] = await db.insert(automationConfigTable).values(updates).returning();
   }
 
-  res.json(UpdateAutomationResponse.parse(mapConfig(config)));
+  res.json(UpdateAutomationResponse.parse(mapConfig(config, false)));
 });
 
 router.post("/automation/trigger", async (req, res): Promise<void> => {

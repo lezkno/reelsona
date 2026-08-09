@@ -533,8 +533,11 @@ async function runCopyGeneration(contentItemId: number): Promise<void> {
     return;
   }
 
+  // Declare item outside try so it's accessible in the auto-publish block below
+  let item: typeof contentPlanItemsTable.$inferSelect | undefined;
+
   try {
-    const [item] = await db.select().from(contentPlanItemsTable).where(eq(contentPlanItemsTable.id, contentItemId));
+    [item] = await db.select().from(contentPlanItemsTable).where(eq(contentPlanItemsTable.id, contentItemId));
     if (!item) throw new Error("Content item not found");
 
     const [settings] = await db.select().from(settingsTable).limit(1);

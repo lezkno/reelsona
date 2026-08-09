@@ -184,19 +184,15 @@ router.post("/videos/:id/recaption", async (req, res): Promise<void> => {
     script = item?.script ?? null;
   }
 
-  // ── 2. Fetch subtitle_url from HeyGen if not already stored ────────────────
-  let subtitleUrl = video.subtitleUrl ?? null;
-  if (!subtitleUrl && video.heygenVideoId) {
+  // ── 2. Fetch subtitle_url live from HeyGen ─────────────────────────────────
+  // subtitle_url is not persisted in the DB — fetch it fresh from HeyGen API.
+  let subtitleUrl: string | null = null;
+  if (video.heygenVideoId) {
     try {
       const [settings] = await db.select().from(settingsTable).limit(1);
       const apiKey = (settings as any)?.heygenApiKey ?? process.env.HEYGEN_API_KEY ?? "";
       const status = await getVideoStatus(video.heygenVideoId, apiKey || undefined);
-      if (status.subtitle_url) {
-        subtitleUrl = status.subtitle_url;
-        await db.update(videosTable)
-          .set({ subtitleUrl: status.subtitle_url, updatedAt: new Date() })
-          .where(eq(videosTable.id, id));
-      }
+      if (status.subtitle_url) subtitleUrl = status.subtitle_url;
     } catch { /* ignore — will fall back to proportional timings */ }
   }
 

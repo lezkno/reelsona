@@ -240,6 +240,54 @@ export const BROWSER_CAPTION_TEMPLATES: CaptionTemplate[] = [
     buildingMode: true,
   },
 
+  // ── Zoom In ──────────────────────────────────────────────────────────────────
+  // Copia exacta del preset ASS "zoomin":
+  //   fontFamily: Oswald, fontSize: 150, primaryColor: #FFE600, activeWordColor: #FFE600,
+  //   outlineColor: #000000, wordsPerLine: 1 (una palabra a la vez), highlightMode: "color".
+  //   Animación: cada palabra hace zoom in (escala 65%→100%) al aparecer.
+  {
+    id: "zoom_in",
+    name: "Zoom In",
+    description:
+      "Una palabra a la vez, todo en amarillo #FFE600. Cada palabra entra con zoom. Copia exacta del preset ASS Zoom In.",
+
+    fontFamily: "Oswald",
+    fontSize: 150,
+    fontWeight: 700,
+    uppercase: true,
+    letterSpacing: 0.02,
+    lineHeight: 1.1,
+
+    wordsPerLine: 1,
+    yPercent: 75,
+    marginXPercent: 5,
+    textAlign: "center",
+
+    primaryColor: "#FFE600",
+    activeWordColor: "#FFE600",
+    inactiveOpacity: 1.0,
+
+    outlineColor: "#000000",
+    outlineWidth: 12,
+
+    shadowColor: "rgba(0,0,0,0.7)",
+    shadowOffsetX: 2,
+    shadowOffsetY: 4,
+    shadowBlur: 10,
+
+    backgroundMode: "none",
+    backgroundColor: null,
+    backgroundPaddingX: 0,
+    backgroundPaddingY: 0,
+    backgroundRadius: 0,
+
+    highlightMode: "color",
+    activeWordScale: 1.0,
+
+    animation: "zoom",
+    animationDuration: 180,
+  },
+
   // ── Bold Stack ───────────────────────────────────────────────────────────────
   // Copia exacta del preset ASS "bold_stack":
   //   fontFamily: Poppins, fontSize: 105, primaryColor: #FFFFFF,
