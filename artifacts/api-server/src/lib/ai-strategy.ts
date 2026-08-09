@@ -119,9 +119,21 @@ export async function synthesizeMarketStudy(opts: {
 
   const topCaptionsBlock = accountData.top_captions.slice(0, 5).map((c, i) => `  ${i + 1}. "${c.substring(0, 120)}"`).join("\n");
 
-  const radarBlock = radarAccounts.filter((r) => r.use_as_reference && r.bio).slice(0, 6)
+  const radarBlock = radarAccounts
+    .filter((r) => {
+      if (!r.use_as_reference) return false;
+      const hasBio = Boolean(r.bio);
+      const hasPosts = (r.top_posts ?? []).length > 0;
+      // Omit accounts with neither bio nor posts — they add no signal to the model
+      return hasBio || hasPosts;
+    })
+    .slice(0, 6)
     .map((r) => {
-      const base = `  - @${r.ig_username} (${r.followers?.toLocaleString() ?? "?"} seguidores): ${r.bio?.substring(0, 100)}`;
+      const isApifyVerified = Boolean(r.last_synced_at);
+      const dataSource = isApifyVerified
+        ? `✓ verificado por Apify el ${r.last_synced_at!.toLocaleDateString("es-ES")}`
+        : "ingresado manualmente";
+      const base = `  - @${r.ig_username} [${dataSource}] (${r.followers?.toLocaleString() ?? "?"} seguidores): ${r.bio?.substring(0, 100) ?? "(sin bio)"}`;
       const posts = (r.top_posts ?? []).slice(0, 3);
       if (posts.length === 0) return base;
       const postLines = posts
@@ -129,7 +141,7 @@ export async function synthesizeMarketStudy(opts: {
         .join("\n");
       return `${base}\n    Top posts:\n${postLines}`;
     })
-    .join("\n") || "  (ninguno agregado aún)";
+    .join("\n") || "  (ninguno con datos suficientes)";
 
   const prompt = `${getLanguageInstruction(language)}
 
