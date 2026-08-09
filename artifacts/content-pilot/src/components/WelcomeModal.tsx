@@ -11,7 +11,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
-import { BookOpen, Play, Sparkles } from "lucide-react"
+import { BookOpen, Play } from "lucide-react"
 
 // ── Cambia esta URL por la del video de bienvenida cuando esté listo ──────────
 const WELCOME_VIDEO_URL = ""
@@ -46,15 +46,12 @@ export function WelcomeModal() {
       <DialogContent className="max-w-xl p-0 overflow-hidden gap-0">
         {/* Header gradient strip */}
         <div className="bg-gradient-to-br from-primary/90 to-purple-700 px-6 pt-6 pb-5 text-white">
-          <div className="flex items-center gap-2 mb-3">
-            <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center">
-              <Sparkles className="w-4 h-4" />
-            </div>
-            <span className="text-xs font-semibold uppercase tracking-widest opacity-80">Bienvenido a Reelsona</span>
+          <div className="flex justify-center mb-4">
+            <img src="/logo.png" alt="Reelsona" className="w-16 h-16 object-contain drop-shadow-lg" />
           </div>
-          <DialogHeader className="space-y-1 text-left">
+          <DialogHeader className="space-y-1 text-center">
             <DialogTitle className="text-2xl font-display font-bold text-white leading-tight">
-              Tu máquina de contenido<br />con IA está lista
+              Tu máquina de contenido con IA está lista
             </DialogTitle>
             <DialogDescription className="text-white/75 text-sm">
               Mira el video de introducción y empieza el curso guiado para tener tu primer Reel publicado hoy.
