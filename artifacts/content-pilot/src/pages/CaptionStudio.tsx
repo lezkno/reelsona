@@ -8,7 +8,7 @@ import { Switch } from "@/components/ui/switch"
 import { Slider } from "@/components/ui/slider"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
-import { CheckCircle2, Wand2, AlertCircle, Sparkles, Loader2,
+import { CheckCircle2, Wand2, AlertCircle, Sparkles, Loader2, Shuffle,
   Heart, MessageCircle, Send, Bookmark, MoreHorizontal,
   Music2, Home, Search, Plus, User, ChevronLeft, Clapperboard,
 } from "lucide-react"
@@ -1130,6 +1130,11 @@ export default function CaptionStudio() {
   // null = checking, true = available, false = unavailable
   const [browserEngineAvailable, setBrowserEngineAvailable] = useState<boolean | null>(null)
 
+  // ── Caption rotation (multi-template selection for auto mode) ─────────────
+  const [rotationEnabled, setRotationEnabled] = useState(false)
+  const [rotationIds, setRotationIds] = useState<Set<string>>(new Set())
+  const [rotationStrategy, setRotationStrategy] = useState("sequential")
+
   // ── Per-template overrides map ────────────────────────────────────────────
   // Stored as Record<templateId, Partial<CaptionTemplate>> so each template
   // remembers its own tweaks independently. Saved to DB as a JSON string in
@@ -1147,6 +1152,13 @@ export default function CaptionStudio() {
   useEffect(() => {
     if (config && Object.keys(local).length === 0) {
       setLocal(config)
+      // Restore rotation state
+      const savedIds = (config.selected_preset_ids as string[] | null) ?? []
+      if (savedIds.length > 0) {
+        setRotationEnabled(true)
+        setRotationIds(new Set(savedIds))
+      }
+      setRotationStrategy((config.caption_rotation_strategy as string | null) ?? "sequential")
       // Restore saved overrides from DB — stored as Record<templateId, Partial<CaptionTemplate>>
       try {
         if (config.template_overrides) {
@@ -1306,6 +1318,30 @@ export default function CaptionStudio() {
     })
   }
 
+  const saveRotation = (ids: Set<string>, strategy: string) => {
+    updateConfig.mutate(
+      { data: { selected_preset_ids: Array.from(ids), caption_rotation_strategy: strategy } as any },
+      { onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetCaptionConfigQueryKey() }) }
+    )
+  }
+
+  const handleRotationToggle = (enabled: boolean) => {
+    setRotationEnabled(enabled)
+    if (!enabled) {
+      setRotationIds(new Set())
+      saveRotation(new Set(), rotationStrategy)
+    }
+  }
+
+  const toggleRotationTemplate = (id: string) => {
+    if (isVideoProcessing) return
+    const next = new Set(rotationIds)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    setRotationIds(next)
+    saveRotation(next, rotationStrategy)
+  }
+
   const handleToggle = (enabled: boolean) => {
     setCaptionsEnabled(enabled)
     updateAutomation.mutate({ data: { captions_enabled: enabled } }, {
@@ -1380,6 +1416,46 @@ export default function CaptionStudio() {
         </CardContent>
       </Card>
 
+      {/* Rotation banner */}
+      <Card className={`border-2 ${rotationEnabled ? "border-primary/40 bg-primary/5" : "border-dashed"}`}>
+        <CardContent className="p-5 flex flex-col sm:flex-row items-start sm:items-center gap-4 justify-between">
+          <div className="flex items-start gap-3">
+            <div className={`mt-0.5 w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${rotationEnabled ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
+              <Shuffle className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="font-bold text-base">Rotar captions en modo automático</p>
+              <p className="text-sm text-muted-foreground max-w-md">
+                {rotationEnabled
+                  ? rotationIds.size > 0
+                    ? `${rotationIds.size} plantilla${rotationIds.size !== 1 ? "s" : ""} en rotación. Hacé clic en las plantillas para agregarlas o quitarlas.`
+                    : "Hacé clic en las plantillas que querés incluir en la rotación."
+                  : "Activá para que cada video use una plantilla diferente de forma automática."}
+              </p>
+              {rotationEnabled && (
+                <div className="flex gap-1.5 mt-2">
+                  {[{ value: "sequential", label: "Secuencial" }, { value: "random", label: "Aleatorio" }].map(({ value, label }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => { setRotationStrategy(value); saveRotation(rotationIds, value) }}
+                      className={`px-2.5 py-1 rounded-lg border text-xs font-medium transition-all ${
+                        rotationStrategy === value
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "bg-background text-muted-foreground border-border hover:border-primary/50"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+          <Switch checked={rotationEnabled} onCheckedChange={handleRotationToggle} disabled={isVideoProcessing} className="shrink-0" />
+        </CardContent>
+      </Card>
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Left: preset selector + advanced */}
         <div className="lg:col-span-2 space-y-6">
@@ -1400,9 +1476,9 @@ export default function CaptionStudio() {
                 <BrowserTemplateCard
                   key={tmpl.id}
                   template={allTmplOverrides[tmpl.id] ? { ...tmpl, ...allTmplOverrides[tmpl.id] } : tmpl}
-                  selected={local.template_id === tmpl.id}
-                  saving={savingPresetId === tmpl.id}
-                  onClick={() => !isVideoProcessing && applyBrowserTemplate(tmpl)}
+                  selected={rotationEnabled ? rotationIds.has(tmpl.id) : local.template_id === tmpl.id}
+                  saving={!rotationEnabled && savingPresetId === tmpl.id}
+                  onClick={() => rotationEnabled ? toggleRotationTemplate(tmpl.id) : (!isVideoProcessing && applyBrowserTemplate(tmpl))}
                 />
               ))}
             </div>
