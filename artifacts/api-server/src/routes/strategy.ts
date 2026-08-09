@@ -31,6 +31,7 @@ import {
   getStrategyProfile,
   upsertStrategyProfile,
 } from "../lib/strategy-profile";
+import { syncAllStaleRadarAccounts } from "../lib/scheduler";
 import type { AccountData } from "../lib/ai-strategy";
 import { enrichProfileWithApify } from "../lib/apify";
 import OpenAI from "openai";
@@ -271,6 +272,27 @@ router.post("/strategy/radar", async (req, res): Promise<void> => {
   }
 
   res.status(201).json({ account: serializeAccount(inserted) });
+});
+
+// ── POST /strategy/radar/sync-all — sync all stale accounts ──────────────────
+
+router.post("/strategy/radar/sync-all", async (_req, res): Promise<void> => {
+  if (!process.env.APIFY_TOKEN) {
+    res.status(503).json({ error: "APIFY_TOKEN not configured" });
+    return;
+  }
+
+  try {
+    const result = await syncAllStaleRadarAccounts();
+    if (result.total === 0) {
+      res.json({ synced: 0, failed: 0, total: 0, message: "All accounts are up to date" });
+    } else {
+      res.json(result);
+    }
+  } catch (err: any) {
+    logger.error({ err }, "sync-all failed");
+    res.status(500).json({ error: err?.message ?? "Sync failed" });
+  }
 });
 
 // ── POST /strategy/radar/:id/sync — manually trigger Apify enrichment ─────────

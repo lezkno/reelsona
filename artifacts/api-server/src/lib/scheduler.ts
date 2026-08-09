@@ -10,11 +10,13 @@ import {
   videosTable,
   instagramAccountsTable,
   captionConfigTable,
+  nicheRadarAccountsTable,
 } from "@workspace/db";
+import { enrichProfileWithApify } from "./apify";
 import { applyCaptions, CAPTION_DIR, type CaptionStyle, CAPTION_PRESETS } from "./caption-engine";
 import { computeUpcomingSlots } from "./schedule";
 import { applyCaptionsBrowser } from "./browser-caption-engine";
-import { eq, and, lte, gte, inArray, isNull, isNotNull, or } from "drizzle-orm";
+import { eq, and, lte, gte, lt, inArray, isNull, isNotNull, or } from "drizzle-orm";
 import { logger } from "./logger";
 import { generateScript, regenerateCaption, generateContentTopics } from "./ai-scripts";
 import { getLatestAuditCache } from "./audit-cache";
@@ -1309,5 +1311,77 @@ export function startScheduler(): void {
     }
   });
 
+  // Weekly on Monday at 03:00 AM: sync all stale radar accounts via Apify.
+  // Runs independently of the automation enabled flag — enrichment is always useful.
+  cron.schedule("0 3 * * 1", async () => {
+    logger.info("[RadarSync] Weekly radar sync started");
+    await syncAllStaleRadarAccounts();
+  });
+
   logger.info("Automation scheduler started");
+}
+
+/**
+ * Enrich all niche radar accounts that have never been synced or whose
+ * last_synced_at is older than 7 days.  Used by the weekly cron job and
+ * can be called directly from the POST /strategy/radar/sync-all endpoint.
+ *
+ * Returns counts for logging: { synced, failed, total }.
+ */
+export async function syncAllStaleRadarAccounts(): Promise<{ synced: number; failed: number; total: number }> {
+  if (!process.env.APIFY_TOKEN) {
+    logger.warn("[RadarSync] APIFY_TOKEN not set — skipping radar sync");
+    return { synced: 0, failed: 0, total: 0 };
+  }
+
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+  const staleAccounts = await db
+    .select()
+    .from(nicheRadarAccountsTable)
+    .where(
+      or(
+        isNull(nicheRadarAccountsTable.lastSyncedAt),
+        lt(nicheRadarAccountsTable.lastSyncedAt, sevenDaysAgo)
+      )
+    );
+
+  if (staleAccounts.length === 0) {
+    logger.info("[RadarSync] All radar accounts are up to date — nothing to sync");
+    return { synced: 0, failed: 0, total: 0 };
+  }
+
+  logger.info({ count: staleAccounts.length }, "[RadarSync] Syncing stale radar accounts");
+
+  let synced = 0;
+  let failed = 0;
+
+  for (const account of staleAccounts) {
+    try {
+      const apifyData = await enrichProfileWithApify(account.igUsername);
+      if (!apifyData) {
+        failed++;
+        logger.warn({ igUsername: account.igUsername }, "[RadarSync] Apify returned no data — skipping account");
+        continue;
+      }
+      await db
+        .update(nicheRadarAccountsTable)
+        .set({
+          bio:          apifyData.biography ?? account.bio,
+          followers:    apifyData.followersCount ?? account.followers,
+          profileUrl:   apifyData.profilePicUrl ?? account.profileUrl,
+          topPostsJson: apifyData.topPosts.length > 0 ? apifyData.topPosts : account.topPostsJson,
+          lastSyncedAt: new Date(),
+        })
+        .where(eq(nicheRadarAccountsTable.id, account.id));
+      synced++;
+      logger.info({ igUsername: account.igUsername }, "[RadarSync] Account synced ✓");
+    } catch (err) {
+      failed++;
+      logger.error({ err, igUsername: account.igUsername }, "[RadarSync] Failed to sync account");
+    }
+  }
+
+  logger.info({ synced, failed, total: staleAccounts.length }, "[RadarSync] Weekly radar sync complete");
+  return { synced, failed, total: staleAccounts.length };
 }
