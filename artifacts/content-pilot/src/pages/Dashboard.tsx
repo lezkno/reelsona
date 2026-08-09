@@ -30,14 +30,13 @@ export default function Dashboard() {
 
   const readyVideos = allVideos ?? []
 
-  // Next scheduled reel (for banner)
+  // Next scheduled reel (for banner) — same order as the content plan:
+  // first pending item by scheduled_at ASC regardless of whether the time is past or future.
   const planItems = planData ?? []
-  const nowTs = Date.now()
   const nextItem = planItems
     .filter(i => {
       if (!i.scheduled_at || ["published", "failed"].includes(i.status)) return false
-      const ts = new Date(i.scheduled_at).getTime()
-      return !isNaN(ts) && ts > nowTs
+      return !isNaN(new Date(i.scheduled_at).getTime())
     })
     .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime())[0] ?? null
 
@@ -479,13 +478,12 @@ function PipelineStatusCard({ planItems, planLoading, strategyProfile, strategyL
     return acc
   }, {})
 
-  // Next scheduled item: soonest future scheduled_at that isn't published/failed
-  const now = Date.now()
+  // Next scheduled item: first pending item by scheduled_at ASC (same as content plan order),
+  // including overdue items that haven't been published yet.
   const nextItem = planItems
     .filter(i => {
       if (!i.scheduled_at || ["published", "failed"].includes(i.status)) return false
-      const ts = new Date(i.scheduled_at).getTime()
-      return !isNaN(ts) && ts > now
+      return !isNaN(new Date(i.scheduled_at).getTime())
     })
     .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime())[0] ?? null
   const upcoming = nextItem ? new Date(nextItem.scheduled_at!).getTime() : undefined
