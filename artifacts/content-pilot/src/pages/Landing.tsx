@@ -7,101 +7,133 @@ import {
   ChevronDown,
   Clock,
   Brain,
-  LayoutTemplate,
   MessageSquare,
-  Play,
   Sparkles,
   TrendingUp,
   Zap,
   Rocket,
+  Settings2,
+  Users,
+  DollarSign,
+  Layers,
+  X,
+  Repeat,
+  Bot,
+  Target,
+  FilePen,
+  Play,
   MonitorPlay,
+  ShieldCheck,
 } from "lucide-react";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 // ─── Data ──────────────────────────────────────────────────────────────────────
 
-const steps = [
-  {
-    n: "01",
-    Icon: Brain,
-    title: "Define tu estrategia",
-    desc: "El sistema analiza tu nicho y genera un plan de temas con hooks para los próximos 30 días.",
-  },
-  {
-    n: "02",
-    Icon: MessageSquare,
-    title: "Genera los guiones",
-    desc: "IA escribe los guiones adaptados a tu audiencia y al formato de Reels, listos para revisar.",
-  },
-  {
-    n: "03",
-    Icon: Zap,
-    title: "El avatar lo graba por ti",
-    desc: "Tu avatar IA narra el video con captions y estructura visual incluidos. Sin editar nada.",
-  },
-  {
-    n: "04",
-    Icon: Calendar,
-    title: "Publica y repite",
-    desc: "Programa la publicación en Instagram y mantén el flujo de contenido sin trabajo manual.",
-  },
+const painPoints = [
+  { Icon: Clock, text: "Grabas un video y no lo publicas porque tienes que editarlo, hacerle captions y encontrar el momento" },
+  { Icon: Brain, text: "Cada semana empiezas de cero pensando qué publicar, sin un plan claro ni un sistema que lo genere por ti" },
+  { Icon: Zap, text: "Tienes una cuenta de HeyGen pero el avatar solo está creando contenido cuando tú tienes tiempo de sentarte a producirlo" },
+  { Icon: TrendingUp, text: "Publicas de forma intermitente porque el proceso completo es demasiado manual para hacerlo con consistencia" },
 ];
 
-const benefits = [
-  { Icon: Sparkles, text: "Sin quedarte sin ideas: el sistema genera el plan de contenido por ti" },
-  { Icon: Clock, text: "Sin grabarte a diario: tu avatar habla por ti en cada Reel" },
-  { Icon: MessageSquare, text: "Guiones y hooks listos, pensados para el formato de avatar" },
-  { Icon: LayoutTemplate, text: "Captions y estructura visual generados automáticamente" },
-  { Icon: Calendar, text: "Publicación programada en Instagram desde la plataforma" },
-  { Icon: TrendingUp, text: "Ruta guiada paso a paso, desde cero hasta tu primer Reel publicado" },
+const whatItCovers = [
+  { Icon: Target, label: "Estrategia", desc: "Análisis de nicho, temas, ángulos y hooks para los próximos 30 días" },
+  { Icon: FilePen, label: "Guiones", desc: "Scripts generados con IA adaptados al formato de Reels y al estilo de avatar" },
+  { Icon: Bot, label: "Videos con avatar", desc: "Producción usando tu avatar en HeyGen, sin que tengas que grabar nada" },
+  { Icon: Sparkles, label: "Captions", desc: "Captions visuales con estilo, generados y aplicados automáticamente a cada Reel" },
+  { Icon: Settings2, label: "Edición", desc: "Estructura visual y formato listo para publicar en Instagram" },
+  { Icon: Calendar, label: "Publicación", desc: "Programación directa en Instagram desde la plataforma" },
+  { Icon: Rocket, label: "Autopilot", desc: "El modo que lo ejecuta todo sin intervención manual cuando estás listo para activarlo" },
+];
+
+const autopilotSteps = [
+  { n: "01", title: "Configura tu estrategia", desc: "Defines tu nicho, audiencia y tono una sola vez. El sistema genera el plan de temas del mes." },
+  { n: "02", title: "Conecta tus herramientas", desc: "Enlazas HeyGen, OpenAI e Instagram. Un solo paso de configuración." },
+  { n: "03", title: "El sistema genera los guiones", desc: "IA produce scripts optimizados para avatar y Reels, listos para revisar o aprobar automáticamente." },
+  { n: "04", title: "Tu avatar graba y se edita", desc: "HeyGen produce el video con tu clon digital. Reelsona aplica captions y edición visual." },
+  { n: "05", title: "Se publica sin que hagas nada", desc: "Los Reels se programan y publican en Instagram en los horarios que configuraste." },
+];
+
+const forWhom = [
+  { Icon: Users, title: "Coaches y consultores", desc: "Que quieren presencia constante en Instagram sin dedicar horas cada semana a grabar contenido." },
+  { Icon: Brain, title: "Emprendedores digitales", desc: "Con conocimiento que quieren monetizar a través de contenido sin contratar un equipo de producción." },
+  { Icon: MessageSquare, title: "Creadores con avatar", desc: "Que ya tienen o quieren crear un avatar en HeyGen y necesitan un sistema para que produzca en automático." },
+  { Icon: TrendingUp, title: "Educadores online", desc: "Que necesitan generar autoridad y comunidad con Reels constantes sin que la producción los consuma." },
+];
+
+const costRows = [
+  { label: "Freelancer básico de redes", range: "$300 – $1,500 / mes", highlight: false },
+  { label: "Especialista de contenido", range: "$1,000 – $3,500 / mes", highlight: false },
+  { label: "Agencia boutique", range: "$2,000 – $5,000 / mes", highlight: false },
+  { label: "Agencia con producción de video/Reels", range: "$5,000 – $10,000+ / mes", highlight: false },
+  { label: "Videógrafo para contenido social", range: "$500 – $3,000 / día", highlight: false },
+  { label: "Edición de Reels por unidad", range: "$50 – $500+ por Reel", highlight: false },
+  { label: "Reelsona — pago único", range: "$47 total", highlight: true },
 ];
 
 const includes = [
+  "Plataforma completa de estrategia, guiones y producción",
   "Ruta guiada de implementación desde cero",
-  "Plataforma para generar estrategia, guiones y videos",
   "Estudio de mercado con análisis de competidores",
-  "Generador de guiones con hooks para Reels",
-  "Videos producidos con tu avatar IA en HeyGen",
-  "Captions con estilo visual automáticos",
+  "Generador de temas y hooks para Reels",
+  "Generador de guiones con IA adaptados a tu avatar",
+  "Producción de videos usando tu avatar en HeyGen",
+  "Estudio de captions con plantillas visuales",
   "Publicación programada en Instagram",
+  "Modo Autopilot para ejecución sin intervención manual",
   "Área de clases paso a paso incluida",
   "Plantillas y checklists de producción",
+  "Acceso completo sin suscripción mensual",
 ];
 
-const flowItems = [
-  "Dashboard con tu plan de contenido activo",
-  "Generador de estrategia y análisis de nicho",
-  "Editor de guiones con hooks por Reel",
-  "Producción de videos con tu avatar en HeyGen",
-  "Estudio de captions con plantillas visuales",
-  "Publicación directa en Instagram",
+const notJustAiToolItems = [
+  {
+    wrong: "No es ChatGPT con un prompt para captions",
+    right: "Es un sistema que conecta estrategia, guión, producción, edición y publicación en un flujo continuo",
+  },
+  {
+    wrong: "No es un editor de video más",
+    right: "Los videos salen listos de HeyGen con captions aplicados — sin que abras ningún editor",
+  },
+  {
+    wrong: "No es un programador de posts",
+    right: "La publicación es la última etapa de un sistema que empieza desde la idea",
+  },
+  {
+    wrong: "No es una plataforma para crear avatares",
+    right: "Reelsona usa el avatar que ya tienes o que crearás en HeyGen — nosotros somos la capa operativa",
+  },
 ];
 
 const faqs = [
   {
     q: "¿Reelsona es una herramienta para crear avatares?",
-    a: "No. Reelsona no crea avatares ni compite con HeyGen. Es un sistema que usa tu avatar existente en HeyGen para automatizar todo el proceso: estrategia, guiones, producción del video y publicación. Piénsalo como el sistema de operaciones detrás de tus Reels, no como el generador del avatar.",
-  },
-  {
-    q: "¿Necesito tener un avatar en HeyGen antes de empezar?",
-    a: "Puedes empezar a configurar la estrategia y guiones sin un avatar listo. Para la producción de videos sí necesitarás una cuenta en HeyGen. Dentro de Reelsona tienes una ruta guiada que te explica cómo crear y conectar tu avatar paso a paso.",
+    a: "No. Reelsona no crea avatares ni compite con HeyGen. Es el sistema que usa tu avatar para automatizar todo el proceso: estrategia, guiones, producción del video, captions y publicación. Piénsalo como el sistema operativo de tu contenido con avatar.",
   },
   {
     q: "¿Qué herramientas externas necesito?",
-    a: "Para generar los videos necesitarás cuentas en HeyGen y OpenAI. Sus costos no están incluidos en Reelsona — te guiamos a configurarlas desde cero y son herramientas que usarías de todas formas para crear contenido con avatar IA.",
+    a: "Para generar los videos necesitarás cuentas en HeyGen y OpenAI. Sus costos no están incluidos en Reelsona — te guiamos a configurarlas desde cero. Son herramientas que usarías de todas formas para crear contenido con avatar IA.",
+  },
+  {
+    q: "¿Necesito tener un avatar en HeyGen antes de empezar?",
+    a: "Puedes comenzar a configurar la estrategia y los guiones sin un avatar listo. Para la producción de videos sí necesitarás una cuenta de HeyGen. La ruta guiada dentro de Reelsona te explica cómo crear y conectar tu avatar paso a paso.",
+  },
+  {
+    q: "¿Cómo funciona el modo Autopilot?",
+    a: "Cuando tienes tu estrategia, herramientas y preferencias configuradas, Autopilot ejecuta el pipeline completo: genera guiones, produce los videos con tu avatar, aplica captions y los publica en Instagram según el calendario que definiste. Sin intervención manual.",
   },
   {
     q: "¿Necesito saber editar videos?",
-    a: "No. El sistema genera los videos completos con tu avatar, captions incluidos. No necesitas abrir ningún editor de video.",
+    a: "No. El sistema genera los videos completos con tu avatar y captions incluidos. No necesitas abrir ningún editor de video.",
   },
   {
     q: "¿Tengo que grabarme frente a una cámara?",
-    a: "No. Tu avatar IA habla por ti en cada Reel. Tú revisas o editas el guión si quieres, y el sistema produce el video.",
+    a: "No. Tu avatar IA habla por ti en cada Reel. Tú defines la estrategia y el guión — el sistema produce el video.",
   },
   {
     q: "¿Esto funciona si no tengo experiencia técnica?",
-    a: "Sí. El sistema tiene una ruta guiada diseñada para llevarte desde cero. No necesitas conocimientos técnicos previos.",
+    a: "Sí. El sistema tiene una ruta guiada diseñada para llevarte desde cero hasta tu primer Reel publicado, paso a paso.",
   },
   {
     q: "¿Qué pasa después de comprar?",
@@ -109,7 +141,7 @@ const faqs = [
   },
   {
     q: "¿Puedo publicar directamente en Instagram?",
-    a: "Sí. Puedes conectar tu cuenta de Instagram Business desde la plataforma y programar la publicación de tus Reels.",
+    a: "Sí. Conectas tu cuenta de Instagram Business desde la plataforma y programas la publicación de tus Reels desde ahí.",
   },
 ];
 
@@ -126,10 +158,10 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-function SectionTitle({ children }: { children: React.ReactNode }) {
+function SectionTitle({ children, center }: { children: React.ReactNode; center?: boolean }) {
   return (
     <h2
-      className="font-display font-bold tracking-tight"
+      className={`font-bold tracking-tight ${center ? "text-center" : ""}`}
       style={{
         fontFamily: "var(--font-display, 'Outfit', sans-serif)",
         fontSize: "clamp(1.55rem, 4vw, 2.4rem)",
@@ -140,6 +172,10 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
       {children}
     </h2>
   );
+}
+
+function Divider() {
+  return <div style={{ height: 1, backgroundColor: "#161616", width: "100%" }} />;
 }
 
 // ─── Main component ────────────────────────────────────────────────────────────
@@ -204,7 +240,7 @@ export default function Landing() {
               cursor: "pointer",
             }}
           >
-            Empezar →
+            Empezar por $47 →
           </button>
         </div>
       </nav>
@@ -214,7 +250,7 @@ export default function Landing() {
         className="relative flex items-center justify-center overflow-hidden"
         style={{
           minHeight: "calc(100vh - 60px)",
-          padding: "5rem 1.5rem 4rem",
+          padding: "5rem 1.5rem 5rem",
         }}
       >
         {/* grid bg */}
@@ -222,8 +258,8 @@ export default function Landing() {
           className="absolute inset-0 pointer-events-none"
           style={{
             backgroundImage: `
-              linear-gradient(rgba(79,110,247,0.035) 1px, transparent 1px),
-              linear-gradient(90deg, rgba(79,110,247,0.035) 1px, transparent 1px)
+              linear-gradient(rgba(79,110,247,0.03) 1px, transparent 1px),
+              linear-gradient(90deg, rgba(79,110,247,0.03) 1px, transparent 1px)
             `,
             backgroundSize: "64px 64px",
           }}
@@ -232,476 +268,168 @@ export default function Landing() {
         <div
           className="absolute pointer-events-none"
           style={{
-            top: "35%",
+            top: "40%",
             left: "50%",
             transform: "translate(-50%, -50%)",
-            width: 700,
-            height: 420,
-            background: "radial-gradient(ellipse, rgba(79,110,247,0.11) 0%, transparent 70%)",
+            width: 900,
+            height: 500,
+            background: "radial-gradient(ellipse, rgba(79,110,247,0.1) 0%, transparent 68%)",
           }}
         />
 
-        <div className="relative z-10 mx-auto w-full" style={{ maxWidth: 1080 }}>
+        <div className="relative z-10 mx-auto w-full text-center" style={{ maxWidth: 780 }}>
+          {/* badge */}
           <div
-            className="grid items-center"
+            className="inline-flex items-center gap-1.5 rounded-full text-xs font-semibold tracking-widest uppercase mb-8"
             style={{
-              gridTemplateColumns: "1fr auto",
-              gap: "clamp(2rem, 5vw, 5rem)",
+              backgroundColor: "rgba(79,110,247,0.08)",
+              border: "1px solid rgba(79,110,247,0.2)",
+              padding: "0.3rem 0.95rem",
+              color: "#4F6EF7",
             }}
           >
-            {/* ── LEFT: copy ── */}
-            <div>
-              {/* badge */}
-              <div
-                className="inline-flex items-center gap-1.5 rounded-full text-xs font-semibold tracking-widest uppercase mb-7"
-                style={{
-                  backgroundColor: "rgba(79,110,247,0.09)",
-                  border: "1px solid rgba(79,110,247,0.22)",
-                  padding: "0.3rem 0.9rem",
-                  color: "#4F6EF7",
-                }}
-              >
-                <Sparkles size={11} />
-                Sistema guiado de Reels con IA
-              </div>
-
-              <h1
-                className="font-bold tracking-tight"
-                style={{
-                  fontFamily: "var(--font-display, 'Outfit', sans-serif)",
-                  fontSize: "clamp(2.1rem, 5vw, 3.8rem)",
-                  lineHeight: 1.08,
-                  letterSpacing: "-0.035em",
-                  marginBottom: "1.4rem",
-                }}
-              >
-                Publica Reels con tu avatar{" "}
-                <span
-                  style={{
-                    background: "linear-gradient(135deg, #4F6EF7 10%, #9B5CF6 90%)",
-                    WebkitBackgroundClip: "text",
-                    WebkitTextFillColor: "transparent",
-                    backgroundClip: "text",
-                    display: "block",
-                  }}
-                >
-                  sin grabarte ni editar a diario
-                </span>
-              </h1>
-
-              <p
-                style={{
-                  fontSize: "clamp(0.95rem, 1.8vw, 1.1rem)",
-                  color: "#999",
-                  lineHeight: 1.75,
-                  maxWidth: 500,
-                  marginBottom: "2rem",
-                }}
-              >
-                Un sistema guiado que crea la estrategia, genera los guiones, produce
-                los videos con tu avatar y los prepara para publicar en Instagram.
-              </p>
-
-              <div className="flex flex-wrap gap-3" style={{ marginBottom: "1.25rem" }}>
-                <button
-                  onClick={() => setCheckoutOpen(true)}
-                  className="inline-flex items-center gap-2 rounded-xl font-bold transition-opacity hover:opacity-90"
-                  style={{
-                    backgroundColor: "#4F6EF7",
-                    color: "#fff",
-                    padding: "0.9rem 2rem",
-                    fontSize: "1rem",
-                    border: "none",
-                    cursor: "pointer",
-                  }}
-                >
-                  Empezar a crear Reels <ArrowRight size={16} />
-                </button>
-                <a
-                  href="#como-funciona"
-                  className="inline-flex items-center gap-2 rounded-xl font-semibold transition-colors"
-                  style={{
-                    backgroundColor: "rgba(255,255,255,0.04)",
-                    border: "1px solid #252525",
-                    color: "#e0e0e0",
-                    padding: "0.9rem 2rem",
-                    fontSize: "1rem",
-                    textDecoration: "none",
-                  }}
-                >
-                  <Play size={14} fill="currentColor" /> Ver cómo funciona
-                </a>
-              </div>
-
-              {/* tools note */}
-              <p
-                style={{
-                  fontSize: "0.78rem",
-                  color: "#555",
-                  lineHeight: 1.6,
-                  marginBottom: "1.5rem",
-                }}
-              >
-                Funciona con tu cuenta de HeyGen y OpenAI.{" "}
-                <span style={{ color: "#444" }}>
-                  Te guiamos a configurarlas paso a paso.
-                </span>
-              </p>
-
-              {/* social proof strip */}
-              <div
-                className="flex items-center gap-5 flex-wrap"
-                style={{ color: "#555", fontSize: "0.8rem" }}
-              >
-                {[
-                  "Guión listo en minutos",
-                  "Video producido con tu avatar",
-                  "Publicación automática en Instagram",
-                ].map((t) => (
-                  <span key={t} className="flex items-center gap-1.5">
-                    <Check size={11} color="#4F6EF7" strokeWidth={3} /> {t}
-                  </span>
-                ))}
-              </div>
-            </div>
-
-            {/* ── RIGHT: avatar image ── */}
-            <div
-              className="hidden md:block flex-shrink-0"
-              style={{ position: "relative" }}
-            >
-              <div
-                className="absolute pointer-events-none"
-                style={{
-                  inset: "-20px",
-                  background:
-                    "radial-gradient(ellipse at center, rgba(79,110,247,0.22) 0%, transparent 70%)",
-                  borderRadius: "9999px",
-                  zIndex: 0,
-                }}
-              />
-              <img
-                src={`${BASE}/hero-avatar.jpg`}
-                alt="Video de Reel generado con avatar IA"
-                style={{
-                  position: "relative",
-                  zIndex: 1,
-                  width: "clamp(260px, 22vw, 360px)",
-                  aspectRatio: "9/16",
-                  objectFit: "cover",
-                  objectPosition: "top",
-                  borderRadius: "2rem",
-                  border: "1px solid rgba(79,110,247,0.25)",
-                  boxShadow:
-                    "0 0 60px rgba(79,110,247,0.18), 0 24px 60px rgba(0,0,0,0.6)",
-                }}
-              />
-              {/* "Generado con IA" label */}
-              <div
-                style={{
-                  position: "absolute",
-                  bottom: "1.2rem",
-                  left: "50%",
-                  transform: "translateX(-50%)",
-                  zIndex: 2,
-                  backgroundColor: "rgba(9,9,9,0.82)",
-                  backdropFilter: "blur(8px)",
-                  border: "1px solid rgba(79,110,247,0.3)",
-                  borderRadius: "9999px",
-                  padding: "0.3rem 0.85rem",
-                  fontSize: "0.68rem",
-                  fontWeight: 600,
-                  letterSpacing: "0.06em",
-                  color: "#4F6EF7",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                ✦ VIDEO GENERADO CON AVATAR IA
-              </div>
-            </div>
+            <Sparkles size={11} />
+            Sistema automático de Reels con avatar IA
           </div>
-        </div>
-      </section>
 
-      {/* ── VIDEO VENTAS ── */}
-      <section
-        id="como-funciona-video"
-        className="mx-auto px-6"
-        style={{ maxWidth: 900, paddingTop: "5rem", paddingBottom: "5rem" }}
-      >
-        <div className="text-center mb-8">
-          <SectionTitle>Mira el sistema en acción</SectionTitle>
-          <p
-            className="mx-auto mt-4"
+          <h1
+            className="font-bold tracking-tight"
             style={{
-              color: "#666",
-              maxWidth: 520,
-              lineHeight: 1.75,
-              fontSize: "0.95rem",
+              fontFamily: "var(--font-display, 'Outfit', sans-serif)",
+              fontSize: "clamp(2.4rem, 6vw, 4.2rem)",
+              lineHeight: 1.06,
+              letterSpacing: "-0.04em",
+              marginBottom: "1.5rem",
             }}
           >
-            Cómo pasar de no saber qué publicar a tener Reels con avatar
-            produciéndose y publicándose en piloto automático.
-          </p>
-        </div>
-
-        {/* Video placeholder — intencional, próximamente */}
-        <div
-          className="relative w-full rounded-2xl overflow-hidden"
-          style={{
-            paddingTop: "56.25%",
-            backgroundColor: "#0e0e0e",
-            border: "1px solid #1e1e1e",
-          }}
-        >
-          <div
-            className="absolute inset-0 flex flex-col items-center justify-center gap-4"
-            style={{
-              background: "linear-gradient(135deg, #0c0c0c 0%, #141420 100%)",
-            }}
-          >
-            <div
-              className="flex items-center justify-center rounded-full"
+            Monta tu sistema automático de Reels{" "}
+            <span
               style={{
-                width: 72,
-                height: 72,
-                background: "linear-gradient(135deg, rgba(79,110,247,0.15), rgba(155,92,246,0.15))",
-                border: "2px solid rgba(79,110,247,0.35)",
+                background: "linear-gradient(135deg, #4F6EF7 10%, #9B5CF6 90%)",
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+                backgroundClip: "text",
               }}
             >
-              <MonitorPlay size={28} color="#4F6EF7" />
-            </div>
-            <div className="text-center">
-              <p
-                className="font-semibold mb-1"
-                style={{ color: "#ccc", fontSize: "0.95rem" }}
-              >
-                Video de presentación
-              </p>
-              <p style={{ color: "#444", fontSize: "0.78rem" }}>Próximamente</p>
-            </div>
-          </div>
-        </div>
-      </section>
+              sin grabarte todos los días
+            </span>
+          </h1>
 
-      {/* ── PASOS ── */}
-      <section
-        id="como-funciona"
-        style={{
-          backgroundColor: "#0d0d0d",
-          borderTop: "1px solid #161616",
-          borderBottom: "1px solid #161616",
-          padding: "5rem 1.5rem",
-        }}
-      >
-        <div className="mx-auto" style={{ maxWidth: 1040 }}>
-          <div className="text-center mb-14">
-            <SectionLabel>El proceso</SectionLabel>
-            <SectionTitle>Cómo funciona Reelsona</SectionTitle>
-            <p
-              className="mx-auto mt-4"
-              style={{ color: "#666", maxWidth: 500, fontSize: "0.9rem", lineHeight: 1.7 }}
-            >
-              No configuramos avatares — usamos el tuyo para automatizar
-              la producción de Reels de principio a fin.
-            </p>
-          </div>
-
-          <div
-            className="grid gap-5"
-            style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}
+          <p
+            className="mx-auto"
+            style={{
+              fontSize: "clamp(1rem, 2vw, 1.175rem)",
+              color: "#888",
+              lineHeight: 1.75,
+              maxWidth: 600,
+              marginBottom: "2.5rem",
+            }}
           >
-            {steps.map(({ n, Icon, title, desc }) => (
-              <div
-                key={n}
-                className="relative rounded-2xl overflow-hidden"
-                style={{
-                  backgroundColor: "#111",
-                  border: "1px solid #1e1e1e",
-                  padding: "1.75rem 1.5rem",
-                }}
-              >
-                <span
-                  className="absolute select-none"
-                  style={{
-                    top: "0.6rem",
-                    right: "1rem",
-                    fontSize: "3.2rem",
-                    fontWeight: 900,
-                    color: "#1a1a1a",
-                    fontFamily: "var(--font-display, 'Outfit', sans-serif)",
-                    lineHeight: 1,
-                  }}
-                >
-                  {n}
-                </span>
-                <div
-                  className="flex items-center justify-center rounded-xl mb-4"
-                  style={{
-                    width: 42,
-                    height: 42,
-                    backgroundColor: "rgba(79,110,247,0.1)",
-                    color: "#4F6EF7",
-                  }}
-                >
-                  <Icon size={19} />
-                </div>
-                <h3
-                  className="font-bold mb-2"
-                  style={{
-                    fontFamily: "var(--font-display, 'Outfit', sans-serif)",
-                    fontSize: "0.975rem",
-                  }}
-                >
-                  {title}
-                </h3>
-                <p style={{ color: "#666", fontSize: "0.855rem", lineHeight: 1.65 }}>
-                  {desc}
-                </p>
-              </div>
+            La capa estratégica y operativa que convierte tu conocimiento en ideas,
+            guiones, videos con avatar, captions, edición y publicación en Instagram —
+            completamente en automático.
+          </p>
+
+          <div className="flex flex-wrap gap-3 justify-center" style={{ marginBottom: "1.5rem" }}>
+            <button
+              onClick={() => setCheckoutOpen(true)}
+              className="inline-flex items-center gap-2 rounded-xl font-bold transition-opacity hover:opacity-90"
+              style={{
+                background: "linear-gradient(135deg, #4F6EF7, #7B5CF6)",
+                color: "#fff",
+                padding: "1rem 2.25rem",
+                fontSize: "1.05rem",
+                border: "none",
+                cursor: "pointer",
+                boxShadow: "0 0 30px rgba(79,110,247,0.35)",
+              }}
+            >
+              Empezar por $47 <ArrowRight size={17} />
+            </button>
+            <a
+              href="#como-funciona"
+              className="inline-flex items-center gap-2 rounded-xl font-semibold transition-colors"
+              style={{
+                backgroundColor: "rgba(255,255,255,0.04)",
+                border: "1px solid #252525",
+                color: "#d0d0d0",
+                padding: "1rem 2rem",
+                fontSize: "1rem",
+                textDecoration: "none",
+              }}
+            >
+              <Play size={13} fill="currentColor" /> Ver cómo funciona
+            </a>
+          </div>
+
+          {/* checklist strip */}
+          <div
+            className="flex items-center gap-5 flex-wrap justify-center"
+            style={{ color: "#555", fontSize: "0.82rem", marginBottom: "1rem" }}
+          >
+            {[
+              "Guión listo en minutos",
+              "Video con tu avatar sin grabarte",
+              "Autopilot publica por ti",
+            ].map((t) => (
+              <span key={t} className="flex items-center gap-1.5">
+                <Check size={11} color="#4F6EF7" strokeWidth={3} /> {t}
+              </span>
             ))}
           </div>
+
+          {/* tools note */}
+          <p style={{ fontSize: "0.75rem", color: "#404040", lineHeight: 1.6 }}>
+            Funciona con tu cuenta de HeyGen y OpenAI · Sus costos son independientes · Te guiamos a configurarlas paso a paso
+          </p>
         </div>
       </section>
 
-      {/* ── FLUJO DE LA PLATAFORMA (reemplaza video demo) ── */}
-      <section
-        className="mx-auto px-6"
-        style={{ maxWidth: 960, paddingTop: "5rem", paddingBottom: "5rem" }}
-      >
-        <div
-          className="grid gap-12 items-center"
-          style={{ gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))" }}
-        >
-          {/* text */}
-          <div>
-            <SectionLabel>Dentro de la plataforma</SectionLabel>
-            <SectionTitle>
-              Todo el flujo en<br />un solo lugar
-            </SectionTitle>
-            <p
-              className="mt-4 mb-6"
-              style={{ color: "#666", fontSize: "0.9rem", lineHeight: 1.7 }}
-            >
-              Desde la estrategia hasta la publicación, cada paso del proceso
-              tiene su módulo dentro de Reelsona. Sin saltar entre herramientas,
-              sin perder el hilo.
-            </p>
-            <ul className="flex flex-col gap-3">
-              {flowItems.map((item) => (
-                <li key={item} className="flex items-center gap-3">
-                  <span
-                    className="flex-shrink-0 flex items-center justify-center rounded-full"
-                    style={{
-                      width: 20,
-                      height: 20,
-                      backgroundColor: "rgba(79,110,247,0.12)",
-                      border: "1px solid rgba(79,110,247,0.28)",
-                    }}
-                  >
-                    <Check size={9} color="#4F6EF7" strokeWidth={3.5} />
-                  </span>
-                  <span style={{ color: "#999", fontSize: "0.88rem" }}>{item}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
+      <Divider />
 
-          {/* platform mockup placeholder */}
-          <div
-            className="relative rounded-2xl overflow-hidden"
-            style={{
-              backgroundColor: "#0e0e0e",
-              border: "1px solid #1e1e1e",
-              minHeight: 320,
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: "1rem",
-              padding: "2.5rem",
-            }}
-          >
-            <div
-              style={{
-                width: 56,
-                height: 56,
-                borderRadius: "1rem",
-                background: "linear-gradient(135deg, rgba(79,110,247,0.18), rgba(155,92,246,0.18))",
-                border: "1px solid rgba(79,110,247,0.3)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <Rocket size={24} color="#4F6EF7" />
-            </div>
-            <p
-              className="font-semibold text-center"
-              style={{ color: "#ccc", fontSize: "0.95rem" }}
-            >
-              Demo de la plataforma
-            </p>
-            <p
-              className="text-center"
-              style={{ color: "#444", fontSize: "0.78rem", maxWidth: 220 }}
-            >
-              Capturas y recorrido visual próximamente
-            </p>
-          </div>
-        </div>
-      </section>
-
-      {/* ── BENEFITS ── */}
-      <section
-        style={{
-          backgroundColor: "#0d0d0d",
-          borderTop: "1px solid #161616",
-          borderBottom: "1px solid #161616",
-          padding: "5rem 1.5rem",
-        }}
-      >
-        <div className="mx-auto" style={{ maxWidth: 920 }}>
+      {/* ── EL PROBLEMA ── */}
+      <section style={{ padding: "5.5rem 1.5rem" }}>
+        <div className="mx-auto" style={{ maxWidth: 980 }}>
           <div className="text-center mb-12">
-            <SectionLabel>Lo que cambia</SectionLabel>
-            <SectionTitle>
-              Deja de improvisar,<br />empieza a producir
+            <SectionLabel>El problema real</SectionLabel>
+            <SectionTitle center>
+              Tienes el avatar. Te falta el sistema.
             </SectionTitle>
+            <p
+              className="mx-auto mt-4"
+              style={{ color: "#666", maxWidth: 520, fontSize: "0.9rem", lineHeight: 1.75 }}
+            >
+              El avatar es solo una herramienta. Sin un sistema detrás, sigue dependiendo
+              de tu tiempo, tu energía y tu disciplina para publicar con consistencia.
+            </p>
           </div>
 
           <div
-            className="grid gap-3"
-            style={{ gridTemplateColumns: "repeat(auto-fit, minmax(270px, 1fr))" }}
+            className="grid gap-4"
+            style={{ gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))" }}
           >
-            {benefits.map(({ Icon, text }) => (
+            {painPoints.map(({ Icon, text }) => (
               <div
                 key={text}
-                className="flex items-start gap-3 rounded-xl"
+                className="flex items-start gap-3 rounded-2xl"
                 style={{
-                  backgroundColor: "#111",
-                  border: "1px solid #1e1e1e",
-                  padding: "1.1rem 1.25rem",
+                  backgroundColor: "#0e0e0e",
+                  border: "1px solid #1c1c1c",
+                  padding: "1.5rem",
                 }}
               >
                 <div
-                  className="flex-shrink-0 flex items-center justify-center rounded-lg"
+                  className="flex-shrink-0 flex items-center justify-center rounded-lg mt-0.5"
                   style={{
                     width: 36,
                     height: 36,
-                    backgroundColor: "rgba(79,110,247,0.09)",
-                    color: "#4F6EF7",
+                    backgroundColor: "rgba(255,80,80,0.07)",
+                    border: "1px solid rgba(255,80,80,0.15)",
                   }}
                 >
-                  <Icon size={16} />
+                  <Icon size={16} color="#cc4444" />
                 </div>
-                <span
-                  style={{
-                    color: "#bbb",
-                    fontSize: "0.875rem",
-                    lineHeight: 1.55,
-                    paddingTop: 2,
-                  }}
-                >
+                <span style={{ color: "#888", fontSize: "0.875rem", lineHeight: 1.65 }}>
                   {text}
                 </span>
               </div>
@@ -710,82 +438,718 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* ── QUÉ OBTIENES ── */}
-      <section
-        className="mx-auto px-6"
-        style={{ maxWidth: 820, paddingTop: "5rem", paddingBottom: "5rem" }}
-      >
-        <div className="text-center mb-4">
-          <SectionLabel>Dentro del sistema</SectionLabel>
-          <SectionTitle>Qué obtienes al entrar</SectionTitle>
-        </div>
-        <p
-          className="text-center mx-auto mb-10"
-          style={{
-            color: "#666",
-            fontSize: "0.9rem",
-            lineHeight: 1.75,
-            maxWidth: 520,
-          }}
-        >
-          Dentro encuentras la ruta guiada, la plataforma y los pasos
-          prácticos para configurar tu sistema de contenido de Reels.
-        </p>
+      <Divider />
 
-        <div
-          className="rounded-2xl"
-          style={{
-            backgroundColor: "#111",
-            border: "1px solid #1e1e1e",
-            padding: "2.25rem 2rem",
-          }}
-        >
+      {/* ── QUÉ ES REELSONA ── */}
+      <section
+        style={{
+          backgroundColor: "#0b0b0b",
+          padding: "5.5rem 1.5rem",
+        }}
+      >
+        <div className="mx-auto" style={{ maxWidth: 900 }}>
+          <div className="text-center mb-14">
+            <SectionLabel>Qué es Reelsona</SectionLabel>
+            <SectionTitle center>
+              No es HeyGen. No crea avatares.<br />Es la capa que hace que todo funcione.
+            </SectionTitle>
+          </div>
+
+          {/* Key quote */}
           <div
-            className="rounded-t-2xl absolute"
+            className="rounded-2xl mb-10"
             style={{
-              height: 2,
-              background: "linear-gradient(90deg, #4F6EF7, #9B5CF6, transparent)",
-              marginTop: "-2.25rem",
-              marginLeft: "-2rem",
-              width: "60%",
-              borderRadius: "12px 0 0 0",
+              background: "linear-gradient(135deg, rgba(79,110,247,0.06), rgba(155,92,246,0.06))",
+              border: "1px solid rgba(79,110,247,0.18)",
+              padding: "2rem 2.25rem",
             }}
-          />
+          >
+            <p
+              style={{
+                fontSize: "clamp(1rem, 2.2vw, 1.2rem)",
+                color: "#d0d0d0",
+                lineHeight: 1.75,
+                fontStyle: "italic",
+                margin: 0,
+              }}
+            >
+              "HeyGen crea el video. Reelsona crea el sistema para que ese video
+              tenga estrategia, estructura, edición, captions y constancia."
+            </p>
+          </div>
+
+          <p
+            className="text-center mx-auto mb-12"
+            style={{ color: "#777", fontSize: "0.95rem", lineHeight: 1.8, maxWidth: 640 }}
+          >
+            Reelsona es la capa estratégica y operativa que conecta todas las piezas.
+            No reemplaza a HeyGen ni a OpenAI — los usa como motores. Tú defines la
+            dirección; Reelsona convierte esa dirección en producción constante.
+          </p>
+
+          {/* What it covers */}
           <div
             className="grid gap-3"
-            style={{ gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))" }}
+            style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}
           >
-            {includes.map((item) => (
-              <div key={item} className="flex items-center gap-3">
-                <span
-                  className="flex-shrink-0 flex items-center justify-center rounded-full"
+            {whatItCovers.map(({ Icon, label, desc }) => (
+              <div
+                key={label}
+                className="rounded-2xl"
+                style={{
+                  backgroundColor: "#111",
+                  border: "1px solid #1e1e1e",
+                  padding: "1.4rem 1.25rem",
+                }}
+              >
+                <div
+                  className="flex items-center justify-center rounded-xl mb-3"
                   style={{
-                    width: 22,
-                    height: 22,
-                    backgroundColor: "rgba(79,110,247,0.13)",
-                    border: "1px solid rgba(79,110,247,0.28)",
+                    width: 38,
+                    height: 38,
+                    backgroundColor: "rgba(79,110,247,0.09)",
+                    color: "#4F6EF7",
                   }}
                 >
-                  <Check size={10} color="#4F6EF7" strokeWidth={3} />
-                </span>
-                <span style={{ color: "#ccc", fontSize: "0.875rem" }}>{item}</span>
+                  <Icon size={17} />
+                </div>
+                <h3
+                  className="font-bold mb-1"
+                  style={{
+                    fontFamily: "var(--font-display, 'Outfit', sans-serif)",
+                    fontSize: "0.9rem",
+                    color: "#e0e0e0",
+                  }}
+                >
+                  {label}
+                </h3>
+                <p style={{ color: "#666", fontSize: "0.82rem", lineHeight: 1.6, margin: 0 }}>
+                  {desc}
+                </p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
+      <Divider />
+
+      {/* ── AUTOPILOT ── */}
+      <section style={{ padding: "6rem 1.5rem" }}>
+        <div className="mx-auto" style={{ maxWidth: 1000 }}>
+          {/* header */}
+          <div className="text-center mb-14">
+            <SectionLabel>Modo Autopilot</SectionLabel>
+            <SectionTitle center>
+              Configura una vez. Publica para siempre.
+            </SectionTitle>
+            <p
+              className="mx-auto mt-5"
+              style={{ color: "#666", maxWidth: 560, fontSize: "0.95rem", lineHeight: 1.8 }}
+            >
+              Cuando tu estrategia, herramientas e Instagram están conectados,
+              Autopilot se encarga del resto — de principio a fin, sin que tengas
+              que tocar nada.
+            </p>
+          </div>
+
+          {/* Quote highlight */}
+          <div
+            className="text-center rounded-2xl mx-auto mb-14"
+            style={{
+              maxWidth: 680,
+              background: "linear-gradient(135deg, rgba(79,110,247,0.07), rgba(155,92,246,0.07))",
+              border: "1px solid rgba(155,92,246,0.2)",
+              padding: "1.75rem 2rem",
+            }}
+          >
+            <p
+              style={{
+                fontSize: "clamp(0.95rem, 2vw, 1.1rem)",
+                color: "#c8c8c8",
+                lineHeight: 1.75,
+                fontStyle: "italic",
+                margin: 0,
+              }}
+            >
+              "Configura tu estrategia, conecta tus herramientas y deja que tu
+              clon digital trabaje por ti."
+            </p>
+          </div>
+
+          {/* Steps */}
+          <div className="relative">
+            {/* connector line */}
+            <div
+              className="absolute hidden md:block"
+              style={{
+                top: "2.2rem",
+                left: "calc(10% + 1.1rem)",
+                right: "calc(10% + 1.1rem)",
+                height: 1,
+                background: "linear-gradient(90deg, transparent, rgba(79,110,247,0.25), transparent)",
+              }}
+            />
+            <div
+              className="grid gap-5"
+              style={{ gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))" }}
+            >
+              {autopilotSteps.map(({ n, title, desc }) => (
+                <div
+                  key={n}
+                  className="relative rounded-2xl text-center"
+                  style={{
+                    backgroundColor: "#0f0f0f",
+                    border: "1px solid #1d1d1d",
+                    padding: "1.75rem 1.25rem 1.5rem",
+                  }}
+                >
+                  {/* step number bubble */}
+                  <div
+                    className="flex items-center justify-center rounded-full mx-auto mb-4 relative z-10"
+                    style={{
+                      width: 44,
+                      height: 44,
+                      background: "linear-gradient(135deg, rgba(79,110,247,0.18), rgba(155,92,246,0.18))",
+                      border: "1px solid rgba(79,110,247,0.3)",
+                      fontSize: "0.8rem",
+                      fontWeight: 800,
+                      color: "#4F6EF7",
+                      fontFamily: "var(--font-display, 'Outfit', sans-serif)",
+                      backgroundColor: "#0f0f0f",
+                    }}
+                  >
+                    {n}
+                  </div>
+                  <h3
+                    className="font-bold mb-2"
+                    style={{
+                      fontFamily: "var(--font-display, 'Outfit', sans-serif)",
+                      fontSize: "0.88rem",
+                      color: "#e0e0e0",
+                    }}
+                  >
+                    {title}
+                  </h3>
+                  <p style={{ color: "#5a5a5a", fontSize: "0.8rem", lineHeight: 1.6, margin: 0 }}>
+                    {desc}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Autopilot outcome */}
+          <div
+            className="mt-10 rounded-2xl flex flex-wrap items-center gap-6"
+            style={{
+              backgroundColor: "#0d0d0d",
+              border: "1px solid rgba(79,110,247,0.15)",
+              padding: "1.75rem 2rem",
+            }}
+          >
+            <div
+              className="flex items-center justify-center rounded-xl flex-shrink-0"
+              style={{
+                width: 48,
+                height: 48,
+                background: "linear-gradient(135deg, rgba(79,110,247,0.15), rgba(155,92,246,0.15))",
+                border: "1px solid rgba(79,110,247,0.25)",
+              }}
+            >
+              <Repeat size={20} color="#4F6EF7" />
+            </div>
+            <div style={{ flex: 1, minWidth: 240 }}>
+              <p
+                className="font-semibold mb-1"
+                style={{
+                  fontFamily: "var(--font-display, 'Outfit', sans-serif)",
+                  fontSize: "0.975rem",
+                  color: "#e0e0e0",
+                }}
+              >
+                No pagas por producir un video.
+              </p>
+              <p style={{ color: "#666", fontSize: "0.875rem", lineHeight: 1.65, margin: 0 }}>
+                Pagas por montar una máquina que puede seguir creando contenido para ti — mes
+                tras mes, con o sin que estés disponible para producirlo.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <Divider />
+
+      {/* ── PARA QUIÉN ES ── */}
+      <section
+        style={{ backgroundColor: "#0b0b0b", padding: "5.5rem 1.5rem" }}
+      >
+        <div className="mx-auto" style={{ maxWidth: 900 }}>
+          <div className="text-center mb-12">
+            <SectionLabel>Para quién es</SectionLabel>
+            <SectionTitle center>
+              Diseñado para quienes tienen conocimiento<br />y quieren un sistema que lo distribuya
+            </SectionTitle>
+          </div>
+
+          <div
+            className="grid gap-4"
+            style={{ gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}
+          >
+            {forWhom.map(({ Icon, title, desc }) => (
+              <div
+                key={title}
+                className="rounded-2xl"
+                style={{
+                  backgroundColor: "#111",
+                  border: "1px solid #1e1e1e",
+                  padding: "1.6rem 1.5rem",
+                }}
+              >
+                <div
+                  className="flex items-center justify-center rounded-xl mb-4"
+                  style={{
+                    width: 40,
+                    height: 40,
+                    backgroundColor: "rgba(79,110,247,0.09)",
+                    color: "#4F6EF7",
+                  }}
+                >
+                  <Icon size={17} />
+                </div>
+                <h3
+                  className="font-bold mb-2"
+                  style={{
+                    fontFamily: "var(--font-display, 'Outfit', sans-serif)",
+                    fontSize: "0.93rem",
+                    color: "#e0e0e0",
+                  }}
+                >
+                  {title}
+                </h3>
+                <p style={{ color: "#666", fontSize: "0.85rem", lineHeight: 1.65, margin: 0 }}>
+                  {desc}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <Divider />
+
+      {/* ── CÓMO FUNCIONA ── */}
+      <section
+        id="como-funciona"
+        style={{ padding: "5.5rem 1.5rem" }}
+      >
+        <div className="mx-auto" style={{ maxWidth: 680 }}>
+          <div className="text-center mb-12">
+            <SectionLabel>El proceso</SectionLabel>
+            <SectionTitle center>
+              Cómo funciona Reelsona paso a paso
+            </SectionTitle>
+            <p
+              className="mx-auto mt-4"
+              style={{ color: "#666", fontSize: "0.9rem", lineHeight: 1.75, maxWidth: 480 }}
+            >
+              Desde que entras al sistema hasta que tu primer Reel está publicado —
+              sin editar, sin grabar, sin improvisar.
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-4">
+            {[
+              {
+                n: "1",
+                title: "Defines tu nicho y estrategia",
+                desc: "El sistema analiza tu mercado, genera un plan de temas con ángulos y hooks para los próximos 30 días, y lo guarda como base de todo el contenido.",
+              },
+              {
+                n: "2",
+                title: "La IA genera los guiones",
+                desc: "Para cada tema del plan, Reelsona produce un script estructurado para el formato de Reels y optimizado para el estilo de tu avatar. Puedes revisarlos o aprobarlos automáticamente.",
+              },
+              {
+                n: "3",
+                title: "Tu avatar graba el video",
+                desc: "El guión se envía a HeyGen y tu clon digital produce el video completo. Sin cámara, sin iluminación, sin estudio.",
+              },
+              {
+                n: "4",
+                title: "Reelsona aplica captions y edición",
+                desc: "Los captions visuales se generan y se aplican automáticamente al video. El Reel queda con estructura visual lista para publicar.",
+              },
+              {
+                n: "5",
+                title: "Se publica en Instagram",
+                desc: "El Reel se programa y publica en tu cuenta de Instagram Business en los horarios que configuraste — sin que hagas nada.",
+              },
+            ].map(({ n, title, desc }) => (
+              <div
+                key={n}
+                className="flex gap-5 rounded-2xl"
+                style={{
+                  backgroundColor: "#0e0e0e",
+                  border: "1px solid #1c1c1c",
+                  padding: "1.5rem 1.75rem",
+                }}
+              >
+                <div
+                  className="flex-shrink-0 flex items-center justify-center rounded-full font-bold"
+                  style={{
+                    width: 36,
+                    height: 36,
+                    background: "linear-gradient(135deg, rgba(79,110,247,0.15), rgba(155,92,246,0.15))",
+                    border: "1px solid rgba(79,110,247,0.3)",
+                    fontSize: "0.85rem",
+                    color: "#4F6EF7",
+                    fontFamily: "var(--font-display, 'Outfit', sans-serif)",
+                  }}
+                >
+                  {n}
+                </div>
+                <div>
+                  <h3
+                    className="font-bold mb-1.5"
+                    style={{
+                      fontFamily: "var(--font-display, 'Outfit', sans-serif)",
+                      fontSize: "0.95rem",
+                      color: "#e0e0e0",
+                    }}
+                  >
+                    {title}
+                  </h3>
+                  <p style={{ color: "#666", fontSize: "0.855rem", lineHeight: 1.65, margin: 0 }}>
+                    {desc}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <Divider />
+
+      {/* ── COMPARATIVA DE COSTOS ── */}
+      <section
+        style={{ backgroundColor: "#0b0b0b", padding: "5.5rem 1.5rem" }}
+      >
+        <div className="mx-auto" style={{ maxWidth: 780 }}>
+          <div className="text-center mb-5">
+            <SectionLabel>Comparativa de costos</SectionLabel>
+            <SectionTitle center>
+              Lo que cuesta el mismo resultado<br />sin Reelsona
+            </SectionTitle>
+          </div>
+          <p
+            className="text-center mx-auto mb-10"
+            style={{ color: "#555", fontSize: "0.82rem", lineHeight: 1.7, maxWidth: 520 }}
+          >
+            Los rangos siguientes son referencias aproximadas del mercado, no una promesa de ahorro
+            exacto. Cada caso varía según región, experiencia y alcance.
+          </p>
+
+          <div
+            className="rounded-2xl overflow-hidden"
+            style={{ border: "1px solid #1e1e1e" }}
+          >
+            {costRows.map(({ label, range, highlight }, i) => (
+              <div
+                key={label}
+                className="flex items-center justify-between gap-4 px-5 py-4"
+                style={{
+                  backgroundColor: highlight ? "rgba(79,110,247,0.09)" : i % 2 === 0 ? "#0f0f0f" : "#111",
+                  borderBottom: i < costRows.length - 1 ? "1px solid #1a1a1a" : "none",
+                  borderLeft: highlight ? "3px solid #4F6EF7" : "3px solid transparent",
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: "0.875rem",
+                    color: highlight ? "#d0d0d0" : "#888",
+                    fontWeight: highlight ? 700 : 400,
+                  }}
+                >
+                  {label}
+                </span>
+                <span
+                  className="flex-shrink-0 font-bold"
+                  style={{
+                    fontSize: highlight ? "1rem" : "0.875rem",
+                    color: highlight ? "#4F6EF7" : "#555",
+                    fontFamily: highlight ? "var(--font-display, 'Outfit', sans-serif)" : "inherit",
+                  }}
+                >
+                  {range}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          {/* Ahorro real */}
+          <div
+            className="mt-8 rounded-2xl text-center"
+            style={{
+              background: "linear-gradient(135deg, rgba(79,110,247,0.06), rgba(155,92,246,0.06))",
+              border: "1px solid rgba(79,110,247,0.15)",
+              padding: "2rem 1.75rem",
+            }}
+          >
+            <DollarSign size={28} color="#4F6EF7" className="mx-auto mb-3" />
+            <h3
+              className="font-bold mb-2"
+              style={{
+                fontFamily: "var(--font-display, 'Outfit', sans-serif)",
+                fontSize: "clamp(1.1rem, 3vw, 1.4rem)",
+                color: "#e0e0e0",
+              }}
+            >
+              Por una fracción del costo, montas el sistema tú mismo
+            </h3>
+            <p style={{ color: "#666", fontSize: "0.9rem", lineHeight: 1.75, margin: 0 }}>
+              Reelsona no es un servicio de producción que cobra por entregable. Es la
+              infraestructura que te permite producir tú mismo, con tu avatar, a escala —
+              sin depender de freelancers, agencias ni equipos de producción.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <Divider />
+
+      {/* ── QUÉ INCLUYE ── */}
+      <section style={{ padding: "5.5rem 1.5rem" }}>
+        <div className="mx-auto" style={{ maxWidth: 820 }}>
+          <div className="text-center mb-10">
+            <SectionLabel>Dentro del sistema</SectionLabel>
+            <SectionTitle center>Qué obtienes al entrar</SectionTitle>
+            <p
+              className="mx-auto mt-4"
+              style={{ color: "#666", fontSize: "0.9rem", lineHeight: 1.75, maxWidth: 500 }}
+            >
+              Todo lo que necesitas para montar tu sistema de Reels con avatar está
+              dentro. Sin módulos de pago adicionales.
+            </p>
+          </div>
+
+          <div
+            className="rounded-2xl"
+            style={{
+              backgroundColor: "#0f0f0f",
+              border: "1px solid rgba(79,110,247,0.2)",
+              padding: "2.25rem 2rem",
+              position: "relative",
+              overflow: "hidden",
+            }}
+          >
+            {/* gradient bar top */}
+            <div
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                right: 0,
+                height: 2,
+                background: "linear-gradient(90deg, #4F6EF7, #9B5CF6, transparent)",
+              }}
+            />
+            <div
+              className="grid gap-3"
+              style={{ gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))" }}
+            >
+              {includes.map((item) => (
+                <div key={item} className="flex items-center gap-3">
+                  <span
+                    className="flex-shrink-0 flex items-center justify-center rounded-full"
+                    style={{
+                      width: 22,
+                      height: 22,
+                      backgroundColor: "rgba(79,110,247,0.12)",
+                      border: "1px solid rgba(79,110,247,0.28)",
+                    }}
+                  >
+                    <Check size={10} color="#4F6EF7" strokeWidth={3} />
+                  </span>
+                  <span style={{ color: "#ccc", fontSize: "0.875rem" }}>{item}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <Divider />
+
+      {/* ── POR QUÉ NO ES OTRA HERRAMIENTA IA ── */}
+      <section
+        style={{ backgroundColor: "#0b0b0b", padding: "5.5rem 1.5rem" }}
+      >
+        <div className="mx-auto" style={{ maxWidth: 820 }}>
+          <div className="text-center mb-12">
+            <SectionLabel>No es otra herramienta IA</SectionLabel>
+            <SectionTitle center>
+              Hay decenas de apps de IA para contenido.<br />Reelsona no es ninguna de ellas.
+            </SectionTitle>
+          </div>
+
+          <div className="flex flex-col gap-4">
+            {notJustAiToolItems.map(({ wrong, right }) => (
+              <div
+                key={wrong}
+                className="grid rounded-2xl overflow-hidden"
+                style={{
+                  gridTemplateColumns: "1fr 1fr",
+                  border: "1px solid #1c1c1c",
+                }}
+              >
+                <div
+                  className="flex items-start gap-3 p-4"
+                  style={{ backgroundColor: "#0d0d0d", borderRight: "1px solid #1c1c1c" }}
+                >
+                  <X size={15} color="#664444" className="flex-shrink-0 mt-0.5" />
+                  <span style={{ color: "#555", fontSize: "0.845rem", lineHeight: 1.6 }}>
+                    {wrong}
+                  </span>
+                </div>
+                <div className="flex items-start gap-3 p-4" style={{ backgroundColor: "#0f0f0f" }}>
+                  <Check size={15} color="#4F6EF7" className="flex-shrink-0 mt-0.5" strokeWidth={3} />
+                  <span style={{ color: "#aaa", fontSize: "0.845rem", lineHeight: 1.6 }}>
+                    {right}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <Divider />
+
+      {/* ── PRECIO ── */}
+      <section style={{ padding: "5.5rem 1.5rem" }}>
+        <div className="mx-auto" style={{ maxWidth: 540 }}>
+          <div
+            className="rounded-2xl text-center relative overflow-hidden"
+            style={{
+              backgroundColor: "#0f0f0f",
+              border: "1px solid rgba(79,110,247,0.3)",
+              padding: "3rem 2.5rem",
+            }}
+          >
+            {/* top gradient bar */}
+            <div
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                right: 0,
+                height: 2,
+                background: "linear-gradient(90deg, #4F6EF7, #9B5CF6)",
+              }}
+            />
+            <SectionLabel>Precio de lanzamiento</SectionLabel>
+            <div
+              className="font-bold"
+              style={{
+                fontFamily: "var(--font-display, 'Outfit', sans-serif)",
+                fontSize: "3.75rem",
+                lineHeight: 1,
+                marginBottom: "0.3rem",
+                background: "linear-gradient(135deg, #4F6EF7 10%, #9B5CF6 90%)",
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+                backgroundClip: "text",
+              }}
+            >
+              $47 USD
+            </div>
+            <p style={{ color: "#444", fontSize: "0.82rem", marginBottom: "0.75rem" }}>
+              Pago único · Sin suscripción mensual · Acceso completo
+            </p>
+
+            <div
+              className="flex justify-center gap-4 flex-wrap mb-7"
+              style={{ marginTop: "0.25rem" }}
+            >
+              {["Acceso inmediato", "Sin cuota mensual", "Modo Autopilot incluido"].map((t) => (
+                <span
+                  key={t}
+                  className="flex items-center gap-1.5"
+                  style={{ fontSize: "0.8rem", color: "#555" }}
+                >
+                  <Check size={11} color="#4F6EF7" strokeWidth={3} /> {t}
+                </span>
+              ))}
+            </div>
+
+            <button
+              onClick={() => setCheckoutOpen(true)}
+              className="inline-flex items-center gap-2 rounded-xl font-bold transition-opacity hover:opacity-90 w-full justify-center"
+              style={{
+                background: "linear-gradient(135deg, #4F6EF7, #7B5CF6)",
+                color: "#fff",
+                padding: "1.1rem 2rem",
+                fontSize: "1.05rem",
+                border: "none",
+                cursor: "pointer",
+                boxShadow: "0 0 28px rgba(79,110,247,0.3)",
+              }}
+            >
+              Montar mi sistema de Reels <ArrowRight size={17} />
+            </button>
+
+            {/* External costs note */}
+            <div
+              className="mt-5 rounded-xl p-4 text-left"
+              style={{
+                backgroundColor: "rgba(255,255,255,0.025)",
+                border: "1px solid #1e1e1e",
+              }}
+            >
+              <p
+                className="font-semibold mb-1"
+                style={{
+                  fontSize: "0.78rem",
+                  color: "#888",
+                  fontFamily: "var(--font-display, 'Outfit', sans-serif)",
+                }}
+              >
+                Nota sobre costos externos
+              </p>
+              <p style={{ color: "#4a4a4a", fontSize: "0.75rem", lineHeight: 1.7, margin: 0 }}>
+                Para generar videos con avatar y contenido con IA, Reelsona usa HeyGen y OpenAI.
+                Esas herramientas tienen sus propios planes y costos, que no están incluidos en
+                los $47. Te guiamos a configurarlas paso a paso desde el primer día.
+              </p>
+            </div>
+
+            <p
+              style={{
+                color: "#333",
+                fontSize: "0.72rem",
+                marginTop: "1rem",
+                lineHeight: 1.6,
+              }}
+            >
+              Recibirás un email de activación al completar el pago.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <Divider />
+
       {/* ── FAQ ── */}
       <section
-        style={{
-          backgroundColor: "#0d0d0d",
-          borderTop: "1px solid #161616",
-          padding: "5rem 1.5rem",
-        }}
+        style={{ backgroundColor: "#0b0b0b", padding: "5.5rem 1.5rem" }}
       >
         <div className="mx-auto" style={{ maxWidth: 660 }}>
           <div className="text-center mb-10">
-            <SectionTitle>Preguntas frecuentes</SectionTitle>
+            <SectionLabel>Preguntas frecuentes</SectionLabel>
+            <SectionTitle center>Preguntas frecuentes</SectionTitle>
           </div>
 
           <div>
@@ -793,8 +1157,7 @@ export default function Landing() {
               <div
                 key={i}
                 style={{
-                  borderBottom:
-                    i < faqs.length - 1 ? "1px solid #1a1a1a" : "none",
+                  borderBottom: i < faqs.length - 1 ? "1px solid #1a1a1a" : "none",
                 }}
               >
                 <button
@@ -816,7 +1179,7 @@ export default function Landing() {
                 {openFaq === i && (
                   <p
                     className="pb-5 m-0"
-                    style={{ color: "#777", fontSize: "0.875rem", lineHeight: 1.75 }}
+                    style={{ color: "#777", fontSize: "0.875rem", lineHeight: 1.8 }}
                   >
                     {faq.a}
                   </p>
@@ -827,73 +1190,12 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* ── PRECIO / ACCESO ── */}
-      <section
-        className="mx-auto px-6"
-        style={{ maxWidth: 560, paddingTop: "5rem", paddingBottom: "5rem" }}
-      >
-        <div
-          className="rounded-2xl text-center"
-          style={{
-            backgroundColor: "#111",
-            border: "1px solid rgba(79,110,247,0.25)",
-            padding: "2.5rem 2rem",
-          }}
-        >
-          <SectionLabel>Acceso de lanzamiento</SectionLabel>
-          <div
-            className="font-bold"
-            style={{
-              fontFamily: "var(--font-display, 'Outfit', sans-serif)",
-              fontSize: "3rem",
-              lineHeight: 1,
-              marginBottom: "0.4rem",
-              background: "linear-gradient(135deg, #4F6EF7 10%, #9B5CF6 90%)",
-              WebkitBackgroundClip: "text",
-              WebkitTextFillColor: "transparent",
-              backgroundClip: "text",
-            }}
-          >
-            $47 USD
-          </div>
-          <p style={{ color: "#555", fontSize: "0.8rem", marginBottom: "1.75rem" }}>
-            Pago único · Acceso completo
-          </p>
-          <button
-            onClick={() => setCheckoutOpen(true)}
-            className="inline-flex items-center gap-2 rounded-xl font-bold transition-opacity hover:opacity-90 w-full justify-center"
-            style={{
-              backgroundColor: "#4F6EF7",
-              color: "#fff",
-              padding: "1rem 2rem",
-              fontSize: "1rem",
-              border: "none",
-              cursor: "pointer",
-            }}
-          >
-            Empezar a crear Reels <ArrowRight size={16} />
-          </button>
-          <p
-            style={{
-              color: "#444",
-              fontSize: "0.75rem",
-              marginTop: "1rem",
-              lineHeight: 1.6,
-            }}
-          >
-            Requiere cuentas en HeyGen y OpenAI (costos separados).
-            Recibirás un email de activación al completar el pago.
-          </p>
-        </div>
-      </section>
+      <Divider />
 
       {/* ── CTA FINAL ── */}
       <section
         className="relative text-center overflow-hidden"
-        style={{
-          borderTop: "1px solid #161616",
-          padding: "7rem 1.5rem",
-        }}
+        style={{ padding: "8rem 1.5rem" }}
       >
         <div
           className="absolute pointer-events-none"
@@ -901,24 +1203,34 @@ export default function Landing() {
             top: "50%",
             left: "50%",
             transform: "translate(-50%, -50%)",
-            width: 600,
-            height: 360,
-            background: "radial-gradient(ellipse, rgba(79,110,247,0.09) 0%, transparent 70%)",
+            width: 700,
+            height: 400,
+            background: "radial-gradient(ellipse, rgba(79,110,247,0.09) 0%, transparent 68%)",
+          }}
+        />
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            backgroundImage: `
+              linear-gradient(rgba(79,110,247,0.025) 1px, transparent 1px),
+              linear-gradient(90deg, rgba(79,110,247,0.025) 1px, transparent 1px)
+            `,
+            backgroundSize: "64px 64px",
           }}
         />
 
-        <div className="relative z-10 mx-auto" style={{ maxWidth: 620 }}>
+        <div className="relative z-10 mx-auto" style={{ maxWidth: 640 }}>
           <h2
             className="font-bold tracking-tight"
             style={{
               fontFamily: "var(--font-display, 'Outfit', sans-serif)",
-              fontSize: "clamp(1.9rem, 5.5vw, 3.2rem)",
-              lineHeight: 1.08,
+              fontSize: "clamp(2rem, 5.5vw, 3.4rem)",
+              lineHeight: 1.07,
               letterSpacing: "-0.035em",
-              marginBottom: "1.1rem",
+              marginBottom: "1.25rem",
             }}
           >
-            Empieza a publicar Reels{" "}
+            Tu avatar ya existe.{" "}
             <span
               style={{
                 background: "linear-gradient(135deg, #4F6EF7 10%, #9B5CF6 90%)",
@@ -928,34 +1240,46 @@ export default function Landing() {
                 display: "block",
               }}
             >
-              con tu avatar esta semana
+              Ahora dale un sistema.
             </span>
           </h2>
           <p
             style={{
               color: "#666",
               fontSize: "1rem",
-              lineHeight: 1.75,
+              lineHeight: 1.8,
               marginBottom: "2.75rem",
+              maxWidth: 500,
+              margin: "0 auto 2.75rem",
             }}
           >
-            Configura tu sistema, conecta tu avatar y publica tus primeros
-            Reels con IA en días, no semanas.
+            Configura tu estrategia, conecta tus herramientas y activa el Autopilot.
+            Tu clon digital puede empezar a publicar Reels esta semana.
           </p>
           <button
             onClick={() => setCheckoutOpen(true)}
             className="inline-flex items-center gap-2 rounded-xl font-bold transition-opacity hover:opacity-90"
             style={{
-              backgroundColor: "#4F6EF7",
+              background: "linear-gradient(135deg, #4F6EF7, #7B5CF6)",
               color: "#fff",
-              padding: "1.05rem 2.5rem",
-              fontSize: "1.05rem",
+              padding: "1.15rem 2.75rem",
+              fontSize: "1.1rem",
               border: "none",
               cursor: "pointer",
+              boxShadow: "0 0 35px rgba(79,110,247,0.35)",
             }}
           >
-            Empezar a crear Reels <ArrowRight size={18} />
+            Montar mi sistema por $47 <ArrowRight size={18} />
           </button>
+          <p
+            style={{
+              marginTop: "1rem",
+              color: "#333",
+              fontSize: "0.78rem",
+            }}
+          >
+            Pago único · Acceso inmediato · Sin suscripción
+          </p>
         </div>
       </section>
 
@@ -965,7 +1289,7 @@ export default function Landing() {
       {/* ── FOOTER ── */}
       <footer
         className="text-center px-6 py-8"
-        style={{ borderTop: "1px solid #151515" }}
+        style={{ borderTop: "1px solid #131313" }}
       >
         <div className="flex justify-center gap-6 flex-wrap mb-3">
           {[
@@ -976,13 +1300,13 @@ export default function Landing() {
             <a
               key={label}
               href={href}
-              style={{ color: "#555", fontSize: "0.8rem", textDecoration: "none" }}
+              style={{ color: "#444", fontSize: "0.8rem", textDecoration: "none" }}
             >
               {label}
             </a>
           ))}
         </div>
-        <p style={{ color: "#444", fontSize: "0.75rem" }}>
+        <p style={{ color: "#333", fontSize: "0.75rem" }}>
           © 2026 Reelsona. Todos los derechos reservados.
         </p>
       </footer>
