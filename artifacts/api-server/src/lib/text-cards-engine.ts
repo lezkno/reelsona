@@ -44,6 +44,23 @@ export interface SavedCardTemplate {
   subtext?: string;
 }
 
+/** One independently-configurable card slot (v2 multi-card format). */
+export interface CardSlotConfig {
+  enabled: boolean;
+  useAi: boolean;
+  text?: string;      // hook, cta
+  headline?: string;  // stat
+  subtext?: string;   // stat
+}
+
+/** Multi-card configuration — hook, stat and CTA each configured independently (v2 format). */
+export interface MultiCardConfig {
+  version: 2;
+  hook: CardSlotConfig;
+  stat: CardSlotConfig;
+  cta:  CardSlotConfig;
+}
+
 export interface HookCard {
   type: "hook";
   /** Full sentence / question to display */
@@ -474,6 +491,53 @@ async function compositeCards(
  * Main entry point — analyze the script, render cards, composite onto video.
  * Returns the path to the processed video (or the original source on failure).
  */
+/** Builds a TextCard from a CardSlotConfig (manual mode). Returns null if required fields are missing. */
+function buildSlotCard(type: CardType, slot: CardSlotConfig): TextCard | null {
+  if (type === "hook" && slot.text) return { type: "hook", text: slot.text };
+  if (type === "cta"  && slot.text) return { type: "cta",  text: slot.text };
+  if (type === "stat" && slot.headline && slot.subtext)
+    return { type: "stat", headline: slot.headline, subtext: slot.subtext };
+  return null;
+}
+
+/**
+ * Builds TextCard[] from a MultiCardConfig.
+ * Manual slots are built directly; AI slots call analyzeScriptForCards filtered to those types.
+ * Cards are returned in canonical order: hook → stat → cta.
+ */
+async function buildCardsFromMultiConfig(
+  config: MultiCardConfig,
+  script: string,
+  durationSec: number,
+): Promise<TextCard[]> {
+  const manual: TextCard[] = [];
+  const aiTypes: CardType[] = [];
+
+  const slots: Array<[CardType, CardSlotConfig]> = [
+    ["hook", config.hook],
+    ["stat", config.stat],
+    ["cta",  config.cta],
+  ];
+
+  for (const [type, slot] of slots) {
+    if (!slot.enabled) continue;
+    if (slot.useAi) {
+      aiTypes.push(type);
+    } else {
+      const card = buildSlotCard(type, slot);
+      if (card) manual.push(card);
+    }
+  }
+
+  if (aiTypes.length > 0) {
+    const aiCards = await analyzeScriptForCards(script, durationSec);
+    manual.push(...aiCards.filter(c => aiTypes.includes(c.type)));
+  }
+
+  const ORDER: CardType[] = ["hook", "stat", "cta"];
+  return manual.sort((a, b) => ORDER.indexOf(a.type) - ORDER.indexOf(b.type));
+}
+
 /** Builds a TextCard directly from a SavedCardTemplate (no AI needed). Returns null if fields are missing. */
 function buildCardFromTemplate(t: SavedCardTemplate): TextCard | null {
   if (t.type === "hook" && t.text) return { type: "hook", text: t.text };
@@ -493,22 +557,29 @@ export async function applyTextCards(
   videoHeight: number,
   videoDurationSec: number,
   tmpDir: string,
-  cardTemplate?: SavedCardTemplate,
+  cardConfig?: MultiCardConfig | SavedCardTemplate,
 ): Promise<{ outputPath: string; cardWindows: CardWindow[] }> {
   try {
     let cards: TextCard[];
 
-    if (cardTemplate && !cardTemplate.useAi) {
-      // ── Template mode: use fixed card text, skip AI entirely ────────────
-      const fixed = buildCardFromTemplate(cardTemplate);
+    if (cardConfig && "version" in cardConfig) {
+      // ── Multi-card config (v2) — process each enabled slot ───────────────
+      cards = await buildCardsFromMultiConfig(cardConfig, script, videoDurationSec);
+      if (cards.length === 0) {
+        logger.info("[TextCards] No enabled cards in multi-card config — skipping");
+        return { outputPath: sourcePath, cardWindows: [] };
+      }
+    } else if (cardConfig && !cardConfig.useAi) {
+      // ── Legacy single-card template, manual text ─────────────────────────
+      const fixed = buildCardFromTemplate(cardConfig);
       if (!fixed) {
         logger.info("[TextCards] Card template has no content — skipping");
         return { outputPath: sourcePath, cardWindows: [] };
       }
       cards = [fixed];
-      logger.info({ type: cardTemplate.type }, "[TextCards] Using saved card template (no AI)");
+      logger.info({ type: cardConfig.type }, "[TextCards] Using legacy card template (no AI)");
     } else {
-      // ── AI mode: analyze script to identify card moments ────────────────
+      // ── Legacy AI mode / no config — analyze full script ─────────────────
       logger.info("[TextCards] Analyzing script for card moments...");
       cards = await analyzeScriptForCards(script, videoDurationSec);
       if (cards.length === 0) {

@@ -15,6 +15,23 @@ export interface SavedCardTemplate {
   subtext?: string;
 }
 
+/** One independently-configurable card slot in the multi-card setup (v2). */
+export interface CardSlotConfig {
+  enabled: boolean;
+  useAi: boolean;
+  text?: string;      // hook, cta
+  headline?: string;  // stat
+  subtext?: string;   // stat
+}
+
+/** Multi-card configuration — hook, stat and CTA each configured independently (v2 format). */
+export interface MultiCardConfig {
+  version: 2;
+  hook: CardSlotConfig;
+  stat: CardSlotConfig;
+  cta:  CardSlotConfig;
+}
+
 export const captionConfigTable = pgTable("caption_config", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull().references(() => users.id),
@@ -44,7 +61,7 @@ export const captionConfigTable = pgTable("caption_config", {
   captionRotationStrategy: text("caption_rotation_strategy").notNull().default("sequential"),
   lastUsedPresetId: text("last_used_preset_id"),
   presetUsageCount: json("preset_usage_count").$type<Record<string, number>>().notNull().default({}),
-  cardTemplate: json("card_template").$type<SavedCardTemplate | null>(),
+  cardTemplate: json("card_template").$type<MultiCardConfig | SavedCardTemplate | null>(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 

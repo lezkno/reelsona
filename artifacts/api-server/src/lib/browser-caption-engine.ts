@@ -600,7 +600,7 @@ export async function applyCaptionsBrowser(
     /** AI-generated visual suggestions for this content item (from suggestedVisualSupport column). */
     visualSuggestions?: string | null;
     /** Saved card template from Effects Studio — when present with useAi:false, skips AI card generation. */
-    cardTemplate?: import("./text-cards-engine").SavedCardTemplate;
+    cardTemplate?: import("./text-cards-engine").MultiCardConfig | import("./text-cards-engine").SavedCardTemplate;
   },
 ): Promise<CaptionResult> {
   logger.info({ templateId }, "[BrowserEngine] applyCaptionsBrowser invoked");
