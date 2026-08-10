@@ -2201,19 +2201,7 @@ export default function CaptionStudio() {
                 className="shrink-0 mt-0.5"
               />
             </div>
-            {/* Auto cover */}
-            <div className="flex items-start gap-3 rounded-xl border bg-muted/30 px-4 py-3">
-              <div className="mt-0.5 flex-1 min-w-0">
-                <p className="text-sm font-semibold leading-tight">Crear y publicar portada</p>
-                <p className="text-xs text-muted-foreground mt-0.5 leading-snug">Genera una portada con tu identidad visual y la adjunta al Reel</p>
-              </div>
-              <Switch
-                checked={autoCoverEnabled}
-                onCheckedChange={handleToggleAutoCover}
-                disabled={updateAutomation.isPending || isVideoProcessing}
-                className="shrink-0 mt-0.5"
-              />
-            </div>
+            {/* Auto cover — hidden until cover generation is production-ready */}
           </div>
         </CardContent>
       </Card>
