@@ -387,9 +387,9 @@ export default function Videos() {
                   className="aspect-[9/16] bg-muted relative"
                   onClick={() => selectMode && toggleSelect(video.id)}
                 >
-                  {(video.thumbnail_cover_url || video.thumbnail_url) ? (
+                  {video.thumbnail_url ? (
                     <img
-                      src={(video as any).thumbnail_cover_url ?? video.thumbnail_url ?? ""}
+                      src={video.thumbnail_url}
                       alt="Thumbnail"
                       className="w-full h-full object-cover"
                     />
@@ -605,41 +605,21 @@ export default function Videos() {
                         {reapplyCaptions.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
                         {reapplyCaptions.isPending ? "Aplicando…" : "Re-aplicar efectos"}
                       </Button>
-                      <RegenarCoverButton video={video} regeneratingCovers={regeneratingCovers} setRegeneratingCovers={setRegeneratingCovers} />
-                      {/* Download buttons */}
-                      <div className="flex gap-1.5">
-                        {(video.captioned_video_url || video.video_url) && (
-                          <Button
-                            size="sm" variant="outline"
-                            className="flex-1 text-xs gap-1.5"
-                            disabled={!!downloading[`video-${video.id}`]}
-                            onClick={() => {
-                              const url = video.captioned_video_url ?? video.video_url ?? ""
-                              const name = (video.topic ?? `video-${video.id}`).replace(/[^\w\s-]/g, "").replace(/\s+/g, "_").slice(0, 60) + ".mp4"
-                              downloadFile(url, name, `video-${video.id}`)
-                            }}
-                          >
-                            {downloading[`video-${video.id}`] ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-                            Video
-                          </Button>
-                        )}
-                        {(video as any).thumbnail_cover_url && (
-                          <Button
-                            size="sm" variant="outline"
-                            className="flex-1 text-xs gap-1.5"
-                            disabled={!!downloading[`cover-${video.id}`]}
-                            onClick={() => {
-                              const url = (video as any).thumbnail_cover_url
-                              const ext = url.endsWith(".png") ? ".png" : ".jpg"
-                              const name = (video.topic ?? `video-${video.id}`).replace(/[^\w\s-]/g, "").replace(/\s+/g, "_").slice(0, 60) + "-portada" + ext
-                              downloadFile(url, name, `cover-${video.id}`)
-                            }}
-                          >
-                            {downloading[`cover-${video.id}`] ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CoverIcon className="w-3.5 h-3.5" />}
-                            Portada
-                          </Button>
-                        )}
-                      </div>
+                      {(video.captioned_video_url || video.video_url) && (
+                        <Button
+                          size="sm" variant="outline"
+                          className="w-full text-xs gap-1.5"
+                          disabled={!!downloading[`video-${video.id}`]}
+                          onClick={() => {
+                            const url = video.captioned_video_url ?? video.video_url ?? ""
+                            const name = (video.topic ?? `video-${video.id}`).replace(/[^\w\s-]/g, "").replace(/\s+/g, "_").slice(0, 60) + ".mp4"
+                            downloadFile(url, name, `video-${video.id}`)
+                          }}
+                        >
+                          {downloading[`video-${video.id}`] ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                          Descargar video
+                        </Button>
+                      )}
                     </div>
                   )}
 
@@ -665,41 +645,21 @@ export default function Videos() {
                         {reapplyCaptions.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
                         {reapplyCaptions.isPending ? "Aplicando…" : "Re-aplicar efectos"}
                       </Button>
-                      <RegenarCoverButton video={video} regeneratingCovers={regeneratingCovers} setRegeneratingCovers={setRegeneratingCovers} />
-                      {/* Download buttons */}
-                      <div className="flex gap-1.5">
-                        {(video.captioned_video_url || video.video_url) && (
-                          <Button
-                            size="sm" variant="outline"
-                            className="flex-1 text-xs gap-1.5"
-                            disabled={!!downloading[`video-${video.id}`]}
-                            onClick={() => {
-                              const url = video.captioned_video_url ?? video.video_url ?? ""
-                              const name = (video.topic ?? `video-${video.id}`).replace(/[^\w\s-]/g, "").replace(/\s+/g, "_").slice(0, 60) + ".mp4"
-                              downloadFile(url, name, `video-${video.id}`)
-                            }}
-                          >
-                            {downloading[`video-${video.id}`] ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-                            Video
-                          </Button>
-                        )}
-                        {(video as any).thumbnail_cover_url && (
-                          <Button
-                            size="sm" variant="outline"
-                            className="flex-1 text-xs gap-1.5"
-                            disabled={!!downloading[`cover-${video.id}`]}
-                            onClick={() => {
-                              const url = (video as any).thumbnail_cover_url
-                              const ext = url.endsWith(".png") ? ".png" : ".jpg"
-                              const name = (video.topic ?? `video-${video.id}`).replace(/[^\w\s-]/g, "").replace(/\s+/g, "_").slice(0, 60) + "-portada" + ext
-                              downloadFile(url, name, `cover-${video.id}`)
-                            }}
-                          >
-                            {downloading[`cover-${video.id}`] ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CoverIcon className="w-3.5 h-3.5" />}
-                            Portada
-                          </Button>
-                        )}
-                      </div>
+                      {(video.captioned_video_url || video.video_url) && (
+                        <Button
+                          size="sm" variant="outline"
+                          className="w-full text-xs gap-1.5"
+                          disabled={!!downloading[`video-${video.id}`]}
+                          onClick={() => {
+                            const url = video.captioned_video_url ?? video.video_url ?? ""
+                            const name = (video.topic ?? `video-${video.id}`).replace(/[^\w\s-]/g, "").replace(/\s+/g, "_").slice(0, 60) + ".mp4"
+                            downloadFile(url, name, `video-${video.id}`)
+                          }}
+                        >
+                          {downloading[`video-${video.id}`] ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                          Descargar video
+                        </Button>
+                      )}
                     </div>
                   )}
 
