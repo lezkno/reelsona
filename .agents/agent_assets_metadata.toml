@@ -7,3 +7,10 @@ uri = "file://test-cover.jpg"
 type = "image"
 title = "Miniatura de prueba — motor canvas"
 description = "Portada 1080×1920 generada con el motor de canvas (fallback). La versión con IA usa esta misma estructura base pero incorpora el frame del avatar de HeyGen como referencia visual."
+
+[[outputs]]
+id = "UV28s5wegiwn5fevtpv4P"
+uri = "file://ai-cover-test.png"
+type = "image"
+title = "Miniatura IA — gpt-image-1"
+description = "Generada con tu avatar de HeyGen como referencia visual + hook del video + colores de marca."
