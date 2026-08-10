@@ -20,6 +20,7 @@ import path from "path";
 import fs from "fs/promises";
 import { execFile } from "child_process";
 import { promisify } from "util";
+import { fileURLToPath } from "url";
 import axios from "axios";
 import { logger } from "./logger";
 import { objectStorageClient } from "./objectStorage";
@@ -68,7 +69,8 @@ const BROWSER_FUNCTION_WORDS = new Set([
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const FONTS_DIR = path.join(__dirname, "../assets/fonts");
+const _dir      = path.dirname(fileURLToPath(import.meta.url));
+const FONTS_DIR = path.join(_dir, "../assets/fonts");
 
 /**
  * Default/fallback video dimensions — used only if ffprobe cannot determine

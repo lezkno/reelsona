@@ -18,6 +18,7 @@ import { promisify } from "util";
 import fs from "fs/promises";
 import { createWriteStream } from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 import axios from "axios";
 import { logger } from "./logger";
 import { objectStorageClient } from "./objectStorage";
@@ -27,7 +28,9 @@ const execFileAsync = promisify(execFile);
 export const CAPTION_DIR = "/tmp/contentpilot-captioned";
 
 // Bundled fonts shipped with the API server
-const FONTS_DIR = path.join(__dirname, "../assets/fonts");
+// Use import.meta.url for ESM compatibility (works in both tsx/esm and esbuild output)
+const _dir = path.dirname(fileURLToPath(import.meta.url));
+const FONTS_DIR = path.join(_dir, "../assets/fonts");
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
