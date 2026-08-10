@@ -91,15 +91,15 @@ export function WelcomeModal() {
     <Dialog open={open} onOpenChange={(v) => { if (!v) handleClose() }}>
       <DialogContent className="w-[calc(100%-2rem)] max-w-xl p-0 overflow-hidden gap-0 max-h-[90vh] overflow-y-auto">
         {/* Header gradient strip */}
-        <div className="bg-gradient-to-br from-primary/90 to-purple-700 px-4 sm:px-6 pt-6 pb-5 text-white">
+        <div className="bg-sidebar px-4 sm:px-6 pt-6 pb-5 text-sidebar-foreground">
           <div className="flex justify-center mb-4">
             <img src="/logo.png" alt="Reelsona" className="w-16 h-16 object-contain drop-shadow-lg" />
           </div>
           <DialogHeader className="space-y-1 text-center">
-            <DialogTitle className="text-2xl font-display font-bold text-white leading-tight">
+            <DialogTitle className="text-2xl font-display font-bold text-sidebar-foreground leading-tight">
               Tu máquina de contenido con IA está lista
             </DialogTitle>
-            <DialogDescription className="text-white/75 text-sm">
+            <DialogDescription className="text-sidebar-foreground/70 text-sm">
               Mira el video de introducción y empieza el curso guiado para tener tu primer Reel publicado hoy.
             </DialogDescription>
           </DialogHeader>
