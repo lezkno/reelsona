@@ -297,7 +297,7 @@ export default function Videos() {
                           <Loader2 className="w-8 h-8 animate-spin text-blue-400" />
                           <span className="text-xs font-bold uppercase tracking-wider">Publicando</span>
                         </div>
-                      ) : (captionStatus === null || captionStatus === 'processing') && (video.status === 'ready' || video.status === 'published') ? (
+                      ) : (captionStatus === null || captionStatus === 'processing') && video.status === 'ready' ? (
                         <div className="flex flex-col items-center gap-2">
                           <div className="w-8 h-8 rounded-full border-2 border-violet-400 border-t-transparent animate-spin" />
                           <span className="text-xs font-bold uppercase tracking-wider text-violet-400">Aplicando efectos</span>
@@ -311,7 +311,7 @@ export default function Videos() {
                   {/* Overlay sobre el thumbnail cuando se están re-aplicando efectos */}
                   {video.thumbnail_url &&
                    (captionStatus === null || captionStatus === 'processing') &&
-                   (video.status === 'ready' || video.status === 'published') && (
+                   video.status === 'ready' && (
                     <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/65 backdrop-blur-sm">
                       <div className="w-10 h-10 rounded-full border-2 border-white border-t-transparent animate-spin mb-3" />
                       <span className="text-xs font-bold uppercase tracking-wider text-white">Aplicando efectos…</span>
