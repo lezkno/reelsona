@@ -470,6 +470,7 @@ router.patch("/content/:id", async (req, res): Promise<void> => {
   if (b.caption !== undefined) updates.caption = b.caption ?? null;
   if (b.hashtags !== undefined) updates.hashtags = b.hashtags ?? null;
   if (b.scheduled_at !== undefined) updates.scheduledAt = b.scheduled_at ? new Date(b.scheduled_at) : null;
+  if (b.video_effects_override !== undefined) updates.videoEffectsOverride = b.video_effects_override ?? null;
 
   // If script was added, move to scripted status
   if (b.script && b.script.length > 10) {

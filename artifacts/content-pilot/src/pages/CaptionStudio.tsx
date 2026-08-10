@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react"
-import { useGetCaptionPresets, useGetCaptionConfig, useUpdateCaptionConfig, useGetAutomation, useUpdateAutomation, getGetAutomationQueryKey, useGetVideos } from "@workspace/api-client-react"
+import { useGetCaptionPresets, useGetCaptionConfig, useUpdateCaptionConfig, useGetAutomation, useUpdateAutomation, getGetAutomationQueryKey, useGetVideos, useGetSettings, useUpdateSettings, getGetSettingsQueryKey } from "@workspace/api-client-react"
+import type { VideoEffects } from "@workspace/api-client-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -11,6 +12,7 @@ import { useToast } from "@/hooks/use-toast"
 import { CheckCircle2, Wand2, AlertCircle, Sparkles, Loader2, Shuffle,
   Heart, MessageCircle, Send, Bookmark, MoreHorizontal,
   Music2, Home, Search, Plus, User, ChevronLeft, Clapperboard,
+  Zap, Images, Type,
 } from "lucide-react"
 import type { CaptionConfig, CaptionPreset } from "@workspace/api-client-react"
 import { useQueryClient } from "@tanstack/react-query"
@@ -1114,8 +1116,10 @@ export default function CaptionStudio() {
   const { data: config, isLoading } = useGetCaptionConfig()
   const { data: automation } = useGetAutomation({ query: { refetchInterval: 10000 } as any })
   const { data: videos } = useGetVideos(undefined, { query: { refetchInterval: 8000 } as any })
+  const { data: settings } = useGetSettings()
   const updateConfig = useUpdateCaptionConfig()
   const updateAutomation = useUpdateAutomation()
+  const updateSettings = useUpdateSettings()
 
   // Lock the UI while any video is actively being processed so the user can't
   // change the template mid-render and get an inconsistent result.
@@ -1125,6 +1129,7 @@ export default function CaptionStudio() {
 
   const [local, setLocal] = useState<Partial<CaptionConfig>>({})
   const [captionsEnabled, setCaptionsEnabled] = useState(false)
+  const [videoEffects, setVideoEffects] = useState<VideoEffects>({ zoom: false, ai_broll: false, text_cards: false })
   const [dirty, setDirty] = useState(false)
   const [savingPresetId, setSavingPresetId] = useState<string | null>(null)
   // null = checking, true = available, false = unavailable
@@ -1181,6 +1186,22 @@ export default function CaptionStudio() {
   useEffect(() => {
     if (automation) setCaptionsEnabled(automation.captions_enabled ?? false)
   }, [automation])
+
+  useEffect(() => {
+    if (settings?.video_effects) setVideoEffects(settings.video_effects)
+  }, [settings])
+
+  const handleToggleEffect = (key: keyof VideoEffects, value: boolean) => {
+    const next = { ...videoEffects, [key]: value }
+    setVideoEffects(next)
+    updateSettings.mutate({ data: { video_effects: next } }, {
+      onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetSettingsQueryKey() }),
+      onError: () => {
+        setVideoEffects(videoEffects) // revert
+        toast({ title: "Error", description: "No se pudo guardar los efectos.", variant: "destructive" })
+      },
+    })
+  }
 
   const set = <K extends keyof CaptionConfig>(key: K, value: CaptionConfig[K]) => {
     setLocal((prev) => ({ ...prev, [key]: value }))
@@ -1415,6 +1436,69 @@ export default function CaptionStudio() {
             </div>
           </div>
           <Switch checked={captionsEnabled} onCheckedChange={handleToggle} disabled={isVideoProcessing} className="shrink-0" />
+        </CardContent>
+      </Card>
+
+      {/* ── Video Effects ─────────────────────────────────────────────────── */}
+      <Card className="border-2 border-border">
+        <CardContent className="p-5 space-y-4">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-muted text-muted-foreground">
+              <Zap className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="font-bold text-base">Efectos de video</p>
+              <p className="text-sm text-muted-foreground max-w-md">
+                Se aplican automáticamente a cada video después de que HeyGen termina de renderizar. Los cambios afectan los próximos videos.
+              </p>
+            </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3 pt-1">
+            {/* Zoom */}
+            <div className="flex items-start gap-3 rounded-xl border bg-muted/30 px-4 py-3">
+              <div className="mt-0.5 flex-1 min-w-0">
+                <p className="text-sm font-semibold leading-tight">Zoom / Ken Burns</p>
+                <p className="text-xs text-muted-foreground mt-0.5 leading-snug">Zoom progresivo sincronizado con el guion</p>
+              </div>
+              <Switch
+                checked={videoEffects.zoom}
+                onCheckedChange={(v) => handleToggleEffect("zoom", v)}
+                disabled={updateSettings.isPending || isVideoProcessing}
+                className="shrink-0 mt-0.5"
+              />
+            </div>
+            {/* AI B-roll */}
+            <div className="flex items-start gap-3 rounded-xl border bg-muted/30 px-4 py-3">
+              <div className="mt-0.5 flex-1 min-w-0">
+                <p className="text-sm font-semibold leading-tight">B-roll con IA</p>
+                <p className="text-xs text-muted-foreground mt-0.5 leading-snug">Imágenes generadas con gpt-image-1 por segmento</p>
+              </div>
+              <Switch
+                checked={videoEffects.ai_broll}
+                onCheckedChange={(v) => handleToggleEffect("ai_broll", v)}
+                disabled={updateSettings.isPending || isVideoProcessing}
+                className="shrink-0 mt-0.5"
+              />
+            </div>
+            {/* Text cards */}
+            <div className="flex items-start gap-3 rounded-xl border bg-muted/30 px-4 py-3">
+              <div className="mt-0.5 flex-1 min-w-0">
+                <p className="text-sm font-semibold leading-tight">Cards de texto</p>
+                <p className="text-xs text-muted-foreground mt-0.5 leading-snug">Stats, hooks y CTAs animados sobre el video</p>
+              </div>
+              <Switch
+                checked={videoEffects.text_cards}
+                onCheckedChange={(v) => handleToggleEffect("text_cards", v)}
+                disabled={updateSettings.isPending || isVideoProcessing}
+                className="shrink-0 mt-0.5"
+              />
+            </div>
+          </div>
+          {videoEffects.ai_broll && (
+            <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">
+              ⚡ B-roll con IA genera ~3-4 imágenes por video usando gpt-image-1 (~$0.07/img). Costo adicional cobrado directamente por OpenAI.
+            </p>
+          )}
         </CardContent>
       </Card>
 

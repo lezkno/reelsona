@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, boolean, real, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, boolean, real, uniqueIndex, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -18,6 +18,8 @@ export const settingsTable = pgTable("settings", {
   heygenVoiceSpeed: real("heygen_voice_speed"),
   /** Whether the user has dismissed the welcome modal (stored server-side so it persists across devices) */
   welcomeDismissed: boolean("welcome_dismissed").notNull().default(false),
+  /** Account-level video effects defaults applied to every new video */
+  videoEffects: jsonb("video_effects").notNull().default({ zoom: false, ai_broll: false, text_cards: false }),
 });
 
 export const insertSettingsSchema = createInsertSchema(settingsTable).omit({ id: true });

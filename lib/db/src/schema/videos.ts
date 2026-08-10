@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, timestamp, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -23,6 +23,8 @@ export const videosTable = pgTable("videos", {
   pollAttempts: integer("poll_attempts").default(0).notNull(),
   generatingStartedAt: timestamp("generating_started_at"),
   igContainerId: text("ig_container_id"),
+  /** Immutable snapshot of VideoEffects at the moment the job was created */
+  videoEffects: jsonb("video_effects"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

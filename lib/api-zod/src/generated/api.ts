@@ -9,6 +9,21 @@ import * as zod from 'zod';
 
 
 /**
+ * Video post-processing effects applied after HeyGen renders the avatar.
+ */
+export const VideoEffects = zod.object({
+  "zoom": zod.boolean(),
+  "ai_broll": zod.boolean(),
+  "text_cards": zod.boolean()
+})
+export type VideoEffectsType = zod.infer<typeof VideoEffects>
+
+/**
+ * Default VideoEffects value (all off).
+ */
+export const DEFAULT_VIDEO_EFFECTS: VideoEffectsType = { zoom: false, ai_broll: false, text_cards: false }
+
+/**
  * @summary Health check
  */
 export const HealthCheckResponse = zod.object({
@@ -465,7 +480,8 @@ export const UpdateContentItemBody = zod.object({
   "voice_id": zod.string().nullish(),
   "caption": zod.string().nullish(),
   "hashtags": zod.string().nullish(),
-  "scheduled_at": zod.string().nullish()
+  "scheduled_at": zod.string().nullish(),
+  "video_effects_override": VideoEffects.nullish()
 })
 
 export const UpdateContentItemResponse = zod.object({
@@ -533,6 +549,7 @@ export const GetVideosResponseItem = zod.object({
   "duration_seconds": zod.number().nullish(),
   "captioned_video_url": zod.string().nullish(),
   "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish(),
+  "video_effects": VideoEffects.nullish(),
   "created_at": zod.string(),
   "updated_at": zod.string(),
   "published_at": zod.string().nullish(),
@@ -563,6 +580,7 @@ export const GenerateVideoResponse = zod.object({
   "duration_seconds": zod.number().nullish(),
   "captioned_video_url": zod.string().nullish(),
   "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish(),
+  "video_effects": VideoEffects.nullish(),
   "created_at": zod.string(),
   "updated_at": zod.string(),
   "published_at": zod.string().nullish(),
@@ -592,6 +610,7 @@ export const GetVideoResponse = zod.object({
   "duration_seconds": zod.number().nullish(),
   "captioned_video_url": zod.string().nullish(),
   "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish(),
+  "video_effects": VideoEffects.nullish(),
   "created_at": zod.string(),
   "updated_at": zod.string(),
   "published_at": zod.string().nullish(),
@@ -626,6 +645,7 @@ export const PublishVideoResponse = zod.object({
   "duration_seconds": zod.number().nullish(),
   "captioned_video_url": zod.string().nullish(),
   "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish(),
+  "video_effects": VideoEffects.nullish(),
   "created_at": zod.string(),
   "updated_at": zod.string(),
   "published_at": zod.string().nullish(),
@@ -658,6 +678,7 @@ export const ScheduleVideoResponse = zod.object({
   "duration_seconds": zod.number().nullish(),
   "captioned_video_url": zod.string().nullish(),
   "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish(),
+  "video_effects": VideoEffects.nullish(),
   "created_at": zod.string(),
   "updated_at": zod.string(),
   "published_at": zod.string().nullish(),
@@ -751,7 +772,8 @@ export const GetSettingsResponse = zod.object({
   "include_captions": zod.boolean(),
   "watermark_text": zod.string().nullish(),
   "heygen_voice_speed": zod.number().nullish(),
-  "welcome_dismissed": zod.boolean()
+  "welcome_dismissed": zod.boolean(),
+  "video_effects": VideoEffects
 })
 
 
@@ -768,7 +790,8 @@ export const UpdateSettingsBody = zod.object({
   "include_captions": zod.boolean().optional(),
   "watermark_text": zod.string().nullish(),
   "heygen_voice_speed": zod.number().nullish(),
-  "welcome_dismissed": zod.boolean().optional()
+  "welcome_dismissed": zod.boolean().optional(),
+  "video_effects": VideoEffects.optional()
 })
 
 export const UpdateSettingsResponse = zod.object({
@@ -781,7 +804,8 @@ export const UpdateSettingsResponse = zod.object({
   "include_captions": zod.boolean(),
   "watermark_text": zod.string().nullish(),
   "heygen_voice_speed": zod.number().nullish(),
-  "welcome_dismissed": zod.boolean()
+  "welcome_dismissed": zod.boolean(),
+  "video_effects": VideoEffects
 })
 
 

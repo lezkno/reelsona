@@ -8,11 +8,13 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from "@/components/ui/label"
 import { format, isSameDay } from "date-fns"
 import { es } from "date-fns/locale"
-import { useGetContentPlan, useGenerateContentPlan, useDeleteContentItem, useGenerateVideo, useUpdateContentItem, useCreateContentItem, useGetHeyGenAllLooks, useGetAvatarConfig, useGenerateScript, usePublishVideo, useGetAutomation, getGetContentPlanQueryKey, type ContentPlanItem } from "@workspace/api-client-react"
-import { useRegenerateScript, useReanalyzeContentPlan, useRescheduleOverdue, type RegenerateCriterion } from "@workspace/api-client-react"
+import { useGetContentPlan, useGenerateContentPlan, useDeleteContentItem, useGenerateVideo, useUpdateContentItem, useCreateContentItem, useGetHeyGenAllLooks, useGetAvatarConfig, useGenerateScript, usePublishVideo, useGetAutomation, getGetContentPlanQueryKey, type ContentPlanItem, useGetSettings } from "@workspace/api-client-react"
+import { useRegenerateScript, useReanalyzeContentPlan, useRescheduleOverdue, type RegenerateCriterion, DEFAULT_VIDEO_EFFECTS } from "@workspace/api-client-react"
+import type { VideoEffects } from "@workspace/api-client-react"
 import { Textarea } from "@/components/ui/textarea"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import { Wand2, Edit3, Trash2, Video, CheckCircle2, Clock, AlertTriangle, CalendarDays, Plus, Zap, Users, List, Calendar, Loader2, FileText, RefreshCw, Sparkles, Check, X, Send, Bot, Hand, Play, Share2, ChevronDown, TrendingUp } from "lucide-react"
+import { Wand2, Edit3, Trash2, Video, CheckCircle2, Clock, AlertTriangle, CalendarDays, Plus, Zap, Users, List, Calendar, Loader2, FileText, RefreshCw, Sparkles, Check, X, Send, Bot, Hand, Play, Share2, ChevronDown, TrendingUp, SlidersHorizontal } from "lucide-react"
+import { Switch } from "@/components/ui/switch"
 import PipelineTimeline from "@/components/PipelineTimeline"
 import CalendarView from "@/components/CalendarView"
 import { useToast } from "@/hooks/use-toast"
@@ -68,6 +70,8 @@ function groupByDay(items: ContentPlanItem[]): { date: Date | null, label: strin
 export default function ContentPlan() {
   const [viewMode, setViewMode] = useState<"list" | "calendar">("list")
   const [filter, setFilter] = useState<string>("all")
+  const { data: settings } = useGetSettings()
+  const [localEffects, setLocalEffects] = useState<VideoEffects>(DEFAULT_VIDEO_EFFECTS)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [days, setDays] = useState(7)
   const [location, navigate] = useLocation()
@@ -209,6 +213,9 @@ export default function ContentPlan() {
     setHookSelectionReason("")
     setShowHookCandidates(false)
     scriptGenerationItemIdRef.current = null
+    // Init per-video effects from item override or account default
+    const itemOverride = (item as any).video_effects_override as VideoEffects | null
+    setLocalEffects(itemOverride ?? settings?.video_effects ?? DEFAULT_VIDEO_EFFECTS)
 
     if (item.hook || item.script || item.cta) {
       setScriptDraft({ hook: item.hook ?? "", script: item.script ?? "", cta: item.cta ?? "" })
@@ -249,7 +256,7 @@ export default function ContentPlan() {
     const draft = scriptDraft
 
     updateItem.mutate(
-      { id: item.id, data: { hook: draft.hook, script: draft.script, cta: draft.cta } },
+      { id: item.id, data: { hook: draft.hook, script: draft.script, cta: draft.cta, video_effects_override: localEffects } },
       {
         onSuccess: () => {
           generateVideo.mutate(
@@ -1140,6 +1147,35 @@ export default function ContentPlan() {
               </div>
             </div>
           ) : null}
+
+          {/* ── Per-video effects override ────────────────────────────────── */}
+          {scriptDraft && !scriptGenerating && (
+            <div className="rounded-xl border bg-muted/30 px-4 py-3 space-y-2.5">
+              <div className="flex items-center gap-2">
+                <SlidersHorizontal className="w-3.5 h-3.5 text-muted-foreground" />
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Efectos para este video</p>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {([
+                  { key: "zoom" as const,       label: "Zoom",       desc: "Ken Burns" },
+                  { key: "ai_broll" as const,   label: "B-roll IA",  desc: "gpt-image-1" },
+                  { key: "text_cards" as const, label: "Cards",      desc: "Stats / CTA" },
+                ] as const).map(({ key, label, desc }) => (
+                  <div key={key} className="flex items-center justify-between gap-2 rounded-lg border bg-background px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold leading-tight truncate">{label}</p>
+                      <p className="text-[10px] text-muted-foreground leading-tight">{desc}</p>
+                    </div>
+                    <Switch
+                      checked={localEffects[key]}
+                      onCheckedChange={(v) => setLocalEffects((e: VideoEffects) => ({ ...e, [key]: v }))}
+                      className="shrink-0 scale-90"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <DialogFooter className="flex-col sm:flex-row gap-2 pt-2">
             <Button

@@ -304,6 +304,8 @@ export interface ContentPlanItemUpdate {
   hashtags?: string | null;
   /** @nullable */
   scheduled_at?: string | null;
+  /** @nullable */
+  video_effects_override?: VideoEffects | null;
 }
 
 export interface ContentPlanGenerateInput {
@@ -398,6 +400,8 @@ export interface Video {
   captioned_video_url?: string | null;
   /** @nullable */
   caption_status?: VideoCaptionStatus;
+  /** @nullable */
+  video_effects?: VideoEffects | null;
   created_at: string;
   updated_at: string;
   /** @nullable */
@@ -465,6 +469,14 @@ export const SettingsTone = {
   inspirational: 'inspirational',
 } as const;
 
+export interface VideoEffects {
+  zoom: boolean;
+  ai_broll: boolean;
+  text_cards: boolean;
+}
+
+export const DEFAULT_VIDEO_EFFECTS: VideoEffects = { zoom: false, ai_broll: false, text_cards: false };
+
 export interface Settings {
   niche: string;
   /** @nullable */
@@ -479,6 +491,7 @@ export interface Settings {
   /** @nullable */
   heygen_voice_speed?: number | null;
   welcome_dismissed: boolean;
+  video_effects: VideoEffects;
 }
 
 export type SettingsInputTone = typeof SettingsInputTone[keyof typeof SettingsInputTone];
@@ -506,6 +519,7 @@ export interface SettingsInput {
   /** @nullable */
   heygen_voice_speed?: number | null;
   welcome_dismissed?: boolean;
+  video_effects?: VideoEffects;
 }
 
 export type CaptionPresetHighlightMode = typeof CaptionPresetHighlightMode[keyof typeof CaptionPresetHighlightMode];

@@ -58,6 +58,7 @@ function mapVideo(v: typeof videosTable.$inferSelect) {
     duration_seconds: v.durationSeconds ?? null,
     captioned_video_url: resolveCaptionedUrl(v.captionedVideoUrl ?? null),
     caption_status: v.captionStatus ?? null,
+    video_effects: (v.videoEffects as { zoom: boolean; ai_broll: boolean; text_cards: boolean } | null) ?? null,
     created_at: v.createdAt.toISOString(),
     updated_at: v.updatedAt.toISOString(),
     published_at: v.publishedAt?.toISOString() ?? null,
@@ -161,10 +162,10 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
     return;
   }
 
-  // Resolve the user's HeyGen API key from their settings row
+  // Resolve the user's HeyGen API key and video effects from their settings row
   const userId = req.session.user!.userId;
   const [userSettings] = await db
-    .select({ heygenApiKey: settingsTable.heygenApiKey })
+    .select({ heygenApiKey: settingsTable.heygenApiKey, videoEffects: settingsTable.videoEffects })
     .from(settingsTable)
     .where(eq(settingsTable.userId, userId))
     .limit(1);
@@ -232,6 +233,14 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
   const [captionCfg] = await db.select().from(captionConfigTable).limit(1);
   const [automationCfg] = await db.select().from(automationConfigTable).limit(1);
 
+  // Resolve effective video effects: item override (if set) merged over account default
+  const DEFAULT_EFFECTS = { zoom: false, ai_broll: false, text_cards: false };
+  const accountEffects = (userSettings?.videoEffects as typeof DEFAULT_EFFECTS | null) ?? DEFAULT_EFFECTS;
+  const itemOverride = (item as any).videoEffectsOverride as Partial<typeof DEFAULT_EFFECTS> | null;
+  const effectsSnapshot = itemOverride
+    ? { ...accountEffects, ...itemOverride }
+    : accountEffects;
+
   // Create video row — set captionStatus upfront so the pipeline UI knows
   // whether Caption Studio will run even before HeyGen finishes
   const [videoRow] = await db
@@ -242,6 +251,7 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
       avatarId: item.avatarId,
       status: "generating",
       captionStatus: captionCfg ? null : "disabled",
+      videoEffects: effectsSnapshot,
       // Start the timeout clock at submission, not at first poll
       generatingStartedAt: new Date(),
     })

@@ -6,6 +6,8 @@ import { GetSettingsResponse, UpdateSettingsBody, UpdateSettingsResponse } from 
 
 const router = Router();
 
+const DEFAULT_VIDEO_EFFECTS = { zoom: false, ai_broll: false, text_cards: false };
+
 function mapSettings(s: typeof settingsTable.$inferSelect) {
   return {
     niche: s.niche ?? "",
@@ -18,6 +20,7 @@ function mapSettings(s: typeof settingsTable.$inferSelect) {
     watermark_text: s.watermarkText ?? null,
     heygen_voice_speed: s.heygenVoiceSpeed ?? null,
     welcome_dismissed: s.welcomeDismissed ?? false,
+    video_effects: (s.videoEffects as typeof DEFAULT_VIDEO_EFFECTS | null) ?? DEFAULT_VIDEO_EFFECTS,
   };
 }
 
@@ -51,6 +54,7 @@ router.put("/settings", async (req, res): Promise<void> => {
   if (d.watermark_text !== undefined) updates.watermarkText = d.watermark_text ?? null;
   if (d.heygen_voice_speed !== undefined) updates.heygenVoiceSpeed = d.heygen_voice_speed ?? null;
   if (d.welcome_dismissed !== undefined) updates.welcomeDismissed = d.welcome_dismissed;
+  if (d.video_effects !== undefined) updates.videoEffects = d.video_effects;
 
   let settings;
   if (existing) {

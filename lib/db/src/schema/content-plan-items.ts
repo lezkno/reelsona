@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, timestamp, real } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, timestamp, real, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -41,6 +41,9 @@ export const contentPlanItemsTable = pgTable("content_plan_items", {
   suggestedVisualSupport: text("suggested_visual_support"),
   /** Why this topic works (or not) without screen sharing */
   avatarFitReason: text("avatar_fit_reason"),
+  // ─────────────────────────────────────────────────────────────────────────────
+  /** Optional per-video override for VideoEffects; null = use account default */
+  videoEffectsOverride: jsonb("video_effects_override"),
   // ─────────────────────────────────────────────────────────────────────────────
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),

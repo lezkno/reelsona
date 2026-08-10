@@ -1073,6 +1073,10 @@ components:
         caption_status:
           type: ["string", "null"]
           enum: [disabled, processing, done, failed, null]
+        video_effects:
+          oneOf:
+            - $ref: "#/components/schemas/VideoEffects"
+            - type: "null"
         created_at:
           type: string
         updated_at:
@@ -1172,6 +1176,21 @@ components:
           type: ["number", "null"]
       required: [triggered, message]
 
+    VideoEffects:
+      type: object
+      description: Video post-processing effects applied after HeyGen renders the avatar
+      properties:
+        zoom:
+          type: boolean
+          description: Ken Burns / zoompan effect applied at key script moments
+        ai_broll:
+          type: boolean
+          description: AI-generated (gpt-image-1) B-roll images overlaid at timed segments
+        text_cards:
+          type: boolean
+          description: Animated stats/hook/CTA cards rendered via canvas and overlaid
+      required: [zoom, ai_broll, text_cards]
+
     Settings:
       type: object
       properties:
@@ -1194,6 +1213,8 @@ components:
           type: boolean
         watermark_text:
           type: ["string", "null"]
+        video_effects:
+          $ref: "#/components/schemas/VideoEffects"
       required:
         - niche
         - topic_keywords
@@ -1201,6 +1222,7 @@ components:
         - language
         - video_duration_seconds
         - include_captions
+        - video_effects
 
     SettingsInput:
       type: object
@@ -1224,6 +1246,8 @@ components:
           type: boolean
         watermark_text:
           type: ["string", "null"]
+        video_effects:
+          $ref: "#/components/schemas/VideoEffects"
 
     CaptionPreset:
       type: object
