@@ -28,7 +28,7 @@ const NAV_ITEMS = [
   { href: "/content", label: "Plan de Contenido", icon: ListVideo },
   { href: "/avatars", label: "Avatares", icon: Users },
   { href: "/videos", label: "Videos", icon: Video },
-  { href: "/captions", label: "Caption Studio", icon: Sparkles },
+  { href: "/captions", label: "Studio de Efectos", icon: Sparkles },
   { href: "/automation", label: "Automatización", icon: Zap },
   { href: "/settings", label: "Configuración", icon: Settings },
 ]

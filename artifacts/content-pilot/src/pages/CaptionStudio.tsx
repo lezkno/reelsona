@@ -1395,7 +1395,7 @@ export default function CaptionStudio() {
         <div>
           <h1 className="text-4xl font-display font-bold tracking-tight flex items-center gap-2">
             <Sparkles className="w-8 h-8 text-primary" />
-            Caption Studio
+            Studio de Efectos
           </h1>
           <p className="text-muted-foreground mt-1 text-lg">
             Elige un estilo y se aplica automáticamente a tus videos.

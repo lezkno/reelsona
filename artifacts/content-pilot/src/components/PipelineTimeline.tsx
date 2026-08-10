@@ -18,7 +18,7 @@ import {
 const BASE_STEPS = [
   { key: "script",  label: "Guion",           desc: "La IA escribe el guion y el hook",       icon: FileText,    estimatedMs: 60_000  },
   { key: "video",   label: "Video con Avatar", desc: "HeyGen crea el video con tu avatar",     icon: UserSquare2, estimatedMs: 600_000 },
-  { key: "caption", label: "Caption Studio",   desc: "Se aplican captions animados al video",  icon: Captions,    estimatedMs: 150_000 },
+  { key: "caption", label: "Studio de Efectos", desc: "Se aplican captions y efectos visuales al video", icon: Captions, estimatedMs: 150_000 },
   { key: "copy",    label: "Descripción e IG", desc: "La IA genera descripción y hashtags",    icon: Sparkles,    estimatedMs: 15_000  },
   { key: "review",  label: "Revisión Manual",  desc: "Aprueba el video antes de publicarlo",   icon: Eye,         estimatedMs: 0       },
   { key: "publish", label: "Publicar en IG",   desc: "Se sube y publica el Reel",              icon: Send,        estimatedMs: 120_000 },
