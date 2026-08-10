@@ -712,11 +712,23 @@ export async function findPunchZoomTimestampsAI(
     return _punchProportionalFallback(videoDuration, maxZooms);
   }
 
-  // ── map sentence index → first matching word in SRT ───────────────────────
+  // ── map sentence index → SRT word nearest to expected position ───────────
+  // Using .find() (first occurrence) is wrong: the same common word appears
+  // multiple times and all sentences would map to near t=0, collapsing after
+  // the 6 s spacing filter.  Instead, estimate the expected timestamp from the
+  // sentence's proportional position and pick the SRT hit CLOSEST to it.
+  const totalChars = sentences.reduce((s, x) => s + x.length, 0) || 1;
+
   const timestamps: number[] = [];
   for (const idx of indices) {
     const sentence = sentences[idx];
     if (!sentence) continue;
+
+    // Expected timestamp: based on how far through the script this sentence is
+    const sentenceStart = sentences.slice(0, idx).reduce((s, x) => s + x.length, 0);
+    const expectedMs    = (sentenceStart / totalChars) * videoDuration * 1000;
+    // Accept matches within ±35 % of total duration from the expected position
+    const windowMs      = videoDuration * 350;
 
     const candidates = sentence
       .replace(/[^a-záéíóúüñA-ZÁÉÍÓÚÜÑ0-9\s]/g, "")
@@ -724,15 +736,28 @@ export async function findPunchZoomTimestampsAI(
       .filter(w => w.length > 2)
       .slice(0, 6);
 
+    let bestHit:  PunchWordTiming | null = null;
+    let bestDist: number                 = Infinity;
+
     for (const word of candidates) {
       const norm = word.toLowerCase().replace(/[^a-záéíóúüñ0-9]/g, "");
-      const hit  = wordTimings.find(wt =>
-        wt.text.toLowerCase().replace(/[^a-záéíóúüñ0-9]/g, "") === norm,
-      );
-      if (hit) {
-        timestamps.push(hit.startMs / 1000);
-        break;
+      for (const wt of wordTimings) {
+        if (wt.text.toLowerCase().replace(/[^a-záéíóúüñ0-9]/g, "") !== norm) continue;
+        const dist = Math.abs(wt.startMs - expectedMs);
+        if (dist < windowMs && dist < bestDist) {
+          bestDist = dist;
+          bestHit  = wt;
+        }
       }
+    }
+
+    if (bestHit) {
+      timestamps.push(bestHit.startMs / 1000);
+      logger.debug({ idx, expectedMs, hit: bestHit.startMs, dist: bestDist }, "[PunchZoom] SRT match");
+    } else {
+      // No SRT match — use proportional position directly
+      const t = expectedMs / 1000;
+      if (t >= 3 && t < videoDuration - 4) timestamps.push(t);
     }
   }
 
