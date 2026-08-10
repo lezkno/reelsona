@@ -892,21 +892,43 @@ export async function pollAndPublishVideos(): Promise<void> {
     );
   }
 
-  // ── Recovery: videos stuck in "ready" with captionStatus=null ─────────────
-  // These are videos that completed in HeyGen but caption processing never ran
-  // (e.g. server restarted mid-processing, or captionConfig was missing).
+  // ── Recovery: videos stuck in "ready" with captionStatus=null OR processing ─
+  // Covers two cases:
+  //   1. captionStatus=null  — processing never started (e.g. missing captionConfig)
+  //   2. captionStatus=processing AND updated_at stale >10 min — server was restarted
+  //      mid-processing and the job will never finish on its own.
   // subtitle_url is no longer available so the engine uses proportional-SRT fallback.
   const [automation] = await db.select().from(automationConfigTable).limit(1);
+  const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
   const stuckVideos = await db
     .select()
     .from(videosTable)
-    .where(and(eq(videosTable.status, "ready"), isNull(videosTable.captionStatus)));
+    .where(
+      and(
+        eq(videosTable.status, "ready"),
+        or(
+          isNull(videosTable.captionStatus),
+          and(
+            eq(videosTable.captionStatus, "processing"),
+            lte(videosTable.updatedAt, tenMinutesAgo),
+          ),
+        ),
+      ),
+    );
   for (const v of stuckVideos) {
     if (!v.videoUrl) continue;
     if (automation?.captionsEnabled) {
-      // Captions are still on — run (or re-run) caption processing
+      // Captions are still on — run (or re-run) caption processing.
+      // Wrap in a 12-minute timeout so a hung AI call (e.g. gpt-image-1 with
+      // no response) never blocks the entire polling loop indefinitely.
       logger.info({ videoId: v.id }, "[CaptionEngine] Recovery: re-processing stuck caption");
-      await runCaptionProcessing(v.id, v.videoUrl, v.contentPlanId ?? null, null, v.durationSeconds).catch((err) =>
+      const RECOVERY_TIMEOUT_MS = 12 * 60 * 1000;
+      await Promise.race([
+        runCaptionProcessing(v.id, v.videoUrl, v.contentPlanId ?? null, null, v.durationSeconds),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("Recovery timeout after 12 min")), RECOVERY_TIMEOUT_MS)
+        ),
+      ]).catch((err) =>
         logger.error({ videoId: v.id, err }, "[CaptionEngine] Recovery failed")
       );
     } else {

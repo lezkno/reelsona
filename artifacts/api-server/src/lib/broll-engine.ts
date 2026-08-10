@@ -79,6 +79,7 @@ async function analyzeScriptForBRoll(
   const client = new OpenAI({
     baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
     apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+    timeout: 60_000, // 60 s — segment-selection is a small GPT-4o-mini call
   });
 
   const cap = Math.min(sentences.length, 50);
@@ -280,6 +281,7 @@ export async function generateBRollImages(
   const client = new OpenAI({
     baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
     apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+    timeout: 120_000, // 120 s per image — gpt-image-1 can be slow but shouldn't hang forever
   });
 
   const results: BRollImageAsset[] = [];
