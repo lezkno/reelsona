@@ -452,10 +452,8 @@ async function generateAICover(
   brandLogoUrl: string | null,
   openaiApiKey?: string | null,
 ): Promise<string | null> {
-  const platformKey  = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
-  const platformBase = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
-  if (!openaiApiKey && (!platformKey || !platformBase)) {
-    logger.warn({ videoId }, "[BrandCover] OpenAI not configured — skipping AI cover");
+  if (!openaiApiKey) {
+    logger.warn({ videoId }, "[BrandCover] No OpenAI API key configured — skipping AI cover");
     return null;
   }
 
