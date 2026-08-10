@@ -99,7 +99,7 @@ export function WelcomeModal() {
             <DialogTitle className="text-2xl font-display font-bold text-sidebar-foreground leading-tight">
               Tu máquina de contenido con IA está lista
             </DialogTitle>
-            <DialogDescription className="text-sidebar-foreground/70 text-sm">
+            <DialogDescription className="text-sidebar-foreground/70 text-sm text-center">
               Mira el video de introducción y empieza el curso guiado para tener tu primer Reel publicado hoy.
             </DialogDescription>
           </DialogHeader>
