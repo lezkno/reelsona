@@ -39,6 +39,8 @@ function getProgress(item: ContentPlanItem): { step: number; percent: number } {
     case "scripted":   return { step: 1, percent: 30 }
     case "generating": return { step: 1, percent: 50 }
     case "ready": {
+      // Video is actively uploading to Instagram — advance past review to publish step
+      if (item.video_status === "publishing") return { step: 5, percent: 92 }
       if (cs === "done" || cs === "failed" || cs === "disabled") {
         if (copyDone) return { step: 4, percent: 83 }  // → review or publish
         return { step: 3, percent: 75 }                 // copy in progress
