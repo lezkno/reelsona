@@ -2174,7 +2174,7 @@ export default function CaptionStudio() {
               </p>
             </div>
           </div>
-          <div className="grid gap-3 sm:grid-cols-3 pt-1">
+          <div className="grid gap-3 sm:grid-cols-2 pt-1">
             {/* Zoom */}
             <div className="flex items-start gap-3 rounded-xl border bg-muted/30 px-4 py-3">
               <div className="mt-0.5 flex-1 min-w-0">
