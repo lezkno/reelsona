@@ -607,10 +607,12 @@ export async function runCaptionProcessing(
     .where(eq(videosTable.id, videoId));
 
   let script: string | null = null;
+  let visualSuggestions: string | null = null;
   if (contentPlanId) {
     const [item] = await db.select().from(contentPlanItemsTable)
       .where(eq(contentPlanItemsTable.id, contentPlanId));
     script = item?.script ?? null;
+    visualSuggestions = item?.suggestedVisualSupport ?? null;
   }
 
   // ── Caption preset rotation ───────────────────────────────────────────────
@@ -666,8 +668,9 @@ export async function runCaptionProcessing(
         : undefined,
       // Pass style overrides from Caption Studio advanced settings
       templateOverrides: parsedTemplateOverrides,
-      // Pass video effects so the browser engine can apply zoom etc.
+      // Pass video effects so the browser engine can apply zoom, B-roll, etc.
       videoEffects: videoEffects,
+      visualSuggestions,
     });
 
     if (browserResult.url) {
@@ -738,6 +741,7 @@ export async function runCaptionProcessing(
       subtitleUrl: resolvedSubtitleUrl ?? undefined,
       videoDurationSeconds: durationSeconds ?? undefined,
       videoEffects: videoEffects ?? undefined,
+      visualSuggestions,
     });
 
     if (captionResult.url) {

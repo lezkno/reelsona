@@ -26,6 +26,7 @@ import { logger } from "./logger";
 import { objectStorageClient } from "./objectStorage";
 import type { CaptionResult } from "./caption-engine";
 import { CAPTION_DIR, buildPunchZoomArgs, findPunchZoomTimestampsAI } from "./caption-engine";
+import { applyBRoll } from "./broll-engine";
 import {
   BROWSER_CAPTION_TEMPLATES,
   getBrowserTemplate,
@@ -594,8 +595,10 @@ export async function applyCaptionsBrowser(
     marginXPct?: number;
     /** Per-template style overrides from Caption Studio advanced settings. Applied on top of the base template. */
     templateOverrides?: Partial<CaptionTemplate>;
-    /** Video effects to apply before caption compositing (e.g. Ken Burns zoom). */
-    videoEffects?: { zoom?: boolean } | null;
+    /** Video effects to apply before caption compositing (e.g. Ken Burns zoom, B-roll). */
+    videoEffects?: { zoom?: boolean; ai_broll?: boolean } | null;
+    /** AI-generated visual suggestions for this content item (from suggestedVisualSupport column). */
+    visualSuggestions?: string | null;
   },
 ): Promise<CaptionResult> {
   logger.info({ templateId }, "[BrowserEngine] applyCaptionsBrowser invoked");
@@ -710,6 +713,26 @@ export async function applyCaptionsBrowser(
         captionSourcePath = zoomedPath;
         logger.info({ count: punchTs.length }, "[BrowserEngine] Punch zoom applied ✓");
       }
+    }
+
+    // ── 3d. B-Roll overlay (optional) ─────────────────────────────────────
+    // AI generates vertical 9:16 images matching the spoken content at each
+    // selected moment and composites them over the video with a crossfade.
+    // Runs AFTER zoom so the zoom effect applies to the avatar segments,
+    // and BEFORE caption compositing so captions render on top of B-roll.
+    if (opts?.videoEffects?.ai_broll && script) {
+      logger.info("[BrowserEngine] Applying AI B-roll overlay...");
+      captionSourcePath = await applyBRoll(
+        captionSourcePath,
+        script,
+        wordTimings,
+        videoInfo.width,
+        videoInfo.height,
+        videoInfo.duration,
+        tmpDir,
+        opts.visualSuggestions,
+      );
+      logger.info("[BrowserEngine] B-roll overlay done ✓");
     }
 
     // ── 5. Build CaptionCues ──────────────────────────────────────────────

@@ -924,7 +924,9 @@ export async function applyCaptions(
   options?: {
     subtitleUrl?: string | null;
     videoDurationSeconds?: number | null;
-    videoEffects?: { zoom?: boolean } | null;
+    videoEffects?: { zoom?: boolean; ai_broll?: boolean } | null;
+    /** AI-generated visual suggestions for this content item (from suggestedVisualSupport column) */
+    visualSuggestions?: string | null;
   }
 ): Promise<CaptionResult> {
   const subtitleUrl   = options?.subtitleUrl ?? null;
@@ -1031,13 +1033,14 @@ export async function applyCaptions(
     // Uses trim+scale+crop+concat (reliable in FFmpeg 6.x — zoompan with dynamic
     // expressions is broken when called via execFile without a shell).
     // Effect: 1.4× snap zoom to the avatar face region at AI-selected sentences.
+    // Derive per-word timings from the SRT blocks for precise sentence mapping
+    const srtWordTimings = extractWordTimings(blocks).map(wt => ({
+      text:    wt.text,
+      startMs: wt.start,   // extractWordTimings uses 'start' in ms
+    }));
+
     let captionInputPath = videoPath;
     if (zoomEnabled && script) {
-      // Derive per-word timings from the SRT blocks for precise sentence mapping
-      const srtWordTimings = extractWordTimings(blocks).map(wt => ({
-        text:    wt.text,
-        startMs: wt.start,   // extractWordTimings uses 'start' in ms
-      }));
       const punchTs   = await findPunchZoomTimestampsAI(script, srtWordTimings, videoDuration);
       const punchArgs = buildPunchZoomArgs(punchTs, videoDuration, videoWidth, videoHeight);
       if (punchArgs) {
@@ -1054,6 +1057,28 @@ export async function applyCaptions(
         captionInputPath = zoomPath;
         logger.info({ count: punchTs.length }, "[CaptionEngine] Punch zoom applied ✓");
       }
+    }
+
+    // 4c. Optional B-roll overlay pre-process pass.
+    // AI generates vertical 9:16 photorealistic images at script-driven moments
+    // and overlays them on the video with a crossfade transition.
+    // Runs AFTER zoom and BEFORE caption burn so captions appear on top of B-roll.
+    if (options?.videoEffects?.ai_broll && script) {
+      const { applyBRoll } = await import("./broll-engine");
+      logger.info("[CaptionEngine] Applying AI B-roll overlay...");
+      const brollTmpDir = path.join(CAPTION_DIR, `broll_${id}`);
+      await fs.mkdir(brollTmpDir, { recursive: true });
+      captionInputPath = await applyBRoll(
+        captionInputPath,
+        script,
+        srtWordTimings,
+        videoWidth,
+        videoHeight,
+        videoDuration,
+        brollTmpDir,
+        options?.visualSuggestions,
+      );
+      logger.info("[CaptionEngine] B-roll overlay done ✓");
     }
 
     // 5. Burn with FFmpeg — pass fontsdir so libass finds our bundled fonts
