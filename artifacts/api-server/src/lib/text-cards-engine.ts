@@ -48,9 +48,10 @@ export interface SavedCardTemplate {
 export interface CardSlotConfig {
   enabled: boolean;
   useAi: boolean;
-  text?: string;      // hook, cta
-  headline?: string;  // stat
-  subtext?: string;   // stat
+  text?: string;       // hook, cta
+  headline?: string;   // stat
+  subtext?: string;    // stat
+  templateId?: string; // visual style (see CARD_STYLE_TEMPLATES)
 }
 
 /** Multi-card configuration — hook, stat and CTA each configured independently (v2 format). */
@@ -227,9 +228,72 @@ async function loadCanvas(): Promise<CanvasModule | null> {
   return _canvasPromise;
 }
 
+// ── Card visual templates ─────────────────────────────────────────────────────
+
+export interface CanvasTemplate {
+  id: string;
+  name: string;
+  bgColor?: string;
+  bgGradient?: { from: string; to: string; dir: "h" | "v" };
+  borderColor?: string;
+  borderWidth?: number;
+  textColor: string;
+  subtextColor?: string;
+  fontFamily: string;
+  /** CSS value for the UI mini-swatch */
+  previewBg: string;
+  previewColor: string;
+  previewBorder?: string;
+}
+
+export const CARD_STYLE_TEMPLATES: CanvasTemplate[] = [
+  { id: "dark-glass",    name: "Glass",      bgColor: "rgba(0,0,0,0.82)",             borderColor: "rgba(255,255,255,0.18)", borderWidth: 1.5, textColor: "#ffffff", fontFamily: "Poppins",    previewBg: "rgba(0,0,0,0.82)",                          previewColor: "#fff",    previewBorder: "rgba(255,255,255,0.35)" },
+  { id: "fire",          name: "Fuego",       bgGradient: { from: "#f43f5e", to: "#f97316", dir: "h" },                                         textColor: "#ffffff", fontFamily: "Poppins",    previewBg: "linear-gradient(90deg,#f43f5e,#f97316)",    previewColor: "#fff" },
+  { id: "ocean",         name: "Océano",      bgColor: "#0ea5e9",                                                                                textColor: "#ffffff", fontFamily: "Montserrat", previewBg: "#0ea5e9",                                   previewColor: "#fff" },
+  { id: "ocean-gradient",name: "Cian",        bgGradient: { from: "#0891b2", to: "#1d4ed8", dir: "h" },                                         textColor: "#ffffff", fontFamily: "Montserrat", previewBg: "linear-gradient(90deg,#0891b2,#1d4ed8)",    previewColor: "#fff" },
+  { id: "violet-rose",   name: "Violeta",     bgGradient: { from: "#7c3aed", to: "#ec4899", dir: "h" },                                         textColor: "#ffffff", fontFamily: "Poppins",    previewBg: "linear-gradient(90deg,#7c3aed,#ec4899)",    previewColor: "#fff" },
+  { id: "midnight",      name: "Noche",       bgGradient: { from: "#1e1b4b", to: "#0f172a", dir: "v" }, borderColor: "rgba(139,92,246,0.5)", borderWidth: 1.5, textColor: "#c4b5fd", subtextColor: "rgba(196,181,253,0.7)", fontFamily: "Montserrat", previewBg: "linear-gradient(160deg,#1e1b4b,#0f172a)", previewColor: "#c4b5fd", previewBorder: "rgba(139,92,246,0.6)" },
+  { id: "neon-green",    name: "Neon",        bgColor: "#0a0e1a",                      borderColor: "#00ff88",               borderWidth: 2,   textColor: "#00ff88", fontFamily: "Oswald",     previewBg: "#0a0e1a",                                   previewColor: "#00ff88", previewBorder: "#00ff88" },
+  { id: "neon-red",      name: "Alerta",      bgColor: "#0d0010",                      borderColor: "#ef4444",               borderWidth: 2,   textColor: "#ef4444", fontFamily: "Oswald",     previewBg: "#0d0010",                                   previewColor: "#ef4444", previewBorder: "#ef4444" },
+  { id: "forest",        name: "Bosque",      bgGradient: { from: "#065f46", to: "#0d9488", dir: "h" },                                         textColor: "#ffffff", fontFamily: "Poppins",    previewBg: "linear-gradient(90deg,#065f46,#0d9488)",    previewColor: "#fff" },
+  { id: "sunset",        name: "Atardecer",   bgGradient: { from: "#f97316", to: "#fbbf24", dir: "h" },                                         textColor: "#ffffff", fontFamily: "Montserrat", previewBg: "linear-gradient(90deg,#f97316,#fbbf24)",    previewColor: "#fff" },
+  { id: "retro-yellow",  name: "Retro",       bgColor: "#fbbf24",                                                                                textColor: "#1e293b", subtextColor: "#374151", fontFamily: "Oswald", previewBg: "#fbbf24",             previewColor: "#1e293b" },
+  { id: "minimal-white", name: "Blanco",      bgColor: "rgba(255,255,255,0.95)",       borderColor: "#cbd5e1",               borderWidth: 1.5, textColor: "#0f172a", subtextColor: "#475569", fontFamily: "Poppins", previewBg: "rgba(255,255,255,0.95)", previewColor: "#0f172a", previewBorder: "#cbd5e1" },
+];
+
+function getTemplate(id?: string): CanvasTemplate {
+  return CARD_STYLE_TEMPLATES.find(t => t.id === id) ?? CARD_STYLE_TEMPLATES[0];
+}
+
 // ── Card-specific renderers ───────────────────────────────────────────────────
 // Each renderer fills a full-sized RGBA canvas (transparent bg) and draws
 // only the card itself. FFmpeg composites it onto the video at the right time.
+
+function drawCardBg(
+  ctx: Ctx,
+  x: number, y: number, w: number, h: number, r: number,
+  tpl: CanvasTemplate,
+  vw: number,
+): void {
+  ctx.save();
+  roundedRect(ctx, x, y, w, h, r);
+  if (tpl.bgGradient) {
+    const { from, to, dir } = tpl.bgGradient;
+    const grad = ctx.createLinearGradient(x, y, dir === "h" ? x + w : x, dir === "h" ? y : y + h);
+    grad.addColorStop(0, from);
+    grad.addColorStop(1, to);
+    ctx.fillStyle = grad as unknown as string;
+  } else {
+    ctx.fillStyle = tpl.bgColor ?? "rgba(0,0,0,0.82)";
+  }
+  ctx.fill();
+  if (tpl.borderColor) {
+    ctx.strokeStyle = tpl.borderColor;
+    ctx.lineWidth   = sc(tpl.borderWidth ?? 1.5, vw);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
 
 // Minimal canvas 2D context interface (avoids dependency on DOM lib types).
 interface Ctx {
@@ -260,119 +324,93 @@ interface Ctx {
   textBaseline: string;
 }
 
-function renderHookCard(ctx: Ctx, card: HookCard, vw: number, vh: number): void {
-  const padX  = sc(64, vw);
-  const cw    = vw - padX * 2;
-  const px    = sc(28, vw);
-  const py    = sc(22, vw);
-  const rad   = sc(20, vw);
-  const fs    = sc(34, vw);
-  const lh    = sc(42, vw);
+function renderHookCard(ctx: Ctx, card: HookCard, vw: number, vh: number, tpl: CanvasTemplate): void {
+  const padX = sc(64, vw);
+  const cw   = vw - padX * 2;
+  const px   = sc(28, vw);
+  const py   = sc(22, vw);
+  const rad  = sc(20, vw);
+  const fs   = sc(34, vw);
+  const lh   = sc(42, vw);
 
-  ctx.font = `bold ${fs}px Poppins, Montserrat, sans-serif`;
+  ctx.font = `bold ${fs}px ${tpl.fontFamily}, sans-serif`;
   const lines = wrapText(ctx, card.text, cw - px * 2);
   const ch    = py * 2 + lines.length * lh;
   const cy    = Math.round(vh * 0.54) - ch / 2;
 
-  // Background — dark glass
-  ctx.save();
-  roundedRect(ctx, padX, cy, cw, ch, rad);
-  ctx.fillStyle   = "rgba(0,0,0,0.76)";
-  ctx.fill();
-  ctx.strokeStyle = "rgba(255,255,255,0.14)";
-  ctx.lineWidth   = sc(1.5, vw);
-  ctx.stroke();
-  ctx.restore();
+  drawCardBg(ctx, padX, cy, cw, ch, rad, tpl, vw);
 
-  // Text
-  ctx.fillStyle = "#ffffff";
-  ctx.textAlign = "left";
+  ctx.fillStyle    = tpl.textColor;
+  ctx.textAlign    = "left";
   ctx.textBaseline = "top";
   for (let i = 0; i < lines.length; i++) {
     ctx.fillText(lines[i], padX + px, cy + py + i * lh);
   }
 }
 
-function renderStatCard(ctx: Ctx, card: StatCard, vw: number, vh: number): void {
-  const padX  = sc(64, vw);
-  const cw    = vw - padX * 2;
-  const px    = sc(28, vw);
-  const py    = sc(20, vw);
-  const rad   = sc(20, vw);
+function renderStatCard(ctx: Ctx, card: StatCard, vw: number, vh: number, tpl: CanvasTemplate): void {
+  const padX   = sc(64, vw);
+  const cw     = vw - padX * 2;
+  const px     = sc(28, vw);
+  const py     = sc(20, vw);
+  const rad    = sc(20, vw);
   const headFS = sc(80, vw);
   const subFS  = sc(28, vw);
   const gap    = sc(8, vw);
   const ch     = py * 2 + headFS + gap + subFS;
   const cy     = Math.round(vh * 0.54) - ch / 2;
 
-  // Background — sky blue solid
-  ctx.save();
-  roundedRect(ctx, padX, cy, cw, ch, rad);
-  ctx.fillStyle = "#0ea5e9"; // sky-500
-  ctx.fill();
-  ctx.restore();
+  drawCardBg(ctx, padX, cy, cw, ch, rad, tpl, vw);
 
   ctx.textAlign    = "center";
   ctx.textBaseline = "top";
 
-  // Headline — big number
-  ctx.font      = `900 ${headFS}px Montserrat, Oswald, sans-serif`;
-  ctx.fillStyle = "#ffffff";
+  ctx.font      = `900 ${headFS}px ${tpl.fontFamily}, sans-serif`;
+  ctx.fillStyle = tpl.textColor;
   ctx.fillText(card.headline, padX + cw / 2, cy + py);
 
-  // Subtext
   ctx.font      = `bold ${subFS}px Poppins, sans-serif`;
-  ctx.fillStyle = "rgba(255,255,255,0.85)";
+  ctx.fillStyle = tpl.subtextColor ?? `${tpl.textColor}cc`;
   ctx.fillText(card.subtext, padX + cw / 2, cy + py + headFS + gap);
 }
 
-function renderCtaCard(ctx: Ctx, card: CtaCard, vw: number, vh: number): void {
-  const padX  = sc(64, vw);
-  const cw    = vw - padX * 2;
-  const px    = sc(28, vw);
-  const py    = sc(22, vw);
-  const rad   = sc(20, vw);
-  const fs    = sc(32, vw);
-  const lh    = sc(40, vw);
+function renderCtaCard(ctx: Ctx, card: CtaCard, vw: number, vh: number, tpl: CanvasTemplate): void {
+  const padX    = sc(64, vw);
+  const cw      = vw - padX * 2;
+  const px      = sc(28, vw);
+  const py      = sc(22, vw);
+  const rad     = sc(20, vw);
+  const fs      = sc(32, vw);
+  const lh      = sc(40, vw);
   const arrowSz = sc(48, vw);
   const textW   = cw - px * 2 - arrowSz - sc(16, vw);
 
-  ctx.font = `bold ${fs}px Poppins, Montserrat, sans-serif`;
+  ctx.font = `bold ${fs}px ${tpl.fontFamily}, sans-serif`;
   const lines = wrapText(ctx, card.text, textW);
   const ch    = py * 2 + lines.length * lh;
   const cy    = Math.round(vh * 0.54) - ch / 2;
 
-  // Background — rose → orange gradient
-  ctx.save();
-  roundedRect(ctx, padX, cy, cw, ch, rad);
-  const grad = ctx.createLinearGradient(padX, 0, padX + cw, 0);
-  grad.addColorStop(0, "#f43f5e"); // rose-500
-  grad.addColorStop(1, "#f97316"); // orange-400
-  ctx.fillStyle = grad as unknown as string;
-  ctx.fill();
-  ctx.restore();
+  drawCardBg(ctx, padX, cy, cw, ch, rad, tpl, vw);
 
-  // Text
-  ctx.fillStyle    = "#ffffff";
+  ctx.fillStyle    = tpl.textColor;
   ctx.textAlign    = "left";
   ctx.textBaseline = "top";
   for (let i = 0; i < lines.length; i++) {
     ctx.fillText(lines[i], padX + px, cy + py + i * lh);
   }
 
-  // Arrow circle
+  // Arrow circle — semi-transparent version of text color
   const arrowX = padX + cw - px - arrowSz;
   const arrowY = cy + ch / 2 - arrowSz / 2;
   ctx.save();
-  ctx.fillStyle = "rgba(255,255,255,0.25)";
+  ctx.fillStyle = `${tpl.textColor}33`;
   ctx.beginPath();
   ctx.arc(arrowX + arrowSz / 2, arrowY + arrowSz / 2, arrowSz / 2, 0, Math.PI * 2);
   ctx.fill();
-  // Arrow chevron
   const ax = arrowX + arrowSz * 0.37;
   const ay = arrowY + arrowSz * 0.30;
   const as = arrowSz * 0.40;
-  ctx.strokeStyle = "#ffffff";
+  ctx.strokeStyle = tpl.textColor;
   ctx.lineWidth   = sc(3, vw);
   ctx.lineCap     = "round";
   ctx.lineJoin    = "round";
@@ -391,6 +429,7 @@ async function renderCardPng(
   videoHeight: number,
   index: number,
   tmpDir: string,
+  templateId?: string,
 ): Promise<string> {
   const mod = await loadCanvas();
   if (!mod) throw new Error("@napi-rs/canvas not available");
@@ -399,12 +438,13 @@ async function renderCardPng(
   const canvas = createCanvas(videoWidth, videoHeight);
   const ctx    = canvas.getContext("2d") as unknown as Ctx;
 
-  // Fully transparent base
   ctx.clearRect(0, 0, videoWidth, videoHeight);
 
-  if (card.type === "hook") renderHookCard(ctx, card, videoWidth, videoHeight);
-  else if (card.type === "stat") renderStatCard(ctx, card, videoWidth, videoHeight);
-  else if (card.type === "cta")  renderCtaCard(ctx, card, videoWidth, videoHeight);
+  const tpl = getTemplate(templateId);
+
+  if (card.type === "hook") renderHookCard(ctx, card, videoWidth, videoHeight, tpl);
+  else if (card.type === "stat") renderStatCard(ctx, card, videoWidth, videoHeight, tpl);
+  else if (card.type === "cta")  renderCtaCard(ctx, card, videoWidth, videoHeight, tpl);
 
   const buf  = canvas.toBuffer("image/png");
   const dest = path.join(tmpDir, `card_${index}_${card.type}.png`);
@@ -590,6 +630,14 @@ export async function applyTextCards(
 
     logger.info({ count: cards.length, types: cards.map((c) => c.type) }, "[TextCards] Cards identified");
 
+    // Build template map: card type → templateId
+    const templateMap: Partial<Record<CardType, string>> = {};
+    if (cardConfig && "version" in cardConfig) {
+      if (cardConfig.hook.templateId) templateMap.hook = cardConfig.hook.templateId;
+      if (cardConfig.stat.templateId) templateMap.stat = cardConfig.stat.templateId;
+      if (cardConfig.cta.templateId)  templateMap.cta  = cardConfig.cta.templateId;
+    }
+
     // Compute timing for each card based on its type
     const cardsWithTiming: CardWithTiming[] = [];
     for (let i = 0; i < cards.length; i++) {
@@ -600,8 +648,8 @@ export async function applyTextCards(
       const holdSec  = Math.min(HOLD_SEC, maxHold);
       const endSec   = startSec + holdSec;
 
-      // Render PNG
-      const pngPath = await renderCardPng(card, videoWidth, videoHeight, i, tmpDir);
+      // Render PNG with the template selected for this card type
+      const pngPath = await renderCardPng(card, videoWidth, videoHeight, i, tmpDir, templateMap[card.type]);
       cardsWithTiming.push({ card, pngPath, startSec, endSec });
 
       logger.info(

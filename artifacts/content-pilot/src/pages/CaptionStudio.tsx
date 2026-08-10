@@ -660,9 +660,10 @@ function BrowserTemplateCard({
 interface CardSlotConfig {
   enabled: boolean
   useAi: boolean
-  text?: string      // hook, cta
-  headline?: string  // stat
-  subtext?: string   // stat
+  text?: string       // hook, cta
+  headline?: string   // stat
+  subtext?: string    // stat
+  templateId?: string // visual style
 }
 
 interface MultiCardConfig {
@@ -674,10 +675,35 @@ interface MultiCardConfig {
 
 const DEFAULT_MULTI_CARDS: MultiCardConfig = {
   version: 2,
-  hook: { enabled: false, useAi: false, text: "" },
-  stat: { enabled: false, useAi: false, headline: "", subtext: "" },
-  cta:  { enabled: false, useAi: false, text: "" },
+  hook: { enabled: false, useAi: false, text: "",     templateId: "dark-glass" },
+  stat: { enabled: false, useAi: false, headline: "", subtext: "", templateId: "ocean" },
+  cta:  { enabled: false, useAi: false, text: "",     templateId: "fire" },
 }
+
+// ── Card style templates (mirrors CARD_STYLE_TEMPLATES in text-cards-engine) ─
+
+interface CardStyleTemplate {
+  id: string
+  name: string
+  previewBg: string
+  previewColor: string
+  previewBorder?: string
+}
+
+const CARD_STYLE_TEMPLATES: CardStyleTemplate[] = [
+  { id: "dark-glass",    name: "Glass",     previewBg: "rgba(0,0,0,0.82)",                          previewColor: "#fff",    previewBorder: "rgba(255,255,255,0.35)" },
+  { id: "fire",          name: "Fuego",     previewBg: "linear-gradient(90deg,#f43f5e,#f97316)",    previewColor: "#fff" },
+  { id: "ocean",         name: "Océano",    previewBg: "#0ea5e9",                                   previewColor: "#fff" },
+  { id: "ocean-gradient",name: "Cian",      previewBg: "linear-gradient(90deg,#0891b2,#1d4ed8)",    previewColor: "#fff" },
+  { id: "violet-rose",   name: "Violeta",   previewBg: "linear-gradient(90deg,#7c3aed,#ec4899)",    previewColor: "#fff" },
+  { id: "midnight",      name: "Noche",     previewBg: "linear-gradient(160deg,#1e1b4b,#0f172a)",   previewColor: "#c4b5fd", previewBorder: "rgba(139,92,246,0.6)" },
+  { id: "neon-green",    name: "Neon",      previewBg: "#0a0e1a",                                   previewColor: "#00ff88", previewBorder: "#00ff88" },
+  { id: "neon-red",      name: "Alerta",    previewBg: "#0d0010",                                   previewColor: "#ef4444", previewBorder: "#ef4444" },
+  { id: "forest",        name: "Bosque",    previewBg: "linear-gradient(90deg,#065f46,#0d9488)",    previewColor: "#fff" },
+  { id: "sunset",        name: "Atardecer", previewBg: "linear-gradient(90deg,#f97316,#fbbf24)",    previewColor: "#fff" },
+  { id: "retro-yellow",  name: "Retro",     previewBg: "#fbbf24",                                   previewColor: "#1e293b" },
+  { id: "minimal-white", name: "Blanco",    previewBg: "rgba(255,255,255,0.95)",                    previewColor: "#0f172a", previewBorder: "#cbd5e1" },
+]
 
 // ── CardSlotPanel — one independently-configurable card ──────────────────────
 
@@ -721,6 +747,42 @@ function CardSlotPanel({
 
         {slot.enabled && (
           <>
+            {/* Template style picker */}
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground uppercase tracking-wide">Estilo visual</Label>
+              <div className="grid grid-cols-4 gap-1.5">
+                {CARD_STYLE_TEMPLATES.map((t) => {
+                  const active = (slot.templateId ?? "dark-glass") === t.id
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => patch({ templateId: t.id })}
+                      disabled={disabled}
+                      title={t.name}
+                      className={`relative rounded-lg h-12 flex flex-col items-center justify-center gap-0.5 transition-all overflow-hidden border-2 ${
+                        active
+                          ? "border-orange-500 ring-1 ring-orange-500/30 scale-[1.03]"
+                          : "border-transparent hover:border-orange-400/40"
+                      }`}
+                      style={{
+                        background: t.previewBg,
+                        ...(t.previewBorder && !active ? { outline: `1px solid ${t.previewBorder}`, outlineOffset: "-1px" } : {}),
+                      }}
+                    >
+                      {active && (
+                        <div className="absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-full bg-orange-500 flex items-center justify-center">
+                          <CheckCircle2 className="w-2.5 h-2.5 text-white" />
+                        </div>
+                      )}
+                      <span className="text-[11px] font-extrabold leading-none" style={{ color: t.previewColor }}>Aa</span>
+                      <span className="text-[8px] leading-none font-medium" style={{ color: `${t.previewColor}cc` }}>{t.name}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
             {/* AI toggle */}
             <div className="flex items-start gap-3 rounded-xl border bg-muted/30 px-4 py-3">
               <div className="flex-1 min-w-0">
@@ -885,33 +947,42 @@ function PhoneFrame({ children }: { children: React.ReactNode }) {
 function CardOverlayPreview({
   card,
 }: {
-  card: { type: "hook"|"stat"|"cta"; useAi: boolean; text?: string; headline?: string; subtext?: string }
+  card: { type: "hook"|"stat"|"cta"; useAi: boolean; text?: string; headline?: string; subtext?: string; templateId?: string }
 }) {
-  const label = card.useAi ? "IA adapta el texto al guion" : undefined
+  const tpl = CARD_STYLE_TEMPLATES.find(t => t.id === (card.templateId ?? "dark-glass")) ?? CARD_STYLE_TEMPLATES[0]
+  const label = card.useAi ? "IA adapta el texto" : undefined
+
+  const base: React.CSSProperties = {
+    background: tpl.previewBg,
+    color: tpl.previewColor,
+    borderRadius: "0.7rem",
+    padding: "7px 10px",
+    ...(tpl.previewBorder ? { border: `1.5px solid ${tpl.previewBorder}` } : {}),
+  }
 
   if (card.type === "hook") return (
-    <div className="rounded-xl border border-white/10 px-2.5 py-2 text-white text-[9px] font-bold leading-snug" style={{ background: "rgba(0,0,0,0.76)" }}>
+    <div style={base} className="text-[9px] font-bold leading-snug">
       {card.useAi
-        ? <span className="text-white/60 italic">"{label}"</span>
+        ? <span style={{ color: `${tpl.previewColor}88` }} className="italic">"{label}"</span>
         : <span>{card.text || "Texto del hook"}</span>}
     </div>
   )
 
   if (card.type === "stat") return (
-    <div className="rounded-xl px-2.5 py-2 text-white text-center" style={{ background: "#0ea5e9" }}>
+    <div style={{ ...base, textAlign: "center" }}>
       {card.useAi
-        ? <p className="text-[8px] text-white/80 italic">{label}</p>
+        ? <p style={{ color: `${tpl.previewColor}88` }} className="text-[8px] italic">{label}</p>
         : <>
             <p className="text-[18px] font-black leading-none" style={{ fontFamily: "Montserrat, sans-serif" }}>{card.headline || "73%"}</p>
-            <p className="text-[7px] font-semibold mt-0.5 text-white/85">{card.subtext || "de creadores usan IA"}</p>
+            <p className="text-[7px] font-semibold mt-0.5" style={{ color: `${tpl.previewColor}cc` }}>{card.subtext || "de creadores usan IA"}</p>
           </>}
     </div>
   )
 
   return (
-    <div className="rounded-xl px-2.5 py-2 text-white text-[9px] font-bold flex items-center gap-1" style={{ background: "linear-gradient(90deg, #f43f5e, #f97316)" }}>
+    <div style={{ ...base, display: "flex", alignItems: "center", gap: 4 }} className="text-[9px] font-bold">
       {card.useAi
-        ? <span className="text-white/80 italic text-[8px]">{label}</span>
+        ? <span style={{ color: `${tpl.previewColor}88` }} className="italic text-[8px]">{label}</span>
         : <span>{card.text || "Texto del CTA"}</span>}
     </div>
   )
@@ -1331,16 +1402,16 @@ export default function CaptionStudio() {
   const [localCards, setLocalCards] = useState<MultiCardConfig>(DEFAULT_MULTI_CARDS)
   const [savedCards, setSavedCards] = useState<MultiCardConfig | null>(null)
   const [savingCards, setSavingCards] = useState(false)
-  // Derived: first enabled saved card for the phone preview overlay
-  const previewCard: { type: "hook"|"stat"|"cta"; useAi: boolean; text?: string; headline?: string; subtext?: string } | null = savedCards
-    ? (savedCards.hook.enabled
-        ? { type: "hook", useAi: savedCards.hook.useAi, text: savedCards.hook.text }
-      : savedCards.stat.enabled
-        ? { type: "stat", useAi: savedCards.stat.useAi, headline: savedCards.stat.headline, subtext: savedCards.stat.subtext }
-      : savedCards.cta.enabled
-        ? { type: "cta",  useAi: savedCards.cta.useAi,  text: savedCards.cta.text }
-      : null)
+  // Derived: first enabled LOCAL card for the phone preview (live, reflects edits before saving)
+  const previewCard: { type: "hook"|"stat"|"cta"; useAi: boolean; text?: string; headline?: string; subtext?: string; templateId?: string } | null =
+    localCards.hook.enabled
+      ? { type: "hook", useAi: localCards.hook.useAi, text: localCards.hook.text, templateId: localCards.hook.templateId }
+    : localCards.stat.enabled
+      ? { type: "stat", useAi: localCards.stat.useAi, headline: localCards.stat.headline, subtext: localCards.stat.subtext, templateId: localCards.stat.templateId }
+    : localCards.cta.enabled
+      ? { type: "cta",  useAi: localCards.cta.useAi,  text: localCards.cta.text, templateId: localCards.cta.templateId }
     : null
+  // activeCardCount reflects what's actually saved (for the badge in the effects toggle)
   const activeCardCount = savedCards
     ? [savedCards.hook, savedCards.stat, savedCards.cta].filter(s => s.enabled).length
     : 0

@@ -19,9 +19,10 @@ export interface SavedCardTemplate {
 export interface CardSlotConfig {
   enabled: boolean;
   useAi: boolean;
-  text?: string;      // hook, cta
-  headline?: string;  // stat
-  subtext?: string;   // stat
+  text?: string;       // hook, cta
+  headline?: string;   // stat
+  subtext?: string;    // stat
+  templateId?: string; // visual style id
 }
 
 /** Multi-card configuration — hook, stat and CTA each configured independently (v2 format). */
