@@ -643,15 +643,16 @@ function OpenAIIntegrationCard() {
               </div>
 
               <p className="text-xs text-muted-foreground">
-                Obtené tu clave en{" "}
+                Creá tu clave en{" "}
                 <a
-                  href="https://platform.openai.com/api-keys"
+                  href="https://openai.com/es-419/api/"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="underline underline-offset-2 text-primary"
                 >
-                  platform.openai.com → API Keys
-                </a>. Si no la configurás, se usa la clave compartida del sistema.
+                  openai.com/api
+                </a>
+                {" "}→ Get started → API Keys.
               </p>
 
               <div className="flex gap-2">
