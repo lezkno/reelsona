@@ -92,8 +92,9 @@ export default function ContentPlan() {
     {
       query: {
         // Poll every 5 s while any item is generating a video or processing captions/effects
-        refetchInterval: (data: any) => {
-          if (!data) return false
+        refetchInterval: (query: any) => {
+          const data = query?.state?.data
+          if (!Array.isArray(data)) return false
           const anyActive = (data as ContentPlanItem[]).some(item =>
             item.status === 'generating' ||
             ((item.caption_status === null || item.caption_status === 'processing') &&

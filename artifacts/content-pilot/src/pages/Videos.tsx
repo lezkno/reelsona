@@ -81,9 +81,10 @@ export default function Videos() {
     {
       query: {
         // Poll every 5 s while any video is rendering, publishing, or processing captions/effects
-        refetchInterval: (data: any) => {
-          if (!data) return false
-          const anyActive = (data as any[]).some((v: any) =>
+        refetchInterval: (query: any) => {
+          const data = query?.state?.data
+          if (!Array.isArray(data)) return false
+          const anyActive = data.some((v: any) =>
             v.status === 'generating' ||
             v.status === 'publishing' ||
             ((v.caption_status === null || v.caption_status === 'processing') &&
