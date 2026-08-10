@@ -442,6 +442,19 @@ export default function Videos() {
                     )
                   })()}
 
+                  {/* Publishing spinner — shown while Instagram is processing */}
+                  {!selectMode && video.status === 'publishing' && (
+                    <div className="flex flex-col gap-1.5 mb-3">
+                      <Button
+                        size="sm"
+                        className="w-full bg-gradient-to-r from-[#833ab4] via-[#fd1d1d] to-[#fcb045] opacity-80 border-0 text-white gap-1.5 text-xs"
+                        disabled
+                      >
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" /> Publicando…
+                      </Button>
+                    </div>
+                  )}
+
                   {/* Action buttons — ready videos */}
                   {!selectMode && video.status === 'ready' && (captionStatus === 'done' || captionStatus === 'failed' || captionStatus === 'disabled') && (
                     <div className="flex flex-col gap-1.5 mb-3">

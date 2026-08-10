@@ -18,7 +18,7 @@ import {
 } from "@workspace/api-zod";
 import { generateVideo } from "../lib/heygen";
 import { publishVideoToInstagram, pickNextAvatar, resolveVoiceId, runCaptionProcessing } from "../lib/scheduler";
-import { objectStorageClient } from "../lib/objectStorage";
+import { logger } from "../lib/logger";
 
 const router = Router();
 
@@ -66,52 +66,8 @@ function mapVideo(v: typeof videosTable.$inferSelect) {
   };
 }
 
-/**
- * Proxy route — serve captioned videos stored in GCS through the API server.
- * Replit buckets have "public access prevention" enforced, so makePublic() is
- * not allowed. Instead, the caption engine stores the GCS object and returns a
- * URL pointing here; this handler streams the bytes back to the requester.
- * Works for both the in-app video player and Instagram's container download.
- */
-// router.use strips the mount prefix, so req.path here is "/<objectName>"
-router.use("/captioned-objects", async (req, res, next): Promise<void> => {
-  if (req.method !== "GET") { next(); return; }
-  // req.path = "/captioned-videos/file.mp4" → strip leading slash
-  const objectName = req.path.replace(/^\//, ""); // e.g. "captioned-videos/file.mp4"
-  // Security: only serve objects in the captioned-videos/ namespace.
-  // Reject empty names, path traversal, and any other bucket paths.
-  if (
-    !objectName ||
-    objectName.includes("..") ||
-    !objectName.startsWith("captioned-videos/") ||
-    objectName.split("/").some((part) => part === "")
-  ) {
-    res.status(403).json({ error: "Forbidden" });
-    return;
-  }
-  const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
-  if (!bucketId) {
-    res.status(500).json({ error: "Object storage not configured" });
-    return;
-  }
-  try {
-    const bucket = objectStorageClient.bucket(bucketId);
-    const file = bucket.file(objectName);
-    const [exists] = await file.exists();
-    if (!exists) {
-      res.status(404).json({ error: "Not found" });
-      return;
-    }
-    const [metadata] = await file.getMetadata();
-    res.setHeader("Content-Type", (metadata.contentType as string) || "video/mp4");
-    if (metadata.size) res.setHeader("Content-Length", String(metadata.size));
-    res.setHeader("Cache-Control", "public, max-age=86400");
-    res.setHeader("Accept-Ranges", "bytes");
-    file.createReadStream().pipe(res);
-  } catch {
-    res.status(500).json({ error: "Failed to serve video" });
-  }
-});
+// NOTE: /captioned-objects/* is served by routes/captioned.ts (mounted before
+// requireAuth in app.ts) so Instagram can fetch videos without a session cookie.
 
 router.get("/videos", async (req, res): Promise<void> => {
   const userId = req.session.user!.userId;
@@ -379,17 +335,17 @@ router.post("/videos/:id/publish", async (req, res): Promise<void> => {
       .where(and(eq(contentPlanItemsTable.id, video.contentPlanId), eq(contentPlanItemsTable.userId, userId)));
   }
 
-  try {
-    await publishVideoToInstagram(video.id);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    res.status(502).json({ error: msg });
-    return;
-  }
+  // Fire-and-forget: publish runs in the background so the HTTP request returns
+  // immediately (avoids Replit proxy 30-second timeout on long publishes).
+  // The UI polls /api/videos every 5 s and picks up status changes automatically.
+  publishVideoToInstagram(video.id).catch((err) => {
+    logger.error({ videoId: video.id, err }, "[Publish] Background publish failed");
+  });
 
-  const [updated] = await db.select().from(videosTable)
+  // Return the current video state — status will move to "publishing" momentarily
+  const [current] = await db.select().from(videosTable)
     .where(and(eq(videosTable.id, video.id), eq(videosTable.userId, userId))).limit(1);
-  res.json(PublishVideoResponse.parse(mapVideo(updated ?? video)));
+  res.json(PublishVideoResponse.parse(mapVideo(current ?? video)));
 });
 
 /**
