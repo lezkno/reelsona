@@ -793,15 +793,79 @@ export async function applyTextCards(
       if (cardConfig.cta.templateId)  templateMap.cta  = cardConfig.cta.templateId;
     }
 
-    // Compute timing for each card based on its type
-    const cardsWithTiming: CardWithTiming[] = [];
-    for (let i = 0; i < cards.length; i++) {
-      const card     = cards[i];
-      const fraction = TIMING[card.type];
+    // ── Overlap prevention ────────────────────────────────────────────────────
+    // Priority order for sacrificing cards when space is tight (highest prio = kept last):
+    //   stat  (1st to drop) < cta (2nd to drop) < hook (kept as long as possible)
+    const SACRIFICE_PRIORITY: Record<CardType, number> = { stat: 0, cta: 1, hook: 2 };
+    const MIN_GAP_SEC = 2.0; // minimum seconds between end of one card and start of next
+
+    // For very short videos (< 12 s) only keep 1 card — CTA positioned at 80 %
+    if (videoDurationSec < 12) {
+      const ctaCard = cards.find((c) => c.type === "cta") ?? cards[0];
+      const kept = ctaCard ?? cards[0];
+      if (kept && cards.length > 1) {
+        logger.warn(
+          { videoDurationSec, discarded: cards.filter((c) => c !== kept).map((c) => c.type) },
+          "[TextCards] Video < 12 s — keeping only 1 card (CTA)",
+        );
+      }
+      cards = kept ? [kept] : [];
+    }
+
+    // Use 80 % position override when there's only one card (short-video case)
+    const useSingleCardOverride = cards.length === 1 && videoDurationSec < 12;
+
+    // Compute raw timing for each surviving card
+    interface CardCandidate {
+      card: TextCard;
+      startSec: number;
+      endSec: number;
+    }
+
+    const candidates: CardCandidate[] = cards.map((card) => {
+      const fraction = useSingleCardOverride ? 0.80 : TIMING[card.type];
       const startSec = Math.max(1.5, videoDurationSec * fraction);
       const maxHold  = Math.max(FADE_DUR * 2 + 0.5, videoDurationSec - startSec - 1);
       const holdSec  = Math.min(HOLD_SEC, maxHold);
       const endSec   = startSec + holdSec;
+      return { card, startSec, endSec };
+    });
+
+    // Iteratively remove lowest-priority card that causes an overlap (< MIN_GAP_SEC gap)
+    // until all remaining cards have sufficient spacing.
+    let changed = true;
+    while (changed && candidates.length > 1) {
+      changed = false;
+      // Sort by start time to evaluate adjacent pairs
+      candidates.sort((a, b) => a.startSec - b.startSec);
+      for (let i = 0; i < candidates.length - 1; i++) {
+        const gap = candidates[i + 1].startSec - candidates[i].endSec;
+        if (gap < MIN_GAP_SEC) {
+          // Drop whichever of the two has the lower sacrifice priority
+          const dropIdx =
+            SACRIFICE_PRIORITY[candidates[i].card.type] <=
+            SACRIFICE_PRIORITY[candidates[i + 1].card.type]
+              ? i
+              : i + 1;
+          const dropped = candidates.splice(dropIdx, 1)[0];
+          logger.warn(
+            {
+              discarded: dropped.card.type,
+              gap: gap.toFixed(2),
+              videoDurationSec,
+            },
+            "[TextCards] Card discarded — insufficient gap between cards",
+          );
+          changed = true;
+          break; // restart the loop after a removal
+        }
+      }
+    }
+
+    // Render and composite surviving cards
+    const cardsWithTiming: CardWithTiming[] = [];
+    for (let i = 0; i < candidates.length; i++) {
+      const { card, startSec, endSec } = candidates[i];
 
       // Render PNG with the template selected for this card type
       const pngPath = await renderCardPng(card, videoWidth, videoHeight, i, tmpDir, templateMap[card.type]);
