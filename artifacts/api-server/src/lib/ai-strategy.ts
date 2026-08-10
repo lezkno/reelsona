@@ -4,14 +4,7 @@
  *  - generateContentStrategy → ContentStrategy
  */
 
-import OpenAI from "openai";
-
-function getClient(): OpenAI {
-  return new OpenAI({
-    baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-    apiKey:  process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-  });
-}
+import { makeOpenAIClient } from "./openai-client";
 
 // ── Shared types (exported so routes and ai-scripts can import them) ──────────
 
@@ -113,9 +106,10 @@ export async function synthesizeMarketStudy(opts: {
   language: string;
   accountData: AccountData;
   radarAccounts: RadarAccount[];
+  openaiApiKey?: string | null;
 }): Promise<MarketInsights> {
   const { niche, nicheDescription, topicKeywords, tone, language, accountData, radarAccounts } = opts;
-  const client = getClient();
+  const client = makeOpenAIClient(opts.openaiApiKey);
 
   const topCaptionsBlock = accountData.top_captions.slice(0, 5).map((c, i) => `  ${i + 1}. "${c.substring(0, 120)}"`).join("\n");
 
@@ -217,9 +211,10 @@ export async function generateContentStrategy(opts: {
   accountData: AccountData;
   marketInsights: MarketInsights;
   radarAccounts: RadarAccount[];
+  openaiApiKey?: string | null;
 }): Promise<ContentStrategy> {
   const { niche, nicheDescription, topicKeywords, tone, language, accountData, marketInsights } = opts;
-  const client = getClient();
+  const client = makeOpenAIClient(opts.openaiApiKey);
 
   const prompt = `${getLanguageInstruction(language)}
 

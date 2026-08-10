@@ -391,7 +391,7 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
       settings.tone,
       settings.language,
       settings.videoDurationSeconds,
-      { auditInsights: auditInsights ?? undefined }
+      { auditInsights: auditInsights ?? undefined, openaiApiKey: settings.openaiApiKey },
     );
 
     // Use the stored avatarId only if it's still in the current selection.
@@ -607,6 +607,10 @@ export async function runCaptionProcessing(
   );
 
   const userId = videoRow?.userId;
+  const [captionSettings] = userId
+    ? await db.select({ openaiApiKey: settingsTable.openaiApiKey })
+        .from(settingsTable).where(eq(settingsTable.userId, userId)).limit(1)
+    : [];
   const [captionCfg] = userId
     ? await db.select().from(captionConfigTable).where(eq(captionConfigTable.userId, userId)).limit(1)
     : await db.select().from(captionConfigTable).limit(1);
@@ -768,6 +772,7 @@ export async function runCaptionProcessing(
       videoDurationSeconds: durationSeconds ?? undefined,
       videoEffects: videoEffects ?? undefined,
       visualSuggestions,
+      openaiApiKey: captionSettings?.openaiApiKey,
     });
 
     if (captionResult.url) {
@@ -1309,7 +1314,8 @@ async function _publishVideoToInstagramInner(videoId: number, videoUrl?: string)
           settings?.niche ?? "marketing digital",
           settings?.tone ?? "casual",
           settings?.language ?? "es",
-          settings?.videoDurationSeconds ?? 60
+          settings?.videoDurationSeconds ?? 60,
+          { openaiApiKey: settings?.openaiApiKey },
         );
         await db
           .update(contentPlanItemsTable)

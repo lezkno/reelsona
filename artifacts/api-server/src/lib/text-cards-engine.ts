@@ -18,7 +18,7 @@ import path from "path";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import { fileURLToPath } from "url";
-import OpenAI from "openai";
+import { makeOpenAIClient } from "./openai-client";
 import { logger } from "./logger";
 
 const execFileAsync = promisify(execFile);
@@ -127,11 +127,9 @@ Rules:
 async function analyzeScriptForCards(
   script: string,
   _durationSec: number,
+  openaiApiKey?: string | null,
 ): Promise<TextCard[]> {
-  const openai = new OpenAI({
-    apiKey:  process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-    baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-  });
+  const openai = makeOpenAIClient(openaiApiKey);
 
   const resp = await openai.chat.completions.create({
     model: "gpt-4o-mini",
@@ -704,6 +702,7 @@ async function buildCardsFromMultiConfig(
   config: MultiCardConfig,
   script: string,
   durationSec: number,
+  openaiApiKey?: string | null,
 ): Promise<TextCard[]> {
   const manual: TextCard[] = [];
   const aiTypes: CardType[] = [];
@@ -725,7 +724,7 @@ async function buildCardsFromMultiConfig(
   }
 
   if (aiTypes.length > 0) {
-    const aiCards = await analyzeScriptForCards(script, durationSec);
+    const aiCards = await analyzeScriptForCards(script, durationSec, openaiApiKey);
     manual.push(...aiCards.filter(c => aiTypes.includes(c.type)));
   }
 
@@ -753,13 +752,14 @@ export async function applyTextCards(
   videoDurationSec: number,
   tmpDir: string,
   cardConfig?: MultiCardConfig | SavedCardTemplate,
+  openaiApiKey?: string | null,
 ): Promise<{ outputPath: string; cardWindows: CardWindow[] }> {
   try {
     let cards: TextCard[];
 
     if (cardConfig && "version" in cardConfig) {
       // ── Multi-card config (v2) — process each enabled slot ───────────────
-      cards = await buildCardsFromMultiConfig(cardConfig, script, videoDurationSec);
+      cards = await buildCardsFromMultiConfig(cardConfig, script, videoDurationSec, openaiApiKey);
       if (cards.length === 0) {
         logger.info("[TextCards] No enabled cards in multi-card config — skipping");
         return { outputPath: sourcePath, cardWindows: [] };
@@ -776,7 +776,7 @@ export async function applyTextCards(
     } else {
       // ── Legacy AI mode / no config — analyze full script ─────────────────
       logger.info("[TextCards] Analyzing script for card moments...");
-      cards = await analyzeScriptForCards(script, videoDurationSec);
+      cards = await analyzeScriptForCards(script, videoDurationSec, openaiApiKey);
       if (cards.length === 0) {
         logger.info("[TextCards] No cards identified — skipping");
         return { outputPath: sourcePath, cardWindows: [] };

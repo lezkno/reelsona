@@ -34,6 +34,7 @@ function mapSettings(s: typeof settingsTable.$inferSelect) {
     brand_primary_color: s.brandPrimaryColor ?? null,
     brand_accent_color: s.brandAccentColor ?? null,
     brand_palette: s.brandPaletteColors ?? null,
+    openai_api_key_set: !!s.openaiApiKey,
   };
 }
 
@@ -138,6 +139,7 @@ router.put("/settings", async (req, res): Promise<void> => {
   if (d.brand_primary_color !== undefined) updates.brandPrimaryColor = d.brand_primary_color ?? null;
   if (d.brand_accent_color !== undefined) updates.brandAccentColor = d.brand_accent_color ?? null;
   if (d.brand_palette !== undefined) updates.brandPaletteColors = d.brand_palette ?? null;
+  if (d.openai_api_key !== undefined) updates.openaiApiKey = d.openai_api_key ?? null;
 
   let settings;
   if (existing) {

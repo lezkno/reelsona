@@ -20,7 +20,7 @@ import { Progress } from "@/components/ui/progress"
 import { useQueryClient } from "@tanstack/react-query"
 import { useToast } from "@/hooks/use-toast"
 import { useEffect, useRef, useState } from "react"
-import { Save, CheckCircle2, XCircle, Loader2, Link2, Link2Off, Eye, EyeOff, RefreshCw, Play, Upload, X, Palette } from "lucide-react"
+import { Save, CheckCircle2, XCircle, Loader2, Link2, Link2Off, Eye, EyeOff, RefreshCw, Play, Upload, X, Palette, Sparkles } from "lucide-react"
 import AccessStatus from "@/components/AccessStatus"
 
 const WELCOME_STORAGE_KEY = "reelsona_welcome_dismissed"
@@ -539,6 +539,164 @@ function HeyGenIntegrationCard() {
   )
 }
 
+// ── OpenAI integration card ───────────────────────────────────────────────────
+
+function OpenAIIntegrationCard() {
+  const { data: settings, isLoading } = useGetSettings()
+  const updateSettings = useUpdateSettings()
+  const { toast } = useToast()
+
+  const [apiKeyInput, setApiKeyInput] = useState("")
+  const [showKey, setShowKey]         = useState(false)
+  const [editing, setEditing]         = useState(false)
+
+  const isConnected = settings?.openai_api_key_set ?? false
+
+  const handleSave = () => {
+    if (!apiKeyInput.trim()) return
+    updateSettings.mutate({ data: { openai_api_key: apiKeyInput.trim() } }, {
+      onSuccess: () => {
+        toast({ title: "API Key guardada", description: "Las generaciones de IA usarán tu clave personal de OpenAI." })
+        setApiKeyInput("")
+        setEditing(false)
+      },
+      onError: () => toast({ title: "Error al guardar", description: "No se pudo guardar la API Key.", variant: "destructive" }),
+    })
+  }
+
+  const handleRemove = () => {
+    updateSettings.mutate({ data: { openai_api_key: null } }, {
+      onSuccess: () => toast({ title: "API Key eliminada", description: "Se usará la clave compartida del sistema." }),
+      onError:   () => toast({ title: "Error", variant: "destructive" }),
+    })
+    setEditing(false)
+    setApiKeyInput("")
+  }
+
+  const startEdit = () => {
+    setEditing(true)
+    setApiKeyInput("")
+    setShowKey(false)
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-[#10a37f] flex items-center justify-center shrink-0">
+              <Sparkles className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <CardTitle className="text-base">ChatGPT / OpenAI</CardTitle>
+              <CardDescription className="text-xs mt-0.5">Scripts, captions y análisis estratégico</CardDescription>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            {isLoading ? (
+              <Skeleton className="h-6 w-24" />
+            ) : isConnected ? (
+              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-1 rounded-full border border-emerald-200 dark:border-emerald-800">
+                <CheckCircle2 className="w-3 h-3" /> Clave personal activa
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground bg-muted px-2.5 py-1 rounded-full border">
+                <XCircle className="w-3 h-3" /> Clave compartida
+              </span>
+            )}
+          </div>
+        </div>
+      </CardHeader>
+
+      <CardContent className="space-y-4">
+        <div className="space-y-2">
+          <Label className="text-sm">API Key personal</Label>
+
+          {isLoading ? (
+            <Skeleton className="h-10 w-full" />
+          ) : !isConnected || editing ? (
+            <div className="space-y-3">
+              <div className="relative">
+                <Input
+                  type={showKey ? "text" : "password"}
+                  value={apiKeyInput}
+                  onChange={e => setApiKeyInput(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && handleSave()}
+                  placeholder="sk-..."
+                  className="pr-10 font-mono text-sm"
+                  disabled={updateSettings.isPending}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowKey(v => !v)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  tabIndex={-1}
+                >
+                  {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+
+              <p className="text-xs text-muted-foreground">
+                Obtené tu clave en{" "}
+                <a
+                  href="https://platform.openai.com/api-keys"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline underline-offset-2 text-primary"
+                >
+                  platform.openai.com → API Keys
+                </a>. Si no la configurás, se usa la clave compartida del sistema.
+              </p>
+
+              <div className="flex gap-2">
+                <Button
+                  onClick={handleSave}
+                  disabled={!apiKeyInput.trim() || updateSettings.isPending}
+                  size="sm"
+                  className="gap-2"
+                >
+                  {updateSettings.isPending ? (
+                    <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Guardando...</>
+                  ) : (
+                    <><Link2 className="w-3.5 h-3.5" /> {isConnected ? "Actualizar clave" : "Guardar clave"}</>
+                  )}
+                </Button>
+                {editing && (
+                  <Button variant="ghost" size="sm" onClick={() => { setEditing(false); setApiKeyInput("") }}>
+                    Cancelar
+                  </Button>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <div className="flex-1 font-mono text-sm bg-muted/50 border rounded-md px-3 py-2 text-muted-foreground select-none">
+                ●●●●●●●●●●●●●●●●●●●●●●●●●●●
+              </div>
+              <div className="flex gap-1.5 shrink-0">
+                <Button variant="outline" size="sm" onClick={startEdit} className="gap-1.5 text-xs">
+                  <Link2 className="w-3 h-3" /> Cambiar
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleRemove}
+                  disabled={updateSettings.isPending}
+                  className="gap-1.5 text-xs text-destructive hover:text-destructive"
+                >
+                  {updateSettings.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Link2Off className="w-3 h-3" />}
+                  Eliminar
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 // ── Main settings page ────────────────────────────────────────────────────────
 
 export default function Settings() {
@@ -623,6 +781,7 @@ export default function Settings() {
           <p className="text-sm text-muted-foreground mt-0.5">Conecta tus herramientas externas para activar el pipeline de producción.</p>
         </div>
         <HeyGenIntegrationCard />
+        <OpenAIIntegrationCard />
       </div>
 
       {/* ── Identidad Visual de Marca ── */}

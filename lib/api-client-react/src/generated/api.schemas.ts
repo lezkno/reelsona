@@ -597,6 +597,8 @@ export interface Settings {
   brand_accent_color?: string | null;
   /** Full extracted palette from the logo (hex strings) */
   brand_palette?: string[] | null;
+  /** Whether the user has saved their own OpenAI API key */
+  openai_api_key_set?: boolean;
 }
 
 export type SettingsInputTone = typeof SettingsInputTone[keyof typeof SettingsInputTone];
@@ -632,6 +634,8 @@ export interface SettingsInput {
   /** @nullable */
   brand_accent_color?: string | null;
   brand_palette?: string[] | null;
+  /** Set or clear the user's own OpenAI API key (null = remove) */
+  openai_api_key?: string | null;
 }
 
 export type CaptionPresetHighlightMode = typeof CaptionPresetHighlightMode[keyof typeof CaptionPresetHighlightMode];

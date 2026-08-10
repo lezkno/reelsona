@@ -36,15 +36,8 @@ import {
 import { syncAllStaleRadarAccounts } from "../lib/scheduler";
 import type { AccountData } from "../lib/ai-strategy";
 import { enrichProfileWithApify } from "../lib/apify";
-import OpenAI from "openai";
+import { makeOpenAIClient } from "../lib/openai-client";
 import { logger } from "../lib/logger";
-
-function getClient(): OpenAI {
-  return new OpenAI({
-    baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-    apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-  });
-}
 
 const router = Router();
 
@@ -132,7 +125,8 @@ router.post("/strategy/account", async (req, res): Promise<void> => {
       settingsRow?.niche ?? "general",
       topCaptions,
       avgEngagement,
-      settingsRow?.language ?? "es"
+      settingsRow?.language ?? "es",
+      settingsRow?.openaiApiKey,
     );
 
     const top5Captions = sorted.slice(0, 5).map((p) => p.caption ?? "").filter(Boolean);
@@ -190,7 +184,7 @@ router.get("/strategy/radar/suggestions", async (req, res): Promise<void> => {
       .from(nicheRadarAccountsTable);
     const excludeList = existing.map((r) => r.igUsername);
 
-    const client = getClient();
+    const client = makeOpenAIClient(settingsRow?.openaiApiKey);
     const language = settingsRow.language ?? "es";
     const langInstruction = language === "en" ? "Respond in English." : "Responde en español.";
     const excludeBlock = excludeList.length > 0
@@ -412,6 +406,7 @@ router.post("/strategy/market", async (req, res): Promise<void> => {
       tone:              settingsRow?.tone ?? "casual",
       language:          settingsRow?.language ?? "es",
       accountData:       profile.account_data,
+      openaiApiKey:      settingsRow?.openaiApiKey,
       radarAccounts:     radarAccounts.map((r) => ({
         ig_username:      r.igUsername,
         bio:              r.bio,
@@ -461,6 +456,7 @@ router.post("/strategy/strategy", async (req, res): Promise<void> => {
       language:          settingsRow?.language ?? "es",
       accountData:       profile.account_data,
       marketInsights:    profile.market_insights,
+      openaiApiKey:      settingsRow?.openaiApiKey,
       radarAccounts:     radarAccounts.map((r) => ({
         ig_username:      r.igUsername,
         bio:              r.bio,
@@ -499,6 +495,7 @@ router.post("/strategy/strategy", async (req, res): Promise<void> => {
           const scores = await reanalyzeTopicsWithStrategy(
             drafts.map((d) => ({ id: d.id, topic: d.topic ?? "" })),
             strategyContext,
+            settingsRow?.openaiApiKey,
           );
 
           // Stale-job check: abort if a newer strategy has been saved while the

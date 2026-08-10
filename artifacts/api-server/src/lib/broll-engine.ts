@@ -19,7 +19,7 @@ import fs from "fs/promises";
 import path from "path";
 import { execFile } from "child_process";
 import { promisify } from "util";
-import OpenAI from "openai";
+import { makeOpenAIClient } from "./openai-client";
 import { logger } from "./logger";
 import type { PunchWordTiming } from "./caption-engine";
 
@@ -73,14 +73,11 @@ async function analyzeScriptForBRoll(
   sentences: string[],
   count: number,
   visualSuggestions: string | null,
+  openaiApiKey?: string | null,
 ): Promise<RawAISegment[]> {
   if (count <= 0 || sentences.length === 0) return [];
 
-  const client = new OpenAI({
-    baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-    apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-    timeout: 60_000, // 60 s — segment-selection is a small GPT-4o-mini call
-  });
+  const client = makeOpenAIClient(openaiApiKey, { timeout: 60_000 });
 
   const cap = Math.min(sentences.length, 50);
   const numbered = sentences.slice(0, cap).map((s, i) => `${i}: ${s}`).join("\n");
@@ -201,6 +198,7 @@ export async function analyzeBRollSegments(
   wordTimings: PunchWordTiming[],
   videoDuration: number,
   visualSuggestions?: string | null,
+  openaiApiKey?: string | null,
 ): Promise<BRollSegment[]> {
   const count = bRollCount(videoDuration);
 
@@ -221,7 +219,7 @@ export async function analyzeBRollSegments(
 
   let rawSegments: RawAISegment[] = [];
   try {
-    rawSegments = await analyzeScriptForBRoll(bodySentences, count, visualSuggestions ?? null);
+    rawSegments = await analyzeScriptForBRoll(bodySentences, count, visualSuggestions ?? null, openaiApiKey);
     logger.info({ count: rawSegments.length }, "[BRoll] AI selected segments");
   } catch (err) {
     logger.warn({ err }, "[BRoll] AI analysis failed — no B-roll");
@@ -277,12 +275,9 @@ const PHOTOREALISM_PREFIX =
 export async function generateBRollImages(
   segments: BRollSegment[],
   tmpDir: string,
+  openaiApiKey?: string | null,
 ): Promise<BRollImageAsset[]> {
-  const client = new OpenAI({
-    baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-    apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-    timeout: 120_000, // 120 s per image — gpt-image-1 can be slow but shouldn't hang forever
-  });
+  const client = makeOpenAIClient(openaiApiKey, { timeout: 120_000 });
 
   const results: BRollImageAsset[] = [];
 
@@ -444,6 +439,7 @@ export async function applyBRoll(
   videoDuration: number,
   tmpDir: string,
   visualSuggestions?: string | null,
+  openaiApiKey?: string | null,
 ): Promise<string> {
   try {
     const segments = await analyzeBRollSegments(
@@ -451,13 +447,14 @@ export async function applyBRoll(
       wordTimings,
       videoDuration,
       visualSuggestions,
+      openaiApiKey,
     );
     if (segments.length === 0) {
       logger.info("[BRoll] No segments to composite — skipping");
       return sourcePath;
     }
 
-    const assets = await generateBRollImages(segments, tmpDir);
+    const assets = await generateBRollImages(segments, tmpDir, openaiApiKey);
     if (assets.length === 0) {
       logger.info("[BRoll] No images generated — skipping compositing");
       return sourcePath;

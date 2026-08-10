@@ -28,6 +28,8 @@ export const settingsTable = pgTable("settings", {
   brandAccentColor: text("brand_accent_color"),
   /** Full extracted palette from the logo (array of hex strings) */
   brandPaletteColors: text("brand_palette_colors").array(),
+  /** User's own OpenAI API key — when set, bypasses the shared platform key */
+  openaiApiKey: text("openai_api_key"),
 });
 
 export const insertSettingsSchema = createInsertSchema(settingsTable).omit({ id: true });

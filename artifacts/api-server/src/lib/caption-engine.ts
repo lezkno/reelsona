@@ -20,7 +20,7 @@ import { createWriteStream } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import axios from "axios";
-import OpenAI from "openai";
+import { makeOpenAIClient } from "./openai-client";
 import { logger } from "./logger";
 import { objectStorageClient } from "./objectStorage";
 
@@ -639,13 +639,11 @@ export interface PunchWordTiming {
 async function analyzeScriptForZooms(
   sentences: string[],
   count: number,
+  openaiApiKey?: string | null,
 ): Promise<number[]> {
   if (count <= 0 || sentences.length === 0) return [];
 
-  const client = new OpenAI({
-    baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-    apiKey:  process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-  });
+  const client = makeOpenAIClient(openaiApiKey);
 
   const cap      = Math.min(sentences.length, 45);
   const numbered = sentences.slice(0, cap).map((s, i) => `${i}: ${s}`).join("\n");
@@ -749,6 +747,7 @@ export async function findPunchZoomTimestampsAI(
   script: string,
   wordTimings: PunchWordTiming[],
   videoDuration: number,
+  openaiApiKey?: string | null,
 ): Promise<number[]> {
   const maxZooms = videoDuration < 30 ? 2 : videoDuration < 70 ? 3 : 4;
 
@@ -776,7 +775,7 @@ export async function findPunchZoomTimestampsAI(
   if (bodyCount > 0 && afterHook.length > 0) {
     let localIndices: number[] = [];
     try {
-      localIndices = await analyzeScriptForZooms(afterHook, bodyCount);
+      localIndices = await analyzeScriptForZooms(afterHook, bodyCount, openaiApiKey);
       // Translate local indices back to global sentence indices
       const globalIndices = localIndices.map(i => i + HOOK_IDX + 1);
       logger.info({ localIndices, globalIndices, bodyCount }, "[PunchZoom] AI body selections");
@@ -927,6 +926,8 @@ export async function applyCaptions(
     videoEffects?: { zoom?: boolean; ai_broll?: boolean; text_cards?: boolean } | null;
     /** AI-generated visual suggestions for this content item (from suggestedVisualSupport column) */
     visualSuggestions?: string | null;
+    /** User's own OpenAI API key — bypasses shared platform key when set */
+    openaiApiKey?: string | null;
   }
 ): Promise<CaptionResult> {
   const subtitleUrl   = options?.subtitleUrl ?? null;
@@ -1041,7 +1042,7 @@ export async function applyCaptions(
 
     let captionInputPath = videoPath;
     if (zoomEnabled && script) {
-      const punchTs   = await findPunchZoomTimestampsAI(script, srtWordTimings, videoDuration);
+      const punchTs   = await findPunchZoomTimestampsAI(script, srtWordTimings, videoDuration, options?.openaiApiKey);
       const punchArgs = buildPunchZoomArgs(punchTs, videoDuration, videoWidth, videoHeight);
       if (punchArgs) {
         const zoomPath = path.join(CAPTION_DIR, `zoom_${id}.mp4`);
@@ -1077,6 +1078,7 @@ export async function applyCaptions(
         videoDuration,
         brollTmpDir,
         options?.visualSuggestions,
+        options?.openaiApiKey,
       );
       logger.info("[CaptionEngine] B-roll overlay done ✓");
     }
@@ -1095,6 +1097,8 @@ export async function applyCaptions(
         videoHeight,
         videoDuration,
         cardsTmpDir,
+        undefined,
+        options?.openaiApiKey,
       ));
       logger.info("[CaptionEngine] Text cards overlay done ✓");
     }

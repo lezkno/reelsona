@@ -15,7 +15,8 @@ import { promises as fs } from "fs";
 import * as fsSync from "fs";
 import { randomUUID } from "crypto";
 import axios from "axios";
-import OpenAI, { toFile } from "openai";
+import { toFile } from "openai";
+import { makeOpenAIClient } from "./openai-client";
 import { createCanvas, loadImage, type SKRSContext2D } from "@napi-rs/canvas";
 import { objectStorageClient } from "./objectStorage";
 import { logger as rootLogger } from "./logger";
@@ -449,10 +450,11 @@ async function generateAICover(
   accentColor: string | null,
   avatarImageUrl: string | null,
   brandLogoUrl: string | null,
+  openaiApiKey?: string | null,
 ): Promise<string | null> {
-  const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
-  const baseURL = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
-  if (!apiKey || !baseURL) {
+  const platformKey  = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
+  const platformBase = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
+  if (!openaiApiKey && (!platformKey || !platformBase)) {
     logger.warn({ videoId }, "[BrandCover] OpenAI not configured — skipping AI cover");
     return null;
   }
@@ -460,7 +462,7 @@ async function generateAICover(
   const tmpFiles: string[] = [];
 
   try {
-    const client = new OpenAI({ apiKey, baseURL, timeout: 120_000 });
+    const client = makeOpenAIClient(openaiApiKey, { timeout: 120_000 });
 
     // ── Try images.edit with reference photos ──────────────────────────────
     const refPaths: string[] = [];
@@ -594,6 +596,7 @@ export async function generateBrandCover(
   accentColor: string | null,
   avatarImageUrl?: string | null,
   brandLogoUrl?: string | null,
+  openaiApiKey?: string | null,
 ): Promise<string | null> {
   const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
   const domain = process.env.REPLIT_DEV_DOMAIN;
@@ -615,6 +618,7 @@ export async function generateBrandCover(
     videoId, hookText, primaryColor, accentColor,
     null, // avatar already handled above
     brandLogoUrl ?? null,
+    openaiApiKey,
   );
   if (aiUrl) return aiUrl;
 

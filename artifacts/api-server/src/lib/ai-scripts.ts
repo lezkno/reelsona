@@ -1,13 +1,6 @@
-import OpenAI from "openai";
+import { makeOpenAIClient } from "./openai-client";
 import { logger } from "./logger";
 import type { StrategyContext } from "./ai-strategy";
-
-function getClient(): OpenAI {
-  return new OpenAI({
-    baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-    apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-  });
-}
 
 // ── Editorial Base — injected into ALL prompts ────────────────────────────────
 
@@ -221,9 +214,10 @@ async function generateHookCandidates(
   niche: string,
   tone: string,
   language: string,
-  auditInsights?: AuditInsights
+  auditInsights?: AuditInsights,
+  openaiApiKey?: string | null,
 ): Promise<{ candidates: string[]; winner: string; selectionReason: string }> {
-  const client = getClient();
+  const client = makeOpenAIClient(openaiApiKey);
 
   const auditContext = auditInsights?.topCaptions.length
     ? `\nCaptions que funcionaron bien en esta cuenta (solo como referencia de estilo de apertura):\n${auditInsights.topCaptions.slice(0, 3).map((c, i) => `${i + 1}. ${c.substring(0, 120)}`).join("\n")}`
@@ -311,9 +305,10 @@ export async function generateScript(
   options?: {
     criterion?: string;
     auditInsights?: AuditInsights;
+    openaiApiKey?: string | null;
   }
 ): Promise<ScriptOutput> {
-  const client = getClient();
+  const client = makeOpenAIClient(options?.openaiApiKey);
   const wordCount = Math.round((durationSeconds / 60) * 130);
 
   const avatarCTAs = getAvatarCTAs(language);
@@ -326,7 +321,7 @@ export async function generateScript(
 
   try {
     const hookResult = await generateHookCandidates(
-      topic, niche, tone, language, options?.auditInsights
+      topic, niche, tone, language, options?.auditInsights, options?.openaiApiKey,
     );
     hookWinner = hookResult.winner;
     hookCandidatesList = hookResult.candidates;
@@ -424,9 +419,10 @@ export async function regenerateCaption(
   niche: string,
   tone: string,
   language: string,
-  topCaptions?: string[]
+  topCaptions?: string[],
+  openaiApiKey?: string | null,
 ): Promise<RegenerateCaptionOutput> {
-  const client = getClient();
+  const client = makeOpenAIClient(openaiApiKey);
 
   // Build examples block from top-performing captions
   const examplesBlock = topCaptions?.length
@@ -611,9 +607,10 @@ export async function generateContentTopics(
   postsPerDay: number,
   topPerformingTopics: string[] = [],
   auditInsights?: AuditInsights,
-  strategyContext?: StrategyContext   // 9th param — takes priority over auditInsights when present
+  strategyContext?: StrategyContext,   // 9th param — takes priority over auditInsights when present
+  openaiApiKey?: string | null,
 ): Promise<ContentPlanTopicMeta[]> {
-  const client = getClient();
+  const client = makeOpenAIClient(openaiApiKey);
   const total = days * postsPerDay;
 
   const rawPillars = niche
@@ -819,9 +816,10 @@ export async function analyzeAuditAndRecommend(
   niche: string,
   topPostCaptions: string[],
   avgEngagement: number,
-  language: string
+  language: string,
+  openaiApiKey?: string | null,
 ): Promise<{ recommended_topics: string[]; content_insights: string; best_posting_times: string[] }> {
-  const client = getClient();
+  const client = makeOpenAIClient(openaiApiKey);
 
   const prompt = `Analiza el rendimiento de una cuenta de Instagram y genera recomendaciones.
 
@@ -859,6 +857,7 @@ export type RegenerateCriterion = "educational" | "controversial" | "storytellin
 export async function reanalyzeTopicsWithStrategy(
   topics: Array<{ id: number; topic: string }>,
   strategyContext: StrategyContext,
+  openaiApiKey?: string | null,
 ): Promise<Array<{
   id: number;
   viral_score: number;
@@ -870,7 +869,7 @@ export async function reanalyzeTopicsWithStrategy(
   audience_pain: string;
   share_reason: string;
 }>> {
-  const client = getClient();
+  const client = makeOpenAIClient(openaiApiKey);
 
   const strategyBlock = `ESTRATEGIA DEL CREADOR:
 - Propuesta de valor única: ${strategyContext.content_strategy.unique_value_prop}
@@ -957,7 +956,8 @@ export async function regenerateScriptWithCriterion(
   language: string,
   durationSeconds: number,
   criterion: RegenerateCriterion,
-  auditInsights?: AuditInsights
+  auditInsights?: AuditInsights,
+  openaiApiKey?: string | null,
 ): Promise<ScriptOutput> {
-  return generateScript(topic, niche, tone, language, durationSeconds, { criterion, auditInsights });
+  return generateScript(topic, niche, tone, language, durationSeconds, { criterion, auditInsights, openaiApiKey });
 }

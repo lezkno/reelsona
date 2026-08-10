@@ -856,7 +856,8 @@ export const GetSettingsResponse = zod.object({
   "brand_logo_url": zod.string().nullish().describe('Object storage path of the brand logo (\/objects\/...)'),
   "brand_primary_color": zod.string().nullish().describe('Primary brand hex color (e.g.'),
   "brand_accent_color": zod.string().nullish().describe('Accent brand hex color'),
-  "brand_palette": zod.array(zod.string()).nullish().describe('Full extracted palette from the logo (hex strings)')
+  "brand_palette": zod.array(zod.string()).nullish().describe('Full extracted palette from the logo (hex strings)'),
+  "openai_api_key_set": zod.boolean().describe('Whether the user has saved their own OpenAI API key')
 })
 
 
@@ -882,7 +883,8 @@ export const UpdateSettingsBody = zod.object({
   "brand_logo_url": zod.string().nullish(),
   "brand_primary_color": zod.string().nullish(),
   "brand_accent_color": zod.string().nullish(),
-  "brand_palette": zod.array(zod.string()).nullish()
+  "brand_palette": zod.array(zod.string()).nullish(),
+  "openai_api_key": zod.string().nullish().describe('Set or clear the user\'s own OpenAI API key (null = remove)')
 })
 
 export const UpdateSettingsResponse = zod.object({
@@ -904,7 +906,8 @@ export const UpdateSettingsResponse = zod.object({
   "brand_logo_url": zod.string().nullish().describe('Object storage path of the brand logo (\/objects\/...)'),
   "brand_primary_color": zod.string().nullish().describe('Primary brand hex color (e.g.'),
   "brand_accent_color": zod.string().nullish().describe('Accent brand hex color'),
-  "brand_palette": zod.array(zod.string()).nullish().describe('Full extracted palette from the logo (hex strings)')
+  "brand_palette": zod.array(zod.string()).nullish().describe('Full extracted palette from the logo (hex strings)'),
+  "openai_api_key_set": zod.boolean().describe('Whether the user has saved their own OpenAI API key')
 })
 
 
