@@ -1294,28 +1294,49 @@ async function _publishVideoToInstagramInner(videoId: number, videoUrl?: string)
   }
 
   // Poll container status
-  let attempts = 0;
-  while (attempts < 30) {
-    await new Promise((r) => setTimeout(r, 10000));
-    const statusCode = await checkContainerStatus(igAccount.accessToken, containerId);
-    if (statusCode === "FINISHED") break;
-    if (statusCode === "ERROR") throw new Error("Container processing failed");
-    attempts++;
+  try {
+    let attempts = 0;
+    while (attempts < 30) {
+      await new Promise((r) => setTimeout(r, 10000));
+      const statusCode = await checkContainerStatus(igAccount.accessToken, containerId);
+      if (statusCode === "FINISHED") break;
+      if (statusCode === "ERROR") {
+        // Container is permanently bad (typically because Instagram couldn't download
+        // the video URL). Clear it so the next attempt creates a fresh container.
+        await db
+          .update(videosTable)
+          .set({ status: "failed", igContainerId: null, errorMessage: "Instagram rechazó el video — reintenta la publicación", updatedAt: new Date() })
+          .where(eq(videosTable.id, videoId));
+        throw new Error("Container processing failed — Instagram could not process the video");
+      }
+      attempts++;
+    }
+
+    const igMediaId = await publishContainer(igAccount.accessToken, igAccount.igUserId, containerId);
+    const permalink = await getPermalink(igAccount.accessToken, igMediaId);
+
+    await db
+      .update(videosTable)
+      .set({ status: "published", igMediaId, igPermalink: permalink, publishedAt: new Date(), updatedAt: new Date() })
+      .where(eq(videosTable.id, videoId));
+
+    if (video.contentPlanId) {
+      await db.update(contentPlanItemsTable).set({ status: "published", updatedAt: new Date() }).where(eq(contentPlanItemsTable.id, video.contentPlanId));
+    }
+
+    logger.info({ videoId, igMediaId }, "Video published to Instagram");
+  } catch (err) {
+    // If the video is still in "publishing" status (i.e. we didn't already set it
+    // to "failed" above), reset it so the user can retry without getting "ya se está publicando".
+    const [current] = await db.select({ status: videosTable.status }).from(videosTable).where(eq(videosTable.id, videoId));
+    if (current?.status === "publishing") {
+      await db
+        .update(videosTable)
+        .set({ status: "failed", errorMessage: err instanceof Error ? err.message : String(err), updatedAt: new Date() })
+        .where(eq(videosTable.id, videoId));
+    }
+    throw err;
   }
-
-  const igMediaId = await publishContainer(igAccount.accessToken, igAccount.igUserId, containerId);
-  const permalink = await getPermalink(igAccount.accessToken, igMediaId);
-
-  await db
-    .update(videosTable)
-    .set({ status: "published", igMediaId, igPermalink: permalink, publishedAt: new Date(), updatedAt: new Date() })
-    .where(eq(videosTable.id, videoId));
-
-  if (video.contentPlanId) {
-    await db.update(contentPlanItemsTable).set({ status: "published", updatedAt: new Date() }).where(eq(contentPlanItemsTable.id, video.contentPlanId));
-  }
-
-  logger.info({ videoId, igMediaId }, "Video published to Instagram");
 }
 
 let cronJob: ReturnType<typeof cron.schedule> | null = null;
