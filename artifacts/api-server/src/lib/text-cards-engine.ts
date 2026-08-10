@@ -399,10 +399,15 @@ async function compositeCards(
     return;
   }
 
-  // Build filter_complex: fade each card input, chain overlays
+  // Build filter_complex: fade each card input, chain overlays.
+  // Each PNG must be looped for the full video duration so the image stream
+  // is available when the fade filter fires (which can be several seconds in).
+  // Without -loop 1 -t <dur>, FFmpeg consumes the single PNG frame at t=0 and
+  // the stream ends before the fade ever starts — making the card invisible.
+  const videoDurationSec = cards.reduce((max, c) => Math.max(max, c.endSec), 0);
   const inputArgs: string[] = [];
   for (const c of cards) {
-    inputArgs.push("-i", c.pngPath);
+    inputArgs.push("-loop", "1", "-t", String(Math.ceil(videoDurationSec + 1)), "-i", c.pngPath);
   }
 
   const filterParts: string[] = [];

@@ -17,3 +17,4 @@
 - [B-Roll Engine](broll-engine.md) — AI B-roll pipeline (gpt-image-1 1024×1536, yuva420p overlay); runs after zoom, before captions; use router.use() not router.get("/*") for wildcard routes.
 - [Instagram Publish Pipeline](instagram-publish-pipeline.md) — /captioned-objects must be in captioned.ts (before requireAuth); publish must fire-and-forget to avoid 30s proxy timeout.
 - [Text Cards Engine](text-cards-engine.md) — hook/stat/CTA overlays via GPT-4o-mini + @napi-rs/canvas; use local Ctx interface not CanvasRenderingContext2D; pipeline: zoom→broll→cards→captions.
+- [Text cards FFmpeg overlay](text-cards-ffmpeg.md) — PNG overlays at timestamp need `-loop 1 -t <dur>` + `format=yuva420p`; without loop the stream ends at t=0 and fade never fires (silent success, invisible result).

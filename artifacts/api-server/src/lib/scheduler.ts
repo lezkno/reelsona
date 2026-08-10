@@ -1207,8 +1207,10 @@ async function _publishVideoToInstagramInner(videoId: number, videoUrl?: string)
   if (!initial) throw new Error("Video not found");
 
   // Idempotency guard — skip if already published.
-  if (initial.status === "published") {
-    logger.info({ videoId }, "[Publish] Video already published — skipping");
+  // Check both status AND igMediaId: the status may still be "publishing" if the
+  // server crashed after publishContainer succeeded but before the DB update ran.
+  if (initial.status === "published" || initial.igMediaId) {
+    logger.info({ videoId, status: initial.status, hasIgMediaId: !!initial.igMediaId }, "[Publish] Video already published — skipping");
     return;
   }
 
@@ -1356,8 +1358,27 @@ async function _publishVideoToInstagramInner(videoId: number, videoUrl?: string)
       attempts++;
     }
 
-    const igMediaId = await publishContainer(igAccount.accessToken, igAccount.igUserId, containerId);
-    const permalink = await getPermalink(igAccount.accessToken, igMediaId);
+    // Re-read the video fresh before calling Instagram — a previous run may have
+    // already called publishContainer and saved igMediaId to DB, but then crashed
+    // before marking status = "published". Calling publishContainer a second time
+    // on the same container would create a duplicate post on Instagram.
+    const [prePublish] = await db
+      .select({ igMediaId: videosTable.igMediaId, igPermalink: videosTable.igPermalink })
+      .from(videosTable)
+      .where(eq(videosTable.id, videoId));
+
+    let igMediaId: string;
+    let permalink: string;
+
+    if (prePublish?.igMediaId) {
+      // Already published in a previous run — reuse the saved igMediaId.
+      igMediaId = prePublish.igMediaId;
+      permalink = prePublish.igPermalink ?? await getPermalink(igAccount.accessToken, igMediaId);
+      logger.info({ videoId, igMediaId }, "[Publish] igMediaId already saved — skipping duplicate publishContainer call");
+    } else {
+      igMediaId = await publishContainer(igAccount.accessToken, igAccount.igUserId, containerId);
+      permalink = await getPermalink(igAccount.accessToken, igMediaId);
+    }
 
     await db
       .update(videosTable)

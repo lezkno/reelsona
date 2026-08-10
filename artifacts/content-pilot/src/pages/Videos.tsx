@@ -376,15 +376,6 @@ export default function Videos() {
                     </div>
                   )}
 
-                  {video.status === 'published' && (video as any).published_at && (
-                    <div className="absolute bottom-3 left-2 right-2">
-                      <div className="bg-black/70 text-white text-[10px] rounded px-2 py-1 flex items-center gap-1">
-                        <CheckCircle2 className="w-3 h-3 shrink-0 text-green-400" />
-                        {format(new Date((video as any).published_at), "d MMM, HH:mm", { locale: es })}
-                      </div>
-                    </div>
-                  )}
-
                   {video.duration_seconds && !video.scheduled_publish_at && video.status !== 'published' && (
                     <div className="absolute bottom-3 right-3 bg-black/60 backdrop-blur-sm text-white text-xs font-medium px-2 py-1 rounded">
                       0:{video.duration_seconds.toString().padStart(2, '0')}
@@ -550,7 +541,11 @@ export default function Videos() {
                   )}
 
                   <div className="text-xs text-muted-foreground mt-auto pt-2 border-t flex justify-between items-center">
-                    <span>{format(new Date(video.created_at), "dd MMM", { locale: es })}</span>
+                    <span>
+                      {video.status === 'published' && (video as any).published_at
+                        ? format(new Date((video as any).published_at), "d MMM, HH:mm", { locale: es })
+                        : format(new Date(video.created_at), "dd MMM", { locale: es })}
+                    </span>
                     {video.ig_permalink && (
                       <a href={video.ig_permalink} target="_blank" rel="noreferrer" className="text-primary hover:underline flex items-center gap-1">
                         Ver en IG <ExternalLink className="w-3 h-3" />
