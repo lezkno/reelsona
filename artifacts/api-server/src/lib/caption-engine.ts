@@ -1088,14 +1088,14 @@ export async function applyCaptions(
       logger.info("[CaptionEngine] Applying text cards overlay...");
       const cardsTmpDir = path.join(CAPTION_DIR, `textcards_${id}`);
       await fs.mkdir(cardsTmpDir, { recursive: true });
-      captionInputPath = await applyTextCards(
+      ({ outputPath: captionInputPath } = await applyTextCards(
         captionInputPath,
         script,
         videoWidth,
         videoHeight,
         videoDuration,
         cardsTmpDir,
-      );
+      ));
       logger.info("[CaptionEngine] Text cards overlay done ✓");
     }
 

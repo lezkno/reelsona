@@ -739,12 +739,15 @@ export async function applyCaptionsBrowser(
 
     // ── 3e. Text cards overlay (hook / stat / CTA) ────────────────────────
     // Runs AFTER B-roll and BEFORE caption compositing so captions sit on top.
+    // cardWindows holds each card's active time range — captions are suppressed
+    // during those windows so cards and captions never appear simultaneously.
+    let cardWindows: import("./text-cards-engine").CardWindow[] = [];
     if (opts?.videoEffects?.text_cards && script) {
       logger.info("[BrowserEngine] Applying text cards overlay...");
       const { applyTextCards } = await import("./text-cards-engine");
       const cardsTmpDir = path.join(tmpDir, "textcards");
       await (await import("fs/promises")).mkdir(cardsTmpDir, { recursive: true });
-      captionSourcePath = await applyTextCards(
+      const cardsResult = await applyTextCards(
         captionSourcePath,
         script,
         videoInfo.width,
@@ -753,7 +756,12 @@ export async function applyCaptionsBrowser(
         cardsTmpDir,
         opts?.cardTemplate,
       );
-      logger.info("[BrowserEngine] Text cards overlay done ✓");
+      captionSourcePath = cardsResult.outputPath;
+      cardWindows       = cardsResult.cardWindows;
+      logger.info(
+        { windows: cardWindows.map(w => `${w.startSec.toFixed(1)}-${w.endSec.toFixed(1)}s`) },
+        "[BrowserEngine] Text cards overlay done ✓",
+      );
     }
 
     // ── 5. Build CaptionCues ──────────────────────────────────────────────
@@ -856,6 +864,22 @@ export async function applyCaptionsBrowser(
 
     logger.info({ count: segments.length }, "[BrowserEngine] Frames rendered");
 
+    // ── 6b. Suppress captions that overlap with card windows ─────────────
+    // Cards take priority: when a card is visible, captions are hidden so
+    // they never appear simultaneously.
+    const activeSegments = cardWindows.length > 0
+      ? segments.filter(seg =>
+          !cardWindows.some(w => seg.startSec < w.endSec && seg.endSec > w.startSec)
+        )
+      : segments;
+
+    if (cardWindows.length > 0) {
+      logger.info(
+        { before: segments.length, after: activeSegments.length, suppressed: segments.length - activeSegments.length },
+        "[BrowserEngine] Caption segments suppressed during card windows",
+      );
+    }
+
     // ── 7. Composite frames onto video via FFmpeg (batch-segment approach) ───
     // Splitting into small batches avoids FFmpeg filter_complex limits with
     // large cue counts (140+ overlays). Each batch processes a short time
@@ -867,8 +891,8 @@ export async function applyCaptionsBrowser(
     logger.info("[BrowserEngine] Running FFmpeg batch composite...");
 
     const batches: Array<typeof segments> = [];
-    for (let i = 0; i < segments.length; i += MAX_BATCH_OVERLAYS) {
-      batches.push(segments.slice(i, i + MAX_BATCH_OVERLAYS));
+    for (let i = 0; i < activeSegments.length; i += MAX_BATCH_OVERLAYS) {
+      batches.push(activeSegments.slice(i, i + MAX_BATCH_OVERLAYS));
     }
 
     const segmentFiles: string[] = [];

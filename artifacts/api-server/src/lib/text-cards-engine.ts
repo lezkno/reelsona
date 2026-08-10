@@ -483,6 +483,9 @@ function buildCardFromTemplate(t: SavedCardTemplate): TextCard | null {
   return null;
 }
 
+/** Time window during which a card is visible — used by caption engines to suppress captions. */
+export interface CardWindow { startSec: number; endSec: number; }
+
 export async function applyTextCards(
   sourcePath: string,
   script: string,
@@ -491,7 +494,7 @@ export async function applyTextCards(
   videoDurationSec: number,
   tmpDir: string,
   cardTemplate?: SavedCardTemplate,
-): Promise<string> {
+): Promise<{ outputPath: string; cardWindows: CardWindow[] }> {
   try {
     let cards: TextCard[];
 
@@ -500,7 +503,7 @@ export async function applyTextCards(
       const fixed = buildCardFromTemplate(cardTemplate);
       if (!fixed) {
         logger.info("[TextCards] Card template has no content — skipping");
-        return sourcePath;
+        return { outputPath: sourcePath, cardWindows: [] };
       }
       cards = [fixed];
       logger.info({ type: cardTemplate.type }, "[TextCards] Using saved card template (no AI)");
@@ -510,7 +513,7 @@ export async function applyTextCards(
       cards = await analyzeScriptForCards(script, videoDurationSec);
       if (cards.length === 0) {
         logger.info("[TextCards] No cards identified — skipping");
-        return sourcePath;
+        return { outputPath: sourcePath, cardWindows: [] };
       }
     }
 
@@ -541,9 +544,11 @@ export async function applyTextCards(
     logger.info("[TextCards] Compositing cards onto video...");
     await compositeCards(sourcePath, cardsWithTiming, outputPath);
     logger.info("[TextCards] Text cards applied ✓");
-    return outputPath;
+
+    const cardWindows: CardWindow[] = cardsWithTiming.map(({ startSec, endSec }) => ({ startSec, endSec }));
+    return { outputPath, cardWindows };
   } catch (err) {
     logger.error({ err }, "[TextCards] Failed — returning source video unchanged");
-    return sourcePath;
+    return { outputPath: sourcePath, cardWindows: [] };
   }
 }
