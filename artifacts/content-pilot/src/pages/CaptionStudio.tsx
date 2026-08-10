@@ -584,12 +584,14 @@ function BrowserTemplateCard({
           <div className="absolute bottom-0 left-0 right-0 h-44 pointer-events-none"
             style={{ background: "linear-gradient(to top, rgba(0,0,0,0.75) 0%, transparent 100%)" }} />
 
-          {/* Caption words — identical positioning to TemplateCaptionPreview */}
+          {/* Caption words — fixed bottom anchor for thumbnail consistency.
+              All templates show text at the same bottom position so the card
+              conveys style (font, color, effects), not yPercent.
+              The live preview (TemplateCaptionPreview) shows the real position. */}
           <div
-            className="absolute left-0 right-0 flex items-end justify-center"
+            className="absolute left-0 right-0 flex justify-center"
             style={{
-              top:          0,
-              height:       baselineY,
+              bottom:       Math.round(PHONE_SCREEN_H * 0.06),
               paddingLeft:  `${template.marginXPercent}%`,
               paddingRight: `${template.marginXPercent}%`,
             }}
