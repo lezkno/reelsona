@@ -69,17 +69,50 @@ async function uploadJpegToGcs(buffer: Buffer, objectName: string): Promise<stri
 }
 
 /**
- * Download a URL and re-encode as a PNG temp file.
+ * Download/read an image and re-encode it as a PNG temp file.
+ * Accepts:
+ *   - Absolute HTTPS URLs (fetched via axios)
+ *   - Object Storage paths starting with "/objects/" or "objects/"
+ *     (read directly from the bucket — no HTTP roundtrip needed)
  * gpt-image-1 images.edit is most reliable when given PNG (not JPEG).
  * Returns the tmp file path, or null if download/decode fails.
  */
-async function downloadAsPngTempFile(url: string, label: string): Promise<string | null> {
+async function downloadAsPngTempFile(urlOrPath: string, label: string): Promise<string | null> {
   try {
-    const resp = await axios.get<ArrayBuffer>(url, {
-      responseType: "arraybuffer",
-      timeout: 20_000,
-    });
-    const srcBuffer = Buffer.from(resp.data);
+    let srcBuffer: Buffer;
+
+    if (urlOrPath.startsWith("/objects/") || urlOrPath.startsWith("objects/")) {
+      // Object Storage path — read directly from the bucket, no HTTP needed
+      const objectKey = urlOrPath.replace(/^\/?objects\//, "");
+      const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
+      if (!bucketId) {
+        logger.warn({ label }, "[BrandCover] DEFAULT_OBJECT_STORAGE_BUCKET_ID not set — skipping reference");
+        return null;
+      }
+      const bucket = objectStorageClient.bucket(bucketId);
+      const [data] = await bucket.file(objectKey).download();
+      srcBuffer = Buffer.from(data);
+    } else if (urlOrPath.startsWith("http")) {
+      // Absolute URL — fetch via axios
+      const resp = await axios.get<ArrayBuffer>(urlOrPath, {
+        responseType: "arraybuffer",
+        timeout: 20_000,
+      });
+      srcBuffer = Buffer.from(resp.data);
+    } else {
+      // Relative path — convert to absolute using REPLIT_DEV_DOMAIN
+      const domain = process.env.REPLIT_DEV_DOMAIN;
+      if (!domain) {
+        logger.warn({ label, urlOrPath }, "[BrandCover] No domain for relative URL — skipping reference");
+        return null;
+      }
+      const fullUrl = `https://${domain}${urlOrPath.startsWith("/") ? "" : "/"}${urlOrPath}`;
+      const resp = await axios.get<ArrayBuffer>(fullUrl, {
+        responseType: "arraybuffer",
+        timeout: 20_000,
+      });
+      srcBuffer = Buffer.from(resp.data);
+    }
 
     // Decode with loadImage so any format (JPEG, PNG, WEBP…) is handled
     const img = await loadImage(srcBuffer);
@@ -94,7 +127,7 @@ async function downloadAsPngTempFile(url: string, label: string): Promise<string
     await fs.writeFile(tmpPath, pngBuffer);
     return tmpPath;
   } catch (err) {
-    logger.warn({ url, label, err }, "[BrandCover] Failed to download/decode reference image — skipping");
+    logger.warn({ urlOrPath, label, err }, "[BrandCover] Failed to download/decode reference image — skipping");
     return null;
   }
 }
@@ -110,8 +143,15 @@ function detectImageFormat(buf: Buffer): "png" | "jpeg" | "unknown" {
 async function toJpeg(imgBuffer: Buffer, W: number, H: number): Promise<Buffer> {
   const cvs = createCanvas(W, H);
   const ctx = cvs.getContext("2d");
-  const img = await loadImage(imgBuffer);
-  ctx.drawImage(img, 0, 0, W, H);
+  try {
+    const img = await loadImage(imgBuffer);
+    ctx.drawImage(img, 0, 0, W, H);
+  } catch (loadErr: any) {
+    // Log the actual buffer prefix to diagnose what the proxy returned
+    const prefix = imgBuffer.slice(0, 64).toString("hex");
+    const text = imgBuffer.slice(0, 120).toString("utf-8").replace(/[^\x20-\x7E]/g, ".");
+    throw new Error(`loadImage failed (${loadErr?.message}). Buffer[0..63]=${prefix} text="${text}"`);
+  }
   return cvs.toBuffer("image/jpeg", 92);
 }
 
@@ -323,8 +363,7 @@ async function generateAICover(
           model: "gpt-image-1",
           image: imageFiles.length === 1 ? imageFiles[0] : imageFiles,
           prompt,
-          size: "1024x1536",
-          n: 1,
+          size: "1024x1024",
         });
 
         const b64 = editResponse?.data?.[0]?.b64_json as string | undefined;
@@ -332,7 +371,7 @@ async function generateAICover(
           const imgBuffer = Buffer.from(b64, "base64");
           const fmt = detectImageFormat(imgBuffer);
           if (fmt !== "unknown") {
-            const jpegBuf = fmt === "jpeg" ? imgBuffer : await toJpeg(imgBuffer, 1024, 1536);
+            const jpegBuf = fmt === "jpeg" ? imgBuffer : await toJpeg(imgBuffer, 1024, 1024);
             const objectName = `brand-covers/${videoId}-edit-${randomUUID().slice(0, 8)}.jpg`;
             const url = await uploadJpegToGcs(jpegBuf, objectName);
             logger.info({ videoId, objectName }, "[BrandCover] images.edit cover uploaded ✓");
@@ -361,8 +400,7 @@ async function generateAICover(
     const genResponse = await (client.images as any).generate({
       model: "gpt-image-1",
       prompt: genPrompt,
-      size: "1024x1536",
-      n: 1,
+      size: "1024x1024",
     });
 
     const genB64 = genResponse?.data?.[0]?.b64_json as string | undefined;
@@ -381,7 +419,7 @@ async function generateAICover(
       return null;
     }
 
-    const genJpeg = genFmt === "jpeg" ? genBuffer : await toJpeg(genBuffer, 1024, 1536);
+    const genJpeg = genFmt === "jpeg" ? genBuffer : await toJpeg(genBuffer, 1024, 1024);
     const genObjectName = `brand-covers/${videoId}-gen-${randomUUID().slice(0, 8)}.jpg`;
     const genUrl = await uploadJpegToGcs(genJpeg, genObjectName);
     logger.info({ videoId, objectName: genObjectName }, "[BrandCover] images.generate cover uploaded ✓");

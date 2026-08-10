@@ -157,16 +157,22 @@ export async function fetchAvatarPreviewImage(
       return match.preview_image_url;
     }
 
-    // 3. Avatar groups + their looks
+    // 3. Avatar groups + their looks (includes both video avatars and talking photos)
     const groupsRes = await client.get("/v2/avatar_group.list", { params: { include_public: false } });
     const groups: HeyGenAvatarGroup[] = groupsRes.data?.data?.avatar_group_list ?? [];
     for (const group of groups) {
       const looksRes = await client.get(`/v2/avatar_group/${group.id}/avatars`);
       const looks: any[] = looksRes.data?.data?.avatar_list ?? [];
-      const lookMatch = looks.find((l: any) => l.avatar_id === avatarId);
+      // Video avatar looks: matched by l.avatar_id === avatarId
+      // Talking photo looks: stored internally as "tp:<id>"; match by tp:${l.id} === avatarId
+      const lookMatch = looks.find((l: any) =>
+        l.avatar_id === avatarId || (l.id && `tp:${l.id}` === avatarId)
+      );
       if (lookMatch) {
-        // Looks expose preview_image_url or preview_image depending on the shape
-        const url: string | null = lookMatch.preview_image_url ?? lookMatch.preview_image ?? null;
+        // Video avatar looks: preview_image_url / preview_image
+        // Talking photo looks: image_url
+        const url: string | null =
+          lookMatch.preview_image_url ?? lookMatch.preview_image ?? lookMatch.image_url ?? null;
         avatarImageCache.set(avatarId, { url, at: Date.now() });
         return url;
       }
