@@ -631,17 +631,23 @@ export interface PunchWordTiming {
   startMs: number;
 }
 
-/** Ask OpenAI to pick the N most impactful sentence indices from the script. */
+/**
+ * Ask OpenAI to pick the N most impactful sentence indices from a list.
+ * The list is assumed to already exclude the hook (sentences 0-1), so
+ * no "skip intro" rule is needed in the prompt.
+ */
 async function analyzeScriptForZooms(
   sentences: string[],
   count: number,
 ): Promise<number[]> {
+  if (count <= 0 || sentences.length === 0) return [];
+
   const client = new OpenAI({
     baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
     apiKey:  process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
   });
 
-  const cap     = Math.min(sentences.length, 45); // token budget
+  const cap      = Math.min(sentences.length, 45);
   const numbered = sentences.slice(0, cap).map((s, i) => `${i}: ${s}`).join("\n");
 
   const { choices } = await client.chat.completions.create({
@@ -658,17 +664,16 @@ async function analyzeScriptForZooms(
         content:
           `From the numbered sentences below, pick exactly ${count} sentence numbers where a PUNCH ZOOM visual emphasis should fire.\n` +
           `Rules:\n` +
-          `• Skip sentences 0 and 1 (intro).\n` +
-          `• Spread selections across the WHOLE script — beginning, middle AND end.\n` +
+          `• Spread selections across the WHOLE list — beginning, middle AND end.\n` +
           `• Prefer key facts, strong claims, emotional peaks, statistics, and calls to action.\n\n` +
           `Sentences:\n${numbered}\n\n` +
-          `Reply with ONLY a JSON array of ${count} integers, e.g. [3,11,22]`,
+          `Reply with ONLY a JSON array of ${count} integers, e.g. [2,9,18]`,
       },
     ],
   });
 
-  const raw   = choices[0]?.message?.content?.trim() ?? "[]";
-  const match = raw.match(/\[[\d,\s]+\]/);
+  const raw    = choices[0]?.message?.content?.trim() ?? "[]";
+  const match  = raw.match(/\[[\d,\s]+\]/);
   const parsed = JSON.parse(match?.[0] ?? "[]") as unknown[];
   return parsed
     .filter((n): n is number => typeof n === "number" && Number.isInteger(n) && n >= 0 && n < cap)
@@ -676,92 +681,122 @@ async function analyzeScriptForZooms(
 }
 
 /**
+ * Map a single sentence (by global index) to its best SRT timestamp.
+ * Uses closest-match within a proportional window to avoid first-occurrence
+ * collisions that collapse multiple zooms to the same early timestamp.
+ * Returns null if no reliable match is found AND the proportional position
+ * would be out of bounds.
+ */
+function _sentenceToTimestamp(
+  sentences:     string[],
+  idx:           number,
+  wordTimings:   PunchWordTiming[],
+  totalChars:    number,
+  videoDuration: number,
+  minT = 2,      // allow hook to appear from 2 s (regular zooms use 3 s)
+): number | null {
+  const sentence = sentences[idx];
+  if (!sentence) return null;
+
+  const sentenceStart = sentences.slice(0, idx).reduce((s, x) => s + x.length, 0);
+  const expectedMs    = (sentenceStart / totalChars) * videoDuration * 1000;
+  const windowMs      = videoDuration * 350; // ±35 % window
+
+  const candidates = sentence
+    .replace(/[^a-záéíóúüñA-ZÁÉÍÓÚÜÑ0-9\s]/g, "")
+    .split(/\s+/)
+    .filter(w => w.length > 2)
+    .slice(0, 6);
+
+  let bestHit:  PunchWordTiming | null = null;
+  let bestDist: number                 = Infinity;
+
+  for (const word of candidates) {
+    const norm = word.toLowerCase().replace(/[^a-záéíóúüñ0-9]/g, "");
+    for (const wt of wordTimings) {
+      if (wt.text.toLowerCase().replace(/[^a-záéíóúüñ0-9]/g, "") !== norm) continue;
+      const dist = Math.abs(wt.startMs - expectedMs);
+      if (dist < windowMs && dist < bestDist) {
+        bestDist = dist;
+        bestHit  = wt;
+      }
+    }
+  }
+
+  if (bestHit) {
+    const t = bestHit.startMs / 1000;
+    return (t >= minT && t < videoDuration - 4) ? t : null;
+  }
+
+  // No SRT match → proportional position
+  const t = expectedMs / 1000;
+  return (t >= minT && t < videoDuration - 4) ? t : null;
+}
+
+/**
  * AI-powered punch zoom timestamp detection (shared by both caption engines).
  *
- * Asks OpenAI to select the most impactful sentences (by index), then maps
- * each to its start timestamp via word-level SRT timings.
- * Falls back to a keyword heuristic if the AI call fails.
+ * Strategy:
+ *   1. HOOK  — always place the first zoom at sentence 1 (first real statement)
+ *              so the opening moment always gets the emphasis snap.
+ *   2. BODY  — AI picks (maxZooms - 1) sentences from sentence 2 onward,
+ *              spread across the rest of the script.
+ *
+ * Timestamps are mapped to exact SRT word positions using closest-match by
+ * proportional position (not first-occurrence, which collapses to t≈0).
  */
 export async function findPunchZoomTimestampsAI(
   script: string,
   wordTimings: PunchWordTiming[],
   videoDuration: number,
 ): Promise<number[]> {
-  // Scale zoom count with duration
   const maxZooms = videoDuration < 30 ? 2 : videoDuration < 70 ? 3 : 4;
 
   const sentences = (script.match(/[^.!?\n]+[.!?]*/g) ?? [])
     .map(s => s.trim())
     .filter(s => s.length >= 12);
 
-  if (sentences.length < 3) {
+  if (sentences.length < 2) {
     return _punchProportionalFallback(videoDuration, maxZooms);
   }
 
-  // ── AI sentence selection ──────────────────────────────────────────────────
-  let indices: number[] = [];
-  try {
-    indices = await analyzeScriptForZooms(sentences, maxZooms);
-    logger.info({ indices, maxZooms }, "[PunchZoom] AI selected sentence indices");
-  } catch (err) {
-    logger.warn({ err }, "[PunchZoom] AI failed — heuristic fallback");
-    indices = _heuristicSentenceIndices(sentences, maxZooms);
-  }
-
-  if (indices.length === 0) {
-    return _punchProportionalFallback(videoDuration, maxZooms);
-  }
-
-  // ── map sentence index → SRT word nearest to expected position ───────────
-  // Using .find() (first occurrence) is wrong: the same common word appears
-  // multiple times and all sentences would map to near t=0, collapsing after
-  // the 6 s spacing filter.  Instead, estimate the expected timestamp from the
-  // sentence's proportional position and pick the SRT hit CLOSEST to it.
   const totalChars = sentences.reduce((s, x) => s + x.length, 0) || 1;
 
-  const timestamps: number[] = [];
-  for (const idx of indices) {
-    const sentence = sentences[idx];
-    if (!sentence) continue;
+  // ── 1. Hook zoom (always sentence 1) ──────────────────────────────────────
+  const HOOK_IDX  = Math.min(1, sentences.length - 1);
+  const hookTs    = _sentenceToTimestamp(sentences, HOOK_IDX, wordTimings, totalChars, videoDuration, 2);
+  const timestamps: number[] = hookTs !== null ? [hookTs] : [];
 
-    // Expected timestamp: based on how far through the script this sentence is
-    const sentenceStart = sentences.slice(0, idx).reduce((s, x) => s + x.length, 0);
-    const expectedMs    = (sentenceStart / totalChars) * videoDuration * 1000;
-    // Accept matches within ±35 % of total duration from the expected position
-    const windowMs      = videoDuration * 350;
+  logger.info({ hookTs, HOOK_IDX }, "[PunchZoom] Hook timestamp");
 
-    const candidates = sentence
-      .replace(/[^a-záéíóúüñA-ZÁÉÍÓÚÜÑ0-9\s]/g, "")
-      .split(/\s+/)
-      .filter(w => w.length > 2)
-      .slice(0, 6);
+  // ── 2. AI selects body zooms from sentence 2 onward ───────────────────────
+  const bodyCount     = maxZooms - (hookTs !== null ? 1 : 0);
+  const afterHook     = sentences.slice(HOOK_IDX + 1);
 
-    let bestHit:  PunchWordTiming | null = null;
-    let bestDist: number                 = Infinity;
+  if (bodyCount > 0 && afterHook.length > 0) {
+    let localIndices: number[] = [];
+    try {
+      localIndices = await analyzeScriptForZooms(afterHook, bodyCount);
+      // Translate local indices back to global sentence indices
+      const globalIndices = localIndices.map(i => i + HOOK_IDX + 1);
+      logger.info({ localIndices, globalIndices, bodyCount }, "[PunchZoom] AI body selections");
 
-    for (const word of candidates) {
-      const norm = word.toLowerCase().replace(/[^a-záéíóúüñ0-9]/g, "");
-      for (const wt of wordTimings) {
-        if (wt.text.toLowerCase().replace(/[^a-záéíóúüñ0-9]/g, "") !== norm) continue;
-        const dist = Math.abs(wt.startMs - expectedMs);
-        if (dist < windowMs && dist < bestDist) {
-          bestDist = dist;
-          bestHit  = wt;
-        }
+      for (const idx of globalIndices) {
+        const t = _sentenceToTimestamp(sentences, idx, wordTimings, totalChars, videoDuration, 3);
+        if (t !== null) timestamps.push(t);
       }
-    }
-
-    if (bestHit) {
-      timestamps.push(bestHit.startMs / 1000);
-      logger.debug({ idx, expectedMs, hit: bestHit.startMs, dist: bestDist }, "[PunchZoom] SRT match");
-    } else {
-      // No SRT match — use proportional position directly
-      const t = expectedMs / 1000;
-      if (t >= 3 && t < videoDuration - 4) timestamps.push(t);
+    } catch (err) {
+      logger.warn({ err }, "[PunchZoom] AI failed — heuristic fallback for body");
+      const heuristicIndices = _heuristicSentenceIndices(afterHook, bodyCount)
+        .map(i => i + HOOK_IDX + 1);
+      for (const idx of heuristicIndices) {
+        const t = _sentenceToTimestamp(sentences, idx, wordTimings, totalChars, videoDuration, 3);
+        if (t !== null) timestamps.push(t);
+      }
     }
   }
 
-  // ── fill gaps with proportional positions if AI mapping was incomplete ─────
+  // ── 3. Fill any remaining gaps with proportional positions ────────────────
   if (timestamps.length < maxZooms) {
     const used = new Set(timestamps.map(t => Math.round(t)));
     for (const t of _punchProportionalFallback(videoDuration, maxZooms)) {
@@ -770,15 +805,19 @@ export async function findPunchZoomTimestampsAI(
     }
   }
 
-  // ── deduplicate + enforce 6 s minimum spacing ──────────────────────────────
-  return timestamps
-    .sort((a, b) => a - b)
-    .filter((t, i, arr) => {
-      if (t < 3)                     return false;
-      if (t > videoDuration - 4)     return false;
-      if (i > 0 && t - arr[i-1] < 6) return false;
-      return true;
-    });
+  // ── 4. Sort + enforce spacing (hook gets 2 s min, body gets 6 s gap) ──────
+  const sorted = timestamps.sort((a, b) => a - b);
+  const result: number[] = [];
+  for (const t of sorted) {
+    if (t > videoDuration - 4) continue;
+    const minT    = result.length === 0 ? 2 : 3;
+    const minGap  = result.length === 0 ? 0 : 6;
+    const lastT   = result[result.length - 1] ?? -Infinity;
+    if (t >= minT && t - lastT >= minGap) result.push(t);
+  }
+
+  logger.info({ result, maxZooms }, "[PunchZoom] Final timestamps");
+  return result;
 }
 
 function _punchProportionalFallback(duration: number, n: number): number[] {
