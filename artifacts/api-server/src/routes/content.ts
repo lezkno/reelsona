@@ -425,7 +425,11 @@ router.post("/content/script", async (req, res): Promise<void> => {
   const language = settings?.language ?? "es";
   const duration = parsed.data.duration_seconds ?? 60;
 
-  const result = await generateScript(parsed.data.topic, niche, tone, language, duration);
+  const result = await generateScript(parsed.data.topic, niche, tone, language, duration, {
+    nicheDescription: settings?.nicheDescription,
+    topicKeywords: (settings?.topicKeywords as string[] | null) ?? undefined,
+    openaiApiKey: settings?.openaiApiKey,
+  });
 
   res.json(
     GenerateScriptResponse.parse({

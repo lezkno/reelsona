@@ -391,7 +391,12 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
       settings.tone,
       settings.language,
       settings.videoDurationSeconds,
-      { auditInsights: auditInsights ?? undefined, openaiApiKey: settings.openaiApiKey },
+      {
+        auditInsights: auditInsights ?? undefined,
+        openaiApiKey: settings.openaiApiKey,
+        nicheDescription: settings.nicheDescription,
+        topicKeywords: (settings.topicKeywords as string[] | null) ?? undefined,
+      },
     );
 
     // Use the stored avatarId only if it's still in the current selection.

@@ -216,12 +216,19 @@ async function generateHookCandidates(
   language: string,
   auditInsights?: AuditInsights,
   openaiApiKey?: string | null,
+  nicheDescription?: string | null,
+  topicKeywords?: string[],
 ): Promise<{ candidates: string[]; winner: string; selectionReason: string }> {
   const client = makeOpenAIClient(openaiApiKey);
 
   const auditContext = auditInsights?.topCaptions.length
     ? `\nCaptions que funcionaron bien en esta cuenta (solo como referencia de estilo de apertura):\n${auditInsights.topCaptions.slice(0, 3).map((c, i) => `${i + 1}. ${c.substring(0, 120)}`).join("\n")}`
     : "";
+
+  const nicheContext = [
+    nicheDescription ? `Descripción del creador: ${nicheDescription}` : "",
+    topicKeywords?.length ? `Palabras clave del creador: ${topicKeywords.join(", ")}` : "",
+  ].filter(Boolean).join("\n");
 
   const prompt = `${EDITORIAL_BASE}
 
@@ -231,7 +238,7 @@ Genera 3 hooks alternativos para el primer segundo de un Reel de Instagram.
 
 Nicho: ${niche}
 Tema: ${topic}
-Tono: ${tone}${auditContext}
+Tono: ${tone}${nicheContext ? `\n${nicheContext}` : ""}${auditContext}
 
 CRITERIOS PARA UN HOOK GANADOR:
 • Claridad en el primer segundo: sin preámbulo, directamente al conflicto o revelación
@@ -306,6 +313,8 @@ export async function generateScript(
     criterion?: string;
     auditInsights?: AuditInsights;
     openaiApiKey?: string | null;
+    nicheDescription?: string | null;
+    topicKeywords?: string[];
   }
 ): Promise<ScriptOutput> {
   const client = makeOpenAIClient(options?.openaiApiKey);
@@ -322,6 +331,7 @@ export async function generateScript(
   try {
     const hookResult = await generateHookCandidates(
       topic, niche, tone, language, options?.auditInsights, options?.openaiApiKey,
+      options?.nicheDescription, options?.topicKeywords,
     );
     hookWinner = hookResult.winner;
     hookCandidatesList = hookResult.candidates;
@@ -342,6 +352,11 @@ export async function generateScript(
     ? `\nInsight de audiencia (basado en análisis de la cuenta): ${options.auditInsights.contentInsights}\n`
     : "";
 
+  const nicheContext = [
+    options?.nicheDescription ? `- Descripción del creador: ${options.nicheDescription}` : "",
+    options?.topicKeywords?.length ? `- Palabras clave del creador: ${options.topicKeywords.join(", ")}` : "",
+  ].filter(Boolean).join("\n");
+
   const prompt = `${EDITORIAL_BASE}
 
 ${TALKING_HEAD_CONSTRAINT}
@@ -354,6 +369,7 @@ Crea un guion de video para un Reel de Instagram con estas especificaciones:
 - Tono: ${tone}
 - Idioma: ${language}
 - Duración aproximada: ${durationSeconds} segundos (~${wordCount} palabras)
+${nicheContext}
 ${hookInstruction}
 REGLAS OBLIGATORIAS para el campo "script":
 1. El guion DEBE terminar con una llamada a la acción clara y directa hablada por el avatar.
