@@ -596,14 +596,13 @@ function PipelineStatusCard({ planItems, planLoading, strategyProfile, strategyL
 
   // Items currently rendering in HeyGen
   const generatingItems = planItems.filter(i => i.status === "generating")
-  // Next item in the pipeline (scripted first, then draft) — always show something upcoming
-  const STATUS_PRIORITY: Record<string, number> = { scripted: 0, draft: 1 }
+  // Next item in the pipeline — same order as the content planner: scheduled_at ASC, then id ASC
   const nextToGenerate = planItems
-    .filter(i => i.status === "scripted" || i.status === "draft")
+    .filter(i => (i.status === "scripted" || i.status === "draft") && i.scheduled_at && !isNaN(new Date(i.scheduled_at).getTime()))
     .sort((a, b) => {
-      const pa = STATUS_PRIORITY[a.status] ?? 99
-      const pb = STATUS_PRIORITY[b.status] ?? 99
-      return pa !== pb ? pa - pb : a.id - b.id
+      const ta = new Date(a.scheduled_at!).getTime()
+      const tb = new Date(b.scheduled_at!).getTime()
+      return ta !== tb ? ta - tb : a.id - b.id
     })[0] ?? null
 
   return (
