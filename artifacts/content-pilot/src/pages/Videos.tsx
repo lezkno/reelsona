@@ -1,5 +1,5 @@
 import {
-  useGetVideos, usePublishVideo, useScheduleVideo, useDeleteVideo, useRetryVideo,
+  useGetVideos, usePublishVideo, useScheduleVideo, useDeleteVideo, useRetryVideo, useReapplyCaptions,
   useGetContentItem, useUpdateContentItem,
   getGetVideosQueryKey, getGetContentPlanQueryKey,
 } from "@workspace/api-client-react"
@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
-import { ExternalLink, Play, Clock, AlertTriangle, CheckCircle2, Instagram, CalendarClock, Send, Trash2, CheckSquare, Square, X, RotateCcw, Loader2, Eye } from "lucide-react"
+import { ExternalLink, Play, Clock, AlertTriangle, CheckCircle2, Instagram, CalendarClock, Send, Trash2, CheckSquare, Square, X, RotateCcw, Loader2, Eye, Wand2 } from "lucide-react"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
 import { useToast } from "@/hooks/use-toast"
@@ -81,6 +81,7 @@ export default function Videos() {
   const scheduleVideo = useScheduleVideo()
   const deleteVideo = useDeleteVideo()
   const retryVideo = useRetryVideo()
+  const reapplyCaptions = useReapplyCaptions()
   const { toast } = useToast()
   const queryClient = useQueryClient()
 
@@ -409,6 +410,21 @@ export default function Videos() {
                       >
                         <CalendarClock className="w-3.5 h-3.5" />
                         {video.scheduled_publish_at ? "Cambiar horario" : "Programar"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="w-full text-xs gap-1.5"
+                        disabled={reapplyCaptions.isPending}
+                        onClick={() => {
+                          reapplyCaptions.mutate({ id: video.id }, {
+                            onSuccess: () => toast({ title: "Re-procesando efectos", description: "Los efectos se están aplicando en segundo plano. El video se actualizará en unos minutos." }),
+                            onError: (err: any) => toast({ title: "Error", description: err?.message ?? "No se pudo re-aplicar los efectos", variant: "destructive" }),
+                          })
+                        }}
+                      >
+                        {reapplyCaptions.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
+                        {reapplyCaptions.isPending ? "Aplicando…" : "Re-aplicar efectos"}
                       </Button>
                     </div>
                   )}

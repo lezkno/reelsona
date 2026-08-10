@@ -17,7 +17,7 @@ import {
   ScheduleVideoResponse,
 } from "@workspace/api-zod";
 import { generateVideo } from "../lib/heygen";
-import { publishVideoToInstagram, pickNextAvatar, resolveVoiceId } from "../lib/scheduler";
+import { publishVideoToInstagram, pickNextAvatar, resolveVoiceId, runCaptionProcessing } from "../lib/scheduler";
 import { objectStorageClient } from "../lib/objectStorage";
 
 const router = Router();
@@ -398,6 +398,48 @@ router.post("/videos/:id/retry", async (req, res): Promise<void> => {
   await db.delete(videosTable).where(and(eq(videosTable.id, id), eq(videosTable.userId, userId)));
 
   res.json({ success: true });
+});
+
+/**
+ * POST /api/videos/:id/reapply-captions
+ * Re-run caption/effects processing on a video that already has a videoUrl.
+ * Useful for testing new effects (e.g. Ken Burns zoom) without re-generating the HeyGen video.
+ */
+router.post("/videos/:id/reapply-captions", async (req, res): Promise<void> => {
+  const userId = req.session.user!.userId;
+  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const id = Number(raw);
+  if (!id || isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const [video] = await db.select().from(videosTable)
+    .where(and(eq(videosTable.id, id), eq(videosTable.userId, userId))).limit(1);
+  if (!video) { res.status(404).json({ error: "Video not found" }); return; }
+  if (!video.videoUrl) {
+    res.status(400).json({ error: "Este video aún no tiene URL de fuente" });
+    return;
+  }
+  if (video.captionStatus === "processing") {
+    res.status(409).json({ error: "Los efectos ya están procesando, espera a que terminen" });
+    return;
+  }
+
+  const [captionCfg] = await db.select().from(captionConfigTable)
+    .where(eq(captionConfigTable.userId, userId)).limit(1);
+  if (!captionCfg) {
+    res.status(400).json({ error: "No hay configuración de Caption Studio. Configúrala primero en la sección Captions." });
+    return;
+  }
+
+  // Reset caption state so the pipeline re-runs
+  await db.update(videosTable)
+    .set({ captionStatus: null, captionedVideoUrl: null, updatedAt: new Date() })
+    .where(and(eq(videosTable.id, id), eq(videosTable.userId, userId)));
+
+  // Fire-and-forget
+  runCaptionProcessing(id, video.videoUrl, video.contentPlanId ?? null, null, video.durationSeconds ?? null)
+    .catch((err) => console.error("[ReapplyCaptions] Failed for video", id, err));
+
+  res.json({ success: true, message: "Re-procesando efectos en segundo plano" });
 });
 
 router.delete("/videos/:id", async (req, res): Promise<void> => {

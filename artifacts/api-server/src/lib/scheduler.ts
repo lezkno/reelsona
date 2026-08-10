@@ -572,13 +572,21 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
  * subtitleUrl is optional — if absent (e.g. recovery after restart) the engine
  * falls back to proportional SRT generated from the script text.
  */
-async function runCaptionProcessing(
+export async function runCaptionProcessing(
   videoId: number,
   videoUrl: string,
   contentPlanId: number | null,
   subtitleUrl?: string | null,
   durationSeconds?: number | null
 ): Promise<void> {
+  // Look up the video's stored effects so the FFmpeg pipeline can apply them
+  const [videoRow] = await db
+    .select({ videoEffects: videosTable.videoEffects })
+    .from(videosTable)
+    .where(eq(videosTable.id, videoId))
+    .limit(1);
+  const videoEffects = (videoRow?.videoEffects as { zoom?: boolean } | null) ?? null;
+
   const [captionCfg] = await db.select().from(captionConfigTable).limit(1);
   if (!captionCfg) {
     // Fix 2: no config → mark failed instead of silently leaving captionStatus=null
@@ -722,6 +730,7 @@ async function runCaptionProcessing(
     const captionResult = await applyCaptions(videoUrl, script, style, {
       subtitleUrl: subtitleUrl ?? undefined,
       videoDurationSeconds: durationSeconds ?? undefined,
+      videoEffects: videoEffects ?? undefined,
     });
 
     if (captionResult.url) {

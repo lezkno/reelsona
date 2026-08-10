@@ -623,10 +623,12 @@ export async function applyCaptions(
   options?: {
     subtitleUrl?: string | null;
     videoDurationSeconds?: number | null;
+    videoEffects?: { zoom?: boolean } | null;
   }
 ): Promise<CaptionResult> {
   const subtitleUrl   = options?.subtitleUrl ?? null;
   const videoDurationMs = (options?.videoDurationSeconds ?? 60) * 1000;
+  const zoomEnabled   = options?.videoEffects?.zoom === true;
 
   try {
     await ensureDir(CAPTION_DIR);
@@ -669,23 +671,41 @@ export async function applyCaptions(
     const assContent = buildASS(blocks, config);
     await fs.writeFile(assPath, assContent, "utf-8");
 
-    // 4. Detect source rotation via ffprobe so we can correct it in the output.
+    // 4. Detect source rotation AND video dimensions/fps via ffprobe.
     //    HeyGen sometimes delivers landscape-encoded frames with a rotate tag
     //    (e.g. rotate=90). FFmpeg strips that tag when re-encoding, so the
     //    browser sees the raw sideways frames. We apply a transpose filter to
     //    compensate before burning the ASS subtitles.
+    //    We also probe width/height/fps/duration for the Ken Burns zoom filter.
     let rotationFilter = "";
+    let videoWidth  = 1080;
+    let videoHeight = 1920;
+    let videoFps    = 30;
+    let videoDuration = options?.videoDurationSeconds ?? 60;
     try {
       const { stdout: probeOut } = await execFileAsync("ffprobe", [
         "-v", "error",
         "-select_streams", "v:0",
-        "-show_entries", "stream_tags=rotate:stream_side_data=rotation",
+        "-show_entries", "stream=width,height,r_frame_rate,duration:stream_tags=rotate:stream_side_data=rotation",
         "-of", "json",
         videoPath,
       ]);
       const probeJson = JSON.parse(probeOut);
       const streams: any[] = probeJson.streams ?? [];
       const stream = streams[0] ?? {};
+      // Dimensions
+      if (stream.width)  videoWidth  = stream.width;
+      if (stream.height) videoHeight = stream.height;
+      // FPS — r_frame_rate is e.g. "30/1" or "30000/1001"
+      if (stream.r_frame_rate) {
+        const [n, d] = String(stream.r_frame_rate).split("/").map(Number);
+        if (n && d) videoFps = n / d;
+      }
+      // Duration
+      if (stream.duration) {
+        const probed = parseFloat(stream.duration);
+        if (!isNaN(probed) && probed > 0) videoDuration = probed;
+      }
       // rotation can live in tags.rotate or in side_data_list[].rotation
       const tagRotate = parseInt(stream.tags?.rotate ?? "0", 10);
       const sideRotate = stream.side_data_list
@@ -707,9 +727,19 @@ export async function applyCaptions(
     }
 
     // 5. Burn with FFmpeg — pass fontsdir so libass finds our bundled fonts
+    // Optional Ken Burns zoom: slow zoompan from 1.0x → 1.08x over the full video.
+    // step is calculated so the zoom reaches 1.08 exactly at the last frame.
+    let zoomFilter = "";
+    if (zoomEnabled) {
+      const totalFrames = Math.max(1, Math.ceil(videoFps * videoDuration));
+      const step = (0.08 / totalFrames).toFixed(8);
+      zoomFilter = `zoompan=z='min(zoom+${step},1.08)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:fps=${Math.round(videoFps)}:s=${videoWidth}x${videoHeight},`;
+      logger.info({ videoWidth, videoHeight, videoFps, videoDuration, totalFrames, step }, "[CaptionEngine] Ken Burns zoom enabled");
+    }
+
     logger.info("[CaptionEngine] Running FFmpeg (ass filter)...");
 
-    const assFilter = `${rotationFilter}ass='${assPath}':fontsdir='${FONTS_DIR}'`;
+    const assFilter = `${zoomFilter}${rotationFilter}ass='${assPath}':fontsdir='${FONTS_DIR}'`;
 
     const { stderr } = await execFileAsync("ffmpeg", [
       "-noautorotate",          // read raw frames without auto-rotating; we handle it via transpose

@@ -106,6 +106,19 @@ export function useRetryVideo() {
   });
 }
 
+export function useReapplyCaptions() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id }: { id: number }) =>
+      customFetch<{ success: boolean; message: string }>(`/api/videos/${id}/reapply-captions`, {
+        method: "POST",
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["videos"] });
+    },
+  });
+}
+
 // ── Admin student provisioning ────────────────────────────────────────────────
 
 export interface AdminEntitlement {
