@@ -213,8 +213,7 @@ router.get("/heygen/account", async (req, res): Promise<void> => {
     .where(eq(settingsTable.userId, userId))
     .limit(1);
 
-  const dbKey = settings?.heygenApiKey ?? null;
-  const apiKey = dbKey ?? process.env.HEYGEN_API_KEY ?? null;
+  const apiKey = settings?.heygenApiKey ?? null;
 
   if (!apiKey) {
     res.json({ connected: false, remaining_quota: null, total_quota: null, details: null, key_source: "none" });
@@ -229,7 +228,7 @@ router.get("/heygen/account", async (req, res): Promise<void> => {
     remaining_quota: quota.remaining,
     total_quota: null,
     details: quota.details,
-    key_source: dbKey ? "db" : "env",
+    key_source: "db",
   });
 });
 

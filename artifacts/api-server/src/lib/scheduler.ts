@@ -135,8 +135,7 @@ async function fillEmptyScheduledSlots(
 
 /**
  * Resolve the HeyGen API key for background scheduler jobs.
- * Picks the first settings row that has a key (user-supplied).
- * Falls back to the HEYGEN_API_KEY env var if none is stored.
+ * Uses only the user-supplied key stored in the settings row.
  */
 async function resolveHeyGenApiKey(): Promise<string | undefined> {
   const [row] = await db
@@ -144,7 +143,7 @@ async function resolveHeyGenApiKey(): Promise<string | undefined> {
     .from(settingsTable)
     .where(isNotNull(settingsTable.heygenApiKey))
     .limit(1);
-  return row?.heygenApiKey ?? process.env.HEYGEN_API_KEY ?? undefined;
+  return row?.heygenApiKey ?? undefined;
 }
 
 /**
@@ -283,7 +282,7 @@ export async function runAutomationCycle(targetItemId?: number): Promise<{
     );
     return { success: false, message: "Niche not configured" };
   }
-  const heygenApiKey = settings.heygenApiKey ?? process.env.HEYGEN_API_KEY ?? undefined;
+  const heygenApiKey = settings.heygenApiKey ?? undefined;
 
   // Load avatar config
   const [avatarCfg] = await db.select().from(avatarConfigTable).limit(1);
