@@ -642,19 +642,6 @@ function OpenAIIntegrationCard() {
                 </button>
               </div>
 
-              <p className="text-xs text-muted-foreground">
-                Creá tu clave en{" "}
-                <a
-                  href="https://openai.com/es-419/api/"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="underline underline-offset-2 text-primary"
-                >
-                  openai.com/api
-                </a>
-                {" "}→ Get started → API Keys.
-              </p>
-
               <div className="flex gap-2">
                 <Button
                   onClick={handleSave}
@@ -697,6 +684,19 @@ function OpenAIIntegrationCard() {
               </div>
             </div>
           )}
+
+          <p className="text-xs text-muted-foreground pt-1">
+            ¿No tenés clave? Creá una en{" "}
+            <a
+              href="https://openai.com/es-419/api/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline underline-offset-2 text-primary"
+            >
+              openai.com/api
+            </a>
+            {" "}→ Get started → API Keys.
+          </p>
         </div>
       </CardContent>
     </Card>
