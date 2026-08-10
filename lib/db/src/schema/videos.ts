@@ -27,6 +27,8 @@ export const videosTable = pgTable("videos", {
   igContainerId: text("ig_container_id"),
   /** Immutable snapshot of VideoEffects at the moment the job was created */
   videoEffects: jsonb("video_effects"),
+  /** HeyGen SRT subtitle URL — only available at completion time; persisted so captions can be re-applied with real word timings */
+  heygenSubtitleUrl: text("heygen_subtitle_url"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

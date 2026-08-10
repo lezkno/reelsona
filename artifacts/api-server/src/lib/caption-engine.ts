@@ -727,14 +727,24 @@ export async function applyCaptions(
     }
 
     // 5. Burn with FFmpeg — pass fontsdir so libass finds our bundled fonts
-    // Optional Ken Burns zoom: slow zoompan from 1.0x → 1.08x over the full video.
-    // step is calculated so the zoom reaches 1.08 exactly at the last frame.
+    // Optional Ken Burns zoom: crop+scale driven by timestamp `t` so the zoom
+    // is continuous and timestamp-accurate (no zoompan frame-counting quirks).
+    // Effect: center-crop from 1.0× at t=0 to 1.3× at t=duration,
+    //         then scaled back to original dimensions.
     let zoomFilter = "";
     if (zoomEnabled) {
-      const totalFrames = Math.max(1, Math.ceil(videoFps * videoDuration));
-      const step = (0.08 / totalFrames).toFixed(8);
-      zoomFilter = `zoompan=z='min(zoom+${step},1.08)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:fps=${Math.round(videoFps)}:s=${videoWidth}x${videoHeight},`;
-      logger.info({ videoWidth, videoHeight, videoFps, videoDuration, totalFrames, step }, "[CaptionEngine] Ken Burns zoom enabled");
+      const T = videoDuration.toFixed(4);
+      const W = videoWidth;
+      const H = videoHeight;
+      const zoomExpr = `(1+0.3*min(t,${T})/${T})`;
+      zoomFilter = [
+        `crop=w='iw/${zoomExpr}'`,
+        `h='ih/${zoomExpr}'`,
+        `x='(iw-iw/${zoomExpr})/2'`,
+        `y='(ih-ih/${zoomExpr})/2'`,
+        `exact=1`,
+      ].join(":") + `,scale=${W}:${H},`;
+      logger.info({ W, H, T }, "[CaptionEngine] Ken Burns zoom (crop+scale) enabled");
     }
 
     logger.info("[CaptionEngine] Running FFmpeg (ass filter)...");

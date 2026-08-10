@@ -580,24 +580,33 @@ export async function applyCaptionsBrowser(
     logger.info(videoInfo, "[BrowserEngine] Video dimensions probed");
 
     // ── 3c. Ken Burns zoom pre-process (optional) ────────────────────────
-    // Apply a slow zoompan (1.0x → 1.08x) to the entire video BEFORE caption
-    // compositing. Must be a full-video pass so the zoom is continuous —
-    // applying per-batch would reset the counter and create visible jumps.
+    // Crops the center of each frame progressively using the timestamp variable
+    // `t` so the zoom is continuous and timestamp-accurate.
+    // crop+scale is far more reliable than zoompan which has frame-counting
+    // quirks with d=1 that can produce incorrect output durations.
+    //
+    // Effect: center-zoom from 1.0× at t=0 to 1.3× at t=duration.
+    //   At zoom factor z: visible area = (W/z × H/z) cropped from center,
+    //   then scaled back to (W × H).
     let captionSourcePath = videoPath;
     if (opts?.videoEffects?.zoom) {
       const zoomedPath = path.join(tmpDir, "zoomed.mp4");
-      const totalFrames = Math.max(1, Math.round(videoInfo.fps * videoInfo.duration));
-      const step = (0.08 / totalFrames).toFixed(8);
-      const zoomFilter = [
-        `zoompan=z='min(zoom+${step},1.08)'`,
-        `x='iw/2-(iw/zoom/2)'`,
-        `y='ih/2-(ih/zoom/2)'`,
-        `d=1:fps=${videoInfo.fps}:s=${videoInfo.width}x${videoInfo.height}`,
-      ].join(":");
-      logger.info({ totalFrames, step, fps: videoInfo.fps }, "[BrowserEngine] Applying Ken Burns zoom pre-process");
+      const T = videoInfo.duration.toFixed(4);
+      const W = videoInfo.width;
+      const H = videoInfo.height;
+      // zoomExpr evaluates to the zoom factor (1.0 → 1.3) at each frame's timestamp
+      const zoomExpr = `(1+0.3*min(t,${T})/${T})`;
+      const vf = [
+        `crop=w='iw/${zoomExpr}'`,
+        `h='ih/${zoomExpr}'`,
+        `x='(iw-iw/${zoomExpr})/2'`,
+        `y='(ih-ih/${zoomExpr})/2'`,
+        `exact=1`,
+      ].join(":") + `,scale=${W}:${H}`;
+      logger.info({ W, H, T, zoomExpr }, "[BrowserEngine] Applying Ken Burns zoom (crop+scale)");
       await execFileAsync("ffmpeg", [
         "-i",  videoPath,
-        "-vf", zoomFilter,
+        "-vf", vf,
         "-c:v", "libx264", "-preset", "fast", "-crf", "21",
         "-c:a", "copy",
         "-y",  zoomedPath,

@@ -581,13 +581,16 @@ export async function runCaptionProcessing(
   subtitleUrl?: string | null,
   durationSeconds?: number | null
 ): Promise<void> {
-  // Look up the video's stored effects so the FFmpeg pipeline can apply them
+  // Look up the video's stored effects AND the persisted HeyGen subtitle URL
   const [videoRow] = await db
-    .select({ videoEffects: videosTable.videoEffects })
+    .select({ videoEffects: videosTable.videoEffects, heygenSubtitleUrl: videosTable.heygenSubtitleUrl })
     .from(videosTable)
     .where(eq(videosTable.id, videoId))
     .limit(1);
   const videoEffects = (videoRow?.videoEffects as { zoom?: boolean } | null) ?? null;
+  // If caller didn't supply a subtitle URL (e.g. recovery / reapply path), fall back to the
+  // one saved in the DB at original completion time so captions keep real word timings.
+  const resolvedSubtitleUrl = subtitleUrl ?? videoRow?.heygenSubtitleUrl ?? null;
 
   const [captionCfg] = await db.select().from(captionConfigTable).limit(1);
   if (!captionCfg) {
@@ -654,7 +657,7 @@ export async function runCaptionProcessing(
       try { parsedTemplateOverrides = JSON.parse(captionCfg.templateOverrides); } catch { /* ignore malformed */ }
     }
     const browserResult = await applyCaptionsBrowser(videoUrl, script, effectiveTemplateId, {
-      subtitleUrl:          subtitleUrl ?? undefined,
+      subtitleUrl:          resolvedSubtitleUrl ?? undefined,
       videoDurationSeconds: durationSeconds ?? undefined,
       // Pass user drag overrides so position set in Caption Studio is honoured in the render
       yPositionPct: captionCfg.yPosition  ?? undefined,
@@ -732,7 +735,7 @@ export async function runCaptionProcessing(
 
   try {
     const captionResult = await applyCaptions(videoUrl, script, style, {
-      subtitleUrl: subtitleUrl ?? undefined,
+      subtitleUrl: resolvedSubtitleUrl ?? undefined,
       videoDurationSeconds: durationSeconds ?? undefined,
       videoEffects: videoEffects ?? undefined,
     });
@@ -1026,6 +1029,8 @@ export async function pollAndPublishVideos(): Promise<void> {
             videoUrl: status.video_url,
             thumbnailUrl: status.thumbnail_url,
             durationSeconds: status.duration ? Math.round(status.duration) : null,
+            // Persist subtitle URL so captions can be re-applied with real word timings later
+            heygenSubtitleUrl: status.subtitle_url ?? null,
             updatedAt: new Date(),
           })
           .where(eq(videosTable.id, video.id));
