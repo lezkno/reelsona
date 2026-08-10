@@ -675,12 +675,13 @@ interface MultiCardConfig {
 
 const DEFAULT_MULTI_CARDS: MultiCardConfig = {
   version: 2,
-  hook: { enabled: false, useAi: false, text: "",     templateId: "dark-glass" },
-  stat: { enabled: false, useAi: false, headline: "", subtext: "", templateId: "ocean" },
-  cta:  { enabled: false, useAi: false, text: "",     templateId: "fire" },
+  hook: { enabled: false, useAi: false, text: "",     templateId: "dark" },
+  stat: { enabled: false, useAi: false, headline: "", subtext: "", templateId: "double-line" },
+  cta:  { enabled: false, useAi: false, text: "",     templateId: "accent-bar" },
 }
 
 // ── Card style templates (mirrors CARD_STYLE_TEMPLATES in text-cards-engine) ─
+// Each entry describes STRUCTURAL differences, not just color swaps.
 
 interface CardStyleTemplate {
   id: string
@@ -688,21 +689,35 @@ interface CardStyleTemplate {
   previewBg: string
   previewColor: string
   previewBorder?: string
+  // Structural variants shown in the swatch
+  previewBoxShadow?: string     // glow / drop-shadow
+  previewTextShadow?: string    // text glow
+  previewTextTransform?: "uppercase"
+  previewBorderRadius?: string  // pill override
+  previewAccentBar?: string     // shows a colored left bar inside the swatch
+  previewAccentLines?: string   // shows orange top+bottom lines
 }
 
 const CARD_STYLE_TEMPLATES: CardStyleTemplate[] = [
-  { id: "dark-glass",    name: "Glass",     previewBg: "rgba(0,0,0,0.82)",                          previewColor: "#fff",    previewBorder: "rgba(255,255,255,0.35)" },
-  { id: "fire",          name: "Fuego",     previewBg: "linear-gradient(90deg,#f43f5e,#f97316)",    previewColor: "#fff" },
-  { id: "ocean",         name: "Océano",    previewBg: "#0ea5e9",                                   previewColor: "#fff" },
-  { id: "ocean-gradient",name: "Cian",      previewBg: "linear-gradient(90deg,#0891b2,#1d4ed8)",    previewColor: "#fff" },
-  { id: "violet-rose",   name: "Violeta",   previewBg: "linear-gradient(90deg,#7c3aed,#ec4899)",    previewColor: "#fff" },
-  { id: "midnight",      name: "Noche",     previewBg: "linear-gradient(160deg,#1e1b4b,#0f172a)",   previewColor: "#c4b5fd", previewBorder: "rgba(139,92,246,0.6)" },
-  { id: "neon-green",    name: "Neon",      previewBg: "#0a0e1a",                                   previewColor: "#00ff88", previewBorder: "#00ff88" },
-  { id: "neon-red",      name: "Alerta",    previewBg: "#0d0010",                                   previewColor: "#ef4444", previewBorder: "#ef4444" },
-  { id: "forest",        name: "Bosque",    previewBg: "linear-gradient(90deg,#065f46,#0d9488)",    previewColor: "#fff" },
-  { id: "sunset",        name: "Atardecer", previewBg: "linear-gradient(90deg,#f97316,#fbbf24)",    previewColor: "#fff" },
-  { id: "retro-yellow",  name: "Retro",     previewBg: "#fbbf24",                                   previewColor: "#1e293b" },
-  { id: "minimal-white", name: "Blanco",    previewBg: "rgba(255,255,255,0.95)",                    previewColor: "#0f172a", previewBorder: "#cbd5e1" },
+  // 1 · Oscuro — semi-transparent dark, thin border all around
+  { id: "dark",        name: "Oscuro",    previewBg: "rgba(0,0,0,0.82)",                          previewColor: "#fff",    previewBorder: "rgba(255,255,255,0.35)" },
+  // 2 · Barra — dark bg + thick orange left bar
+  { id: "accent-bar",  name: "Barra",     previewBg: "rgba(8,8,18,0.90)",                          previewColor: "#fff",    previewAccentBar: "#f97316" },
+  // 3 · Neón — near-black + green neon glow
+  { id: "neon",        name: "Neón",      previewBg: "#050a0e",                                   previewColor: "#00ff88", previewBorder: "#00ff88",
+    previewBoxShadow: "0 0 8px #00ff88, inset 0 0 6px rgba(0,255,136,0.15)", previewTextShadow: "0 0 6px #00ff88" },
+  // 4 · Sticker — white card with drop shadow
+  { id: "sticker",     name: "Sticker",   previewBg: "rgba(255,255,255,0.97)",                    previewColor: "#0f172a",
+    previewBoxShadow: "0 4px 10px rgba(0,0,0,0.55), 0 1px 3px rgba(0,0,0,0.3)" },
+  // 5 · Gradiente — vivid gradient fill, no border
+  { id: "gradient",    name: "Gradiente", previewBg: "linear-gradient(90deg,#f43f5e,#f97316)",    previewColor: "#fff" },
+  // 6 · Contorno — barely-there bg, thick white border only
+  { id: "outline",     name: "Contorno",  previewBg: "rgba(0,0,0,0.20)",                          previewColor: "#fff",    previewBorder: "rgba(255,255,255,0.85)" },
+  // 7 · Cinta — pill shape, uppercase text
+  { id: "banner",      name: "Cinta",     previewBg: "rgba(0,0,0,0.88)",                          previewColor: "#fff",
+    previewBorderRadius: "999px", previewTextTransform: "uppercase" },
+  // 8 · Doble — dark bg + orange top/bottom accent lines
+  { id: "double-line", name: "Doble",     previewBg: "rgba(0,0,0,0.85)",                          previewColor: "#fff",    previewAccentLines: "#f97316" },
 ]
 
 // ── CardSlotPanel — one independently-configurable card ──────────────────────
@@ -750,9 +765,9 @@ function CardSlotPanel({
             {/* Template style picker */}
             <div className="space-y-2">
               <Label className="text-xs text-muted-foreground uppercase tracking-wide">Estilo visual</Label>
-              <div className="grid grid-cols-4 gap-1.5">
+              <div className="grid grid-cols-4 gap-2">
                 {CARD_STYLE_TEMPLATES.map((t) => {
-                  const active = (slot.templateId ?? "dark-glass") === t.id
+                  const active = (slot.templateId ?? "dark") === t.id
                   return (
                     <button
                       key={t.id}
@@ -760,23 +775,55 @@ function CardSlotPanel({
                       onClick={() => patch({ templateId: t.id })}
                       disabled={disabled}
                       title={t.name}
-                      className={`relative rounded-lg h-12 flex flex-col items-center justify-center gap-0.5 transition-all overflow-hidden border-2 ${
+                      className={`relative flex flex-col items-center justify-center gap-1 transition-all overflow-hidden ${
                         active
-                          ? "border-orange-500 ring-1 ring-orange-500/30 scale-[1.03]"
-                          : "border-transparent hover:border-orange-400/40"
+                          ? "ring-2 ring-orange-500 ring-offset-1 ring-offset-background scale-[1.04]"
+                          : "hover:scale-[1.02] hover:ring-1 hover:ring-orange-400/40"
                       }`}
                       style={{
+                        borderRadius: t.previewBorderRadius ?? "0.6rem",
+                        height: 62,
                         background: t.previewBg,
-                        ...(t.previewBorder && !active ? { outline: `1px solid ${t.previewBorder}`, outlineOffset: "-1px" } : {}),
+                        boxShadow: t.previewBoxShadow,
+                        border: t.previewBorder && !active ? `1.5px solid ${t.previewBorder}` : active ? "none" : "1px solid transparent",
+                        borderTop: t.previewAccentLines ? `2.5px solid ${t.previewAccentLines}` : undefined,
+                        borderBottom: t.previewAccentLines ? `2.5px solid ${t.previewAccentLines}` : undefined,
                       }}
                     >
+                      {/* Left accent bar overlay */}
+                      {t.previewAccentBar && (
+                        <div
+                          className="absolute left-0 top-0 bottom-0 w-[5px]"
+                          style={{ background: t.previewAccentBar, borderRadius: "0.5rem 0 0 0.5rem" }}
+                        />
+                      )}
+
+                      {/* Active checkmark */}
                       {active && (
-                        <div className="absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-full bg-orange-500 flex items-center justify-center">
-                          <CheckCircle2 className="w-2.5 h-2.5 text-white" />
+                        <div className="absolute top-1 right-1 w-4 h-4 rounded-full bg-orange-500 flex items-center justify-center shadow">
+                          <CheckCircle2 className="w-3 h-3 text-white" />
                         </div>
                       )}
-                      <span className="text-[11px] font-extrabold leading-none" style={{ color: t.previewColor }}>Aa</span>
-                      <span className="text-[8px] leading-none font-medium" style={{ color: `${t.previewColor}cc` }}>{t.name}</span>
+
+                      {/* Mini card preview */}
+                      <div
+                        className={`font-extrabold leading-none tracking-tight ${t.previewBorderRadius ? "text-[10px]" : "text-[12px]"}`}
+                        style={{
+                          color: t.previewColor,
+                          textShadow: t.previewTextShadow,
+                          textTransform: t.previewTextTransform,
+                          paddingLeft: t.previewAccentBar ? 10 : 0,
+                        }}
+                      >
+                        {t.previewTextTransform === "uppercase" ? "HOOK" : "Aa"}
+                      </div>
+
+                      <div
+                        className="text-[7.5px] leading-none font-semibold tracking-wide"
+                        style={{ color: `${t.previewColor}bb`, paddingLeft: t.previewAccentBar ? 10 : 0 }}
+                      >
+                        {t.name}
+                      </div>
                     </button>
                   )
                 })}
@@ -949,31 +996,49 @@ function CardOverlayPreview({
 }: {
   card: { type: "hook"|"stat"|"cta"; useAi: boolean; text?: string; headline?: string; subtext?: string; templateId?: string }
 }) {
-  const tpl = CARD_STYLE_TEMPLATES.find(t => t.id === (card.templateId ?? "dark-glass")) ?? CARD_STYLE_TEMPLATES[0]
+  const tpl = CARD_STYLE_TEMPLATES.find(t => t.id === (card.templateId ?? "dark")) ?? CARD_STYLE_TEMPLATES[0]
   const label = card.useAi ? "IA adapta el texto" : undefined
 
+  const isPill = tpl.previewBorderRadius === "999px"
   const base: React.CSSProperties = {
     background: tpl.previewBg,
     color: tpl.previewColor,
-    borderRadius: "0.7rem",
-    padding: "7px 10px",
-    ...(tpl.previewBorder ? { border: `1.5px solid ${tpl.previewBorder}` } : {}),
+    borderRadius: tpl.previewBorderRadius ?? "0.7rem",
+    padding: isPill ? "5px 12px" : "7px 10px",
+    boxShadow: tpl.previewBoxShadow,
+    border: tpl.previewBorder ? `1.5px solid ${tpl.previewBorder}` : undefined,
+    borderTop: tpl.previewAccentLines ? `2px solid ${tpl.previewAccentLines}` : undefined,
+    borderBottom: tpl.previewAccentLines ? `2px solid ${tpl.previewAccentLines}` : undefined,
+    position: "relative" as const,
+    overflow: "hidden" as const,
+  }
+
+  const accentBar = tpl.previewAccentBar ? (
+    <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, background: tpl.previewAccentBar }} />
+  ) : null
+
+  const textStyle: React.CSSProperties = {
+    textShadow: tpl.previewTextShadow,
+    textTransform: tpl.previewTextTransform,
+    paddingLeft: tpl.previewAccentBar ? 5 : 0,
   }
 
   if (card.type === "hook") return (
     <div style={base} className="text-[9px] font-bold leading-snug">
+      {accentBar}
       {card.useAi
-        ? <span style={{ color: `${tpl.previewColor}88` }} className="italic">"{label}"</span>
-        : <span>{card.text || "Texto del hook"}</span>}
+        ? <span style={{ color: `${tpl.previewColor}88`, ...textStyle }} className="italic">"{label}"</span>
+        : <span style={textStyle}>{card.text || "Texto del hook"}</span>}
     </div>
   )
 
   if (card.type === "stat") return (
     <div style={{ ...base, textAlign: "center" }}>
+      {accentBar}
       {card.useAi
-        ? <p style={{ color: `${tpl.previewColor}88` }} className="text-[8px] italic">{label}</p>
+        ? <p style={{ color: `${tpl.previewColor}88`, ...textStyle }} className="text-[8px] italic">{label}</p>
         : <>
-            <p className="text-[18px] font-black leading-none" style={{ fontFamily: "Montserrat, sans-serif" }}>{card.headline || "73%"}</p>
+            <p className="text-[18px] font-black leading-none" style={{ fontFamily: "Montserrat, sans-serif", ...textStyle }}>{card.headline || "73%"}</p>
             <p className="text-[7px] font-semibold mt-0.5" style={{ color: `${tpl.previewColor}cc` }}>{card.subtext || "de creadores usan IA"}</p>
           </>}
     </div>
@@ -981,8 +1046,9 @@ function CardOverlayPreview({
 
   return (
     <div style={{ ...base, display: "flex", alignItems: "center", gap: 4 }} className="text-[9px] font-bold">
+      {accentBar}
       {card.useAi
-        ? <span style={{ color: `${tpl.previewColor}88` }} className="italic text-[8px]">{label}</span>
+        ? <span style={{ color: `${tpl.previewColor}88`, ...textStyle }} className="italic text-[8px]">{label}</span>
         : <span>{card.text || "Texto del CTA"}</span>}
     </div>
   )

@@ -19,3 +19,4 @@
 - [Text Cards Engine](text-cards-engine.md) — hook/stat/CTA overlays via GPT-4o-mini + @napi-rs/canvas; use local Ctx interface not CanvasRenderingContext2D; pipeline: zoom→broll→cards→captions.
 - [Text cards FFmpeg overlay](text-cards-ffmpeg.md) — PNG overlays at timestamp need `-loop 1 -t <dur>` + `format=yuva420p`; without loop the stream ends at t=0 and fade never fires (silent success, invisible result).
 - [Multi-card config format](multi-card-config.md) — v2 MultiCardConfig (version:2 + hook/stat/cta slots) replaces single SavedCardTemplate; detect with `"version" in cardConfig`; legacy single-card is auto-migrated on load.
+- [Card template structural variants](card-template-variants.md) — 8 templates differ in structure (borderStyle: all/left/none/double-line, pillShape, cardShadow, textGlow); color-only swaps were rejected; IDs: dark, accent-bar, neon, sticker, gradient, outline, banner, double-line.

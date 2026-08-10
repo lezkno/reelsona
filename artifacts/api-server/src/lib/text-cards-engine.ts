@@ -237,28 +237,92 @@ export interface CanvasTemplate {
   bgGradient?: { from: string; to: string; dir: "h" | "v" };
   borderColor?: string;
   borderWidth?: number;
+  /**
+   * "all"         — border on all four sides (default)
+   * "left"        — no surrounding border; thick accentColor bar on left edge
+   * "none"        — no border
+   * "double-line" — thin accentColor lines at top and bottom
+   */
+  borderStyle?: "all" | "left" | "none" | "double-line";
+  accentColor?: string;    // left bar or double-line color
   textColor: string;
   subtextColor?: string;
   fontFamily: string;
-  /** CSS value for the UI mini-swatch */
+  textGlow?: boolean;      // canvas shadowBlur around text (and border)
+  glowColor?: string;      // defaults to textColor
+  cardShadow?: boolean;    // offset shadow rect behind the card (sticker look)
+  pillShape?: boolean;     // uses h/2 as corner radius
+  textTransform?: "upper"; // uppercases all text
+  /** CSS for the UI mini-swatch */
   previewBg: string;
   previewColor: string;
   previewBorder?: string;
 }
 
 export const CARD_STYLE_TEMPLATES: CanvasTemplate[] = [
-  { id: "dark-glass",    name: "Glass",      bgColor: "rgba(0,0,0,0.82)",             borderColor: "rgba(255,255,255,0.18)", borderWidth: 1.5, textColor: "#ffffff", fontFamily: "Poppins",    previewBg: "rgba(0,0,0,0.82)",                          previewColor: "#fff",    previewBorder: "rgba(255,255,255,0.35)" },
-  { id: "fire",          name: "Fuego",       bgGradient: { from: "#f43f5e", to: "#f97316", dir: "h" },                                         textColor: "#ffffff", fontFamily: "Poppins",    previewBg: "linear-gradient(90deg,#f43f5e,#f97316)",    previewColor: "#fff" },
-  { id: "ocean",         name: "Océano",      bgColor: "#0ea5e9",                                                                                textColor: "#ffffff", fontFamily: "Montserrat", previewBg: "#0ea5e9",                                   previewColor: "#fff" },
-  { id: "ocean-gradient",name: "Cian",        bgGradient: { from: "#0891b2", to: "#1d4ed8", dir: "h" },                                         textColor: "#ffffff", fontFamily: "Montserrat", previewBg: "linear-gradient(90deg,#0891b2,#1d4ed8)",    previewColor: "#fff" },
-  { id: "violet-rose",   name: "Violeta",     bgGradient: { from: "#7c3aed", to: "#ec4899", dir: "h" },                                         textColor: "#ffffff", fontFamily: "Poppins",    previewBg: "linear-gradient(90deg,#7c3aed,#ec4899)",    previewColor: "#fff" },
-  { id: "midnight",      name: "Noche",       bgGradient: { from: "#1e1b4b", to: "#0f172a", dir: "v" }, borderColor: "rgba(139,92,246,0.5)", borderWidth: 1.5, textColor: "#c4b5fd", subtextColor: "rgba(196,181,253,0.7)", fontFamily: "Montserrat", previewBg: "linear-gradient(160deg,#1e1b4b,#0f172a)", previewColor: "#c4b5fd", previewBorder: "rgba(139,92,246,0.6)" },
-  { id: "neon-green",    name: "Neon",        bgColor: "#0a0e1a",                      borderColor: "#00ff88",               borderWidth: 2,   textColor: "#00ff88", fontFamily: "Oswald",     previewBg: "#0a0e1a",                                   previewColor: "#00ff88", previewBorder: "#00ff88" },
-  { id: "neon-red",      name: "Alerta",      bgColor: "#0d0010",                      borderColor: "#ef4444",               borderWidth: 2,   textColor: "#ef4444", fontFamily: "Oswald",     previewBg: "#0d0010",                                   previewColor: "#ef4444", previewBorder: "#ef4444" },
-  { id: "forest",        name: "Bosque",      bgGradient: { from: "#065f46", to: "#0d9488", dir: "h" },                                         textColor: "#ffffff", fontFamily: "Poppins",    previewBg: "linear-gradient(90deg,#065f46,#0d9488)",    previewColor: "#fff" },
-  { id: "sunset",        name: "Atardecer",   bgGradient: { from: "#f97316", to: "#fbbf24", dir: "h" },                                         textColor: "#ffffff", fontFamily: "Montserrat", previewBg: "linear-gradient(90deg,#f97316,#fbbf24)",    previewColor: "#fff" },
-  { id: "retro-yellow",  name: "Retro",       bgColor: "#fbbf24",                                                                                textColor: "#1e293b", subtextColor: "#374151", fontFamily: "Oswald", previewBg: "#fbbf24",             previewColor: "#1e293b" },
-  { id: "minimal-white", name: "Blanco",      bgColor: "rgba(255,255,255,0.95)",       borderColor: "#cbd5e1",               borderWidth: 1.5, textColor: "#0f172a", subtextColor: "#475569", fontFamily: "Poppins", previewBg: "rgba(255,255,255,0.95)", previewColor: "#0f172a", previewBorder: "#cbd5e1" },
+  // 1 · Oscuro — semi-transparent dark, thin white border all around
+  {
+    id: "dark", name: "Oscuro",
+    bgColor: "rgba(0,0,0,0.82)", borderStyle: "all",
+    borderColor: "rgba(255,255,255,0.18)", borderWidth: 1.5,
+    textColor: "#ffffff", fontFamily: "Poppins",
+    previewBg: "rgba(0,0,0,0.82)", previewColor: "#fff", previewBorder: "rgba(255,255,255,0.35)",
+  },
+  // 2 · Barra — dark bg + thick orange stripe on left edge, text indented
+  {
+    id: "accent-bar", name: "Barra",
+    bgColor: "rgba(8,8,18,0.90)", borderStyle: "left", accentColor: "#f97316",
+    textColor: "#ffffff", fontFamily: "Poppins",
+    previewBg: "rgba(8,8,18,0.90)", previewColor: "#fff",
+  },
+  // 3 · Neón — near-black + green glow on border and text
+  {
+    id: "neon", name: "Neón",
+    bgColor: "#050a0e", borderStyle: "all",
+    borderColor: "#00ff88", borderWidth: 2,
+    textColor: "#00ff88", fontFamily: "Oswald",
+    textGlow: true, glowColor: "#00ff88",
+    previewBg: "#050a0e", previewColor: "#00ff88", previewBorder: "#00ff88",
+  },
+  // 4 · Sticker — white card with drop shadow
+  {
+    id: "sticker", name: "Sticker",
+    bgColor: "rgba(255,255,255,0.97)", borderStyle: "none",
+    textColor: "#0f172a", subtextColor: "#374151", fontFamily: "Poppins",
+    cardShadow: true,
+    previewBg: "rgba(255,255,255,0.97)", previewColor: "#0f172a",
+  },
+  // 5 · Gradiente — vivid gradient fill, no border
+  {
+    id: "gradient", name: "Gradiente",
+    bgGradient: { from: "#f43f5e", to: "#f97316", dir: "h" }, borderStyle: "none",
+    textColor: "#ffffff", fontFamily: "Poppins",
+    previewBg: "linear-gradient(90deg,#f43f5e,#f97316)", previewColor: "#fff",
+  },
+  // 6 · Contorno — barely-there bg, bold white border only, text shadow for contrast
+  {
+    id: "outline", name: "Contorno",
+    bgColor: "rgba(0,0,0,0.25)", borderStyle: "all",
+    borderColor: "rgba(255,255,255,0.85)", borderWidth: 2.5,
+    textColor: "#ffffff", fontFamily: "Poppins",
+    textGlow: true, glowColor: "rgba(0,0,0,0.9)",
+    previewBg: "rgba(0,0,0,0.25)", previewColor: "#fff", previewBorder: "rgba(255,255,255,0.85)",
+  },
+  // 7 · Cinta — pill shape, uppercase Oswald
+  {
+    id: "banner", name: "Cinta",
+    bgColor: "rgba(0,0,0,0.88)", borderStyle: "none",
+    textColor: "#ffffff", fontFamily: "Oswald",
+    pillShape: true, textTransform: "upper",
+    previewBg: "rgba(0,0,0,0.88)", previewColor: "#fff",
+  },
+  // 8 · Doble — dark bg framed by top and bottom orange lines
+  {
+    id: "double-line", name: "Doble",
+    bgColor: "rgba(0,0,0,0.85)", borderStyle: "double-line", accentColor: "#f97316",
+    textColor: "#ffffff", fontFamily: "Poppins",
+    previewBg: "rgba(0,0,0,0.85)", previewColor: "#fff",
+  },
 ];
 
 function getTemplate(id?: string): CanvasTemplate {
@@ -275,6 +339,18 @@ function drawCardBg(
   tpl: CanvasTemplate,
   vw: number,
 ): void {
+  const borderStyle = tpl.borderStyle ?? "all";
+
+  // ── Drop shadow (sticker) ────────────────────────────────────────────────
+  if (tpl.cardShadow) {
+    ctx.save();
+    ctx.fillStyle = "rgba(0,0,0,0.40)";
+    roundedRect(ctx, x + sc(5, vw), y + sc(7, vw), w, h, r);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // ── Card background ──────────────────────────────────────────────────────
   ctx.save();
   roundedRect(ctx, x, y, w, h, r);
   if (tpl.bgGradient) {
@@ -287,12 +363,41 @@ function drawCardBg(
     ctx.fillStyle = tpl.bgColor ?? "rgba(0,0,0,0.82)";
   }
   ctx.fill();
-  if (tpl.borderColor) {
+
+  // ── All-sides border ─────────────────────────────────────────────────────
+  if (borderStyle === "all" && tpl.borderColor) {
+    if (tpl.textGlow && tpl.glowColor) {
+      ctx.shadowColor   = tpl.glowColor;
+      ctx.shadowBlur    = sc(10, vw);
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 0;
+    }
     ctx.strokeStyle = tpl.borderColor;
     ctx.lineWidth   = sc(tpl.borderWidth ?? 1.5, vw);
     ctx.stroke();
+    ctx.shadowBlur = 0;
   }
   ctx.restore();
+
+  // ── Left accent bar ──────────────────────────────────────────────────────
+  if (borderStyle === "left" && tpl.accentColor) {
+    const barW = sc(10, vw);
+    ctx.save();
+    ctx.fillStyle = tpl.accentColor;
+    // Draw bar rect — left portion of card (small corner mismatch at card edge is imperceptible)
+    ctx.fillRect(x, y, barW, h);
+    ctx.restore();
+  }
+
+  // ── Double-line accent (top + bottom) ────────────────────────────────────
+  if (borderStyle === "double-line" && tpl.accentColor) {
+    const lineH = sc(4, vw);
+    ctx.save();
+    ctx.fillStyle = tpl.accentColor;
+    ctx.fillRect(x, y, w, lineH);             // top line
+    ctx.fillRect(x, y + h - lineH, w, lineH); // bottom line
+    ctx.restore();
+  }
 }
 
 // Minimal canvas 2D context interface (avoids dependency on DOM lib types).
@@ -322,30 +427,66 @@ interface Ctx {
   font: string;
   textAlign: string;
   textBaseline: string;
+  shadowColor: string;
+  shadowBlur: number;
+  shadowOffsetX: number;
+  shadowOffsetY: number;
+}
+
+/** Set / clear glow effect on ctx for text rendering. */
+function setTextGlow(ctx: Ctx, tpl: CanvasTemplate, vw: number, on: boolean): void {
+  if (!tpl.textGlow) return;
+  if (on) {
+    ctx.shadowColor   = tpl.glowColor ?? tpl.textColor;
+    ctx.shadowBlur    = sc(10, vw);
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 0;
+  } else {
+    ctx.shadowBlur = 0;
+  }
+}
+
+/** For accent-bar: extra left indent so text starts past the bar. */
+function barIndent(tpl: CanvasTemplate, vw: number): number {
+  return tpl.borderStyle === "left" ? sc(10, vw) + sc(10, vw) : 0;
+}
+
+/** Apply textTransform. */
+function applyTx(text: string, tpl: CanvasTemplate): string {
+  return tpl.textTransform === "upper" ? text.toUpperCase() : text;
+}
+
+/** Corner radius — pill templates use h/2. */
+function cardRadius(tpl: CanvasTemplate, ch: number, vw: number): number {
+  return tpl.pillShape ? Math.floor(ch / 2) : sc(20, vw);
 }
 
 function renderHookCard(ctx: Ctx, card: HookCard, vw: number, vh: number, tpl: CanvasTemplate): void {
-  const padX = sc(64, vw);
-  const cw   = vw - padX * 2;
-  const px   = sc(28, vw);
-  const py   = sc(22, vw);
-  const rad  = sc(20, vw);
-  const fs   = sc(34, vw);
-  const lh   = sc(42, vw);
+  const padX  = sc(64, vw);
+  const cw    = vw - padX * 2;
+  const px    = sc(28, vw);
+  const py    = sc(22, vw);
+  const fs    = sc(34, vw);
+  const lh    = sc(42, vw);
+  const extra = barIndent(tpl, vw);
 
   ctx.font = `bold ${fs}px ${tpl.fontFamily}, sans-serif`;
-  const lines = wrapText(ctx, card.text, cw - px * 2);
+  const textW = cw - px * 2 - extra;
+  const lines = wrapText(ctx, applyTx(card.text, tpl), textW);
   const ch    = py * 2 + lines.length * lh;
+  const rad   = cardRadius(tpl, ch, vw);
   const cy    = Math.round(vh * 0.54) - ch / 2;
 
   drawCardBg(ctx, padX, cy, cw, ch, rad, tpl, vw);
 
+  setTextGlow(ctx, tpl, vw, true);
   ctx.fillStyle    = tpl.textColor;
   ctx.textAlign    = "left";
   ctx.textBaseline = "top";
   for (let i = 0; i < lines.length; i++) {
-    ctx.fillText(lines[i], padX + px, cy + py + i * lh);
+    ctx.fillText(lines[i], padX + px + extra, cy + py + i * lh);
   }
+  setTextGlow(ctx, tpl, vw, false);
 }
 
 function renderStatCard(ctx: Ctx, card: StatCard, vw: number, vh: number, tpl: CanvasTemplate): void {
@@ -353,25 +494,27 @@ function renderStatCard(ctx: Ctx, card: StatCard, vw: number, vh: number, tpl: C
   const cw     = vw - padX * 2;
   const px     = sc(28, vw);
   const py     = sc(20, vw);
-  const rad    = sc(20, vw);
   const headFS = sc(80, vw);
   const subFS  = sc(28, vw);
   const gap    = sc(8, vw);
   const ch     = py * 2 + headFS + gap + subFS;
+  const rad    = cardRadius(tpl, ch, vw);
   const cy     = Math.round(vh * 0.54) - ch / 2;
 
   drawCardBg(ctx, padX, cy, cw, ch, rad, tpl, vw);
 
+  setTextGlow(ctx, tpl, vw, true);
   ctx.textAlign    = "center";
   ctx.textBaseline = "top";
 
   ctx.font      = `900 ${headFS}px ${tpl.fontFamily}, sans-serif`;
   ctx.fillStyle = tpl.textColor;
-  ctx.fillText(card.headline, padX + cw / 2, cy + py);
+  ctx.fillText(applyTx(card.headline, tpl), padX + cw / 2, cy + py);
 
   ctx.font      = `bold ${subFS}px Poppins, sans-serif`;
   ctx.fillStyle = tpl.subtextColor ?? `${tpl.textColor}cc`;
-  ctx.fillText(card.subtext, padX + cw / 2, cy + py + headFS + gap);
+  ctx.fillText(applyTx(card.subtext, tpl), padX + cw / 2, cy + py + headFS + gap);
+  setTextGlow(ctx, tpl, vw, false);
 }
 
 function renderCtaCard(ctx: Ctx, card: CtaCard, vw: number, vh: number, tpl: CanvasTemplate): void {
@@ -379,25 +522,28 @@ function renderCtaCard(ctx: Ctx, card: CtaCard, vw: number, vh: number, tpl: Can
   const cw      = vw - padX * 2;
   const px      = sc(28, vw);
   const py      = sc(22, vw);
-  const rad     = sc(20, vw);
   const fs      = sc(32, vw);
   const lh      = sc(40, vw);
   const arrowSz = sc(48, vw);
-  const textW   = cw - px * 2 - arrowSz - sc(16, vw);
+  const extra   = barIndent(tpl, vw);
+  const textW   = cw - px * 2 - arrowSz - sc(16, vw) - extra;
 
   ctx.font = `bold ${fs}px ${tpl.fontFamily}, sans-serif`;
-  const lines = wrapText(ctx, card.text, textW);
+  const lines = wrapText(ctx, applyTx(card.text, tpl), textW);
   const ch    = py * 2 + lines.length * lh;
+  const rad   = cardRadius(tpl, ch, vw);
   const cy    = Math.round(vh * 0.54) - ch / 2;
 
   drawCardBg(ctx, padX, cy, cw, ch, rad, tpl, vw);
 
+  setTextGlow(ctx, tpl, vw, true);
   ctx.fillStyle    = tpl.textColor;
   ctx.textAlign    = "left";
   ctx.textBaseline = "top";
   for (let i = 0; i < lines.length; i++) {
-    ctx.fillText(lines[i], padX + px, cy + py + i * lh);
+    ctx.fillText(lines[i], padX + px + extra, cy + py + i * lh);
   }
+  setTextGlow(ctx, tpl, vw, false);
 
   // Arrow circle — semi-transparent version of text color
   const arrowX = padX + cw - px - arrowSz;
