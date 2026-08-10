@@ -603,7 +603,8 @@ export const GetVideosResponseItem = zod.object({
   "created_at": zod.string(),
   "updated_at": zod.string(),
   "published_at": zod.string().nullish(),
-  "scheduled_publish_at": zod.string().nullish().describe('ISO timestamp at which the video is scheduled to be auto-published')
+  "scheduled_publish_at": zod.string().nullish().describe('ISO timestamp at which the video is scheduled to be auto-published'),
+  "thumbnail_cover_url": zod.string().nullish().describe('AI-generated Reel cover image URL (gpt-image-1); stored after first generation, reused on retry')
 })
 export const GetVideosResponse = zod.array(GetVideosResponseItem)
 
@@ -638,7 +639,8 @@ export const GenerateVideoResponse = zod.object({
   "created_at": zod.string(),
   "updated_at": zod.string(),
   "published_at": zod.string().nullish(),
-  "scheduled_publish_at": zod.string().nullish().describe('ISO timestamp at which the video is scheduled to be auto-published')
+  "scheduled_publish_at": zod.string().nullish().describe('ISO timestamp at which the video is scheduled to be auto-published'),
+  "thumbnail_cover_url": zod.string().nullish().describe('AI-generated Reel cover image URL (gpt-image-1); stored after first generation, reused on retry')
 })
 
 
@@ -676,7 +678,8 @@ export const ScheduleVideoResponse = zod.object({
   "created_at": zod.string(),
   "updated_at": zod.string(),
   "published_at": zod.string().nullish(),
-  "scheduled_publish_at": zod.string().nullish().describe('ISO timestamp at which the video is scheduled to be auto-published')
+  "scheduled_publish_at": zod.string().nullish().describe('ISO timestamp at which the video is scheduled to be auto-published'),
+  "thumbnail_cover_url": zod.string().nullish().describe('AI-generated Reel cover image URL (gpt-image-1); stored after first generation, reused on retry')
 })
 
 
@@ -710,7 +713,8 @@ export const GetVideoResponse = zod.object({
   "created_at": zod.string(),
   "updated_at": zod.string(),
   "published_at": zod.string().nullish(),
-  "scheduled_publish_at": zod.string().nullish().describe('ISO timestamp at which the video is scheduled to be auto-published')
+  "scheduled_publish_at": zod.string().nullish().describe('ISO timestamp at which the video is scheduled to be auto-published'),
+  "thumbnail_cover_url": zod.string().nullish().describe('AI-generated Reel cover image URL (gpt-image-1); stored after first generation, reused on retry')
 })
 
 
@@ -749,7 +753,8 @@ export const PublishVideoResponse = zod.object({
   "created_at": zod.string(),
   "updated_at": zod.string(),
   "published_at": zod.string().nullish(),
-  "scheduled_publish_at": zod.string().nullish().describe('ISO timestamp at which the video is scheduled to be auto-published')
+  "scheduled_publish_at": zod.string().nullish().describe('ISO timestamp at which the video is scheduled to be auto-published'),
+  "thumbnail_cover_url": zod.string().nullish().describe('AI-generated Reel cover image URL (gpt-image-1); stored after first generation, reused on retry')
 })
 
 

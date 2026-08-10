@@ -63,6 +63,7 @@ function mapVideo(v: typeof videosTable.$inferSelect) {
     updated_at: v.updatedAt.toISOString(),
     published_at: v.publishedAt?.toISOString() ?? null,
     scheduled_publish_at: v.scheduledPublishAt?.toISOString() ?? null,
+    thumbnail_cover_url: v.thumbnailCoverUrl ?? null,
   };
 }
 

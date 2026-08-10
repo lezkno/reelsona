@@ -29,6 +29,8 @@ export const videosTable = pgTable("videos", {
   videoEffects: jsonb("video_effects"),
   /** HeyGen SRT subtitle URL — only available at completion time; persisted so captions can be re-applied with real word timings */
   heygenSubtitleUrl: text("heygen_subtitle_url"),
+  /** AI-generated Reel cover image (gpt-image-1, brand colors + hook). Saved at publish time, reused on retry. */
+  thumbnailCoverUrl: text("thumbnail_cover_url"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

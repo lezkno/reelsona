@@ -494,6 +494,11 @@ export interface Video {
      * @nullable
      */
   scheduled_publish_at?: string | null;
+  /**
+     * AI-generated Reel cover image URL (gpt-image-1); stored after first generation, reused on retry
+     * @nullable
+     */
+  thumbnail_cover_url?: string | null;
 }
 
 export interface VideoGenerateInput {

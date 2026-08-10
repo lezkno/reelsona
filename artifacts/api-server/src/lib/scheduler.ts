@@ -1326,49 +1326,55 @@ async function _publishVideoToInstagramInner(videoId: number, videoUrl?: string)
     caption = [item?.caption, item?.hashtags].filter(Boolean).join("\n\n");
   }
 
-  // Generate a branded cover image when both brand colors AND auto_cover_enabled are set.
-  // Falls back gracefully to no cover if the flag is off, brand settings are missing, or upload fails.
-  let brandCoverUrl: string | null = null;
-  try {
-    const [automationRow] = await db
-      .select({ autoCoverEnabled: automationConfigTable.autoCoverEnabled })
-      .from(automationConfigTable)
-      .where(eq(automationConfigTable.userId, video.userId))
-      .limit(1);
-    const [brandSettings] = await db
-      .select({ brandPrimaryColor: settingsTable.brandPrimaryColor, brandAccentColor: settingsTable.brandAccentColor })
-      .from(settingsTable)
-      .where(eq(settingsTable.userId, video.userId))
-      .limit(1);
-    if (automationRow?.autoCoverEnabled && brandSettings?.brandPrimaryColor) {
-      // Use hook text for the cover; fall back to video topic
-      const hookText = (() => {
-        if (!video.contentPlanId) return video.topic ?? "Reel";
-        // item was already queried above; re-query for hook specifically
-        return null; // resolved below
-      })();
-      // Re-fetch hook if we have a content plan item
-      let coverText = hookText ?? video.topic ?? "Reel";
-      if (video.contentPlanId) {
-        const [itemForCover] = await db
-          .select({ hook: contentPlanItemsTable.hook, topic: contentPlanItemsTable.topic })
-          .from(contentPlanItemsTable)
-          .where(eq(contentPlanItemsTable.id, video.contentPlanId))
-          .limit(1);
-        coverText = itemForCover?.hook ?? itemForCover?.topic ?? video.topic ?? "Reel";
+  // Generate a branded cover image when auto_cover_enabled is set and brand colors exist.
+  // If thumbnailCoverUrl is already saved (from a prior attempt), reuse it instead of
+  // re-calling gpt-image-1 — avoids unnecessary API cost on publish retry.
+  // Falls back gracefully: if the flag is off or generation fails, publish without a cover.
+  let brandCoverUrl: string | null = video.thumbnailCoverUrl ?? null;
+  if (!brandCoverUrl) {
+    try {
+      const [automationRow] = await db
+        .select({ autoCoverEnabled: automationConfigTable.autoCoverEnabled })
+        .from(automationConfigTable)
+        .where(eq(automationConfigTable.userId, video.userId))
+        .limit(1);
+      const [brandSettings] = await db
+        .select({ brandPrimaryColor: settingsTable.brandPrimaryColor, brandAccentColor: settingsTable.brandAccentColor })
+        .from(settingsTable)
+        .where(eq(settingsTable.userId, video.userId))
+        .limit(1);
+      if (automationRow?.autoCoverEnabled && brandSettings?.brandPrimaryColor) {
+        // Resolve the best hook text to use on the cover
+        let coverText = video.topic ?? "Reel";
+        if (video.contentPlanId) {
+          const [itemForCover] = await db
+            .select({ hook: contentPlanItemsTable.hook, topic: contentPlanItemsTable.topic })
+            .from(contentPlanItemsTable)
+            .where(eq(contentPlanItemsTable.id, video.contentPlanId))
+            .limit(1);
+          coverText = itemForCover?.hook ?? itemForCover?.topic ?? coverText;
+        }
+        brandCoverUrl = await generateBrandCover(
+          videoId,
+          coverText,
+          brandSettings.brandPrimaryColor,
+          brandSettings.brandAccentColor ?? null,
+          video.thumbnailUrl ?? null            // HeyGen avatar frame → gpt-image-1 reference
+        );
+        if (brandCoverUrl) {
+          // Persist so retry runs don't regenerate (saves AI cost)
+          await db
+            .update(videosTable)
+            .set({ thumbnailCoverUrl: brandCoverUrl, updatedAt: new Date() })
+            .where(eq(videosTable.id, videoId));
+          logger.info({ videoId, coverUrl: brandCoverUrl.slice(0, 80) }, "[Publish] Brand cover generated and saved");
+        }
       }
-      brandCoverUrl = await generateBrandCover(
-        videoId,
-        coverText,
-        brandSettings.brandPrimaryColor,
-        brandSettings.brandAccentColor ?? null
-      );
-      if (brandCoverUrl) {
-        logger.info({ videoId, coverUrl: brandCoverUrl.slice(0, 80) }, "[Publish] Brand cover generated");
-      }
+    } catch (err) {
+      logger.warn({ videoId, err }, "[Publish] Brand cover generation failed — continuing without cover");
     }
-  } catch (err) {
-    logger.warn({ videoId, err }, "[Publish] Brand cover generation failed — continuing without cover");
+  } else {
+    logger.info({ videoId }, "[Publish] Reusing saved thumbnail cover URL");
   }
 
   // Create container (or resume existing one from a previous attempt)
