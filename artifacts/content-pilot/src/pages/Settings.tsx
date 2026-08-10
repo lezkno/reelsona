@@ -572,7 +572,15 @@ export default function Settings() {
 
   const handleSave = () => {
     if (!formData) return
-    updateSettings.mutate({ data: formData }, {
+    // Brand identity fields (logo, palette, colors) are managed exclusively by
+    // BrandIdentityCard via dedicated endpoints. We must NOT send them here:
+    // formData is initialised once when settings first loads, so its brand values
+    // are whatever was in the DB at that moment. If the user later uploads a logo
+    // (which saves directly via POST /settings/brand-logo), formData still holds
+    // the old null values — and sending them would silently overwrite the saved logo.
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { brand_logo_url, brand_primary_color, brand_accent_color, brand_palette, ...generalData } = formData
+    updateSettings.mutate({ data: generalData }, {
       onSuccess: () => {
         toast({ title: "Configuración guardada", description: "Tus preferencias han sido actualizadas." })
         queryClient.invalidateQueries({ queryKey: getGetSettingsQueryKey() })
