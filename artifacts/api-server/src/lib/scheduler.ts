@@ -1342,8 +1342,20 @@ async function _publishVideoToInstagramInner(videoId: number, videoUrl?: string)
       .set({ status: "published", igMediaId, igPermalink: permalink, publishedAt: new Date(), updatedAt: new Date() })
       .where(eq(videosTable.id, videoId));
 
+    // Clear the scheduled publish time on the video (it's now published, the
+    // original scheduled date is no longer meaningful) and stamp the real publish time.
+    await db
+      .update(videosTable)
+      .set({ scheduledPublishAt: null, updatedAt: new Date() })
+      .where(eq(videosTable.id, videoId));
+
     if (video.contentPlanId) {
-      await db.update(contentPlanItemsTable).set({ status: "published", updatedAt: new Date() }).where(eq(contentPlanItemsTable.id, video.contentPlanId));
+      // Update scheduledAt to the actual publish time so the UI shows when the
+      // video was really published, not when it was originally planned.
+      await db
+        .update(contentPlanItemsTable)
+        .set({ status: "published", scheduledAt: new Date(), updatedAt: new Date() })
+        .where(eq(contentPlanItemsTable.id, video.contentPlanId));
     }
 
     logger.info({ videoId, igMediaId }, "Video published to Instagram");

@@ -865,7 +865,10 @@ export default function ContentPlan() {
                               </>
                             ) : item.scheduled_at && (
                               <div className="text-xs text-muted-foreground font-medium flex items-center gap-1">
-                                <Clock className="w-3 h-3" />
+                                {item.status === "published"
+                                  ? <CheckCircle2 className="w-3 h-3 text-green-500" />
+                                  : <Clock className="w-3 h-3" />}
+                                {item.status === "published" ? "Publicado " : ""}
                                 {format(new Date(item.scheduled_at), "MMM d, HH:mm", { locale: es })}
                               </div>
                             )}
