@@ -159,7 +159,134 @@ async function toJpeg(imgBuffer: Buffer, W: number, H: number): Promise<Buffer> 
   return cvs.toBuffer("image/jpeg", 92);
 }
 
-// ── Canvas fallback ───────────────────────────────────────────────────────────
+// ── Canvas composite with real avatar photo (PRIMARY path) ───────────────────
+/**
+ * Compose a Reels cover at 1080×1920 by placing the actual avatar photo as a
+ * full-bleed background, then layering a brand-colored gradient on the left so
+ * the hook text is always readable.  100% deterministic — uses the real face/look.
+ */
+async function generateCanvasCompositeCover(
+  videoId: number,
+  hookText: string,
+  primaryColor: string,
+  accentColor: string | null,
+  avatarImageUrl: string,
+): Promise<string | null> {
+  try {
+    const W = 1080, H = 1920;
+    const canvas = createCanvas(W, H);
+    const ctx = canvas.getContext("2d");
+    const accent = accentColor ?? "#ffffff";
+    const { r: pr, g: pg, b: pb } = hexToRgb(primaryColor);
+
+    // 1. Solid brand-color base (shown if avatar load fails)
+    ctx.fillStyle = primaryColor;
+    ctx.fillRect(0, 0, W, H);
+
+    // 2. Avatar photo — scale to cover the full 1080×1920 canvas (like bg-cover)
+    let avatarLoaded = false;
+    let tmpPath: string | null = null;
+    try {
+      tmpPath = await downloadAsPngTempFile(avatarImageUrl, "composite-avatar");
+      if (tmpPath) {
+        const img = await loadImage(tmpPath);
+        const scale = Math.max(W / img.width, H / img.height);
+        const sw = img.width * scale;
+        const sh = img.height * scale;
+        const ox = (W - sw) / 2;
+        const oy = (H - sh) / 2;
+        ctx.drawImage(img, ox, oy, sw, sh);
+        avatarLoaded = true;
+      }
+    } catch (e) {
+      logger.warn({ videoId, e }, "[BrandCover] Composite: avatar draw failed — using solid bg");
+    } finally {
+      if (tmpPath) fs.unlink(tmpPath).catch(() => {});
+    }
+
+    // 3. Left gradient overlay — brand color, fully opaque left → transparent right
+    //    This gives the text area a solid readable background while revealing the
+    //    avatar photo on the right side.
+    const gradX = avatarLoaded ? W * 0.72 : W;
+    const leftGrad = ctx.createLinearGradient(0, 0, gradX, 0);
+    leftGrad.addColorStop(0,    `rgba(${pr},${pg},${pb},1)`);
+    leftGrad.addColorStop(0.55, `rgba(${pr},${pg},${pb},0.96)`);
+    leftGrad.addColorStop(0.80, `rgba(${pr},${pg},${pb},0.55)`);
+    leftGrad.addColorStop(1,    `rgba(${pr},${pg},${pb},0)`);
+    ctx.fillStyle = leftGrad;
+    ctx.fillRect(0, 0, gradX, H);
+
+    // Bottom gradient for depth
+    const btmGrad = ctx.createLinearGradient(0, H * 0.75, 0, H);
+    btmGrad.addColorStop(0, "rgba(0,0,0,0)");
+    btmGrad.addColorStop(1, "rgba(0,0,0,0.65)");
+    ctx.fillStyle = btmGrad;
+    ctx.fillRect(0, H * 0.75, W, H * 0.25);
+
+    // 4. Left accent stripe
+    const stripeGrad = ctx.createLinearGradient(0, 0, 0, H);
+    stripeGrad.addColorStop(0,   "rgba(255,255,255,0)");
+    stripeGrad.addColorStop(0.3, accent);
+    stripeGrad.addColorStop(0.7, accent);
+    stripeGrad.addColorStop(1,   "rgba(255,255,255,0)");
+    ctx.fillStyle = stripeGrad;
+    ctx.globalAlpha = 0.85;
+    ctx.fillRect(0, 0, 10, H);
+    ctx.globalAlpha = 1;
+
+    // 5. Top + bottom accent bars
+    ctx.fillStyle = accent;
+    ctx.fillRect(0, 0, W, 10);
+    ctx.fillRect(0, H - 10, W, 10);
+
+    // 6. Hook text — left-aligned, left 65% of canvas
+    const textMaxW = W * 0.60;
+    const marginL = 68;
+    const fontSize = hookText.length > 90 ? 68 : hookText.length > 65 ? 80 : hookText.length > 40 ? 92 : 108;
+    ctx.font = `bold ${fontSize}px sans-serif`;
+    ctx.textBaseline = "top";
+    ctx.textAlign = "left";
+
+    const words = hookText.split(" ");
+    const lines: string[] = [];
+    let cur = "";
+    for (const w of words) {
+      const test = cur ? `${cur} ${w}` : w;
+      if (ctx.measureText(test).width > textMaxW && cur) { lines.push(cur); cur = w; }
+      else cur = test;
+    }
+    if (cur) lines.push(cur);
+
+    const lh = fontSize * 1.18;
+    const totalTextH = lines.length * lh;
+    // Place text in the upper-middle third
+    const textStartY = H * 0.38 - totalTextH / 2;
+
+    // Shadow for depth
+    ctx.shadowColor = "rgba(0,0,0,0.7)";
+    ctx.shadowBlur = 20;
+    ctx.shadowOffsetY = 6;
+    ctx.fillStyle = "#ffffff";
+    lines.forEach((line, i) => ctx.fillText(line, marginL, textStartY + i * lh));
+
+    // 7. Accent underline below text
+    ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+    ctx.fillStyle = accent;
+    const underlineY = textStartY + totalTextH + 18;
+    ctx.fillRect(marginL, underlineY, Math.min(textMaxW * 0.55, 360), 8);
+
+    const buffer = canvas.toBuffer("image/jpeg", 92);
+    const objectName = `brand-covers/${videoId}-composite-${randomUUID().slice(0, 8)}.jpg`;
+    const url = await uploadImageToGcs(buffer, objectName, "image/jpeg");
+    logger.info({ videoId, objectName, avatarLoaded }, "[BrandCover] Composite cover uploaded ✓");
+    return url;
+  } catch (err) {
+    logger.error({ videoId, err }, "[BrandCover] Composite cover failed");
+    return null;
+  }
+}
+
+// ── Canvas fallback (no avatar photo) ────────────────────────────────────────
 
 async function generateCanvasCover(
   videoId: number,
@@ -367,7 +494,7 @@ async function generateAICover(
           model: "gpt-image-1",
           image: imageFiles.length === 1 ? imageFiles[0] : imageFiles,
           prompt,
-          size: "1024x1024",
+          size: "1024x1536",
         });
 
         const b64 = editResponse?.data?.[0]?.b64_json as string | undefined;
@@ -407,7 +534,7 @@ async function generateAICover(
     const genResponse = await (client.images as any).generate({
       model: "gpt-image-1",
       prompt: genPrompt,
-      size: "1024x1024",
+      size: "1024x1536",
     });
 
     const genB64 = genResponse?.data?.[0]?.b64_json as string | undefined;
@@ -454,11 +581,11 @@ async function generateAICover(
 /**
  * Generate a branded Reel cover and return its public HTTPS URL.
  *
- * @param avatarImageUrl - Clean portrait photo of the HeyGen avatar/look (used as
- *   visual reference for gpt-image-1 images.edit so the presenter appears in the cover).
- * @param brandLogoUrl   - Brand logo from settings (optional second reference image).
- *
- * Pipeline: images.edit (with references) → images.generate (text-only) → canvas fallback.
+ * Pipeline (stops at first success):
+ *   1. Canvas composite  — real avatar photo + brand colors on canvas (1080×1920).
+ *      Fast, deterministic, 100% consistent avatar appearance. PRIMARY path.
+ *   2. gpt-image-1 generate — AI-only when no avatar photo is available.
+ *   3. Canvas fallback   — brand-colored gradient, no photo needed.
  */
 export async function generateBrandCover(
   videoId: number,
@@ -475,12 +602,22 @@ export async function generateBrandCover(
     return null;
   }
 
+  // 1. Canvas composite with real avatar photo (fast + consistent)
+  if (avatarImageUrl) {
+    const compositeUrl = await generateCanvasCompositeCover(
+      videoId, hookText, primaryColor, accentColor, avatarImageUrl,
+    );
+    if (compositeUrl) return compositeUrl;
+  }
+
+  // 2. AI generation (no avatar available)
   const aiUrl = await generateAICover(
     videoId, hookText, primaryColor, accentColor,
-    avatarImageUrl ?? null,
+    null, // avatar already handled above
     brandLogoUrl ?? null,
   );
   if (aiUrl) return aiUrl;
 
+  // 3. Canvas fallback (no photo, no AI)
   return generateCanvasCover(videoId, hookText, primaryColor, accentColor);
 }
