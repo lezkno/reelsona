@@ -124,30 +124,16 @@ function BrandIdentityCard() {
   return (
     <Card>
       <CardHeader className="pb-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-pink-500 flex items-center justify-center shrink-0">
-              <Palette className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <CardTitle className="text-base">Identidad Visual</CardTitle>
-              <CardDescription className="text-xs mt-0.5">
-                Subí tu logo y el sistema detecta tu paleta automáticamente
-              </CardDescription>
-            </div>
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-pink-500 flex items-center justify-center shrink-0">
+            <Palette className="w-5 h-5 text-white" />
           </div>
-          {logoUrl && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 text-muted-foreground shrink-0"
-              onClick={handleRemove}
-              disabled={busy}
-              title="Eliminar logo y colores"
-            >
-              <X className="w-3.5 h-3.5" />
-            </Button>
-          )}
+          <div>
+            <CardTitle className="text-base">Identidad Visual</CardTitle>
+            <CardDescription className="text-xs mt-0.5">
+              Subí tu logo y el sistema detecta tu paleta automáticamente
+            </CardDescription>
+          </div>
         </div>
       </CardHeader>
 
@@ -156,56 +142,94 @@ function BrandIdentityCard() {
           <Skeleton className="h-24 w-full rounded-xl" />
         ) : (
           <>
-            {/* ── Logo upload area ── */}
-            <div
-              className={`
-                relative flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed p-6
-                transition-colors cursor-pointer
-                ${busy ? "opacity-60 pointer-events-none" : "hover:border-primary/50 hover:bg-muted/30"}
-                ${logoUrl ? "border-border" : "border-muted-foreground/30"}
-              `}
-              onClick={() => !busy && fileInputRef.current?.click()}
-            >
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                className="hidden"
-                onChange={handleFileChange}
-              />
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              className="hidden"
+              onChange={handleFileChange}
+            />
 
-              {logoUrl ? (
-                <img
-                  src={logoUrl}
-                  alt="Logo de marca"
-                  className="h-16 max-w-[160px] object-contain rounded"
-                  onError={(e) => { (e.target as HTMLImageElement).style.display = "none" }}
-                />
-              ) : (
-                <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center">
-                  <Upload className="w-5 h-5 text-muted-foreground" />
+            {/* ── Logo loaded state ── */}
+            {logoUrl ? (
+              <div className="flex items-center gap-4 rounded-xl border bg-muted/30 p-4">
+                {/* Logo preview */}
+                <div className="shrink-0 w-20 h-20 rounded-lg border bg-white flex items-center justify-center overflow-hidden shadow-sm">
+                  <img
+                    src={logoUrl}
+                    alt="Logo de marca"
+                    className="w-full h-full object-contain p-1"
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = "none" }}
+                  />
                 </div>
-              )}
 
-              <div className="text-center">
-                {uploading ? (
-                  <p className="text-sm text-muted-foreground flex items-center gap-1.5">
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Subiendo logo…
+                {/* Info + actions */}
+                <div className="flex-1 min-w-0 space-y-2">
+                  <p className="text-sm font-medium leading-tight">Logo cargado</p>
+                  <p className="text-xs text-muted-foreground leading-snug">
+                    {palette.length > 0
+                      ? `${palette.length} colores extraídos · clic en los swatches para asignar roles`
+                      : "Cambiá el logo para re-analizar la paleta"}
                   </p>
-                ) : extracting ? (
-                  <p className="text-sm text-muted-foreground flex items-center gap-1.5">
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Analizando colores…
-                  </p>
-                ) : logoUrl ? (
-                  <p className="text-xs text-muted-foreground">Clic para reemplazar el logo</p>
+                  <div className="flex gap-2 pt-0.5">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 px-3 text-xs gap-1.5"
+                      disabled={busy}
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      {uploading ? (
+                        <><Loader2 className="w-3 h-3 animate-spin" /> Subiendo…</>
+                      ) : extracting ? (
+                        <><Loader2 className="w-3 h-3 animate-spin" /> Analizando…</>
+                      ) : (
+                        <><Upload className="w-3 h-3" /> Cambiar logo</>
+                      )}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-3 text-xs text-destructive hover:text-destructive hover:bg-destructive/10 gap-1.5"
+                      disabled={busy}
+                      onClick={handleRemove}
+                    >
+                      <X className="w-3 h-3" /> Eliminar
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* ── Upload area (no logo yet) ── */
+              <div
+                className={`
+                  flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed p-8
+                  transition-colors cursor-pointer
+                  ${busy ? "opacity-60 pointer-events-none" : "hover:border-primary/50 hover:bg-muted/30"}
+                  border-muted-foreground/30
+                `}
+                onClick={() => !busy && fileInputRef.current?.click()}
+              >
+                {uploading || extracting ? (
+                  <div className="flex flex-col items-center gap-2">
+                    <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                    <p className="text-sm text-muted-foreground">
+                      {uploading ? "Subiendo logo…" : "Analizando colores…"}
+                    </p>
+                  </div>
                 ) : (
                   <>
-                    <p className="text-sm font-medium">Subí tu logo</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">PNG, JPEG o WEBP</p>
+                    <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center">
+                      <Upload className="w-5 h-5 text-muted-foreground" />
+                    </div>
+                    <div className="text-center">
+                      <p className="text-sm font-medium">Subí tu logo</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">PNG, JPEG o WEBP</p>
+                    </div>
                   </>
                 )}
               </div>
-            </div>
+            )}
 
             {/* ── Palette swatches ── */}
             {palette.length > 0 && (
