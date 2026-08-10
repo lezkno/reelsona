@@ -76,7 +76,24 @@ function VideoPreviewModal({ video, onClose }: { video: Video | null; onClose: (
 }
 
 export default function Videos() {
-  const { data: videos, isLoading } = useGetVideos({ status: 'all' })
+  const { data: videos, isLoading } = useGetVideos(
+    { status: 'all' },
+    {
+      query: {
+        // Poll every 5 s while any video is rendering, publishing, or processing captions/effects
+        refetchInterval: (data: any) => {
+          if (!data) return false
+          const anyActive = (data as any[]).some((v: any) =>
+            v.status === 'generating' ||
+            v.status === 'publishing' ||
+            ((v.caption_status === null || v.caption_status === 'processing') &&
+              (v.status === 'ready' || v.status === 'published'))
+          )
+          return anyActive ? 5000 : false
+        },
+      } as any,
+    }
+  )
   const publishVideo = usePublishVideo()
   const scheduleVideo = useScheduleVideo()
   const deleteVideo = useDeleteVideo()
@@ -279,9 +296,24 @@ export default function Videos() {
                           <Loader2 className="w-8 h-8 animate-spin text-blue-400" />
                           <span className="text-xs font-bold uppercase tracking-wider">Publicando</span>
                         </div>
+                      ) : (captionStatus === null || captionStatus === 'processing') && (video.status === 'ready' || video.status === 'published') ? (
+                        <div className="flex flex-col items-center gap-2">
+                          <div className="w-8 h-8 rounded-full border-2 border-violet-400 border-t-transparent animate-spin" />
+                          <span className="text-xs font-bold uppercase tracking-wider text-violet-400">Aplicando efectos</span>
+                        </div>
                       ) : (
                         <Play className="w-12 h-12 opacity-50" />
                       )}
+                    </div>
+                  )}
+
+                  {/* Overlay sobre el thumbnail cuando se están re-aplicando efectos */}
+                  {video.thumbnail_url &&
+                   (captionStatus === null || captionStatus === 'processing') &&
+                   (video.status === 'ready' || video.status === 'published') && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/65 backdrop-blur-sm">
+                      <div className="w-10 h-10 rounded-full border-2 border-white border-t-transparent animate-spin mb-3" />
+                      <span className="text-xs font-bold uppercase tracking-wider text-white">Aplicando efectos…</span>
                     </div>
                   )}
 
@@ -439,7 +471,12 @@ export default function Videos() {
                         disabled={reapplyCaptions.isPending}
                         onClick={() => {
                           reapplyCaptions.mutate({ id: video.id }, {
-                            onSuccess: () => toast({ title: "Re-procesando efectos", description: "Los efectos se están aplicando en segundo plano. El video se actualizará en unos minutos." }),
+                            onSuccess: () => {
+                              // Invalidate both queries so the spinner and pipeline step update immediately
+                              queryClient.invalidateQueries({ queryKey: getGetVideosQueryKey() })
+                              queryClient.invalidateQueries({ queryKey: getGetContentPlanQueryKey() })
+                              toast({ title: "Re-procesando efectos", description: "Los efectos se están aplicando. El video se actualizará automáticamente." })
+                            },
                             onError: (err: any) => toast({ title: "Error", description: err?.message ?? "No se pudo re-aplicar los efectos", variant: "destructive" }),
                           })
                         }}
@@ -460,7 +497,11 @@ export default function Videos() {
                         disabled={reapplyCaptions.isPending}
                         onClick={() => {
                           reapplyCaptions.mutate({ id: video.id }, {
-                            onSuccess: () => toast({ title: "Re-procesando efectos", description: "Los efectos se están aplicando en segundo plano. El video se actualizará en unos minutos." }),
+                            onSuccess: () => {
+                              queryClient.invalidateQueries({ queryKey: getGetVideosQueryKey() })
+                              queryClient.invalidateQueries({ queryKey: getGetContentPlanQueryKey() })
+                              toast({ title: "Re-procesando efectos", description: "Los efectos se están aplicando. El video se actualizará automáticamente." })
+                            },
                             onError: (err: any) => toast({ title: "Error", description: err?.message ?? "No se pudo re-aplicar los efectos", variant: "destructive" }),
                           })
                         }}

@@ -87,7 +87,23 @@ export default function ContentPlan() {
     }
   }, [location])
 
-  const { data: allItems, isLoading } = useGetContentPlan({ limit: 100 })
+  const { data: allItems, isLoading } = useGetContentPlan(
+    { limit: 100 },
+    {
+      query: {
+        // Poll every 5 s while any item is generating a video or processing captions/effects
+        refetchInterval: (data: any) => {
+          if (!data) return false
+          const anyActive = (data as ContentPlanItem[]).some(item =>
+            item.status === 'generating' ||
+            ((item.caption_status === null || item.caption_status === 'processing') &&
+              (item.status === 'ready' || item.status === 'published'))
+          )
+          return anyActive ? 5000 : false
+        },
+      } as any,
+    }
+  )
 
   const TAB_STATUSES: Record<string, string[]> = {
     all:        ["draft","scripted","generating","ready","published","failed"],
