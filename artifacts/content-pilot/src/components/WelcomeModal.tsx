@@ -15,9 +15,7 @@ import { BookOpen, Play } from "lucide-react"
 import { useGetSettings, useUpdateSettings, getGetSettingsQueryKey } from "@workspace/api-client-react"
 import { useQueryClient } from "@tanstack/react-query"
 
-// ── Cambia esta URL por la del video de bienvenida cuando esté listo ──────────
-const WELCOME_VIDEO_URL = ""
-// e.g. "https://www.youtube.com/embed/XXXXXXXXXXX?rel=0&modestbranding=1"
+const WELCOME_VIDEO_URL = "/welcome-video.mp4"
 
 const STORAGE_KEY = "reelsona_welcome_dismissed"
 
@@ -110,15 +108,13 @@ export function WelcomeModal() {
         {/* Video area */}
         <div className="mx-3 sm:mx-6 -mt-3 rounded-xl overflow-hidden border border-border shadow-md">
           {WELCOME_VIDEO_URL ? (
-            <div className="relative w-full" style={{ paddingBottom: "56.25%" }}>
-              <iframe
-                src={WELCOME_VIDEO_URL}
-                title="Video de bienvenida a Reelsona"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowFullScreen
-                className="absolute inset-0 w-full h-full"
-              />
-            </div>
+            <video
+              src={WELCOME_VIDEO_URL}
+              controls
+              playsInline
+              preload="metadata"
+              className="w-full block"
+            />
           ) : (
             /* Placeholder mientras no hay video */
             <div className="aspect-video bg-gradient-to-br from-muted/60 to-muted flex flex-col items-center justify-center gap-3 text-muted-foreground">
