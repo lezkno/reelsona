@@ -1494,11 +1494,6 @@ export default function CaptionStudio() {
               />
             </div>
           </div>
-          {videoEffects.ai_broll && (
-            <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">
-              ⏱ El B-Roll añade ~90s al procesamiento. Genera ~3-4 imágenes por video con gpt-image-1 (~$0.07/img), cobrado directamente por OpenAI.
-            </p>
-          )}
         </CardContent>
       </Card>
 
