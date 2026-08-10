@@ -23,6 +23,7 @@ import { getLatestAuditCache } from "./audit-cache";
 import { getStrategyProfile, toStrategyContext } from "./strategy-profile";
 import { generateVideo, getVideoStatus, listVoices, getAvatarDefaultVoiceId } from "./heygen";
 import { createReelContainer, checkContainerStatus, publishContainer, getPermalink } from "./instagram-api";
+import { getSignedCaptionedVideoUrl } from "./objectStorage";
 
 /** Sentinel stored in preferred_voice_id meaning "use the avatar's own HeyGen default voice" (legacy, kept for backwards compat). */
 export const AVATAR_DEFAULT_VOICE = "avatar_default";
@@ -1200,9 +1201,25 @@ async function _publishVideoToInstagramInner(videoId: number, videoUrl?: string)
     const captionedUrl = video.captionedVideoUrl;
 
     if (captionedUrl.startsWith("https://")) {
-      // Any full HTTPS URL (Object Storage proxy, GCS direct, etc.) — use directly.
-      url = captionedUrl;
-      logger.info({ videoId, captionedUrl: url.slice(0, 80) }, "[Publish] Using captioned video from HTTPS URL");
+      // Stored captionedVideoUrl goes through Replit's mTLS proxy (REPLIT_DEV_DOMAIN)
+      // which Instagram's servers cannot reach in dev OR production.
+      // Generate a short-lived signed GCS URL instead — publicly accessible everywhere.
+      const devDomain = process.env.REPLIT_DEV_DOMAIN;
+      const captionedObjectsPrefix = `/api/captioned-objects/`;
+      if (devDomain && captionedUrl.includes(devDomain) && captionedUrl.includes(captionedObjectsPrefix)) {
+        const objectName = captionedUrl.split(captionedObjectsPrefix)[1];
+        try {
+          url = await getSignedCaptionedVideoUrl(objectName);
+          logger.info({ videoId, objectName }, "[Publish] Generated signed GCS URL for Instagram");
+        } catch (signErr) {
+          // Signing failed (e.g. sidecar unavailable) — fall back to stored URL and let Instagram try
+          url = captionedUrl;
+          logger.warn({ videoId, signErr }, "[Publish] Could not sign GCS URL — falling back to stored URL");
+        }
+      } else {
+        url = captionedUrl;
+        logger.info({ videoId, captionedUrl: url.slice(0, 80) }, "[Publish] Using captioned video from HTTPS URL");
+      }
     } else {
       // Legacy: URL pointed to the dev server's /tmp directory.
       // Verify the file still exists on disk before using it.

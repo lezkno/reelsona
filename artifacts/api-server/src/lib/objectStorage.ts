@@ -232,6 +232,26 @@ function parseObjectPath(path: string): {
   };
 }
 
+/**
+ * Generate a short-lived publicly accessible signed GET URL for a captioned
+ * video stored in the Replit Object Storage bucket.
+ *
+ * The URL stored in `captionedVideoUrl` uses REPLIT_DEV_DOMAIN which goes
+ * through Replit's mTLS proxy — external services like Instagram cannot reach
+ * it. This function bypasses the proxy by signing the GCS object directly.
+ *
+ * @param objectName  GCS object name, e.g. "captioned-videos/browser_xxx.mp4"
+ * @param ttlSec      Signed URL validity in seconds (default 6 h)
+ */
+export async function getSignedCaptionedVideoUrl(
+  objectName: string,
+  ttlSec = 6 * 3600,
+): Promise<string> {
+  const bucketName = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
+  if (!bucketName) throw new Error("DEFAULT_OBJECT_STORAGE_BUCKET_ID not set");
+  return signObjectURL({ bucketName, objectName, method: "GET", ttlSec });
+}
+
 async function signObjectURL({
   bucketName,
   objectName,
