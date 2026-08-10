@@ -20,6 +20,7 @@ import { createWriteStream } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import axios from "axios";
+import OpenAI from "openai";
 import { logger } from "./logger";
 import { objectStorageClient } from "./objectStorage";
 
@@ -617,51 +618,164 @@ function buildASS(
   }
 }
 
-// ─── Punch-zoom helpers (ASS engine) ─────────────────────────────────────────
+// ─── AI-powered punch zoom timestamp detection ────────────────────────────────
 
 const EMPHASIS_WORDS_RE = /\b(importante|recuerda|clave|fundamental|esencial|nunca|siempre|crítico|atención|ojo|fíjate|escucha|mira|básico|necesario|obligatorio|imprescindible)\b/i;
 
-/** Map important sentences to proportional timestamps (no word-level SRT needed). */
-function buildProportionalPunchTimestamps(script: string, videoDuration: number): number[] {
-  const sentences = (script.match(/[^.!?\n]+[.!?]*/g) ?? [])
-    .map((s, i, arr) => ({ text: s.trim(), idx: i, total: arr.length }))
-    .filter(s => s.text.length >= 12);
+/**
+ * Lightweight word timing shape used by findPunchZoomTimestampsAI.
+ * Compatible with the browser engine's WordTiming (startMs field).
+ */
+export interface PunchWordTiming {
+  text: string;
+  startMs: number;
+}
 
-  const scored = sentences.map(s => {
-    let score = 0;
-    if (s.text.includes("!"))              score += 4;
-    if (EMPHASIS_WORDS_RE.test(s.text))    score += 3;
-    const wc = s.text.split(/\s+/).length;
-    if (wc >= 4 && wc <= 14)               score += 1;
-    if (s.idx < s.total * 0.15)            score -= 2; // skip intro
-    return { ...s, score };
+/** Ask OpenAI to pick the N most impactful sentence indices from the script. */
+async function analyzeScriptForZooms(
+  sentences: string[],
+  count: number,
+): Promise<number[]> {
+  const client = new OpenAI({
+    baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+    apiKey:  process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
   });
 
-  const top = scored
-    .sort((a, b) => b.score - a.score || a.idx - b.idx)
-    .slice(0, 3)
-    .sort((a, b) => a.idx - b.idx); // restore chronological order
+  const cap     = Math.min(sentences.length, 45); // token budget
+  const numbered = sentences.slice(0, cap).map((s, i) => `${i}: ${s}`).join("\n");
 
-  const fullLen = script.length || 1;
+  const { choices } = await client.chat.completions.create({
+    model:       "gpt-4o-mini",
+    temperature: 0,
+    max_tokens:  80,
+    messages: [
+      {
+        role:    "system",
+        content: "You choose sentences in video scripts for a punch zoom visual effect. Reply ONLY with a JSON array of integers.",
+      },
+      {
+        role:    "user",
+        content:
+          `From the numbered sentences below, pick exactly ${count} sentence numbers where a PUNCH ZOOM visual emphasis should fire.\n` +
+          `Rules:\n` +
+          `• Skip sentences 0 and 1 (intro).\n` +
+          `• Spread selections across the WHOLE script — beginning, middle AND end.\n` +
+          `• Prefer key facts, strong claims, emotional peaks, statistics, and calls to action.\n\n` +
+          `Sentences:\n${numbered}\n\n` +
+          `Reply with ONLY a JSON array of ${count} integers, e.g. [3,11,22]`,
+      },
+    ],
+  });
+
+  const raw   = choices[0]?.message?.content?.trim() ?? "[]";
+  const match = raw.match(/\[[\d,\s]+\]/);
+  const parsed = JSON.parse(match?.[0] ?? "[]") as unknown[];
+  return parsed
+    .filter((n): n is number => typeof n === "number" && Number.isInteger(n) && n >= 0 && n < cap)
+    .slice(0, count);
+}
+
+/**
+ * AI-powered punch zoom timestamp detection (shared by both caption engines).
+ *
+ * Asks OpenAI to select the most impactful sentences (by index), then maps
+ * each to its start timestamp via word-level SRT timings.
+ * Falls back to a keyword heuristic if the AI call fails.
+ */
+export async function findPunchZoomTimestampsAI(
+  script: string,
+  wordTimings: PunchWordTiming[],
+  videoDuration: number,
+): Promise<number[]> {
+  // Scale zoom count with duration
+  const maxZooms = videoDuration < 30 ? 2 : videoDuration < 70 ? 3 : 4;
+
+  const sentences = (script.match(/[^.!?\n]+[.!?]*/g) ?? [])
+    .map(s => s.trim())
+    .filter(s => s.length >= 12);
+
+  if (sentences.length < 3) {
+    return _punchProportionalFallback(videoDuration, maxZooms);
+  }
+
+  // ── AI sentence selection ──────────────────────────────────────────────────
+  let indices: number[] = [];
+  try {
+    indices = await analyzeScriptForZooms(sentences, maxZooms);
+    logger.info({ indices, maxZooms }, "[PunchZoom] AI selected sentence indices");
+  } catch (err) {
+    logger.warn({ err }, "[PunchZoom] AI failed — heuristic fallback");
+    indices = _heuristicSentenceIndices(sentences, maxZooms);
+  }
+
+  if (indices.length === 0) {
+    return _punchProportionalFallback(videoDuration, maxZooms);
+  }
+
+  // ── map sentence index → first matching word in SRT ───────────────────────
   const timestamps: number[] = [];
+  for (const idx of indices) {
+    const sentence = sentences[idx];
+    if (!sentence) continue;
 
-  for (const s of top) {
-    // Approximate position in the full script text
-    const charOffset = script.indexOf(s.text.slice(0, 20));
-    const frac = charOffset >= 0 ? charOffset / fullLen : s.idx / (s.total || 1);
-    const t = videoDuration * frac;
-    if (t >= 3 && t < videoDuration - 4) timestamps.push(t);
+    const candidates = sentence
+      .replace(/[^a-záéíóúüñA-ZÁÉÍÓÚÜÑ0-9\s]/g, "")
+      .split(/\s+/)
+      .filter(w => w.length > 2)
+      .slice(0, 6);
+
+    for (const word of candidates) {
+      const norm = word.toLowerCase().replace(/[^a-záéíóúüñ0-9]/g, "");
+      const hit  = wordTimings.find(wt =>
+        wt.text.toLowerCase().replace(/[^a-záéíóúüñ0-9]/g, "") === norm,
+      );
+      if (hit) {
+        timestamps.push(hit.startMs / 1000);
+        break;
+      }
+    }
   }
 
-  // Enforce min spacing of 8 s between zooms
-  const result: number[] = [];
-  for (const t of timestamps.sort((a, b) => a - b)) {
-    if (result.length === 0 || t - result[result.length - 1] >= 8) result.push(t);
+  // ── fill gaps with proportional positions if AI mapping was incomplete ─────
+  if (timestamps.length < maxZooms) {
+    const used = new Set(timestamps.map(t => Math.round(t)));
+    for (const t of _punchProportionalFallback(videoDuration, maxZooms)) {
+      if (timestamps.length >= maxZooms) break;
+      if (!used.has(Math.round(t))) { timestamps.push(t); used.add(Math.round(t)); }
+    }
   }
 
-  return result.length > 0
-    ? result
-    : [videoDuration * 0.3, videoDuration * 0.65].filter(t => t < videoDuration - 4);
+  // ── deduplicate + enforce 6 s minimum spacing ──────────────────────────────
+  return timestamps
+    .sort((a, b) => a - b)
+    .filter((t, i, arr) => {
+      if (t < 3)                     return false;
+      if (t > videoDuration - 4)     return false;
+      if (i > 0 && t - arr[i-1] < 6) return false;
+      return true;
+    });
+}
+
+function _punchProportionalFallback(duration: number, n: number): number[] {
+  return Array.from({ length: n }, (_, i) => duration * (i + 1) / (n + 1))
+    .filter(t => t >= 3 && t < duration - 4);
+}
+
+function _heuristicSentenceIndices(sentences: string[], count: number): number[] {
+  return sentences
+    .map((text, idx) => {
+      let score = 0;
+      const wc = text.split(/\s+/).length;
+      if (text.includes("!"))              score += 4;
+      if (EMPHASIS_WORDS_RE.test(text))    score += 3;
+      if (wc >= 4 && wc <= 14)            score += 1;
+      if (idx < sentences.length * 0.15)  score -= 2;
+      return { idx, score };
+    })
+    .sort((a, b) => b.score - a.score || a.idx - b.idx)
+    .slice(0, count)
+    .sort((a, b) => a.idx - b.idx)
+    .map(s => s.idx);
 }
 
 /**
@@ -852,10 +966,15 @@ export async function applyCaptions(
     // 4b. Optional punch-zoom pre-process pass.
     // Uses trim+scale+crop+concat (reliable in FFmpeg 6.x — zoompan with dynamic
     // expressions is broken when called via execFile without a shell).
-    // Effect: 1.4× snap zoom to the avatar face region at 2-3 impactful sentences.
+    // Effect: 1.4× snap zoom to the avatar face region at AI-selected sentences.
     let captionInputPath = videoPath;
     if (zoomEnabled && script) {
-      const punchTs   = buildProportionalPunchTimestamps(script, videoDuration);
+      // Derive per-word timings from the SRT blocks for precise sentence mapping
+      const srtWordTimings = extractWordTimings(blocks).map(wt => ({
+        text:    wt.text,
+        startMs: wt.start,   // extractWordTimings uses 'start' in ms
+      }));
+      const punchTs   = await findPunchZoomTimestampsAI(script, srtWordTimings, videoDuration);
       const punchArgs = buildPunchZoomArgs(punchTs, videoDuration, videoWidth, videoHeight);
       if (punchArgs) {
         const zoomPath = path.join(CAPTION_DIR, `zoom_${id}.mp4`);

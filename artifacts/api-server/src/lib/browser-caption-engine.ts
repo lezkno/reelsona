@@ -25,7 +25,7 @@ import axios from "axios";
 import { logger } from "./logger";
 import { objectStorageClient } from "./objectStorage";
 import type { CaptionResult } from "./caption-engine";
-import { CAPTION_DIR, buildPunchZoomArgs } from "./caption-engine";
+import { CAPTION_DIR, buildPunchZoomArgs, findPunchZoomTimestampsAI } from "./caption-engine";
 import {
   BROWSER_CAPTION_TEMPLATES,
   getBrowserTemplate,
@@ -694,7 +694,7 @@ export async function applyCaptionsBrowser(
     // not a fragile frame counter.
     let captionSourcePath = videoPath;
     if (opts?.videoEffects?.zoom && script) {
-      const punchTs   = findPunchZoomTimestamps(script, wordTimings, videoInfo.duration);
+      const punchTs   = await findPunchZoomTimestampsAI(script, wordTimings, videoInfo.duration);
       const punchArgs = buildPunchZoomArgs(punchTs, videoInfo.duration, videoInfo.width, videoInfo.height);
       if (punchArgs) {
         const zoomedPath = path.join(tmpDir, "zoomed.mp4");
