@@ -455,9 +455,17 @@ router.post("/videos/:id/reapply-captions", async (req, res): Promise<void> => {
     return;
   }
 
-  // Reset caption state so the pipeline re-runs
+  // Read the user's CURRENT video effects from settings so re-apply always
+  // honours the latest configuration (e.g. zoom was enabled after original generation)
+  const [userSettings] = await db.select({ videoEffects: settingsTable.videoEffects })
+    .from(settingsTable)
+    .where(eq(settingsTable.userId, userId))
+    .limit(1);
+  const currentVideoEffects = (userSettings?.videoEffects as object | null) ?? null;
+
+  // Reset caption state AND refresh videoEffects from current settings
   await db.update(videosTable)
-    .set({ captionStatus: null, captionedVideoUrl: null, updatedAt: new Date() })
+    .set({ captionStatus: null, captionedVideoUrl: null, videoEffects: currentVideoEffects, updatedAt: new Date() })
     .where(and(eq(videosTable.id, id), eq(videosTable.userId, userId)));
 
   // Fire-and-forget
