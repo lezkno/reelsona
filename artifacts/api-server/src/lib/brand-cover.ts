@@ -199,6 +199,18 @@ async function generateAICover(
     // accepts it as cover_url (Instagram rejects non-JPEG cover images).
     // loadImage() awaits the decode before drawImage so the canvas isn't blank.
     const pngBuffer = Buffer.from(b64, "base64");
+
+    // Guard: if the proxy returned an error page / SVG placeholder instead of a
+    // real PNG, bail out and let the canvas fallback handle it cleanly.
+    const PNG_MAGIC = 0x89504e47;
+    if (pngBuffer.length < 4 || pngBuffer.readUInt32BE(0) !== PNG_MAGIC) {
+      logger.warn(
+        { videoId, preview: pngBuffer.slice(0, 120).toString("utf-8") },
+        "[BrandCover] gpt-image-1 response is not a valid PNG — falling back to canvas"
+      );
+      return null;
+    }
+
     const W = 1024, H = 1536;
     const cvs = createCanvas(W, H);
     const ctx2 = cvs.getContext("2d");
