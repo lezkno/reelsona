@@ -161,26 +161,49 @@ export { BROWSER_CAPTION_TEMPLATES };
  * overlay clips the PNG at 720 × 1280 — text at y=83% of 1920 = 1593px falls
  * entirely outside the 1280px frame and is invisible.
  */
-async function probeVideoDimensions(
+async function probeVideoInfo(
   videoPath: string,
-): Promise<{ width: number; height: number }> {
+): Promise<{ width: number; height: number; fps: number; duration: number }> {
   try {
     const { stdout } = await execFileAsync("ffprobe", [
       "-v",            "quiet",
       "-print_format", "json",
       "-show_streams",
+      "-show_format",
       "-select_streams", "v:0",
       videoPath,
     ]);
-    const data   = JSON.parse(stdout) as { streams?: Array<{ width?: number; height?: number }> };
+    const data   = JSON.parse(stdout) as {
+      streams?: Array<{ width?: number; height?: number; r_frame_rate?: string; duration?: string }>;
+      format?:  { duration?: string };
+    };
     const stream = data.streams?.[0];
-    if (stream?.width && stream?.height) {
-      return { width: stream.width, height: stream.height };
+    const width  = stream?.width  ?? VIDEO_WIDTH_DEFAULT;
+    const height = stream?.height ?? VIDEO_HEIGHT_DEFAULT;
+
+    // Parse fps from "num/den" string, e.g. "30/1" or "30000/1001"
+    let fps = 30;
+    if (stream?.r_frame_rate) {
+      const [num, den] = stream.r_frame_rate.split("/").map(Number);
+      if (num && den) fps = Math.round(num / den);
     }
+
+    // Duration from stream or format
+    const durationStr = stream?.duration ?? data.format?.duration;
+    const duration    = durationStr ? parseFloat(durationStr) : 60;
+
+    return { width, height, fps, duration };
   } catch {
-    // ffprobe unavailable or unreadable — fall through to defaults
+    return { width: VIDEO_WIDTH_DEFAULT, height: VIDEO_HEIGHT_DEFAULT, fps: 30, duration: 60 };
   }
-  return { width: VIDEO_WIDTH_DEFAULT, height: VIDEO_HEIGHT_DEFAULT };
+}
+
+// Keep the old name as a thin wrapper for backwards compat
+async function probeVideoDimensions(
+  videoPath: string,
+): Promise<{ width: number; height: number }> {
+  const { width, height } = await probeVideoInfo(videoPath);
+  return { width, height };
 }
 
 // ── Frame renderer ────────────────────────────────────────────────────────────
@@ -488,6 +511,8 @@ export async function applyCaptionsBrowser(
     marginXPct?: number;
     /** Per-template style overrides from Caption Studio advanced settings. Applied on top of the base template. */
     templateOverrides?: Partial<CaptionTemplate>;
+    /** Video effects to apply before caption compositing (e.g. Ken Burns zoom). */
+    videoEffects?: { zoom?: boolean } | null;
   },
 ): Promise<CaptionResult> {
   logger.info({ templateId }, "[BrowserEngine] applyCaptionsBrowser invoked");
@@ -545,13 +570,41 @@ export async function applyCaptionsBrowser(
     await fs.writeFile(videoPath, Buffer.from(videoResp.data));
     logger.info("[BrowserEngine] Video downloaded");
 
-    // ── 3b. Probe actual video dimensions ────────────────────────────────
+    // ── 3b. Probe actual video info ───────────────────────────────────────
     // CRITICAL: PNGs must be rendered at the source video's native resolution.
     // Rendering at hardcoded 1080×1920 while the video is 720×1280 causes
     // FFmpeg overlay to clip the PNG at 1280px — text at y=83% of 1920=1593px
     // is invisible. Probing and matching ensures pixel-perfect compositing.
-    const videoDims = await probeVideoDimensions(videoPath);
-    logger.info(videoDims, "[BrowserEngine] Video dimensions probed");
+    const videoInfo = await probeVideoInfo(videoPath);
+    const videoDims = { width: videoInfo.width, height: videoInfo.height };
+    logger.info(videoInfo, "[BrowserEngine] Video dimensions probed");
+
+    // ── 3c. Ken Burns zoom pre-process (optional) ────────────────────────
+    // Apply a slow zoompan (1.0x → 1.08x) to the entire video BEFORE caption
+    // compositing. Must be a full-video pass so the zoom is continuous —
+    // applying per-batch would reset the counter and create visible jumps.
+    let captionSourcePath = videoPath;
+    if (opts?.videoEffects?.zoom) {
+      const zoomedPath = path.join(tmpDir, "zoomed.mp4");
+      const totalFrames = Math.max(1, Math.round(videoInfo.fps * videoInfo.duration));
+      const step = (0.08 / totalFrames).toFixed(8);
+      const zoomFilter = [
+        `zoompan=z='min(zoom+${step},1.08)'`,
+        `x='iw/2-(iw/zoom/2)'`,
+        `y='ih/2-(ih/zoom/2)'`,
+        `d=1:fps=${videoInfo.fps}:s=${videoInfo.width}x${videoInfo.height}`,
+      ].join(":");
+      logger.info({ totalFrames, step, fps: videoInfo.fps }, "[BrowserEngine] Applying Ken Burns zoom pre-process");
+      await execFileAsync("ffmpeg", [
+        "-i",  videoPath,
+        "-vf", zoomFilter,
+        "-c:v", "libx264", "-preset", "fast", "-crf", "21",
+        "-c:a", "copy",
+        "-y",  zoomedPath,
+      ], { maxBuffer: 500 * 1024 * 1024 });
+      captionSourcePath = zoomedPath;
+      logger.info("[BrowserEngine] Ken Burns zoom applied ✓");
+    }
 
     // ── 4. Gather word timings ────────────────────────────────────────────
     let wordTimings: WordTiming[] = [];
@@ -724,7 +777,7 @@ export async function applyCaptionsBrowser(
       await execFileAsync("ffmpeg", [
         "-ss", String(batchStart),
         "-t",  String(batchDur),
-        "-i",  videoPath,
+        "-i",  captionSourcePath,
         ...extraInputs,
         "-filter_complex", fullFilter,
         "-map", "[out]",

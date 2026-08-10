@@ -663,6 +663,8 @@ export async function runCaptionProcessing(
         : undefined,
       // Pass style overrides from Caption Studio advanced settings
       templateOverrides: parsedTemplateOverrides,
+      // Pass video effects so the browser engine can apply zoom etc.
+      videoEffects: videoEffects,
     });
 
     if (browserResult.url) {

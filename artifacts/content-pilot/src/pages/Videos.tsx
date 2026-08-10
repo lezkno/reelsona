@@ -388,7 +388,7 @@ export default function Videos() {
                     </div>
                   )}
 
-                  {/* Action buttons */}
+                  {/* Action buttons — ready videos */}
                   {!selectMode && video.status === 'ready' && (captionStatus === 'done' || captionStatus === 'failed' || captionStatus === 'disabled') && (
                     <div className="flex flex-col gap-1.5 mb-3">
                       <Button
@@ -411,6 +411,27 @@ export default function Videos() {
                         <CalendarClock className="w-3.5 h-3.5" />
                         {video.scheduled_publish_at ? "Cambiar horario" : "Programar"}
                       </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="w-full text-xs gap-1.5"
+                        disabled={reapplyCaptions.isPending}
+                        onClick={() => {
+                          reapplyCaptions.mutate({ id: video.id }, {
+                            onSuccess: () => toast({ title: "Re-procesando efectos", description: "Los efectos se están aplicando en segundo plano. El video se actualizará en unos minutos." }),
+                            onError: (err: any) => toast({ title: "Error", description: err?.message ?? "No se pudo re-aplicar los efectos", variant: "destructive" }),
+                          })
+                        }}
+                      >
+                        {reapplyCaptions.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
+                        {reapplyCaptions.isPending ? "Aplicando…" : "Re-aplicar efectos"}
+                      </Button>
+                    </div>
+                  )}
+
+                  {/* Re-apply button for already-published videos (lets users test new effects) */}
+                  {!selectMode && video.status === 'published' && video.video_url && (
+                    <div className="flex flex-col gap-1.5 mb-3">
                       <Button
                         size="sm"
                         variant="outline"
