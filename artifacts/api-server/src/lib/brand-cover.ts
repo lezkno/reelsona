@@ -59,12 +59,16 @@ function wrapText(ctx: SKRSContext2D, text: string, maxWidth: number): string[] 
   return lines;
 }
 
-async function uploadJpegToGcs(buffer: Buffer, objectName: string): Promise<string> {
+async function uploadImageToGcs(
+  buffer: Buffer,
+  objectName: string,
+  contentType: "image/jpeg" | "image/png" = "image/jpeg",
+): Promise<string> {
   const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
   const domain = process.env.REPLIT_DEV_DOMAIN;
   if (!bucketId || !domain) throw new Error("Object Storage not configured");
   const bucket = objectStorageClient.bucket(bucketId);
-  await bucket.file(objectName).save(buffer, { contentType: "image/jpeg" });
+  await bucket.file(objectName).save(buffer, { contentType });
   return `https://${domain}/api/captioned-objects/${objectName}`;
 }
 
@@ -245,7 +249,7 @@ async function generateCanvasCover(
 
     const buffer = canvas.toBuffer("image/jpeg", 92);
     const objectName = `brand-covers/${videoId}-canvas-${randomUUID().slice(0, 8)}.jpg`;
-    const url = await uploadJpegToGcs(buffer, objectName);
+    const url = await uploadImageToGcs(buffer, objectName, "image/jpeg");
     logger.info({ videoId, objectName }, "[BrandCover] Canvas fallback cover uploaded");
     return url;
   } catch (err) {
@@ -371,14 +375,17 @@ async function generateAICover(
           const imgBuffer = Buffer.from(b64, "base64");
           const fmt = detectImageFormat(imgBuffer);
           if (fmt !== "unknown") {
-            const jpegBuf = fmt === "jpeg" ? imgBuffer : await toJpeg(imgBuffer, 1024, 1024);
-            const objectName = `brand-covers/${videoId}-edit-${randomUUID().slice(0, 8)}.jpg`;
-            const url = await uploadJpegToGcs(jpegBuf, objectName);
-            logger.info({ videoId, objectName }, "[BrandCover] images.edit cover uploaded ✓");
+            // gpt-image-1 returns C2PA-signed PNGs. @napi-rs/canvas cannot load them
+            // (loadImage throws "Invalid SVG image"). Upload the raw buffer directly.
+            const ext = fmt === "jpeg" ? "jpg" : "png";
+            const ct: "image/jpeg" | "image/png" = fmt === "jpeg" ? "image/jpeg" : "image/png";
+            const objectName = `brand-covers/${videoId}-edit-${randomUUID().slice(0, 8)}.${ext}`;
+            const url = await uploadImageToGcs(imgBuffer, objectName, ct);
+            logger.info({ videoId, objectName, fmt }, "[BrandCover] images.edit cover uploaded ✓");
             return url;
           }
           logger.warn(
-            { videoId, prefix: imgBuffer.slice(0, 200).toString("utf-8") },
+            { videoId, prefix: imgBuffer.slice(0, 64).toString("hex") },
             "[BrandCover] images.edit returned unrecognised format — trying generate",
           );
         } else {
@@ -413,16 +420,19 @@ async function generateAICover(
     const genFmt = detectImageFormat(genBuffer);
     if (genFmt === "unknown") {
       logger.warn(
-        { videoId, prefix: genBuffer.slice(0, 200).toString("utf-8") },
+        { videoId, prefix: genBuffer.slice(0, 64).toString("hex") },
         "[BrandCover] images.generate returned unrecognised format",
       );
       return null;
     }
 
-    const genJpeg = genFmt === "jpeg" ? genBuffer : await toJpeg(genBuffer, 1024, 1024);
-    const genObjectName = `brand-covers/${videoId}-gen-${randomUUID().slice(0, 8)}.jpg`;
-    const genUrl = await uploadJpegToGcs(genJpeg, genObjectName);
-    logger.info({ videoId, objectName: genObjectName }, "[BrandCover] images.generate cover uploaded ✓");
+    // gpt-image-1 returns C2PA-signed PNGs. Upload raw buffer — do NOT transcode
+    // through @napi-rs/canvas which cannot handle the C2PA provenance metadata.
+    const genExt = genFmt === "jpeg" ? "jpg" : "png";
+    const genCt: "image/jpeg" | "image/png" = genFmt === "jpeg" ? "image/jpeg" : "image/png";
+    const genObjectName = `brand-covers/${videoId}-gen-${randomUUID().slice(0, 8)}.${genExt}`;
+    const genUrl = await uploadImageToGcs(genBuffer, genObjectName, genCt);
+    logger.info({ videoId, objectName: genObjectName, fmt: genFmt }, "[BrandCover] images.generate cover uploaded ✓");
     return genUrl;
 
   } catch (err: any) {
