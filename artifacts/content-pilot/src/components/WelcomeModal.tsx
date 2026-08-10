@@ -113,6 +113,9 @@ export function WelcomeModal() {
               controls
               playsInline
               preload="metadata"
+              controlsList="nodownload noplaybackrate"
+              disableRemotePlayback
+              onContextMenu={(e) => e.preventDefault()}
               className="w-full block"
             />
           ) : (
