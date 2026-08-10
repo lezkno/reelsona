@@ -614,6 +614,126 @@ function buildASS(
   }
 }
 
+// ─── Punch-zoom helpers (ASS engine) ─────────────────────────────────────────
+
+const EMPHASIS_WORDS_RE = /\b(importante|recuerda|clave|fundamental|esencial|nunca|siempre|crítico|atención|ojo|fíjate|escucha|mira|básico|necesario|obligatorio|imprescindible)\b/i;
+
+/** Map important sentences to proportional timestamps (no word-level SRT needed). */
+function buildProportionalPunchTimestamps(script: string, videoDuration: number): number[] {
+  const sentences = (script.match(/[^.!?\n]+[.!?]*/g) ?? [])
+    .map((s, i, arr) => ({ text: s.trim(), idx: i, total: arr.length }))
+    .filter(s => s.text.length >= 12);
+
+  const scored = sentences.map(s => {
+    let score = 0;
+    if (s.text.includes("!"))              score += 4;
+    if (EMPHASIS_WORDS_RE.test(s.text))    score += 3;
+    const wc = s.text.split(/\s+/).length;
+    if (wc >= 4 && wc <= 14)               score += 1;
+    if (s.idx < s.total * 0.15)            score -= 2; // skip intro
+    return { ...s, score };
+  });
+
+  const top = scored
+    .sort((a, b) => b.score - a.score || a.idx - b.idx)
+    .slice(0, 3)
+    .sort((a, b) => a.idx - b.idx); // restore chronological order
+
+  const fullLen = script.length || 1;
+  const timestamps: number[] = [];
+
+  for (const s of top) {
+    // Approximate position in the full script text
+    const charOffset = script.indexOf(s.text.slice(0, 20));
+    const frac = charOffset >= 0 ? charOffset / fullLen : s.idx / (s.total || 1);
+    const t = videoDuration * frac;
+    if (t >= 3 && t < videoDuration - 4) timestamps.push(t);
+  }
+
+  // Enforce min spacing of 8 s between zooms
+  const result: number[] = [];
+  for (const t of timestamps.sort((a, b) => a - b)) {
+    if (result.length === 0 || t - result[result.length - 1] >= 8) result.push(t);
+  }
+
+  return result.length > 0
+    ? result
+    : [videoDuration * 0.3, videoDuration * 0.65].filter(t => t < videoDuration - 4);
+}
+
+/**
+ * Build the -filter_complex / -map arguments for a punch-zoom pre-process pass.
+ * Uses trim+scale+crop+concat — reliable in FFmpeg 6.x where zoompan expression
+ * support is broken when called via execFile (no shell escaping).
+ *
+ * Effect per timestamp T (3 s total):
+ *   Normal before → scale×1.4 + center-crop (hold for 3 s) → normal after
+ * All segments are re-concat for both video and audio so A/V stays in sync.
+ *
+ * Returns a string[] ready to spread into execFileAsync args, or null if empty.
+ */
+export function buildPunchZoomArgs(
+  timestamps: number[],
+  videoDuration: number,
+  W: number,
+  H: number,
+): string[] | null {
+  if (timestamps.length === 0) return null;
+
+  const D          = 3.0;   // punch zoom duration in seconds
+  const zoomFactor = 1.4;
+  // H.264 requires even dimensions; round up
+  const scaledW = Math.ceil(W * zoomFactor / 2) * 2;
+  const scaledH = Math.ceil(H * zoomFactor / 2) * 2;
+  const cropX   = Math.floor((scaledW - W) / 2);
+  const cropY   = 0; // top of frame — face lives in upper portion of portrait videos
+
+  type Seg = { start: number; end: number; isZoom: boolean };
+  const segments: Seg[] = [];
+  let cursor = 0;
+  for (const T of [...timestamps].sort((a, b) => a - b)) {
+    if (T - cursor > 0.05) segments.push({ start: cursor, end: T, isZoom: false });
+    const endZ = Math.min(T + D, videoDuration);
+    segments.push({ start: T, end: endZ, isZoom: true });
+    cursor = endZ;
+  }
+  if (videoDuration - cursor > 0.05) {
+    segments.push({ start: cursor, end: videoDuration, isZoom: false });
+  }
+
+  const n = segments.length;
+  const vLabels: string[] = [];
+  const aLabels: string[] = [];
+  const parts: string[] = [];
+
+  for (let i = 0; i < n; i++) {
+    const { start, end, isZoom } = segments[i];
+    const isLast  = end >= videoDuration - 0.05;
+    const endClip = isLast ? "" : `:end=${end.toFixed(4)}`;
+    const vTrim = `[0:v]trim=start=${start.toFixed(4)}${endClip},setpts=PTS-STARTPTS`;
+    const aTrim = `[0:a]atrim=start=${start.toFixed(4)}${endClip},asetpts=PTS-STARTPTS`;
+
+    if (isZoom) {
+      parts.push(`${vTrim},scale=${scaledW}:${scaledH},crop=${W}:${H}:${cropX}:${cropY}[v${i}]`);
+    } else {
+      parts.push(`${vTrim}[v${i}]`);
+    }
+    parts.push(`${aTrim}[a${i}]`);
+    vLabels.push(`[v${i}]`);
+    aLabels.push(`[a${i}]`);
+  }
+
+  // FFmpeg concat filter requires inputs interleaved per segment: v0,a0,v1,a1,...
+  const interleavedLabels = vLabels.flatMap((v, i) => [v, aLabels[i]]).join("");
+  parts.push(`${interleavedLabels}concat=n=${n}:v=1:a=1[vout][aout]`);
+
+  return [
+    "-filter_complex", parts.join(";"),
+    "-map", "[vout]",
+    "-map", "[aout]",
+  ];
+}
+
 // ─── Main entry point ─────────────────────────────────────────────────────────
 
 export async function applyCaptions(
@@ -726,33 +846,38 @@ export async function applyCaptions(
       logger.warn({ err: e }, "[CaptionEngine] ffprobe rotation detection failed — skipping");
     }
 
-    // 5. Burn with FFmpeg — pass fontsdir so libass finds our bundled fonts
-    // Optional Ken Burns zoom: crop+scale driven by timestamp `t` so the zoom
-    // is continuous and timestamp-accurate (no zoompan frame-counting quirks).
-    // Effect: center-crop from 1.0× at t=0 to 1.3× at t=duration,
-    //         then scaled back to original dimensions.
-    let zoomFilter = "";
-    if (zoomEnabled) {
-      const T = videoDuration.toFixed(4);
-      const W = videoWidth;
-      const H = videoHeight;
-      // scale (eval=frame) grows W×H → 1.3W×1.3H using timestamp t.
-      // crop (fixed W×H) takes the center via in_w/in_h updated per frame.
-      // See browser-caption-engine.ts for full rationale.
-      zoomFilter = [
-        `scale=w='${W}*(1+0.3*min(t,${T})/${T})':h='${H}*(1+0.3*min(t,${T})/${T})':eval=frame`,
-        `crop=${W}:${H}:x='(in_w-${W})/2':y='(in_h-${H})/2'`,
-      ].join(",") + ",";
-      logger.info({ W, H, T }, "[CaptionEngine] Ken Burns zoom (crop+scale) enabled");
+    // 4b. Optional punch-zoom pre-process pass.
+    // Uses trim+scale+crop+concat (reliable in FFmpeg 6.x — zoompan with dynamic
+    // expressions is broken when called via execFile without a shell).
+    // Effect: 1.4× snap zoom to the avatar face region at 2-3 impactful sentences.
+    let captionInputPath = videoPath;
+    if (zoomEnabled && script) {
+      const punchTs   = buildProportionalPunchTimestamps(script, videoDuration);
+      const punchArgs = buildPunchZoomArgs(punchTs, videoDuration, videoWidth, videoHeight);
+      if (punchArgs) {
+        const zoomPath = path.join(CAPTION_DIR, `zoom_${id}.mp4`);
+        logger.info({ punchTs }, "[CaptionEngine] Applying punch zoom pre-process");
+        await execFileAsync("ffmpeg", [
+          "-i", videoPath,
+          ...punchArgs,
+          "-c:v", "libx264", "-preset", "fast", "-crf", "21",
+          "-c:a", "aac", "-b:a", "192k",
+          "-movflags", "+faststart",
+          "-y", zoomPath,
+        ], { maxBuffer: 500 * 1024 * 1024 });
+        captionInputPath = zoomPath;
+        logger.info({ count: punchTs.length }, "[CaptionEngine] Punch zoom applied ✓");
+      }
     }
 
+    // 5. Burn with FFmpeg — pass fontsdir so libass finds our bundled fonts
     logger.info("[CaptionEngine] Running FFmpeg (ass filter)...");
 
-    const assFilter = `${zoomFilter}${rotationFilter}ass='${assPath}':fontsdir='${FONTS_DIR}'`;
+    const assFilter = `${rotationFilter}ass='${assPath}':fontsdir='${FONTS_DIR}'`;
 
     const { stderr } = await execFileAsync("ffmpeg", [
       "-noautorotate",          // read raw frames without auto-rotating; we handle it via transpose
-      "-i", videoPath,
+      "-i", captionInputPath,
       "-vf", assFilter,
       "-c:a", "copy",
       "-movflags", "+faststart",

@@ -24,7 +24,7 @@ import axios from "axios";
 import { logger } from "./logger";
 import { objectStorageClient } from "./objectStorage";
 import type { CaptionResult } from "./caption-engine";
-import { CAPTION_DIR } from "./caption-engine";
+import { CAPTION_DIR, buildPunchZoomArgs } from "./caption-engine";
 import {
   BROWSER_CAPTION_TEMPLATES,
   getBrowserTemplate,
@@ -496,6 +496,87 @@ export function buildFallbackTimings(script: string, durationSeconds: number): W
   }));
 }
 
+// ── Punch zoom helpers ────────────────────────────────────────────────────────
+
+const EMPHASIS_RE = /\b(importante|recuerda|clave|fundamental|esencial|nunca|siempre|crítico|atención|ojo|fíjate|escucha|mira|básico|necesario|obligatorio|imprescindible)\b/i;
+
+/**
+ * Analyse the script + SRT word timings to find timestamps (in seconds) where
+ * a punch-zoom should fire.  Scores each sentence for emphasis signals (!,
+ * keywords, length) and maps the winner to its SRT start time.
+ * Falls back to proportional timestamps when word timings are unavailable.
+ */
+export function findPunchZoomTimestamps(
+  script: string,
+  wordTimings: WordTiming[],
+  videoDuration: number,
+  maxZooms = 3,
+): number[] {
+  // ── sentence scoring ──────────────────────────────────────────────────────
+  const rawSentences = (script.match(/[^.!?\n]+[.!?]*/g) ?? [])
+    .map(s => s.trim())
+    .filter(s => s.length >= 12);
+
+  const scored = rawSentences.map((text, idx) => {
+    const wc    = text.split(/\s+/).length;
+    let score   = 0;
+    if (text.includes("!"))          score += 4;
+    if (EMPHASIS_RE.test(text))      score += 3;
+    if (wc >= 4 && wc <= 14)         score += 1;
+    if (idx < rawSentences.length * 0.15) score -= 2; // skip intro
+    return { text, score, idx };
+  });
+
+  // Sort by score descending; secondary: earlier is preferred
+  const top = scored.sort((a, b) => b.score - a.score || a.idx - b.idx).slice(0, maxZooms);
+
+  // ── map sentences → timestamps ────────────────────────────────────────────
+  const timestamps: number[] = [];
+
+  if (wordTimings.length > 0) {
+    for (const sentence of top) {
+      // Try the first 3 meaningful words of the sentence to find an SRT match
+      const words = sentence.text
+        .replace(/[^a-záéíóúüñA-ZÁÉÍÓÚÜÑ0-9\s]/g, "")
+        .split(/\s+/)
+        .filter(w => w.length > 2)
+        .slice(0, 3);
+
+      for (const word of words) {
+        const norm = word.toLowerCase();
+        const hit  = wordTimings.find(wt =>
+          wt.text.toLowerCase().replace(/[^a-záéíóúüñ]/g, "") === norm.replace(/[^a-záéíóúüñ]/g, ""),
+        );
+        if (hit) {
+          timestamps.push(hit.startMs / 1000);
+          break;
+        }
+      }
+    }
+  }
+
+  // ── proportional fallback ─────────────────────────────────────────────────
+  if (timestamps.length === 0) {
+    // Evenly spread 2 punch zooms at 30% and 65% of duration
+    return [0.30, 0.65]
+      .map(f => videoDuration * f)
+      .filter(t => t < videoDuration - 4);
+  }
+
+  // ── deduplicate: min 8 s apart, not in first 3 s, not in last 4 s ─────────
+  return timestamps
+    .sort((a, b) => a - b)
+    .filter((t, i, arr) => {
+      if (t < 3)                    return false;
+      if (t > videoDuration - 4)    return false;
+      if (i > 0 && t - arr[i-1] < 8) return false;
+      return true;
+    });
+}
+
+// buildPunchZoomArgs is exported from caption-engine and shared by both engines
+export { buildPunchZoomArgs } from "./caption-engine";
+
 // ── Full video pipeline ───────────────────────────────────────────────────────
 
 export async function applyCaptionsBrowser(
@@ -579,46 +660,7 @@ export async function applyCaptionsBrowser(
     const videoDims = { width: videoInfo.width, height: videoInfo.height };
     logger.info(videoInfo, "[BrowserEngine] Video dimensions probed");
 
-    // ── 3c. Ken Burns zoom pre-process (optional) ────────────────────────
-    // Crops the center of each frame progressively using the timestamp variable
-    // `t` so the zoom is continuous and timestamp-accurate.
-    // crop+scale is far more reliable than zoompan which has frame-counting
-    // quirks with d=1 that can produce incorrect output durations.
-    //
-    // Effect: center-zoom from 1.0× at t=0 to 1.3× at t=duration.
-    //   At zoom factor z: visible area = (W/z × H/z) cropped from center,
-    //   then scaled back to (W × H).
-    let captionSourcePath = videoPath;
-    if (opts?.videoEffects?.zoom) {
-      const zoomedPath = path.join(tmpDir, "zoomed.mp4");
-      const T = videoInfo.duration.toFixed(4);
-      const W = videoInfo.width;
-      const H = videoInfo.height;
-      // Ken Burns zoom via scale+crop:
-      //   1. scale (eval=frame): grows output from W×H → 1.3W×1.3H using timestamp `t`
-      //   2. crop (fixed W×H): always takes the center using in_w/in_h per frame
-      //
-      // Why not crop+scale: FFmpeg 6.x crop filter does NOT support eval=frame —
-      // it evaluates w/h once at init (t=0), so the zoom never moves.
-      // scale DOES support eval=frame, and crop with fixed w/h re-evaluates x/y
-      // per frame using in_w/in_h (which update as scale output grows).
-      const vf = [
-        `scale=w='${W}*(1+0.3*min(t,${T})/${T})':h='${H}*(1+0.3*min(t,${T})/${T})':eval=frame`,
-        `crop=${W}:${H}:x='(in_w-${W})/2':y='(in_h-${H})/2'`,
-      ].join(",");
-      logger.info({ W, H, T }, "[BrowserEngine] Applying Ken Burns zoom (scale+crop)");
-      await execFileAsync("ffmpeg", [
-        "-i",  videoPath,
-        "-vf", vf,
-        "-c:v", "libx264", "-preset", "fast", "-crf", "21",
-        "-c:a", "copy",
-        "-y",  zoomedPath,
-      ], { maxBuffer: 500 * 1024 * 1024 });
-      captionSourcePath = zoomedPath;
-      logger.info("[BrowserEngine] Ken Burns zoom applied ✓");
-    }
-
-    // ── 4. Gather word timings ────────────────────────────────────────────
+    // ── 4. Gather word timings (moved before zoom — needed for punch-zoom detection)
     let wordTimings: WordTiming[] = [];
 
     if (opts?.subtitleUrl) {
@@ -638,6 +680,34 @@ export async function applyCaptionsBrowser(
 
     if (wordTimings.length === 0) {
       return { url: null, error: "[BrowserEngine] No word timings available" };
+    }
+
+    // ── 3c. Punch zoom pre-process (optional) ────────────────────────────────
+    // Quick zoom-in toward the avatar's face at the most impactful sentences:
+    //   • 0.35 s ramp in (1.0× → 1.4×)
+    //   • 2.3 s hold at peak zoom
+    //   • 0.35 s ramp out (1.4× → 1.0×)
+    // Total: ~3 s per event, typically 2-3 events per video.
+    // Uses zoompan with t-based expressions so timing is driven by real PTS,
+    // not a fragile frame counter.
+    let captionSourcePath = videoPath;
+    if (opts?.videoEffects?.zoom && script) {
+      const punchTs   = findPunchZoomTimestamps(script, wordTimings, videoInfo.duration);
+      const punchArgs = buildPunchZoomArgs(punchTs, videoInfo.duration, videoInfo.width, videoInfo.height);
+      if (punchArgs) {
+        const zoomedPath = path.join(tmpDir, "zoomed.mp4");
+        logger.info({ punchTs }, "[BrowserEngine] Applying punch zoom at timestamps");
+        await execFileAsync("ffmpeg", [
+          "-i", videoPath,
+          ...punchArgs,
+          "-c:v", "libx264", "-preset", "fast", "-crf", "21",
+          "-c:a", "aac", "-b:a", "192k",
+          "-movflags", "+faststart",
+          "-y", zoomedPath,
+        ], { maxBuffer: 500 * 1024 * 1024 });
+        captionSourcePath = zoomedPath;
+        logger.info({ count: punchTs.length }, "[BrowserEngine] Punch zoom applied ✓");
+      }
     }
 
     // ── 5. Build CaptionCues ──────────────────────────────────────────────
