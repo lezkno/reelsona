@@ -938,7 +938,7 @@ export default function ContentPlan() {
 
                                 {/* ── Viral Editorial Engine metadata ──────────── */}
                                 {(() => {
-                                  const fx = item.video_effects_override ?? settings?.video_effects
+                                  const fx = (item as any).video_effects as Record<string, boolean> | null
                                   const hasActiveEffect = fx && (fx.zoom || fx.ai_broll || fx.text_cards)
                                   return (item.viral_score != null || item.editorial_angle || item.share_reason || hasActiveEffect)
                                 })() && (
@@ -1009,9 +1009,9 @@ export default function ContentPlan() {
                                         </TooltipContent>
                                       </Tooltip>
                                     )}
-                                    {/* Video effects badges (override or account default) */}
+                                    {/* Video effects badges — only effects actually applied during processing */}
                                     {(() => {
-                                      const fx = item.video_effects_override ?? settings?.video_effects
+                                      const fx = (item as any).video_effects as Record<string, boolean> | null
                                       if (!fx) return null
                                       const active = [
                                         fx.zoom       && "Zoom",

@@ -60,6 +60,7 @@ interface VideoInfo {
   videoUrl: string | null;
   captionedVideoUrl: string | null;
   thumbnailUrl: string | null;
+  videoEffects: Record<string, boolean> | null;
 }
 
 function mapItem(
@@ -86,6 +87,9 @@ function mapItem(
     captioned_video_url: videoInfo?.captionedVideoUrl ?? null,
     thumbnail_url: videoInfo?.thumbnailUrl ?? null,
     video_status: videoInfo?.videoStatus ?? null,
+    // Effects actually applied when the video was processed (from the video record).
+    // Distinct from video_effects_override which is the per-item config setting.
+    video_effects: videoInfo?.videoEffects ?? null,
     // ── Viral Editorial Engine fields ────────────────────────────────────────
     viral_score: item.viralScore ?? null,
     editorial_angle: item.editorialAngle ?? null,
@@ -121,6 +125,7 @@ async function fetchVideoInfos(videoIds: number[]): Promise<Map<number, VideoInf
       videoUrl: videosTable.videoUrl,
       captionedVideoUrl: videosTable.captionedVideoUrl,
       thumbnailUrl: videosTable.thumbnailUrl,
+      videoEffects: videosTable.videoEffects,
     })
     .from(videosTable)
     .where(inArray(videosTable.id, videoIds));
@@ -133,6 +138,7 @@ async function fetchVideoInfos(videoIds: number[]): Promise<Map<number, VideoInf
         videoUrl: r.videoUrl,
         captionedVideoUrl: resolveCaptionedUrl(r.captionedVideoUrl),
         thumbnailUrl: r.thumbnailUrl,
+        videoEffects: (r.videoEffects as Record<string, boolean> | null) ?? null,
       },
     ])
   );
