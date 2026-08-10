@@ -338,12 +338,37 @@ router.post("/videos/:id/publish", async (req, res): Promise<void> => {
     return;
   }
 
-  if (video.status !== "ready" || !video.videoUrl) {
+  // A video needs a URL (captioned or original) to be publishable
+  const publishableUrl = video.captionedVideoUrl || video.videoUrl;
+  if (!publishableUrl) {
     res.status(400).json({ error: "Video is not ready for publishing" });
     return;
   }
+  if (video.status === "generating") {
+    res.status(400).json({ error: "El video todavía se está generando, espera a que termine" });
+    return;
+  }
+  if (video.status === "published") {
+    res.status(400).json({ error: "Este video ya fue publicado en Instagram" });
+    return;
+  }
+  if (video.status === "publishing") {
+    res.status(400).json({ error: "Este video ya se está publicando en este momento" });
+    return;
+  }
+  // "failed" can happen when a publish attempt was interrupted (server restart mid-publish).
+  // If the video has a URL it's still publishable — reset to "ready" so the pipeline proceeds.
+  if (video.status === "failed") {
+    if (!video.videoUrl) {
+      res.status(400).json({ error: "Este video falló al generarse. Reintenta la generación desde el Plan de Contenido." });
+      return;
+    }
+    await db.update(videosTable)
+      .set({ status: "ready", errorMessage: null, updatedAt: new Date() })
+      .where(and(eq(videosTable.id, video.id), eq(videosTable.userId, userId)));
+  }
   if (video.captionStatus === null || video.captionStatus === "processing") {
-    res.status(400).json({ error: "Video captions are still processing — please wait before publishing" });
+    res.status(400).json({ error: "Los subtítulos todavía se están procesando — espera un momento antes de publicar" });
     return;
   }
 

@@ -523,6 +523,8 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
       // null = caption pending (will be processed after HeyGen completes)
       // "disabled" = captions are off, skip the step entirely
       captionStatus: automation.captionsEnabled ? null : "disabled",
+      // Carry the user's video effects config so the caption engine can apply zoom etc.
+      videoEffects: (settings.videoEffects as object | null) ?? null,
       // Start the timeout clock at submission, not at first poll
       generatingStartedAt: new Date(),
     })
@@ -786,7 +788,8 @@ async function runCopyGeneration(contentItemId: number): Promise<void> {
     [item] = await db.select().from(contentPlanItemsTable).where(eq(contentPlanItemsTable.id, contentItemId));
     if (!item) throw new Error("Content item not found");
 
-    const [settings] = await db.select().from(settingsTable).limit(1);
+    const [settings] = await db.select().from(settingsTable)
+      .where(eq(settingsTable.userId, item.userId)).limit(1);
     const niche    = settings?.niche    || "general";
     const tone     = settings?.tone     || "profesional";
     const language = settings?.language || "es";
