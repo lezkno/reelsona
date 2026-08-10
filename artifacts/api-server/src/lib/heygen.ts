@@ -121,6 +121,66 @@ export async function listGroupLooks(groupId: string, apiKey?: string): Promise<
   return res.data?.data?.avatar_list ?? [];
 }
 
+// ── Avatar preview image lookup ───────────────────────────────────────────────
+// Cache: avatarId → { url | null, fetched at }. TTL 10 min.
+const avatarImageCache = new Map<string, { url: string | null; at: number }>();
+const AVATAR_IMAGE_TTL = 10 * 60 * 1000;
+
+/**
+ * Resolve the clean preview photo for a given HeyGen avatar / look ID.
+ *
+ * Search order:
+ *   1. In-memory cache (10 min TTL)
+ *   2. GET /v2/avatars — covers standalone avatars
+ *   3. GET /v2/avatar_group.list + group avatars — covers looks inside groups
+ *
+ * Returns null on any error or when the ID is not found, so callers can fall
+ * back gracefully (e.g. to the video thumbnail frame).
+ */
+export async function fetchAvatarPreviewImage(
+  avatarId: string,
+  apiKey?: string,
+): Promise<string | null> {
+  // 1. Cache hit
+  const cached = avatarImageCache.get(avatarId);
+  if (cached && Date.now() - cached.at < AVATAR_IMAGE_TTL) return cached.url;
+
+  try {
+    const client = getClient(apiKey);
+
+    // 2. Standalone avatars
+    const avatarsRes = await client.get("/v2/avatars");
+    const avatars: HeyGenAvatar[] = avatarsRes.data?.data?.avatars ?? [];
+    const match = avatars.find((a) => a.avatar_id === avatarId);
+    if (match?.preview_image_url) {
+      avatarImageCache.set(avatarId, { url: match.preview_image_url, at: Date.now() });
+      return match.preview_image_url;
+    }
+
+    // 3. Avatar groups + their looks
+    const groupsRes = await client.get("/v2/avatar_group.list", { params: { include_public: false } });
+    const groups: HeyGenAvatarGroup[] = groupsRes.data?.data?.avatar_group_list ?? [];
+    for (const group of groups) {
+      const looksRes = await client.get(`/v2/avatar_group/${group.id}/avatars`);
+      const looks: any[] = looksRes.data?.data?.avatar_list ?? [];
+      const lookMatch = looks.find((l: any) => l.avatar_id === avatarId);
+      if (lookMatch) {
+        // Looks expose preview_image_url or preview_image depending on the shape
+        const url: string | null = lookMatch.preview_image_url ?? lookMatch.preview_image ?? null;
+        avatarImageCache.set(avatarId, { url, at: Date.now() });
+        return url;
+      }
+    }
+
+    // Not found anywhere
+    avatarImageCache.set(avatarId, { url: null, at: Date.now() });
+    return null;
+  } catch (err) {
+    logger.warn({ avatarId, err }, "[HeyGen] fetchAvatarPreviewImage failed");
+    return null;
+  }
+}
+
 // Map of look/avatar id (including tp: prefix) -> its group's default voice in HeyGen
 let defaultVoiceMap: { map: Map<string, string>; at: number } | null = null;
 

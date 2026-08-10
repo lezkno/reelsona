@@ -21,7 +21,7 @@ import { logger } from "./logger";
 import { generateScript, regenerateCaption, generateContentTopics } from "./ai-scripts";
 import { getLatestAuditCache } from "./audit-cache";
 import { getStrategyProfile, toStrategyContext } from "./strategy-profile";
-import { generateVideo, getVideoStatus, listVoices, getAvatarDefaultVoiceId } from "./heygen";
+import { generateVideo, getVideoStatus, listVoices, getAvatarDefaultVoiceId, fetchAvatarPreviewImage } from "./heygen";
 import { createReelContainer, checkContainerStatus, publishContainer, getPermalink } from "./instagram-api";
 import { getSignedCaptionedVideoUrl } from "./objectStorage";
 import { generateBrandCover } from "./brand-cover";
@@ -1354,12 +1354,28 @@ async function _publishVideoToInstagramInner(videoId: number, videoUrl?: string)
             .limit(1);
           coverText = itemForCover?.hook ?? itemForCover?.topic ?? coverText;
         }
+        // Prefer the clean avatar preview photo over the video thumbnail:
+        // the preview image is a well-lit, background-free portrait that gives
+        // gpt-image-1 a much cleaner reference than a mid-sentence video frame.
+        // Fall back to the video thumbnail if the lookup fails or returns nothing.
+        let avatarReferenceUrl: string | null = null;
+        if (video.avatarId) {
+          const heygenKey = process.env.HEYGEN_API_KEY ?? "";
+          avatarReferenceUrl = await fetchAvatarPreviewImage(video.avatarId, heygenKey || undefined);
+          if (avatarReferenceUrl) {
+            logger.info({ videoId, avatarId: video.avatarId }, "[Publish] Using avatar preview image as cover reference");
+          } else {
+            logger.info({ videoId }, "[Publish] Avatar preview not found — falling back to video thumbnail");
+          }
+        }
+        const coverReferenceUrl = avatarReferenceUrl ?? video.thumbnailUrl ?? null;
+
         brandCoverUrl = await generateBrandCover(
           videoId,
           coverText,
           brandSettings.brandPrimaryColor,
           brandSettings.brandAccentColor ?? null,
-          video.thumbnailUrl ?? null            // HeyGen avatar frame → gpt-image-1 reference
+          coverReferenceUrl,
         );
         if (brandCoverUrl) {
           // Persist so retry runs don't regenerate (saves AI cost)
