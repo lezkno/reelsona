@@ -1470,8 +1470,8 @@ export default function CaptionStudio() {
             {/* AI B-roll */}
             <div className="flex items-start gap-3 rounded-xl border bg-muted/30 px-4 py-3">
               <div className="mt-0.5 flex-1 min-w-0">
-                <p className="text-sm font-semibold leading-tight">B-roll con IA</p>
-                <p className="text-xs text-muted-foreground mt-0.5 leading-snug">Imágenes generadas con gpt-image-1 por segmento</p>
+                <p className="text-sm font-semibold leading-tight">B-Roll IA</p>
+                <p className="text-xs text-muted-foreground mt-0.5 leading-snug">Inserta imágenes fotorrealistas sincronizadas al guion</p>
               </div>
               <Switch
                 checked={videoEffects.ai_broll}
@@ -1496,7 +1496,7 @@ export default function CaptionStudio() {
           </div>
           {videoEffects.ai_broll && (
             <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">
-              ⚡ B-roll con IA genera ~3-4 imágenes por video usando gpt-image-1 (~$0.07/img). Costo adicional cobrado directamente por OpenAI.
+              ⏱ El B-Roll añade ~90s al procesamiento. Genera ~3-4 imágenes por video con gpt-image-1 (~$0.07/img), cobrado directamente por OpenAI.
             </p>
           )}
         </CardContent>
