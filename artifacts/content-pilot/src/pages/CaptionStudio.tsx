@@ -1638,6 +1638,10 @@ export default function CaptionStudio() {
         </div>
       )}
 
+      {/* ── 5-col layout: 4 cols content · 1 col preview sticky ──────────── */}
+      <div className="grid grid-cols-5 gap-8 items-start">
+        <div className="col-span-4 space-y-6">
+
       {/* Enable / status banner */}
       <Card className={`border-2 ${captionsEnabled ? "border-primary/40 bg-primary/5" : "border-dashed"}`}>
         <CardContent className="p-5 flex flex-col sm:flex-row items-start sm:items-center gap-4 justify-between">
@@ -2019,10 +2023,6 @@ export default function CaptionStudio() {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Left: preset selector + advanced */}
-        <div className="lg:col-span-2 space-y-6">
-
           {/* ── Card Templates (visible when text_cards effect is enabled) ─── */}
           {videoEffects.text_cards && (
             <div className="space-y-6">
@@ -2146,54 +2146,52 @@ export default function CaptionStudio() {
             </div>
           )}
 
-        </div>
+        </div>{/* end col-span-4 */}
 
-        {/* Right: live preview + pipeline — sticky on desktop so it stays visible while scrolling */}
-        <div className="space-y-6 lg:sticky lg:top-6 lg:self-start">
-          <div>
-            <h2 className="text-xl font-display font-bold mb-4">Vista previa</h2>
-            {/* Wrap in relative container so we can overlay the card preview */}
-            <div className="relative">
-              {mergedTmpl
-                ? (
-                    <TemplateCaptionPreview
-                      template={mergedTmpl}
-                      yOverride={local.y_position ?? undefined}
-                      marginXOverride={local.margin_x ?? undefined}
-                      onYPositionChange={(y) => set("y_position", y)}
-                      onXMarginChange={(x) => set("margin_x", x)}
-                    />
-                  )
-                : (
-                  <CaptionPreview
-                    config={local}
+        {/* 5th col: phone preview — sticky, flota mientras el usuario scrollea */}
+        <div className="col-span-1 sticky top-6 self-start space-y-2">
+          <p className="text-[11px] font-semibold text-center text-muted-foreground uppercase tracking-widest mb-2">
+            Vista previa
+          </p>
+          <div className="relative">
+            {mergedTmpl
+              ? (
+                  <TemplateCaptionPreview
+                    template={mergedTmpl}
+                    yOverride={local.y_position ?? undefined}
+                    marginXOverride={local.margin_x ?? undefined}
                     onYPositionChange={(y) => set("y_position", y)}
                     onXMarginChange={(x) => set("margin_x", x)}
                   />
                 )
-              }
-              {/* Card overlay — positioned at ~54% from screen top, matching the engine placement */}
-              {videoEffects.text_cards && savedCard && (
-                <div
-                  className="absolute pointer-events-none"
-                  style={{ top: 274, left: "50%", transform: "translateX(-50%)", width: 180 }}
-                >
-                  <CardOverlayPreview card={savedCard} />
-                </div>
-              )}
-            </div>
-            <p className="text-xs text-muted-foreground mt-2 text-center">
-              Preview usa la misma definición de plantilla que el render final. <span className="text-violet-500 font-medium">WYSIWYG.</span>
-            </p>
+              : (
+                <CaptionPreview
+                  config={local}
+                  onYPositionChange={(y) => set("y_position", y)}
+                  onXMarginChange={(x) => set("margin_x", x)}
+                />
+              )
+            }
             {videoEffects.text_cards && savedCard && (
-              <p className="text-xs text-orange-600 dark:text-orange-400 mt-1 text-center font-medium">
-                + Card de {savedCard.type === "hook" ? "Hook" : savedCard.type === "stat" ? "Stat" : "CTA"} activa
-              </p>
+              <div
+                className="absolute pointer-events-none"
+                style={{ top: 274, left: "50%", transform: "translateX(-50%)", width: 180 }}
+              >
+                <CardOverlayPreview card={savedCard} />
+              </div>
             )}
           </div>
-
+          <p className="text-[10px] text-muted-foreground text-center">
+            <span className="text-violet-500 font-medium">WYSIWYG</span> — lo que ves se renderiza.
+          </p>
+          {videoEffects.text_cards && savedCard && (
+            <p className="text-[10px] text-orange-500 dark:text-orange-400 text-center font-medium">
+              + Card de {savedCard.type === "hook" ? "Hook" : savedCard.type === "stat" ? "Stat" : "CTA"} activa
+            </p>
+          )}
         </div>
-      </div>
+
+      </div>{/* end 5-col grid */}
     </div>
   )
 }
