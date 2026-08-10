@@ -417,15 +417,16 @@ async function compositeCards(
     const fadeOutStart = Math.max(startSec + FADE_DUR, endSec - FADE_DUR);
 
     filterParts.push(
-      // Fade the card PNG in and out (alpha=1 → only alpha channel fades)
+      // Convert to yuva420p first so the alpha channel is preserved through fade
       `[${inputIdx}:v]` +
+      `format=yuva420p,` +
       `fade=t=in:st=${startSec.toFixed(3)}:d=${FADE_DUR}:alpha=1,` +
       `fade=t=out:st=${fadeOutStart.toFixed(3)}:d=${FADE_DUR}:alpha=1` +
       `[${fadeLabel}]`,
     );
 
     filterParts.push(
-      `[${prevLabel}][${fadeLabel}]overlay=0:0[${outLabel}]`,
+      `[${prevLabel}][${fadeLabel}]overlay=0:0:eof_action=pass[${outLabel}]`,
     );
 
     prevLabel = outLabel;
