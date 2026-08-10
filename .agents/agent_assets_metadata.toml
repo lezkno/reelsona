@@ -1,0 +1,9 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "nj8-InS4wd9DoZPzviQpP"
+uri = "file://test-cover.jpg"
+type = "image"
+title = "Miniatura de prueba — motor canvas"
+description = "Portada 1080×1920 generada con el motor de canvas (fallback). La versión con IA usa esta misma estructura base pero incorpora el frame del avatar de HeyGen como referencia visual."
