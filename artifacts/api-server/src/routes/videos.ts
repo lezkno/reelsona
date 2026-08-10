@@ -16,8 +16,9 @@ import {
   ScheduleVideoBody,
   ScheduleVideoResponse,
 } from "@workspace/api-zod";
-import { generateVideo } from "../lib/heygen";
+import { generateVideo, fetchAvatarPreviewImage } from "../lib/heygen";
 import { publishVideoToInstagram, pickNextAvatar, resolveVoiceId, runCaptionProcessing } from "../lib/scheduler";
+import { generateBrandCover } from "../lib/brand-cover";
 import { logger } from "../lib/logger";
 
 const router = Router();
@@ -430,6 +431,74 @@ router.post("/videos/:id/reapply-captions", async (req, res): Promise<void> => {
     .catch((err) => console.error("[ReapplyCaptions] Failed for video", id, err));
 
   res.json({ success: true, message: "Re-procesando efectos en segundo plano" });
+});
+
+router.post("/videos/:id/regenerate-cover", async (req, res): Promise<void> => {
+  const userId = req.session.user!.userId;
+  const id = Number(req.params.id);
+  if (!id || isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const [video] = await db.select().from(videosTable)
+    .where(and(eq(videosTable.id, id), eq(videosTable.userId, userId))).limit(1);
+  if (!video) { res.status(404).json({ error: "Video not found" }); return; }
+
+  const [settings] = await db
+    .select({ brandPrimaryColor: settingsTable.brandPrimaryColor, brandAccentColor: settingsTable.brandAccentColor })
+    .from(settingsTable)
+    .where(eq(settingsTable.userId, userId))
+    .limit(1);
+
+  if (!settings?.brandPrimaryColor) {
+    res.status(400).json({ error: "Configurá primero los colores de marca en Ajustes → Identidad Visual" });
+    return;
+  }
+
+  // Resolve hook text from the linked content plan item if available
+  let hookText = video.topic ?? "Reel";
+  if (video.contentPlanId) {
+    const [item] = await db
+      .select({ hook: contentPlanItemsTable.hook, topic: contentPlanItemsTable.topic })
+      .from(contentPlanItemsTable)
+      .where(eq(contentPlanItemsTable.id, video.contentPlanId))
+      .limit(1);
+    hookText = item?.hook ?? item?.topic ?? hookText;
+  }
+
+  // Respond 202 immediately — gpt-image-1 can take up to 60 s
+  res.status(202).json({ message: "Regenerando portada en segundo plano" });
+
+  // Fire-and-forget: resolve avatar photo → generate cover → persist
+  ;(async () => {
+    try {
+      const heygenKey = process.env.HEYGEN_API_KEY ?? "";
+      let referenceUrl: string | null = null;
+      if (video.avatarId) {
+        referenceUrl = await fetchAvatarPreviewImage(video.avatarId, heygenKey || undefined);
+      }
+      referenceUrl ??= video.thumbnailUrl ?? null;
+
+      // Clear the old cover URL so the frontend polling detects the change
+      await db.update(videosTable)
+        .set({ thumbnailCoverUrl: null, updatedAt: new Date() })
+        .where(eq(videosTable.id, id));
+
+      const coverUrl = await generateBrandCover(
+        video.id,
+        hookText,
+        settings.brandPrimaryColor!,
+        settings.brandAccentColor ?? null,
+        referenceUrl,
+      );
+      if (coverUrl) {
+        await db.update(videosTable)
+          .set({ thumbnailCoverUrl: coverUrl, updatedAt: new Date() })
+          .where(eq(videosTable.id, id));
+        logger.info({ videoId: id, coverUrl: coverUrl.slice(0, 80) }, "[RegenerateCover] Cover saved");
+      }
+    } catch (err) {
+      logger.error({ videoId: id, err }, "[RegenerateCover] Failed");
+    }
+  })();
 });
 
 router.delete("/videos/:id", async (req, res): Promise<void> => {

@@ -13,12 +13,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
-import { ExternalLink, Play, Clock, AlertTriangle, CheckCircle2, Instagram, CalendarClock, Send, Trash2, CheckSquare, Square, X, RotateCcw, Loader2, Eye, Wand2 } from "lucide-react"
+import { ExternalLink, Play, Clock, AlertTriangle, CheckCircle2, Instagram, CalendarClock, Send, Trash2, CheckSquare, Square, X, RotateCcw, Loader2, Eye, Wand2, Image as CoverIcon } from "lucide-react"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
 import { useToast } from "@/hooks/use-toast"
 import { useQueryClient } from "@tanstack/react-query"
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect, type Dispatch, type SetStateAction } from "react"
 
 // ── Video preview modal with caption/hashtag editing ─────────────────────────
 function VideoPreviewModal({ video, onClose }: { video: Video | null; onClose: () => void }) {
@@ -75,15 +75,69 @@ function VideoPreviewModal({ video, onClose }: { video: Video | null; onClose: (
   )
 }
 
+// ── Regenerate cover button ───────────────────────────────────────────────────
+function RegenarCoverButton({
+  video,
+  regeneratingCovers,
+  setRegeneratingCovers,
+}: {
+  video: any
+  regeneratingCovers: Set<number>
+  setRegeneratingCovers: Dispatch<SetStateAction<Set<number>>>
+}) {
+  const { toast } = useToast()
+  const isRegenerating = regeneratingCovers.has(video.id)
+  const base = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? ""
+
+  const handleClick = async () => {
+    setRegeneratingCovers(prev => new Set([...prev, video.id]))
+    try {
+      const res = await fetch(`${base}/api/videos/${video.id}/regenerate-cover`, {
+        method: "POST",
+        credentials: "include",
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body?.error ?? "Error al regenerar portada")
+      }
+    } catch (err: any) {
+      setRegeneratingCovers(prev => { const next = new Set(prev); next.delete(video.id); return next })
+      toast({ title: "Error", description: err?.message ?? "No se pudo regenerar la portada", variant: "destructive" })
+    }
+  }
+
+  return (
+    <Button
+      size="sm"
+      variant="outline"
+      className="w-full text-xs gap-1.5"
+      disabled={isRegenerating}
+      onClick={handleClick}
+    >
+      {isRegenerating
+        ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+        : <CoverIcon className="w-3.5 h-3.5" />}
+      {isRegenerating ? "Generando portada…" : "Regenerar portada"}
+    </Button>
+  )
+}
+
 export default function Videos() {
+  // Tracks video IDs whose cover is being regenerated (fire-and-forget on server)
+  const [regeneratingCovers, setRegeneratingCovers] = useState<Set<number>>(new Set())
+  const { toast } = useToast()
+  const queryClient = useQueryClient()
+
   const { data: videos, isLoading } = useGetVideos(
     { status: 'all' },
     {
       query: {
-        // Poll every 5 s while any video is rendering, publishing, or processing captions/effects
+        // Poll every 5 s while any video is rendering, publishing, processing captions/effects,
+        // OR while a cover regeneration is in flight.
         refetchInterval: (query: any) => {
           const data = query?.state?.data
           if (!Array.isArray(data)) return false
+          if (regeneratingCovers.size > 0) return 5000
           const anyActive = data.some((v: any) =>
             v.status === 'generating' ||
             v.status === 'publishing' ||
@@ -95,13 +149,26 @@ export default function Videos() {
       } as any,
     }
   )
+
+  // Stop polling once a regenerating cover appears in the video data
+  useEffect(() => {
+    if (regeneratingCovers.size === 0 || !videos) return
+    const done = videos.filter((v: any) => regeneratingCovers.has(v.id) && v.thumbnail_cover_url)
+    if (done.length > 0) {
+      setRegeneratingCovers(prev => {
+        const next = new Set(prev)
+        done.forEach((v: any) => next.delete(v.id))
+        return next
+      })
+      toast({ title: "Portada generada", description: "La portada del Reel se regeneró correctamente." })
+    }
+  }, [videos, regeneratingCovers, toast])
+
   const publishVideo = usePublishVideo()
   const scheduleVideo = useScheduleVideo()
   const deleteVideo = useDeleteVideo()
   const retryVideo = useRetryVideo()
   const reapplyCaptions = useReapplyCaptions()
-  const { toast } = useToast()
-  const queryClient = useQueryClient()
 
   const [scheduleDialog, setScheduleDialog] = useState<{ videoId: number; topic: string; current?: string } | null>(null)
   const [scheduleDatetime, setScheduleDatetime] = useState("")
@@ -283,8 +350,12 @@ export default function Videos() {
                   className="aspect-[9/16] bg-muted relative"
                   onClick={() => selectMode && toggleSelect(video.id)}
                 >
-                  {video.thumbnail_url ? (
-                    <img src={video.thumbnail_url} alt="Thumbnail" className="w-full h-full object-cover" />
+                  {(video.thumbnail_cover_url || video.thumbnail_url) ? (
+                    <img
+                      src={(video as any).thumbnail_cover_url ?? video.thumbnail_url ?? ""}
+                      alt="Thumbnail"
+                      className="w-full h-full object-cover"
+                    />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center bg-secondary/10 text-secondary">
                       {video.status === 'generating' ? (
@@ -486,7 +557,6 @@ export default function Videos() {
                         onClick={() => {
                           reapplyCaptions.mutate({ id: video.id }, {
                             onSuccess: () => {
-                              // Invalidate both queries so the spinner and pipeline step update immediately
                               queryClient.invalidateQueries({ queryKey: getGetVideosQueryKey() })
                               queryClient.invalidateQueries({ queryKey: getGetContentPlanQueryKey() })
                               toast({ title: "Re-procesando efectos", description: "Los efectos se están aplicando. El video se actualizará automáticamente." })
@@ -498,6 +568,7 @@ export default function Videos() {
                         {reapplyCaptions.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
                         {reapplyCaptions.isPending ? "Aplicando…" : "Re-aplicar efectos"}
                       </Button>
+                      <RegenarCoverButton video={video} regeneratingCovers={regeneratingCovers} setRegeneratingCovers={setRegeneratingCovers} />
                     </div>
                   )}
 
@@ -523,6 +594,7 @@ export default function Videos() {
                         {reapplyCaptions.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
                         {reapplyCaptions.isPending ? "Aplicando…" : "Re-aplicar efectos"}
                       </Button>
+                      <RegenarCoverButton video={video} regeneratingCovers={regeneratingCovers} setRegeneratingCovers={setRegeneratingCovers} />
                     </div>
                   )}
 
