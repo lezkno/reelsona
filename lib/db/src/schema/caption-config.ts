@@ -23,6 +23,8 @@ export interface CardSlotConfig {
   headline?: string;   // stat
   subtext?: string;    // stat
   templateId?: string; // visual style id
+  yPosition?: number;  // 0–1 fraction of video height for card center (default 0.54)
+  fontScale?: number;  // font-size multiplier (default 1.0)
 }
 
 /** Multi-card configuration — hook, stat and CTA each configured independently (v2 format). */

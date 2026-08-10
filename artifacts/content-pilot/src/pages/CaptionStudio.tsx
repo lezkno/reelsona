@@ -2138,10 +2138,10 @@ export default function CaptionStudio() {
       )}
 
       {/* ── Video Effects ─────────────────────────────────────────────────── */}
-      <Card className={`border-2 ${(videoEffects.zoom || videoEffects.ai_broll || videoEffects.text_cards) ? "border-primary/40 bg-primary/5" : "border-dashed"}`}>
+      <Card className={`border-2 ${(videoEffects.zoom || videoEffects.ai_broll) ? "border-primary/40 bg-primary/5" : "border-dashed"}`}>
         <CardContent className="p-5 space-y-4">
           <div className="flex items-start gap-3">
-            <div className={`mt-0.5 w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${(videoEffects.zoom || videoEffects.ai_broll || videoEffects.text_cards) ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
+            <div className={`mt-0.5 w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${(videoEffects.zoom || videoEffects.ai_broll) ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
               <Zap className="w-5 h-5" />
             </div>
             <div>
@@ -2178,79 +2178,9 @@ export default function CaptionStudio() {
                 className="shrink-0 mt-0.5"
               />
             </div>
-            {/* Text cards */}
-            <div className="flex items-start gap-3 rounded-xl border bg-muted/30 px-4 py-3">
-              <div className="mt-0.5 flex-1 min-w-0">
-                <p className="text-sm font-semibold leading-tight">Cards de texto</p>
-                <p className="text-xs text-muted-foreground mt-0.5 leading-snug">Stats, hooks y CTAs animados sobre el video</p>
-              </div>
-              <Switch
-                checked={videoEffects.text_cards}
-                onCheckedChange={(v) => handleToggleEffect("text_cards", v)}
-                disabled={updateSettings.isPending || isVideoProcessing}
-                className="shrink-0 mt-0.5"
-              />
-            </div>
           </div>
         </CardContent>
       </Card>
-
-          {/* ── Card Configuration (visible when text_cards effect is enabled) ── */}
-          {videoEffects.text_cards && (
-            <div className="space-y-4">
-              {/* Header */}
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <h2 className="text-xl font-display font-bold">Configuración de Cards</h2>
-                  {activeCardCount > 0 && (
-                    <span className="text-xs bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 px-2 py-0.5 rounded-full font-medium">
-                      {activeCardCount} activa{activeCardCount > 1 ? "s" : ""}
-                    </span>
-                  )}
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  Activá una o más cards. Cada tipo aparece en un momento distinto del video — las captions se pausan mientras la card está visible.
-                </p>
-              </div>
-
-              <CardSlotPanel
-                type="hook"
-                label="🎣 Hook"
-                description="Genera curiosidad o presenta el problema al inicio del video"
-                timingLabel="~6%"
-                slot={localCards.hook}
-                onChange={(s) => setLocalCards((c) => ({ ...c, hook: s }))}
-                disabled={isVideoProcessing}
-              />
-              <CardSlotPanel
-                type="stat"
-                label="📊 Dato clave"
-                description="Resalta un número o métrica en el punto medio del video"
-                timingLabel="~44%"
-                slot={localCards.stat}
-                onChange={(s) => setLocalCards((c) => ({ ...c, stat: s }))}
-                disabled={isVideoProcessing}
-              />
-              <CardSlotPanel
-                type="cta"
-                label="📣 CTA"
-                description="Invitación directa a seguir o guardar al final del video"
-                timingLabel="~81%"
-                slot={localCards.cta}
-                onChange={(s) => setLocalCards((c) => ({ ...c, cta: s }))}
-                disabled={isVideoProcessing}
-              />
-
-              <Button
-                onClick={saveCardConfig}
-                disabled={savingCards || isVideoProcessing}
-                className="w-full gap-2"
-              >
-                {savingCards ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                {savingCards ? "Guardando..." : "Guardar configuración"}
-              </Button>
-            </div>
-          )}
 
         </div>{/* end col-span-4 */}
 
@@ -2278,23 +2208,10 @@ export default function CaptionStudio() {
                 />
               )
             }
-            {videoEffects.text_cards && previewCard && (
-              <div
-                className="absolute pointer-events-none"
-                style={{ top: 274, left: "50%", transform: "translateX(-50%)", width: 180 }}
-              >
-                <CardOverlayPreview card={previewCard} />
-              </div>
-            )}
           </div>
           <p className="text-[10px] text-muted-foreground text-center">
             <span className="text-violet-500 font-medium">WYSIWYG</span> — lo que ves se renderiza.
           </p>
-          {videoEffects.text_cards && activeCardCount > 0 && (
-            <p className="text-[10px] text-orange-500 dark:text-orange-400 text-center font-medium">
-              + {activeCardCount} card{activeCardCount > 1 ? "s" : ""} activa{activeCardCount > 1 ? "s" : ""}
-            </p>
-          )}
         </div>
 
       </div>{/* end 5-col grid */}

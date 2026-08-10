@@ -66,6 +66,8 @@ export interface HookCard {
   type: "hook";
   /** Full sentence / question to display */
   text: string;
+  yPosition?: number; // 0–1 fraction of video height for card center (default 0.54)
+  fontScale?: number; // font-size multiplier (default 1.0)
 }
 
 export interface StatCard {
@@ -74,12 +76,16 @@ export interface StatCard {
   headline: string;
   /** Short supporting line, e.g. "creadores ya usan IA" */
   subtext: string;
+  yPosition?: number;
+  fontScale?: number;
 }
 
 export interface CtaCard {
   type: "cta";
   /** CTA sentence, e.g. "Seguime para más estrategias" */
   text: string;
+  yPosition?: number;
+  fontScale?: number;
 }
 
 export type TextCard = HookCard | StatCard | CtaCard;
@@ -466,8 +472,9 @@ function renderHookCard(ctx: Ctx, card: HookCard, vw: number, vh: number, tpl: C
   const cw    = vw - padX * 2;
   const px    = sc(28, vw);
   const py    = sc(22, vw);
-  const fs    = sc(34, vw);
-  const lh    = sc(42, vw);
+  const fsc   = card.fontScale ?? 1.0;
+  const fs    = sc(34, vw) * fsc;
+  const lh    = sc(42, vw) * fsc;
   const extra = barIndent(tpl, vw);
 
   ctx.font = `bold ${fs}px ${tpl.fontFamily}, sans-serif`;
@@ -475,7 +482,7 @@ function renderHookCard(ctx: Ctx, card: HookCard, vw: number, vh: number, tpl: C
   const lines = wrapText(ctx, applyTx(card.text, tpl), textW);
   const ch    = py * 2 + lines.length * lh;
   const rad   = cardRadius(tpl, ch, vw);
-  const cy    = Math.round(vh * 0.54) - ch / 2;
+  const cy    = Math.round(vh * (card.yPosition ?? 0.54)) - ch / 2;
 
   drawCardBg(ctx, padX, cy, cw, ch, rad, tpl, vw);
 
@@ -494,12 +501,13 @@ function renderStatCard(ctx: Ctx, card: StatCard, vw: number, vh: number, tpl: C
   const cw     = vw - padX * 2;
   const px     = sc(28, vw);
   const py     = sc(20, vw);
-  const headFS = sc(80, vw);
-  const subFS  = sc(28, vw);
+  const fsc    = card.fontScale ?? 1.0;
+  const headFS = sc(80, vw) * fsc;
+  const subFS  = sc(28, vw) * fsc;
   const gap    = sc(8, vw);
   const ch     = py * 2 + headFS + gap + subFS;
   const rad    = cardRadius(tpl, ch, vw);
-  const cy     = Math.round(vh * 0.54) - ch / 2;
+  const cy     = Math.round(vh * (card.yPosition ?? 0.54)) - ch / 2;
 
   drawCardBg(ctx, padX, cy, cw, ch, rad, tpl, vw);
 
@@ -522,9 +530,10 @@ function renderCtaCard(ctx: Ctx, card: CtaCard, vw: number, vh: number, tpl: Can
   const cw      = vw - padX * 2;
   const px      = sc(28, vw);
   const py      = sc(22, vw);
-  const fs      = sc(32, vw);
-  const lh      = sc(40, vw);
-  const arrowSz = sc(48, vw);
+  const fsc     = card.fontScale ?? 1.0;
+  const fs      = sc(32, vw) * fsc;
+  const lh      = sc(40, vw) * fsc;
+  const arrowSz = sc(48, vw) * fsc;
   const extra   = barIndent(tpl, vw);
   const textW   = cw - px * 2 - arrowSz - sc(16, vw) - extra;
 
@@ -532,7 +541,7 @@ function renderCtaCard(ctx: Ctx, card: CtaCard, vw: number, vh: number, tpl: Can
   const lines = wrapText(ctx, applyTx(card.text, tpl), textW);
   const ch    = py * 2 + lines.length * lh;
   const rad   = cardRadius(tpl, ch, vw);
-  const cy    = Math.round(vh * 0.54) - ch / 2;
+  const cy    = Math.round(vh * (card.yPosition ?? 0.54)) - ch / 2;
 
   drawCardBg(ctx, padX, cy, cw, ch, rad, tpl, vw);
 
