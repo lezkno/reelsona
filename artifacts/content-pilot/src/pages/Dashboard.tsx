@@ -163,10 +163,12 @@ export default function Dashboard() {
                 </div>
               </div>
               <div className="bg-black/20 rounded-lg p-3 md:p-4 backdrop-blur-sm min-w-0 max-w-xs">
-                <p className="text-xs md:text-sm font-medium text-sidebar-foreground/60 mb-1">Próxima publicación</p>
+                <p className="text-xs md:text-sm font-medium text-sidebar-foreground/60 mb-1">Próxima en el pipeline</p>
                 <div className="text-white font-bold text-sm flex items-center gap-2 flex-wrap">
                   <Clock className="w-3.5 h-3.5 text-primary shrink-0" />
-                  {dashboard.next_scheduled_at ? format(new Date(dashboard.next_scheduled_at), "PPp", { locale: es }) : "No programada"}
+                  {nextItem?.scheduled_at
+                    ? format(new Date(nextItem.scheduled_at), "d MMM, HH:mm", { locale: es })
+                    : "No programada"}
                 </div>
                 {nextItem?.topic && (
                   <p className="text-xs text-sidebar-foreground/60 mt-1 line-clamp-2 leading-snug">

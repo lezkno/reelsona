@@ -590,16 +590,25 @@ export async function runCaptionProcessing(
 ): Promise<void> {
   // Look up the video's stored effects AND the persisted HeyGen subtitle URL
   const [videoRow] = await db
-    .select({ videoEffects: videosTable.videoEffects, heygenSubtitleUrl: videosTable.heygenSubtitleUrl })
+    .select({ videoEffects: videosTable.videoEffects, heygenSubtitleUrl: videosTable.heygenSubtitleUrl, userId: videosTable.userId })
     .from(videosTable)
     .where(eq(videosTable.id, videoId))
     .limit(1);
-  const videoEffects = (videoRow?.videoEffects as { zoom?: boolean } | null) ?? null;
+  const videoEffects = (videoRow?.videoEffects as { zoom?: boolean; ai_broll?: boolean; text_cards?: boolean } | null) ?? null;
   // If caller didn't supply a subtitle URL (e.g. recovery / reapply path), fall back to the
   // one saved in the DB at original completion time so captions keep real word timings.
   const resolvedSubtitleUrl = subtitleUrl ?? videoRow?.heygenSubtitleUrl ?? null;
 
-  const [captionCfg] = await db.select().from(captionConfigTable).limit(1);
+  // Log what effects will be applied so issues are diagnosable
+  logger.info(
+    { videoId, videoEffects, contentPlanId },
+    "[CaptionEngine] Starting caption processing — effects snapshot"
+  );
+
+  const userId = videoRow?.userId;
+  const [captionCfg] = userId
+    ? await db.select().from(captionConfigTable).where(eq(captionConfigTable.userId, userId)).limit(1)
+    : await db.select().from(captionConfigTable).limit(1);
   if (!captionCfg) {
     // Fix 2: no config → mark failed instead of silently leaving captionStatus=null
     await db.update(videosTable)
@@ -620,6 +629,13 @@ export async function runCaptionProcessing(
       .where(eq(contentPlanItemsTable.id, contentPlanId));
     script = item?.script ?? null;
     visualSuggestions = item?.suggestedVisualSupport ?? null;
+    if (!script) {
+      logger.warn({ videoId, contentPlanId }, "[CaptionEngine] Content plan item has no script — text cards will be skipped");
+    }
+  } else {
+    if (videoEffects?.text_cards) {
+      logger.warn({ videoId }, "[CaptionEngine] text_cards enabled but video has no contentPlanId — text cards will be skipped");
+    }
   }
 
   // ── Caption preset rotation ───────────────────────────────────────────────
