@@ -446,6 +446,7 @@ router.post("/videos/:id/regenerate-cover", async (req, res): Promise<void> => {
     .select({
       brandPrimaryColor: settingsTable.brandPrimaryColor,
       brandAccentColor: settingsTable.brandAccentColor,
+      brandLogoUrl: settingsTable.brandLogoUrl,
       heygenApiKey: settingsTable.heygenApiKey,
     })
     .from(settingsTable)
@@ -474,14 +475,18 @@ router.post("/videos/:id/regenerate-cover", async (req, res): Promise<void> => {
   // Fire-and-forget: resolve avatar photo → generate cover → persist
   ;(async () => {
     try {
+      // Resolve avatar preview image using the user's HeyGen API key from DB
       const heygenKey = settings.heygenApiKey ?? undefined;
-      let referenceUrl: string | null = null;
+      let avatarImageUrl: string | null = null;
       if (video.avatarId) {
-        referenceUrl = await fetchAvatarPreviewImage(video.avatarId, heygenKey);
+        avatarImageUrl = await fetchAvatarPreviewImage(video.avatarId, heygenKey);
+        logger.info(
+          { videoId: id, avatarId: video.avatarId, found: !!avatarImageUrl },
+          "[RegenerateCover] Avatar image resolved",
+        );
       }
-      referenceUrl ??= video.thumbnailUrl ?? null;
 
-      // Clear the old cover URL so the frontend polling detects the change
+      // Clear the old cover URL so frontend polling detects the transition
       await db.update(videosTable)
         .set({ thumbnailCoverUrl: null, updatedAt: new Date() })
         .where(eq(videosTable.id, id));
@@ -491,7 +496,8 @@ router.post("/videos/:id/regenerate-cover", async (req, res): Promise<void> => {
         hookText,
         settings.brandPrimaryColor!,
         settings.brandAccentColor ?? null,
-        referenceUrl,
+        avatarImageUrl,                   // avatar portrait → images.edit reference 1
+        settings.brandLogoUrl ?? null,    // brand logo      → images.edit reference 2
       );
       if (coverUrl) {
         await db.update(videosTable)

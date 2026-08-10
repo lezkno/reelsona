@@ -1339,7 +1339,12 @@ async function _publishVideoToInstagramInner(videoId: number, videoUrl?: string)
         .where(eq(automationConfigTable.userId, video.userId))
         .limit(1);
       const [brandSettings] = await db
-        .select({ brandPrimaryColor: settingsTable.brandPrimaryColor, brandAccentColor: settingsTable.brandAccentColor })
+        .select({
+          brandPrimaryColor: settingsTable.brandPrimaryColor,
+          brandAccentColor: settingsTable.brandAccentColor,
+          brandLogoUrl: settingsTable.brandLogoUrl,
+          heygenApiKey: settingsTable.heygenApiKey,
+        })
         .from(settingsTable)
         .where(eq(settingsTable.userId, video.userId))
         .limit(1);
@@ -1354,28 +1359,25 @@ async function _publishVideoToInstagramInner(videoId: number, videoUrl?: string)
             .limit(1);
           coverText = itemForCover?.hook ?? itemForCover?.topic ?? coverText;
         }
-        // Prefer the clean avatar preview photo over the video thumbnail:
-        // the preview image is a well-lit, background-free portrait that gives
-        // gpt-image-1 a much cleaner reference than a mid-sentence video frame.
-        // Fall back to the video thumbnail if the lookup fails or returns nothing.
-        let avatarReferenceUrl: string | null = null;
+        // Resolve avatar preview photo — clean portrait used as gpt-image-1 reference.
+        // Use heygenApiKey from the user's settings (not a global env var).
+        let avatarImageUrl: string | null = null;
         if (video.avatarId) {
-          const heygenKey = process.env.HEYGEN_API_KEY ?? "";
-          avatarReferenceUrl = await fetchAvatarPreviewImage(video.avatarId, heygenKey || undefined);
-          if (avatarReferenceUrl) {
-            logger.info({ videoId, avatarId: video.avatarId }, "[Publish] Using avatar preview image as cover reference");
-          } else {
-            logger.info({ videoId }, "[Publish] Avatar preview not found — falling back to video thumbnail");
-          }
+          const heygenKey = brandSettings.heygenApiKey ?? undefined;
+          avatarImageUrl = await fetchAvatarPreviewImage(video.avatarId, heygenKey);
+          logger.info(
+            { videoId, avatarId: video.avatarId, found: !!avatarImageUrl },
+            "[Publish] Avatar preview image resolved",
+          );
         }
-        const coverReferenceUrl = avatarReferenceUrl ?? video.thumbnailUrl ?? null;
 
         brandCoverUrl = await generateBrandCover(
           videoId,
           coverText,
           brandSettings.brandPrimaryColor,
           brandSettings.brandAccentColor ?? null,
-          coverReferenceUrl,
+          avatarImageUrl,                      // avatar portrait → images.edit reference 1
+          brandSettings.brandLogoUrl ?? null,  // brand logo    → images.edit reference 2
         );
         if (brandCoverUrl) {
           // Persist so retry runs don't regenerate (saves AI cost)
