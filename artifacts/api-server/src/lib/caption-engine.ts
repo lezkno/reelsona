@@ -736,14 +736,13 @@ export async function applyCaptions(
       const T = videoDuration.toFixed(4);
       const W = videoWidth;
       const H = videoHeight;
-      const zoomExpr = `(1+0.3*min(t,${T})/${T})`;
+      // scale (eval=frame) grows W×H → 1.3W×1.3H using timestamp t.
+      // crop (fixed W×H) takes the center via in_w/in_h updated per frame.
+      // See browser-caption-engine.ts for full rationale.
       zoomFilter = [
-        `crop=w='iw/${zoomExpr}'`,
-        `h='ih/${zoomExpr}'`,
-        `x='(iw-iw/${zoomExpr})/2'`,
-        `y='(ih-ih/${zoomExpr})/2'`,
-        `exact=1`,
-      ].join(":") + `,scale=${W}:${H},`;
+        `scale=w='${W}*(1+0.3*min(t,${T})/${T})':h='${H}*(1+0.3*min(t,${T})/${T})':eval=frame`,
+        `crop=${W}:${H}:x='(in_w-${W})/2':y='(in_h-${H})/2'`,
+      ].join(",") + ",";
       logger.info({ W, H, T }, "[CaptionEngine] Ken Burns zoom (crop+scale) enabled");
     }
 

@@ -4,15 +4,23 @@ description: crop+scale is the correct Ken Burns zoom implementation; zoompan wi
 ---
 
 ## Rule
-Use `crop` + `scale` with the timestamp variable `t` for Ken Burns zoom. **Do not use `zoompan` with `d=1`** — it has frame-counting quirks that can produce a video with incorrect output duration or no visible effect.
+Use `scale` (with `eval=frame`) + `crop` (fixed size) for Ken Burns zoom in FFmpeg 6.x.
+
+**Do NOT use:**
+- `zoompan` with `d=1` — frame-counter quirks can produce invisible effect
+- `crop` with `eval=frame` — this option does NOT exist in FFmpeg 6.1.2 (`Option not found` error)
+- `crop` with variable `w`/`h` expressions — FFmpeg 6.x evaluates `w`/`h` once at init (t=0), zoom never moves
 
 ## Working formula
 For a center zoom from 1.0× at t=0 to 1.3× at t=T (duration in seconds):
 ```
-crop=w='iw/(1+0.3*min(t,T)/T)':h='ih/(1+0.3*min(t,T)/T)':x='(iw-iw/(1+0.3*min(t,T)/T))/2':y='(ih-ih/(1+0.3*min(t,T)/T))/2':exact=1,scale=WxH
+scale=w='W*(1+0.3*min(t,T)/T)':h='H*(1+0.3*min(t,T)/T)':eval=frame,crop=W:H:x='(in_w-W)/2':y='(in_h-H)/2'
 ```
-Where T, W, H are substituted as string values from `videoInfo`.
+Where T, W, H are the video's duration and pixel dimensions (substituted as literals, not variables).
 
-**Why:** `crop` uses real frame timestamps (the `t` variable = seconds since stream start), is continuous regardless of dropped/duplicate frames, and always produces the same output dimensions as input. `zoompan` with `d=1` uses an internal frame counter that can desync from actual timestamps, and in practice produced no visible zoom at 1.3× over 68 seconds.
+**Why this works:**
+- `scale` with `eval=frame` IS supported in FFmpeg 6.1.2 — grows output from W×H → 1.3W×1.3H
+- `crop` with fixed `w=W h=H` — output is always constant size (H.264 encoder happy)
+- `x='(in_w-W)/2'` and `y='(in_h-H)/2'` — `in_w`/`in_h` update per frame as scale output grows
 
-**How to apply:** Anywhere in the codebase where Ken Burns zoom is applied as an FFmpeg pre-process (browser-caption-engine.ts and caption-engine.ts). After the filter, always `scale=W:H` to restore the exact output size.
+**How to apply:** In browser-caption-engine.ts (pre-process step 3c) and caption-engine.ts (zoomFilter prefix). Both files now use this pattern.

@@ -594,16 +594,19 @@ export async function applyCaptionsBrowser(
       const T = videoInfo.duration.toFixed(4);
       const W = videoInfo.width;
       const H = videoInfo.height;
-      // zoomExpr evaluates to the zoom factor (1.0 → 1.3) at each frame's timestamp
-      const zoomExpr = `(1+0.3*min(t,${T})/${T})`;
+      // Ken Burns zoom via scale+crop:
+      //   1. scale (eval=frame): grows output from W×H → 1.3W×1.3H using timestamp `t`
+      //   2. crop (fixed W×H): always takes the center using in_w/in_h per frame
+      //
+      // Why not crop+scale: FFmpeg 6.x crop filter does NOT support eval=frame —
+      // it evaluates w/h once at init (t=0), so the zoom never moves.
+      // scale DOES support eval=frame, and crop with fixed w/h re-evaluates x/y
+      // per frame using in_w/in_h (which update as scale output grows).
       const vf = [
-        `crop=w='iw/${zoomExpr}'`,
-        `h='ih/${zoomExpr}'`,
-        `x='(iw-iw/${zoomExpr})/2'`,
-        `y='(ih-ih/${zoomExpr})/2'`,
-        `exact=1`,
-      ].join(":") + `,scale=${W}:${H}`;
-      logger.info({ W, H, T, zoomExpr }, "[BrowserEngine] Applying Ken Burns zoom (crop+scale)");
+        `scale=w='${W}*(1+0.3*min(t,${T})/${T})':h='${H}*(1+0.3*min(t,${T})/${T})':eval=frame`,
+        `crop=${W}:${H}:x='(in_w-${W})/2':y='(in_h-${H})/2'`,
+      ].join(",");
+      logger.info({ W, H, T }, "[BrowserEngine] Applying Ken Burns zoom (scale+crop)");
       await execFileAsync("ffmpeg", [
         "-i",  videoPath,
         "-vf", vf,
