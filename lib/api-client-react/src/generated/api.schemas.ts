@@ -5,6 +5,18 @@
  * ContentPilot API — automated Instagram Reels content machine using HeyGen avatars
  * OpenAPI spec version: 0.1.0
  */
+export interface BrandLogoInput {
+  /** Object path returned from storage upload (starts with /objects/) */
+  object_path: string;
+}
+
+export interface BrandPaletteResult {
+  /** Extracted dominant hex color codes from the logo */
+  palette: string[];
+  /** Object path to serve the logo (/objects/...) */
+  logo_url: string;
+}
+
 export interface HealthStatus {
   status: string;
 }
@@ -153,6 +165,11 @@ export interface HeyGenVoice {
   is_cloned: boolean;
 }
 
+/**
+ * Per-avatar voice overrides — avatarId → voiceId. Missing key means use HeyGen default voice.
+ */
+export type AvatarConfigVoiceOverrides = {[key: string]: string} | null;
+
 export type AvatarConfigRotationStrategy = typeof AvatarConfigRotationStrategy[keyof typeof AvatarConfigRotationStrategy];
 
 
@@ -166,12 +183,17 @@ export interface AvatarConfig {
   selected_avatar_ids: string[];
   /** @nullable */
   preferred_voice_id?: string | null;
-  /** Per-avatar voice overrides — avatarId → voiceId. Missing key means use HeyGen default voice. @nullable */
-  voice_overrides?: Record<string, string> | null;
+  /** Per-avatar voice overrides — avatarId → voiceId. Missing key means use HeyGen default voice. */
+  voice_overrides?: AvatarConfigVoiceOverrides;
   rotation_strategy: AvatarConfigRotationStrategy;
   /** @nullable */
   last_used_avatar_id?: string | null;
 }
+
+/**
+ * Per-avatar voice overrides — avatarId → voiceId. Missing key means use HeyGen default voice.
+ */
+export type AvatarConfigInputVoiceOverrides = {[key: string]: string} | null;
 
 export type AvatarConfigInputRotationStrategy = typeof AvatarConfigInputRotationStrategy[keyof typeof AvatarConfigInputRotationStrategy];
 
@@ -186,8 +208,8 @@ export interface AvatarConfigInput {
   selected_avatar_ids: string[];
   /** @nullable */
   preferred_voice_id?: string | null;
-  /** Per-avatar voice overrides — avatarId → voiceId. Missing key means use HeyGen default voice. @nullable */
-  voice_overrides?: Record<string, string> | null;
+  /** Per-avatar voice overrides — avatarId → voiceId. Missing key means use HeyGen default voice. */
+  voice_overrides?: AvatarConfigInputVoiceOverrides;
   rotation_strategy: AvatarConfigInputRotationStrategy;
 }
 
@@ -217,6 +239,49 @@ export const ContentPlanItemCaptionStatus = {
   failed: 'failed',
 } as const;
 
+/**
+ * IG copy generation state
+ * @nullable
+ */
+export type ContentPlanItemCopyStatus = typeof ContentPlanItemCopyStatus[keyof typeof ContentPlanItemCopyStatus] | null;
+
+
+export const ContentPlanItemCopyStatus = {
+  pending: 'pending',
+  processing: 'processing',
+  generating: 'generating',
+  done: 'done',
+  failed: 'failed',
+} as const;
+
+/**
+ * Status of the associated video record
+ * @nullable
+ */
+export type ContentPlanItemVideoStatus = typeof ContentPlanItemVideoStatus[keyof typeof ContentPlanItemVideoStatus] | null;
+
+
+export const ContentPlanItemVideoStatus = {
+  pending: 'pending',
+  generating: 'generating',
+  ready: 'ready',
+  published: 'published',
+  publishing: 'publishing',
+  failed: 'failed',
+} as const;
+
+/**
+ * Video post-processing effects applied after HeyGen renders the avatar
+ */
+export interface VideoEffects {
+  /** Ken Burns / zoompan effect applied at key script moments */
+  zoom: boolean;
+  /** AI-generated (gpt-image-1) B-roll images overlaid at timed segments */
+  ai_broll: boolean;
+  /** Animated stats/hook/CTA cards rendered via canvas and overlaid */
+  text_cards: boolean;
+}
+
 export interface ContentPlanItem {
   id: number;
   topic: string;
@@ -244,47 +309,61 @@ export interface ContentPlanItem {
      * @nullable
      */
   caption_status?: ContentPlanItemCaptionStatus;
-  /** @nullable — URL of the generated video (joined from videos table) */
-  video_url?: string | null;
-  /** @nullable — thumbnail for the generated video */
-  thumbnail_url?: string | null;
-  /** @nullable — captioned video URL when caption processing is done */
-  captioned_video_url?: string | null;
   /**
-   * AI copy generation state: null=not started, generating, done, failed
-   * @nullable
-   */
-  copy_status?: string | null;
+     * IG copy generation state
+     * @nullable
+     */
+  copy_status?: ContentPlanItemCopyStatus;
+  /**
+     * Status of the associated video record
+     * @nullable
+     */
+  video_status?: ContentPlanItemVideoStatus;
+  /**
+     * HeyGen-rendered video URL from the associated video record
+     * @nullable
+     */
+  video_url?: string | null;
+  /**
+     * Caption-processed video URL from the associated video record
+     * @nullable
+     */
+  captioned_video_url?: string | null;
   /** @nullable */
-  video_status?: string | null;
-  // ── Viral Editorial Engine fields ──────────────────────────────────────────
-  /** 0–100 viral potential score @nullable */
   viral_score?: number | null;
-  /** Format letter A–J from editorial categories @nullable */
+  /** @nullable */
   editorial_angle?: string | null;
-  /** JSON array of 3 hook candidates @nullable */
+  /**
+     * JSON-serialized array of hook candidates from script generation
+     * @nullable
+     */
   hook_candidates?: string | null;
-  /** Why the winning hook was selected @nullable */
+  /** @nullable */
   hook_selection_reason?: string | null;
-  /** Why a viewer would share this content @nullable */
+  /** @nullable */
   share_reason?: string | null;
-  /** Specific audience pain/desire this topic targets @nullable */
-  audience_pain?: string | null;
-  /** low | medium | high @nullable */
+  /** @nullable */
   novelty_level?: string | null;
-  // ── Talking-head format metadata ──────────────────────────────────────────
-  /** low | medium | high — visual dependency level @nullable */
+  /** @nullable */
   visual_dependency?: string | null;
-  /** 0-100 — talking-head format fit score @nullable */
+  /** @nullable */
   format_fit_score?: number | null;
-  /** JSON array of suggested visual supports @nullable */
-  suggested_visual_support?: string | null;
-  /** Why this topic works/doesn't without screen sharing @nullable */
-  avatar_fit_reason?: string | null;
-  // ── Video effects ──────────────────────────────────────────────────────────
-  /** Per-item video effects override; null means use account default @nullable */
+  /** @nullable */
+  audience_pain?: string | null;
+  /** Per-item video effects override (overrides account-level settings) */
   video_effects_override?: VideoEffects | null;
-  // ──────────────────────────────────────────────────────────────────────────
+  /** @nullable */
+  avatar_fit_reason?: string | null;
+  /**
+     * JSON-serialized suggested visual support ideas for the talking-head constraint
+     * @nullable
+     */
+  suggested_visual_support?: string | null;
+  /**
+     * Thumbnail URL from the associated video record
+     * @nullable
+     */
+  thumbnail_url?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -307,7 +386,6 @@ export interface ContentPlanItemUpdate {
   hashtags?: string | null;
   /** @nullable */
   scheduled_at?: string | null;
-  /** @nullable */
   video_effects_override?: VideoEffects | null;
 }
 
@@ -345,10 +423,13 @@ export interface ScriptResult {
   caption: string;
   hashtags: string;
   estimated_duration_seconds: number;
-  /** Hook candidates evaluated before picking the winner */
+  /** Alternative hook options generated alongside the winning hook */
   hook_candidates?: string[];
-  /** Reason the winning hook was selected */
-  hook_selection_reason?: string;
+  /**
+     * Reasoning for the chosen hook
+     * @nullable
+     */
+  hook_selection_reason?: string | null;
 }
 
 export type VideoStatus = typeof VideoStatus[keyof typeof VideoStatus];
@@ -358,8 +439,8 @@ export const VideoStatus = {
   pending: 'pending',
   generating: 'generating',
   ready: 'ready',
-  publishing: 'publishing',
   published: 'published',
+  publishing: 'publishing',
   failed: 'failed',
 } as const;
 
@@ -403,13 +484,15 @@ export interface Video {
   captioned_video_url?: string | null;
   /** @nullable */
   caption_status?: VideoCaptionStatus;
-  /** @nullable */
   video_effects?: VideoEffects | null;
   created_at: string;
   updated_at: string;
   /** @nullable */
   published_at?: string | null;
-  /** @nullable */
+  /**
+     * ISO timestamp at which the video is scheduled to be auto-published
+     * @nullable
+     */
   scheduled_publish_at?: string | null;
 }
 
@@ -439,6 +522,10 @@ export interface AutomationConfig {
   next_run_at?: string | null;
   /** @nullable */
   last_run_status?: string | null;
+  /** True when the automation is currently running a cycle */
+  processing_locked?: boolean;
+  /** When true, automatically generates a branded cover image for each published Reel */
+  auto_cover_enabled?: boolean;
 }
 
 export interface AutomationConfigInput {
@@ -450,6 +537,7 @@ export interface AutomationConfigInput {
   auto_generate_video?: boolean;
   auto_publish?: boolean;
   captions_enabled?: boolean;
+  auto_cover_enabled?: boolean;
 }
 
 export interface AutomationRunResult {
@@ -472,14 +560,6 @@ export const SettingsTone = {
   inspirational: 'inspirational',
 } as const;
 
-export interface VideoEffects {
-  zoom: boolean;
-  ai_broll: boolean;
-  text_cards: boolean;
-}
-
-export const DEFAULT_VIDEO_EFFECTS: VideoEffects = { zoom: false, ai_broll: false, text_cards: false };
-
 export interface Settings {
   niche: string;
   /** @nullable */
@@ -495,6 +575,23 @@ export interface Settings {
   heygen_voice_speed?: number | null;
   welcome_dismissed: boolean;
   video_effects: VideoEffects;
+  /**
+     * Object storage path of the brand logo (/objects/...)
+     * @nullable
+     */
+  brand_logo_url?: string | null;
+  /**
+     * Primary brand hex color (e.g.
+     * @nullable
+     */
+  brand_primary_color?: string | null;
+  /**
+     * Accent brand hex color
+     * @nullable
+     */
+  brand_accent_color?: string | null;
+  /** Full extracted palette from the logo (hex strings) */
+  brand_palette?: string[] | null;
 }
 
 export type SettingsInputTone = typeof SettingsInputTone[keyof typeof SettingsInputTone];
@@ -523,6 +620,13 @@ export interface SettingsInput {
   heygen_voice_speed?: number | null;
   welcome_dismissed?: boolean;
   video_effects?: VideoEffects;
+  /** @nullable */
+  brand_logo_url?: string | null;
+  /** @nullable */
+  brand_primary_color?: string | null;
+  /** @nullable */
+  brand_accent_color?: string | null;
+  brand_palette?: string[] | null;
 }
 
 export type CaptionPresetHighlightMode = typeof CaptionPresetHighlightMode[keyof typeof CaptionPresetHighlightMode];
@@ -548,11 +652,10 @@ export interface CaptionPreset {
   font_family: string;
   font_size: number;
   active_word_scale: number;
+  words_per_line?: number;
   highlight_mode: CaptionPresetHighlightMode;
   auto_movement: boolean;
   subtle_rotation: boolean;
-  /** When set, applying this preset also sets words_per_line */
-  words_per_line?: number | null;
 }
 
 export type CaptionConfigPosition = typeof CaptionConfigPosition[keyof typeof CaptionConfigPosition];
@@ -575,7 +678,18 @@ export const CaptionConfigHighlightMode = {
   zoom: 'zoom',
 } as const;
 
-export type CaptionConfigEngine = 'standard' | 'browser_experimental';
+export type CaptionConfigCaptionEngine = typeof CaptionConfigCaptionEngine[keyof typeof CaptionConfigCaptionEngine];
+
+
+export const CaptionConfigCaptionEngine = {
+  standard: 'standard',
+  browser_experimental: 'browser_experimental',
+} as const;
+
+/**
+ * Map of preset_id → usage count for rotation tracking
+ */
+export type CaptionConfigPresetUsageCount = {[key: string]: number};
 
 export interface CaptionConfig {
   preset_id: string;
@@ -588,26 +702,28 @@ export interface CaptionConfig {
   background_color?: string | null;
   font_family: string;
   font_size: number;
-  line_spacing_factor: number;
-  y_position: number;
-  margin_x: number;
   active_word_scale: number;
   highlight_mode: CaptionConfigHighlightMode;
   auto_scale: boolean;
   auto_movement: boolean;
   subtle_rotation: boolean;
-  /** Browser Caption Engine feature flag */
-  caption_engine: CaptionConfigEngine;
-  /** @nullable — which browser template is active (null when caption_engine = "standard") */
+  line_spacing_factor?: number;
+  y_position?: number;
+  margin_x?: number;
+  caption_engine: CaptionConfigCaptionEngine;
+  /** @nullable */
   template_id?: string | null;
-  /** @nullable — JSON: Partial<CaptionTemplate> style overrides from Caption Studio advanced settings */
+  /**
+     * JSON-serialized Partial<CaptionTemplate> overrides saved per-template
+     * @nullable
+     */
   template_overrides?: string | null;
-  /** Caption preset rotation pool */
   selected_preset_ids: string[];
   caption_rotation_strategy: string;
   /** @nullable */
   last_used_preset_id?: string | null;
-  preset_usage_count: Record<string, number>;
+  /** Map of preset_id → usage count for rotation tracking */
+  preset_usage_count: CaptionConfigPresetUsageCount;
   updated_at: string;
 }
 
@@ -628,7 +744,21 @@ export const CaptionConfigInputHighlightMode = {
   scale: 'scale',
   both: 'both',
   mixed: 'mixed',
+  zoom: 'zoom',
 } as const;
+
+export type CaptionConfigInputCaptionEngine = typeof CaptionConfigInputCaptionEngine[keyof typeof CaptionConfigInputCaptionEngine];
+
+
+export const CaptionConfigInputCaptionEngine = {
+  standard: 'standard',
+  browser_experimental: 'browser_experimental',
+} as const;
+
+/**
+ * Map of preset_id → usage count for rotation tracking
+ */
+export type CaptionConfigInputPresetUsageCount = {[key: string]: number};
 
 export interface CaptionConfigInput {
   preset_id?: string;
@@ -658,11 +788,23 @@ export interface CaptionConfigInput {
   auto_scale?: boolean;
   auto_movement?: boolean;
   subtle_rotation?: boolean;
-  caption_engine?: CaptionConfigEngine;
+  line_spacing_factor?: number;
+  y_position?: number;
+  margin_x?: number;
+  caption_engine?: CaptionConfigInputCaptionEngine;
   /** @nullable */
   template_id?: string | null;
-  /** @nullable — JSON: Partial<CaptionTemplate> style overrides */
+  /**
+     * JSON-serialized Partial<CaptionTemplate> overrides saved per-template
+     * @nullable
+     */
   template_overrides?: string | null;
+  selected_preset_ids?: string[];
+  caption_rotation_strategy?: string;
+  /** @nullable */
+  last_used_preset_id?: string | null;
+  /** Map of preset_id → usage count for rotation tracking */
+  preset_usage_count?: CaptionConfigInputPresetUsageCount;
 }
 
 export type GetInstagramPostsParams = {
@@ -704,101 +846,16 @@ export const GetVideosStatus = {
   generating: 'generating',
   ready: 'ready',
   published: 'published',
+  publishing: 'publishing',
   failed: 'failed',
   all: 'all',
 } as const;
 
-// ── Strategic Audit / Strategy Profile types ──────────────────────────────────
-
-export interface StrategyTopPost {
-  id: string;
-  thumbnail_url: string | null;
-  caption: string | null;
-  like_count: number;
-  comments_count: number;
-  plays: number | null;
-  engagement_rate: number | null;
-  permalink: string | null;
-}
-
-export interface StrategyAccountData {
-  avg_engagement: number;
-  avg_reach: number;
-  best_posting_times: string[];
-  top_posts: StrategyTopPost[];
-  top_captions: string[];
-  follower_count: number;
-  media_count: number;
-  fetched_at: string;
-}
-
-export interface StrategyMarketInsights {
-  top_themes: string[];
-  working_formats: string[];
-  audience_pains: string[];
-  content_gaps: string[];
-  saturated_topics: string[];
-  opportunities: string[];
-  shareable_hooks: string[];
-  analyzed_at: string;
-}
-
-export interface StrategyPillar {
-  name: string;
-  objective: string;
-  frequency_pct: number;
-  example_topics: string[];
-}
-
-export interface StrategyContentStrategy {
-  pillars: StrategyPillar[];
-  editorial_angles: string[];
-  format_mix: {
-    educational: number;
-    emotional: number;
-    sales: number;
-    controversial: number;
-    storytelling: number;
-  };
-  unique_value_prop: string;
-  hook_types: string[];
-  recommended_ctas: string[];
-  posting_frequency: string;
-  generated_at: string;
-}
-
-export interface StrategyProfile {
-  id: number;
-  account_data: StrategyAccountData | null;
-  market_insights: StrategyMarketInsights | null;
-  content_strategy: StrategyContentStrategy | null;
-  steps_completed: string[];
-  created_at: string;
-  updated_at: string;
-}
-
-export interface NicheRadarAccount {
-  id: number;
-  ig_username: string;
-  profile_url: string | null;
-  bio: string | null;
-  followers: number | null;
-  relevance_score: number | null;
-  use_as_reference: boolean;
-  source: string;
-  top_posts_json: unknown[] | null;
-  last_synced_at: string | null;
-  created_at: string;
-}
-
-export interface RadarSuggestion {
-  ig_username: string;
-  reason: string;
-  approximate_followers: string;
-  content_type: string;
-}
-
-export interface RadarStatus {
-  apify_available: boolean;
-}
+export type ScheduleVideoBody = {
+  /**
+     * ISO timestamp to schedule auto-publish. Null to clear.
+     * @nullable
+     */
+  scheduled_publish_at?: string | null;
+};
 

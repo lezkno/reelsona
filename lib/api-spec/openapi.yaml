@@ -443,7 +443,7 @@ paths:
           in: query
           schema:
             type: string
-            enum: [pending, generating, ready, published, failed, all]
+            enum: [pending, generating, ready, published, publishing, failed, all]
             default: all
       responses:
         "200":
@@ -473,6 +473,37 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Video"
+
+  /videos/{id}/schedule:
+    patch:
+      operationId: scheduleVideo
+      tags: [videos]
+      summary: Set or clear the scheduled auto-publish time for a video
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: number
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                scheduled_publish_at:
+                  type: ["string", "null"]
+                  description: ISO timestamp to schedule auto-publish. Null to clear.
+      responses:
+        "200":
+          description: Updated video
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Video"
+        "404":
+          description: Not found
 
   /videos/{id}:
     get:
@@ -565,6 +596,27 @@ paths:
               schema:
                 $ref: "#/components/schemas/AutomationRunResult"
 
+  /settings/brand-logo:
+    post:
+      operationId: extractBrandPalette
+      tags: [settings]
+      summary: Extract brand color palette from an uploaded logo and save the logo URL
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BrandLogoInput"
+      responses:
+        "200":
+          description: Extracted palette
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrandPaletteResult"
+        "400":
+          description: Invalid object path or unsupported image format
+
   /settings:
     get:
       operationId: getSettings
@@ -642,6 +694,27 @@ paths:
 
 components:
   schemas:
+    BrandLogoInput:
+      type: object
+      properties:
+        object_path:
+          type: string
+          description: Object path returned from storage upload (starts with /objects/)
+      required: [object_path]
+
+    BrandPaletteResult:
+      type: object
+      properties:
+        palette:
+          type: array
+          items:
+            type: string
+          description: Extracted dominant hex color codes from the logo
+        logo_url:
+          type: string
+          description: Object path to serve the logo (/objects/...)
+      required: [palette, logo_url]
+
     HealthStatus:
       type: object
       properties:
@@ -956,6 +1029,52 @@ components:
           type: ["string", "null"]
           enum: [disabled, processing, done, failed, null]
           description: Caption Studio processing state for the associated video
+        copy_status:
+          type: ["string", "null"]
+          enum: [pending, processing, generating, done, failed, null]
+          description: IG copy generation state
+        video_status:
+          type: ["string", "null"]
+          enum: [pending, generating, ready, published, publishing, failed, null]
+          description: Status of the associated video record
+        video_url:
+          type: ["string", "null"]
+          description: HeyGen-rendered video URL from the associated video record
+        captioned_video_url:
+          type: ["string", "null"]
+          description: Caption-processed video URL from the associated video record
+        viral_score:
+          type: ["number", "null"]
+        editorial_angle:
+          type: ["string", "null"]
+        hook_candidates:
+          type: ["string", "null"]
+          description: JSON-serialized array of hook candidates from script generation
+        hook_selection_reason:
+          type: ["string", "null"]
+        share_reason:
+          type: ["string", "null"]
+        novelty_level:
+          type: ["string", "null"]
+        visual_dependency:
+          type: ["string", "null"]
+        format_fit_score:
+          type: ["number", "null"]
+        audience_pain:
+          type: ["string", "null"]
+        video_effects_override:
+          oneOf:
+            - $ref: "#/components/schemas/VideoEffects"
+            - type: "null"
+          description: Per-item video effects override (overrides account-level settings)
+        avatar_fit_reason:
+          type: ["string", "null"]
+        suggested_visual_support:
+          type: ["string", "null"]
+          description: JSON-serialized suggested visual support ideas for the talking-head constraint
+        thumbnail_url:
+          type: ["string", "null"]
+          description: Thumbnail URL from the associated video record
         created_at:
           type: string
         updated_at:
@@ -983,6 +1102,10 @@ components:
           type: ["string", "null"]
         scheduled_at:
           type: ["string", "null"]
+        video_effects_override:
+          oneOf:
+            - $ref: "#/components/schemas/VideoEffects"
+            - type: "null"
 
     ContentPlanGenerateInput:
       type: object
@@ -1038,6 +1161,14 @@ components:
           type: string
         estimated_duration_seconds:
           type: number
+        hook_candidates:
+          type: array
+          items:
+            type: string
+          description: Alternative hook options generated alongside the winning hook
+        hook_selection_reason:
+          type: ["string", "null"]
+          description: Reasoning for the chosen hook
       required: [topic, hook, script, cta, caption, hashtags, estimated_duration_seconds]
 
     Video:
@@ -1055,7 +1186,7 @@ components:
           type: ["string", "null"]
         status:
           type: string
-          enum: [pending, generating, ready, published, failed]
+          enum: [pending, generating, ready, published, publishing, failed]
         video_url:
           type: ["string", "null"]
         thumbnail_url:
@@ -1083,6 +1214,9 @@ components:
           type: string
         published_at:
           type: ["string", "null"]
+        scheduled_publish_at:
+          type: ["string", "null"]
+          description: ISO timestamp at which the video is scheduled to be auto-published
       required: [id, status, created_at, updated_at]
 
     VideoGenerateInput:
@@ -1129,6 +1263,12 @@ components:
           type: ["string", "null"]
         last_run_status:
           type: ["string", "null"]
+        processing_locked:
+          type: boolean
+          description: True when the automation is currently running a cycle
+        auto_cover_enabled:
+          type: boolean
+          description: When true, automatically generates a branded cover image for each published Reel
       required:
         - enabled
         - posting_times
@@ -1161,6 +1301,8 @@ components:
         auto_publish:
           type: boolean
         captions_enabled:
+          type: boolean
+        auto_cover_enabled:
           type: boolean
 
     AutomationRunResult:
@@ -1213,8 +1355,27 @@ components:
           type: boolean
         watermark_text:
           type: ["string", "null"]
+        heygen_voice_speed:
+          type: ["number", "null"]
+        welcome_dismissed:
+          type: boolean
         video_effects:
           $ref: "#/components/schemas/VideoEffects"
+        brand_logo_url:
+          type: ["string", "null"]
+          description: Object storage path of the brand logo (/objects/...)
+        brand_primary_color:
+          type: ["string", "null"]
+          description: Primary brand hex color (e.g. #1A2B3C)
+        brand_accent_color:
+          type: ["string", "null"]
+          description: Accent brand hex color
+        brand_palette:
+          type: array
+          items:
+            type: string
+          nullable: true
+          description: Full extracted palette from the logo (hex strings)
       required:
         - niche
         - topic_keywords
@@ -1222,6 +1383,7 @@ components:
         - language
         - video_duration_seconds
         - include_captions
+        - welcome_dismissed
         - video_effects
 
     SettingsInput:
@@ -1246,8 +1408,23 @@ components:
           type: boolean
         watermark_text:
           type: ["string", "null"]
+        heygen_voice_speed:
+          type: ["number", "null"]
+        welcome_dismissed:
+          type: boolean
         video_effects:
           $ref: "#/components/schemas/VideoEffects"
+        brand_logo_url:
+          type: ["string", "null"]
+        brand_primary_color:
+          type: ["string", "null"]
+        brand_accent_color:
+          type: ["string", "null"]
+        brand_palette:
+          type: array
+          items:
+            type: string
+          nullable: true
 
     CaptionPreset:
       type: object
@@ -1272,9 +1449,11 @@ components:
           type: number
         active_word_scale:
           type: number
+        words_per_line:
+          type: number
         highlight_mode:
           type: string
-          enum: [color, scale, both, mixed]
+          enum: [color, scale, both, mixed, zoom]
         auto_movement:
           type: boolean
         subtle_rotation:
@@ -1307,13 +1486,40 @@ components:
           type: number
         highlight_mode:
           type: string
-          enum: [color, scale, both, mixed]
+          enum: [color, scale, both, mixed, zoom]
         auto_scale:
           type: boolean
         auto_movement:
           type: boolean
         subtle_rotation:
           type: boolean
+        line_spacing_factor:
+          type: number
+        y_position:
+          type: number
+        margin_x:
+          type: number
+        caption_engine:
+          type: string
+          enum: [standard, browser_experimental]
+        template_id:
+          type: ["string", "null"]
+        template_overrides:
+          type: ["string", "null"]
+          description: JSON-serialized Partial<CaptionTemplate> overrides saved per-template
+        selected_preset_ids:
+          type: array
+          items:
+            type: string
+        caption_rotation_strategy:
+          type: string
+        last_used_preset_id:
+          type: ["string", "null"]
+        preset_usage_count:
+          type: object
+          additionalProperties:
+            type: number
+          description: Map of preset_id → usage count for rotation tracking
         updated_at:
           type: string
       required:
@@ -1330,6 +1536,10 @@ components:
         - auto_scale
         - auto_movement
         - subtle_rotation
+        - caption_engine
+        - selected_preset_ids
+        - caption_rotation_strategy
+        - preset_usage_count
         - updated_at
 
     CaptionConfigInput:
@@ -1364,10 +1574,38 @@ components:
           maximum: 2.0
         highlight_mode:
           type: string
-          enum: [color, scale, both, mixed]
+          enum: [color, scale, both, mixed, zoom]
         auto_scale:
           type: boolean
         auto_movement:
           type: boolean
         subtle_rotation:
           type: boolean
+        line_spacing_factor:
+          type: number
+        y_position:
+          type: number
+        margin_x:
+          type: number
+        caption_engine:
+          type: string
+          enum: [standard, browser_experimental]
+        template_id:
+          type: ["string", "null"]
+        template_overrides:
+          type: ["string", "null"]
+          description: JSON-serialized Partial<CaptionTemplate> overrides saved per-template
+        selected_preset_ids:
+          type: array
+          items:
+            type: string
+        caption_rotation_strategy:
+          type: string
+        last_used_preset_id:
+          type: ["string", "null"]
+        preset_usage_count:
+          type: object
+          additionalProperties:
+            type: number
+          description: Map of preset_id → usage count for rotation tracking
+

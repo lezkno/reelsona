@@ -116,17 +116,18 @@ export async function createReelContainer(
   accessToken: string,
   userId: string,
   videoUrl: string,
-  caption: string
+  caption: string,
+  coverUrl?: string | null
 ): Promise<string> {
   try {
-    const res = await axios.post(`${IG_GRAPH_BASE}/${userId}/media`, null, {
-      params: {
-        media_type: "REELS",
-        video_url: videoUrl,
-        caption,
-        access_token: accessToken,
-      },
-    });
+    const params: Record<string, string> = {
+      media_type: "REELS",
+      video_url: videoUrl,
+      caption,
+      access_token: accessToken,
+    };
+    if (coverUrl) params.cover_url = coverUrl;
+    const res = await axios.post(`${IG_GRAPH_BASE}/${userId}/media`, null, { params });
     const creationId: string = res.data?.id;
     if (!creationId) throw new Error("Failed to create media container");
     return creationId;

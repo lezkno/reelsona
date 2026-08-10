@@ -9,21 +9,6 @@ import * as zod from 'zod';
 
 
 /**
- * Video post-processing effects applied after HeyGen renders the avatar.
- */
-export const VideoEffects = zod.object({
-  "zoom": zod.boolean(),
-  "ai_broll": zod.boolean(),
-  "text_cards": zod.boolean()
-})
-export type VideoEffectsType = zod.infer<typeof VideoEffects>
-
-/**
- * Default VideoEffects value (all off).
- */
-export const DEFAULT_VIDEO_EFFECTS: VideoEffectsType = { zoom: false, ai_broll: false, text_cards: false }
-
-/**
  * @summary Health check
  */
 export const HealthCheckResponse = zod.object({
@@ -241,7 +226,7 @@ export const GetHeyGenAllLooksResponse = zod.array(GetHeyGenAllLooksResponseItem
 export const GetAvatarConfigResponse = zod.object({
   "selected_avatar_ids": zod.array(zod.string()),
   "preferred_voice_id": zod.string().nullish(),
-  "voice_overrides": zod.record(zod.string(), zod.string()).nullish(),
+  "voice_overrides": zod.record(zod.string(), zod.string()).nullish().describe('Per-avatar voice overrides — avatarId → voiceId. Missing key means use HeyGen default voice.'),
   "rotation_strategy": zod.enum(['sequential', 'random', 'performance']),
   "last_used_avatar_id": zod.string().nullish()
 })
@@ -253,14 +238,14 @@ export const GetAvatarConfigResponse = zod.object({
 export const UpdateAvatarConfigBody = zod.object({
   "selected_avatar_ids": zod.array(zod.string()),
   "preferred_voice_id": zod.string().nullish(),
-  "voice_overrides": zod.record(zod.string(), zod.string()).nullish(),
+  "voice_overrides": zod.record(zod.string(), zod.string()).nullish().describe('Per-avatar voice overrides — avatarId → voiceId. Missing key means use HeyGen default voice.'),
   "rotation_strategy": zod.enum(['sequential', 'random', 'performance'])
 })
 
 export const UpdateAvatarConfigResponse = zod.object({
   "selected_avatar_ids": zod.array(zod.string()),
   "preferred_voice_id": zod.string().nullish(),
-  "voice_overrides": zod.record(zod.string(), zod.string()).nullish(),
+  "voice_overrides": zod.record(zod.string(), zod.string()).nullish().describe('Per-avatar voice overrides — avatarId → voiceId. Missing key means use HeyGen default voice.'),
   "rotation_strategy": zod.enum(['sequential', 'random', 'performance']),
   "last_used_avatar_id": zod.string().nullish()
 })
@@ -291,19 +276,27 @@ export const GetContentPlanResponseItem = zod.object({
   "status": zod.enum(['draft', 'scripted', 'generating', 'ready', 'published', 'failed']),
   "video_id": zod.number().nullish(),
   "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish().describe('Caption Studio processing state for the associated video'),
-  "copy_status": zod.union([zod.literal('generating'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish().describe('AI copy generation state for Instagram description and hashtags'),
-  "video_url": zod.string().nullish(),
-  "captioned_video_url": zod.string().nullish(),
-  "thumbnail_url": zod.string().nullish(),
-  "video_status": zod.string().nullish(),
+  "copy_status": zod.union([zod.literal('pending'),zod.literal('processing'),zod.literal('generating'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish().describe('IG copy generation state'),
+  "video_status": zod.union([zod.literal('pending'),zod.literal('generating'),zod.literal('ready'),zod.literal('published'),zod.literal('publishing'),zod.literal('failed'),zod.literal(null)]).nullish().describe('Status of the associated video record'),
+  "video_url": zod.string().nullish().describe('HeyGen-rendered video URL from the associated video record'),
+  "captioned_video_url": zod.string().nullish().describe('Caption-processed video URL from the associated video record'),
   "viral_score": zod.number().nullish(),
   "editorial_angle": zod.string().nullish(),
-  "hook_candidates": zod.string().nullish(),
+  "hook_candidates": zod.string().nullish().describe('JSON-serialized array of hook candidates from script generation'),
   "hook_selection_reason": zod.string().nullish(),
   "share_reason": zod.string().nullish(),
-  "audience_pain": zod.string().nullish(),
   "novelty_level": zod.string().nullish(),
-  "video_effects_override": VideoEffects.nullish(),
+  "visual_dependency": zod.string().nullish(),
+  "format_fit_score": zod.number().nullish(),
+  "audience_pain": zod.string().nullish(),
+  "video_effects_override": zod.union([zod.object({
+  "zoom": zod.boolean().describe('Ken Burns \/ zoompan effect applied at key script moments'),
+  "ai_broll": zod.boolean().describe('AI-generated (gpt-image-1) B-roll images overlaid at timed segments'),
+  "text_cards": zod.boolean().describe('Animated stats\/hook\/CTA cards rendered via canvas and overlaid')
+}).describe('Video post-processing effects applied after HeyGen renders the avatar'),zod.null()]).optional().describe('Per-item video effects override (overrides account-level settings)'),
+  "avatar_fit_reason": zod.string().nullish(),
+  "suggested_visual_support": zod.string().nullish().describe('JSON-serialized suggested visual support ideas for the talking-head constraint'),
+  "thumbnail_url": zod.string().nullish().describe('Thumbnail URL from the associated video record'),
   "created_at": zod.string(),
   "updated_at": zod.string()
 })
@@ -338,16 +331,27 @@ export const GenerateContentPlanResponseItem = zod.object({
   "status": zod.enum(['draft', 'scripted', 'generating', 'ready', 'published', 'failed']),
   "video_id": zod.number().nullish(),
   "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish().describe('Caption Studio processing state for the associated video'),
-  "copy_status": zod.union([zod.literal('generating'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish(),
-  "video_status": zod.string().nullish(),
+  "copy_status": zod.union([zod.literal('pending'),zod.literal('processing'),zod.literal('generating'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish().describe('IG copy generation state'),
+  "video_status": zod.union([zod.literal('pending'),zod.literal('generating'),zod.literal('ready'),zod.literal('published'),zod.literal('publishing'),zod.literal('failed'),zod.literal(null)]).nullish().describe('Status of the associated video record'),
+  "video_url": zod.string().nullish().describe('HeyGen-rendered video URL from the associated video record'),
+  "captioned_video_url": zod.string().nullish().describe('Caption-processed video URL from the associated video record'),
   "viral_score": zod.number().nullish(),
   "editorial_angle": zod.string().nullish(),
-  "hook_candidates": zod.string().nullish(),
+  "hook_candidates": zod.string().nullish().describe('JSON-serialized array of hook candidates from script generation'),
   "hook_selection_reason": zod.string().nullish(),
   "share_reason": zod.string().nullish(),
-  "audience_pain": zod.string().nullish(),
   "novelty_level": zod.string().nullish(),
-  "video_effects_override": VideoEffects.nullish(),
+  "visual_dependency": zod.string().nullish(),
+  "format_fit_score": zod.number().nullish(),
+  "audience_pain": zod.string().nullish(),
+  "video_effects_override": zod.union([zod.object({
+  "zoom": zod.boolean().describe('Ken Burns \/ zoompan effect applied at key script moments'),
+  "ai_broll": zod.boolean().describe('AI-generated (gpt-image-1) B-roll images overlaid at timed segments'),
+  "text_cards": zod.boolean().describe('Animated stats\/hook\/CTA cards rendered via canvas and overlaid')
+}).describe('Video post-processing effects applied after HeyGen renders the avatar'),zod.null()]).optional().describe('Per-item video effects override (overrides account-level settings)'),
+  "avatar_fit_reason": zod.string().nullish(),
+  "suggested_visual_support": zod.string().nullish().describe('JSON-serialized suggested visual support ideas for the talking-head constraint'),
+  "thumbnail_url": zod.string().nullish().describe('Thumbnail URL from the associated video record'),
   "created_at": zod.string(),
   "updated_at": zod.string()
 })
@@ -381,16 +385,27 @@ export const CreateContentItemResponse = zod.object({
   "status": zod.enum(['draft', 'scripted', 'generating', 'ready', 'published', 'failed']),
   "video_id": zod.number().nullish(),
   "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish().describe('Caption Studio processing state for the associated video'),
-  "copy_status": zod.union([zod.literal('generating'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish(),
-  "video_status": zod.string().nullish(),
+  "copy_status": zod.union([zod.literal('pending'),zod.literal('processing'),zod.literal('generating'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish().describe('IG copy generation state'),
+  "video_status": zod.union([zod.literal('pending'),zod.literal('generating'),zod.literal('ready'),zod.literal('published'),zod.literal('publishing'),zod.literal('failed'),zod.literal(null)]).nullish().describe('Status of the associated video record'),
+  "video_url": zod.string().nullish().describe('HeyGen-rendered video URL from the associated video record'),
+  "captioned_video_url": zod.string().nullish().describe('Caption-processed video URL from the associated video record'),
   "viral_score": zod.number().nullish(),
   "editorial_angle": zod.string().nullish(),
-  "hook_candidates": zod.string().nullish(),
+  "hook_candidates": zod.string().nullish().describe('JSON-serialized array of hook candidates from script generation'),
   "hook_selection_reason": zod.string().nullish(),
   "share_reason": zod.string().nullish(),
-  "audience_pain": zod.string().nullish(),
   "novelty_level": zod.string().nullish(),
-  "video_effects_override": VideoEffects.nullish(),
+  "visual_dependency": zod.string().nullish(),
+  "format_fit_score": zod.number().nullish(),
+  "audience_pain": zod.string().nullish(),
+  "video_effects_override": zod.union([zod.object({
+  "zoom": zod.boolean().describe('Ken Burns \/ zoompan effect applied at key script moments'),
+  "ai_broll": zod.boolean().describe('AI-generated (gpt-image-1) B-roll images overlaid at timed segments'),
+  "text_cards": zod.boolean().describe('Animated stats\/hook\/CTA cards rendered via canvas and overlaid')
+}).describe('Video post-processing effects applied after HeyGen renders the avatar'),zod.null()]).optional().describe('Per-item video effects override (overrides account-level settings)'),
+  "avatar_fit_reason": zod.string().nullish(),
+  "suggested_visual_support": zod.string().nullish().describe('JSON-serialized suggested visual support ideas for the talking-head constraint'),
+  "thumbnail_url": zod.string().nullish().describe('Thumbnail URL from the associated video record'),
   "created_at": zod.string(),
   "updated_at": zod.string()
 })
@@ -427,8 +442,8 @@ export const GenerateScriptResponse = zod.object({
   "caption": zod.string(),
   "hashtags": zod.string(),
   "estimated_duration_seconds": zod.number(),
-  "hook_candidates": zod.array(zod.string()).optional(),
-  "hook_selection_reason": zod.string().optional()
+  "hook_candidates": zod.array(zod.string()).optional().describe('Alternative hook options generated alongside the winning hook'),
+  "hook_selection_reason": zod.string().nullish().describe('Reasoning for the chosen hook')
 })
 
 
@@ -453,16 +468,27 @@ export const GetContentItemResponse = zod.object({
   "status": zod.enum(['draft', 'scripted', 'generating', 'ready', 'published', 'failed']),
   "video_id": zod.number().nullish(),
   "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish().describe('Caption Studio processing state for the associated video'),
-  "copy_status": zod.union([zod.literal('generating'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish(),
-  "video_status": zod.string().nullish(),
+  "copy_status": zod.union([zod.literal('pending'),zod.literal('processing'),zod.literal('generating'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish().describe('IG copy generation state'),
+  "video_status": zod.union([zod.literal('pending'),zod.literal('generating'),zod.literal('ready'),zod.literal('published'),zod.literal('publishing'),zod.literal('failed'),zod.literal(null)]).nullish().describe('Status of the associated video record'),
+  "video_url": zod.string().nullish().describe('HeyGen-rendered video URL from the associated video record'),
+  "captioned_video_url": zod.string().nullish().describe('Caption-processed video URL from the associated video record'),
   "viral_score": zod.number().nullish(),
   "editorial_angle": zod.string().nullish(),
-  "hook_candidates": zod.string().nullish(),
+  "hook_candidates": zod.string().nullish().describe('JSON-serialized array of hook candidates from script generation'),
   "hook_selection_reason": zod.string().nullish(),
   "share_reason": zod.string().nullish(),
-  "audience_pain": zod.string().nullish(),
   "novelty_level": zod.string().nullish(),
-  "video_effects_override": VideoEffects.nullish(),
+  "visual_dependency": zod.string().nullish(),
+  "format_fit_score": zod.number().nullish(),
+  "audience_pain": zod.string().nullish(),
+  "video_effects_override": zod.union([zod.object({
+  "zoom": zod.boolean().describe('Ken Burns \/ zoompan effect applied at key script moments'),
+  "ai_broll": zod.boolean().describe('AI-generated (gpt-image-1) B-roll images overlaid at timed segments'),
+  "text_cards": zod.boolean().describe('Animated stats\/hook\/CTA cards rendered via canvas and overlaid')
+}).describe('Video post-processing effects applied after HeyGen renders the avatar'),zod.null()]).optional().describe('Per-item video effects override (overrides account-level settings)'),
+  "avatar_fit_reason": zod.string().nullish(),
+  "suggested_visual_support": zod.string().nullish().describe('JSON-serialized suggested visual support ideas for the talking-head constraint'),
+  "thumbnail_url": zod.string().nullish().describe('Thumbnail URL from the associated video record'),
   "created_at": zod.string(),
   "updated_at": zod.string()
 })
@@ -485,7 +511,11 @@ export const UpdateContentItemBody = zod.object({
   "caption": zod.string().nullish(),
   "hashtags": zod.string().nullish(),
   "scheduled_at": zod.string().nullish(),
-  "video_effects_override": VideoEffects.nullish()
+  "video_effects_override": zod.union([zod.object({
+  "zoom": zod.boolean().describe('Ken Burns \/ zoompan effect applied at key script moments'),
+  "ai_broll": zod.boolean().describe('AI-generated (gpt-image-1) B-roll images overlaid at timed segments'),
+  "text_cards": zod.boolean().describe('Animated stats\/hook\/CTA cards rendered via canvas and overlaid')
+}).describe('Video post-processing effects applied after HeyGen renders the avatar'),zod.null()]).optional()
 })
 
 export const UpdateContentItemResponse = zod.object({
@@ -502,16 +532,27 @@ export const UpdateContentItemResponse = zod.object({
   "status": zod.enum(['draft', 'scripted', 'generating', 'ready', 'published', 'failed']),
   "video_id": zod.number().nullish(),
   "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish().describe('Caption Studio processing state for the associated video'),
-  "copy_status": zod.union([zod.literal('generating'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish(),
-  "video_status": zod.string().nullish(),
+  "copy_status": zod.union([zod.literal('pending'),zod.literal('processing'),zod.literal('generating'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish().describe('IG copy generation state'),
+  "video_status": zod.union([zod.literal('pending'),zod.literal('generating'),zod.literal('ready'),zod.literal('published'),zod.literal('publishing'),zod.literal('failed'),zod.literal(null)]).nullish().describe('Status of the associated video record'),
+  "video_url": zod.string().nullish().describe('HeyGen-rendered video URL from the associated video record'),
+  "captioned_video_url": zod.string().nullish().describe('Caption-processed video URL from the associated video record'),
   "viral_score": zod.number().nullish(),
   "editorial_angle": zod.string().nullish(),
-  "hook_candidates": zod.string().nullish(),
+  "hook_candidates": zod.string().nullish().describe('JSON-serialized array of hook candidates from script generation'),
   "hook_selection_reason": zod.string().nullish(),
   "share_reason": zod.string().nullish(),
-  "audience_pain": zod.string().nullish(),
   "novelty_level": zod.string().nullish(),
-  "video_effects_override": VideoEffects.nullish(),
+  "visual_dependency": zod.string().nullish(),
+  "format_fit_score": zod.number().nullish(),
+  "audience_pain": zod.string().nullish(),
+  "video_effects_override": zod.union([zod.object({
+  "zoom": zod.boolean().describe('Ken Burns \/ zoompan effect applied at key script moments'),
+  "ai_broll": zod.boolean().describe('AI-generated (gpt-image-1) B-roll images overlaid at timed segments'),
+  "text_cards": zod.boolean().describe('Animated stats\/hook\/CTA cards rendered via canvas and overlaid')
+}).describe('Video post-processing effects applied after HeyGen renders the avatar'),zod.null()]).optional().describe('Per-item video effects override (overrides account-level settings)'),
+  "avatar_fit_reason": zod.string().nullish(),
+  "suggested_visual_support": zod.string().nullish().describe('JSON-serialized suggested visual support ideas for the talking-head constraint'),
+  "thumbnail_url": zod.string().nullish().describe('Thumbnail URL from the associated video record'),
   "created_at": zod.string(),
   "updated_at": zod.string()
 })
@@ -536,7 +577,7 @@ export const DeleteContentItemResponse = zod.object({
 export const getVideosQueryStatusDefault = `all`;
 
 export const GetVideosQueryParams = zod.object({
-  "status": zod.enum(['pending', 'generating', 'ready', 'publishing', 'published', 'failed', 'all']).default(getVideosQueryStatusDefault)
+  "status": zod.enum(['pending', 'generating', 'ready', 'published', 'publishing', 'failed', 'all']).default(getVideosQueryStatusDefault)
 })
 
 export const GetVideosResponseItem = zod.object({
@@ -545,7 +586,7 @@ export const GetVideosResponseItem = zod.object({
   "heygen_video_id": zod.string().nullish(),
   "topic": zod.string().nullish(),
   "avatar_id": zod.string().nullish(),
-  "status": zod.enum(['pending', 'generating', 'ready', 'publishing', 'published', 'failed']),
+  "status": zod.enum(['pending', 'generating', 'ready', 'published', 'publishing', 'failed']),
   "video_url": zod.string().nullish(),
   "thumbnail_url": zod.string().nullish(),
   "ig_media_id": zod.string().nullish(),
@@ -554,11 +595,15 @@ export const GetVideosResponseItem = zod.object({
   "duration_seconds": zod.number().nullish(),
   "captioned_video_url": zod.string().nullish(),
   "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish(),
-  "video_effects": VideoEffects.nullish(),
+  "video_effects": zod.union([zod.object({
+  "zoom": zod.boolean().describe('Ken Burns \/ zoompan effect applied at key script moments'),
+  "ai_broll": zod.boolean().describe('AI-generated (gpt-image-1) B-roll images overlaid at timed segments'),
+  "text_cards": zod.boolean().describe('Animated stats\/hook\/CTA cards rendered via canvas and overlaid')
+}).describe('Video post-processing effects applied after HeyGen renders the avatar'),zod.null()]).optional(),
   "created_at": zod.string(),
   "updated_at": zod.string(),
   "published_at": zod.string().nullish(),
-  "scheduled_publish_at": zod.string().nullish()
+  "scheduled_publish_at": zod.string().nullish().describe('ISO timestamp at which the video is scheduled to be auto-published')
 })
 export const GetVideosResponse = zod.array(GetVideosResponseItem)
 
@@ -576,7 +621,7 @@ export const GenerateVideoResponse = zod.object({
   "heygen_video_id": zod.string().nullish(),
   "topic": zod.string().nullish(),
   "avatar_id": zod.string().nullish(),
-  "status": zod.enum(['pending', 'generating', 'ready', 'publishing', 'published', 'failed']),
+  "status": zod.enum(['pending', 'generating', 'ready', 'published', 'publishing', 'failed']),
   "video_url": zod.string().nullish(),
   "thumbnail_url": zod.string().nullish(),
   "ig_media_id": zod.string().nullish(),
@@ -585,11 +630,53 @@ export const GenerateVideoResponse = zod.object({
   "duration_seconds": zod.number().nullish(),
   "captioned_video_url": zod.string().nullish(),
   "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish(),
-  "video_effects": VideoEffects.nullish(),
+  "video_effects": zod.union([zod.object({
+  "zoom": zod.boolean().describe('Ken Burns \/ zoompan effect applied at key script moments'),
+  "ai_broll": zod.boolean().describe('AI-generated (gpt-image-1) B-roll images overlaid at timed segments'),
+  "text_cards": zod.boolean().describe('Animated stats\/hook\/CTA cards rendered via canvas and overlaid')
+}).describe('Video post-processing effects applied after HeyGen renders the avatar'),zod.null()]).optional(),
   "created_at": zod.string(),
   "updated_at": zod.string(),
   "published_at": zod.string().nullish(),
-  "scheduled_publish_at": zod.string().nullish()
+  "scheduled_publish_at": zod.string().nullish().describe('ISO timestamp at which the video is scheduled to be auto-published')
+})
+
+
+/**
+ * @summary Set or clear the scheduled auto-publish time for a video
+ */
+export const ScheduleVideoParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const ScheduleVideoBody = zod.object({
+  "scheduled_publish_at": zod.string().nullish().describe('ISO timestamp to schedule auto-publish. Null to clear.')
+})
+
+export const ScheduleVideoResponse = zod.object({
+  "id": zod.number(),
+  "content_plan_id": zod.number().nullish(),
+  "heygen_video_id": zod.string().nullish(),
+  "topic": zod.string().nullish(),
+  "avatar_id": zod.string().nullish(),
+  "status": zod.enum(['pending', 'generating', 'ready', 'published', 'publishing', 'failed']),
+  "video_url": zod.string().nullish(),
+  "thumbnail_url": zod.string().nullish(),
+  "ig_media_id": zod.string().nullish(),
+  "ig_permalink": zod.string().nullish(),
+  "error_message": zod.string().nullish(),
+  "duration_seconds": zod.number().nullish(),
+  "captioned_video_url": zod.string().nullish(),
+  "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish(),
+  "video_effects": zod.union([zod.object({
+  "zoom": zod.boolean().describe('Ken Burns \/ zoompan effect applied at key script moments'),
+  "ai_broll": zod.boolean().describe('AI-generated (gpt-image-1) B-roll images overlaid at timed segments'),
+  "text_cards": zod.boolean().describe('Animated stats\/hook\/CTA cards rendered via canvas and overlaid')
+}).describe('Video post-processing effects applied after HeyGen renders the avatar'),zod.null()]).optional(),
+  "created_at": zod.string(),
+  "updated_at": zod.string(),
+  "published_at": zod.string().nullish(),
+  "scheduled_publish_at": zod.string().nullish().describe('ISO timestamp at which the video is scheduled to be auto-published')
 })
 
 
@@ -606,7 +693,7 @@ export const GetVideoResponse = zod.object({
   "heygen_video_id": zod.string().nullish(),
   "topic": zod.string().nullish(),
   "avatar_id": zod.string().nullish(),
-  "status": zod.enum(['pending', 'generating', 'ready', 'publishing', 'published', 'failed']),
+  "status": zod.enum(['pending', 'generating', 'ready', 'published', 'publishing', 'failed']),
   "video_url": zod.string().nullish(),
   "thumbnail_url": zod.string().nullish(),
   "ig_media_id": zod.string().nullish(),
@@ -615,11 +702,15 @@ export const GetVideoResponse = zod.object({
   "duration_seconds": zod.number().nullish(),
   "captioned_video_url": zod.string().nullish(),
   "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish(),
-  "video_effects": VideoEffects.nullish(),
+  "video_effects": zod.union([zod.object({
+  "zoom": zod.boolean().describe('Ken Burns \/ zoompan effect applied at key script moments'),
+  "ai_broll": zod.boolean().describe('AI-generated (gpt-image-1) B-roll images overlaid at timed segments'),
+  "text_cards": zod.boolean().describe('Animated stats\/hook\/CTA cards rendered via canvas and overlaid')
+}).describe('Video post-processing effects applied after HeyGen renders the avatar'),zod.null()]).optional(),
   "created_at": zod.string(),
   "updated_at": zod.string(),
   "published_at": zod.string().nullish(),
-  "scheduled_publish_at": zod.string().nullish()
+  "scheduled_publish_at": zod.string().nullish().describe('ISO timestamp at which the video is scheduled to be auto-published')
 })
 
 
@@ -641,7 +732,7 @@ export const PublishVideoResponse = zod.object({
   "heygen_video_id": zod.string().nullish(),
   "topic": zod.string().nullish(),
   "avatar_id": zod.string().nullish(),
-  "status": zod.enum(['pending', 'generating', 'ready', 'publishing', 'published', 'failed']),
+  "status": zod.enum(['pending', 'generating', 'ready', 'published', 'publishing', 'failed']),
   "video_url": zod.string().nullish(),
   "thumbnail_url": zod.string().nullish(),
   "ig_media_id": zod.string().nullish(),
@@ -650,57 +741,15 @@ export const PublishVideoResponse = zod.object({
   "duration_seconds": zod.number().nullish(),
   "captioned_video_url": zod.string().nullish(),
   "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish(),
-  "video_effects": VideoEffects.nullish(),
+  "video_effects": zod.union([zod.object({
+  "zoom": zod.boolean().describe('Ken Burns \/ zoompan effect applied at key script moments'),
+  "ai_broll": zod.boolean().describe('AI-generated (gpt-image-1) B-roll images overlaid at timed segments'),
+  "text_cards": zod.boolean().describe('Animated stats\/hook\/CTA cards rendered via canvas and overlaid')
+}).describe('Video post-processing effects applied after HeyGen renders the avatar'),zod.null()]).optional(),
   "created_at": zod.string(),
   "updated_at": zod.string(),
   "published_at": zod.string().nullish(),
-  "scheduled_publish_at": zod.string().nullish()
-})
-
-/**
- * @summary Schedule a ready video for future Instagram publication
- */
-export const ScheduleVideoParams = zod.object({
-  "id": zod.coerce.number()
-})
-
-export const ScheduleVideoBody = zod.object({
-  "scheduled_publish_at": zod.string().nullish()
-})
-
-export const ScheduleVideoResponse = zod.object({
-  "id": zod.number(),
-  "content_plan_id": zod.number().nullish(),
-  "heygen_video_id": zod.string().nullish(),
-  "topic": zod.string().nullish(),
-  "avatar_id": zod.string().nullish(),
-  "status": zod.enum(['pending', 'generating', 'ready', 'publishing', 'published', 'failed']),
-  "video_url": zod.string().nullish(),
-  "thumbnail_url": zod.string().nullish(),
-  "ig_media_id": zod.string().nullish(),
-  "ig_permalink": zod.string().nullish(),
-  "error_message": zod.string().nullish(),
-  "duration_seconds": zod.number().nullish(),
-  "captioned_video_url": zod.string().nullish(),
-  "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish(),
-  "video_effects": VideoEffects.nullish(),
-  "created_at": zod.string(),
-  "updated_at": zod.string(),
-  "published_at": zod.string().nullish(),
-  "scheduled_publish_at": zod.string().nullish()
-})
-
-
-/**
- * @summary Delete a video and detach it from its content plan item
- */
-export const DeleteVideoParams = zod.object({
-  "id": zod.number()
-})
-
-export const DeleteVideoResponse = zod.object({
-  "success": zod.boolean(),
-  "message": zod.string()
+  "scheduled_publish_at": zod.string().nullish().describe('ISO timestamp at which the video is scheduled to be auto-published')
 })
 
 
@@ -719,8 +768,8 @@ export const GetAutomationResponse = zod.object({
   "last_run_at": zod.string().nullish(),
   "next_run_at": zod.string().nullish(),
   "last_run_status": zod.string().nullish(),
-  /** True while any video is being processed — UI should lock all config controls */
-  "processing_locked": zod.boolean()
+  "processing_locked": zod.boolean().optional().describe('True when the automation is currently running a cycle'),
+  "auto_cover_enabled": zod.boolean().optional().describe('When true, automatically generates a branded cover image for each published Reel')
 })
 
 
@@ -735,7 +784,8 @@ export const UpdateAutomationBody = zod.object({
   "auto_generate_script": zod.boolean().optional(),
   "auto_generate_video": zod.boolean().optional(),
   "auto_publish": zod.boolean().optional(),
-  "captions_enabled": zod.boolean().optional()
+  "captions_enabled": zod.boolean().optional(),
+  "auto_cover_enabled": zod.boolean().optional()
 })
 
 export const UpdateAutomationResponse = zod.object({
@@ -749,7 +799,9 @@ export const UpdateAutomationResponse = zod.object({
   "captions_enabled": zod.boolean(),
   "last_run_at": zod.string().nullish(),
   "next_run_at": zod.string().nullish(),
-  "last_run_status": zod.string().nullish()
+  "last_run_status": zod.string().nullish(),
+  "processing_locked": zod.boolean().optional().describe('True when the automation is currently running a cycle'),
+  "auto_cover_enabled": zod.boolean().optional().describe('When true, automatically generates a branded cover image for each published Reel')
 })
 
 
@@ -761,6 +813,19 @@ export const TriggerAutomationResponse = zod.object({
   "message": zod.string(),
   "content_item_id": zod.number().nullish(),
   "video_id": zod.number().nullish()
+})
+
+
+/**
+ * @summary Extract brand color palette from an uploaded logo and save the logo URL
+ */
+export const ExtractBrandPaletteBody = zod.object({
+  "object_path": zod.string().describe('Object path returned from storage upload (starts with \/objects\/)')
+})
+
+export const ExtractBrandPaletteResponse = zod.object({
+  "palette": zod.array(zod.string()).describe('Extracted dominant hex color codes from the logo'),
+  "logo_url": zod.string().describe('Object path to serve the logo (\/objects\/...)')
 })
 
 
@@ -778,7 +843,15 @@ export const GetSettingsResponse = zod.object({
   "watermark_text": zod.string().nullish(),
   "heygen_voice_speed": zod.number().nullish(),
   "welcome_dismissed": zod.boolean(),
-  "video_effects": VideoEffects
+  "video_effects": zod.object({
+  "zoom": zod.boolean().describe('Ken Burns \/ zoompan effect applied at key script moments'),
+  "ai_broll": zod.boolean().describe('AI-generated (gpt-image-1) B-roll images overlaid at timed segments'),
+  "text_cards": zod.boolean().describe('Animated stats\/hook\/CTA cards rendered via canvas and overlaid')
+}).describe('Video post-processing effects applied after HeyGen renders the avatar'),
+  "brand_logo_url": zod.string().nullish().describe('Object storage path of the brand logo (\/objects\/...)'),
+  "brand_primary_color": zod.string().nullish().describe('Primary brand hex color (e.g.'),
+  "brand_accent_color": zod.string().nullish().describe('Accent brand hex color'),
+  "brand_palette": zod.array(zod.string()).nullish().describe('Full extracted palette from the logo (hex strings)')
 })
 
 
@@ -796,7 +869,15 @@ export const UpdateSettingsBody = zod.object({
   "watermark_text": zod.string().nullish(),
   "heygen_voice_speed": zod.number().nullish(),
   "welcome_dismissed": zod.boolean().optional(),
-  "video_effects": VideoEffects.optional()
+  "video_effects": zod.object({
+  "zoom": zod.boolean().describe('Ken Burns \/ zoompan effect applied at key script moments'),
+  "ai_broll": zod.boolean().describe('AI-generated (gpt-image-1) B-roll images overlaid at timed segments'),
+  "text_cards": zod.boolean().describe('Animated stats\/hook\/CTA cards rendered via canvas and overlaid')
+}).optional().describe('Video post-processing effects applied after HeyGen renders the avatar'),
+  "brand_logo_url": zod.string().nullish(),
+  "brand_primary_color": zod.string().nullish(),
+  "brand_accent_color": zod.string().nullish(),
+  "brand_palette": zod.array(zod.string()).nullish()
 })
 
 export const UpdateSettingsResponse = zod.object({
@@ -810,7 +891,15 @@ export const UpdateSettingsResponse = zod.object({
   "watermark_text": zod.string().nullish(),
   "heygen_voice_speed": zod.number().nullish(),
   "welcome_dismissed": zod.boolean(),
-  "video_effects": VideoEffects
+  "video_effects": zod.object({
+  "zoom": zod.boolean().describe('Ken Burns \/ zoompan effect applied at key script moments'),
+  "ai_broll": zod.boolean().describe('AI-generated (gpt-image-1) B-roll images overlaid at timed segments'),
+  "text_cards": zod.boolean().describe('Animated stats\/hook\/CTA cards rendered via canvas and overlaid')
+}).describe('Video post-processing effects applied after HeyGen renders the avatar'),
+  "brand_logo_url": zod.string().nullish().describe('Object storage path of the brand logo (\/objects\/...)'),
+  "brand_primary_color": zod.string().nullish().describe('Primary brand hex color (e.g.'),
+  "brand_accent_color": zod.string().nullish().describe('Accent brand hex color'),
+  "brand_palette": zod.array(zod.string()).nullish().describe('Full extracted palette from the logo (hex strings)')
 })
 
 
@@ -828,10 +917,10 @@ export const GetCaptionPresetsResponseItem = zod.object({
   "font_family": zod.string(),
   "font_size": zod.number(),
   "active_word_scale": zod.number(),
+  "words_per_line": zod.number().optional(),
   "highlight_mode": zod.enum(['color', 'scale', 'both', 'mixed', 'zoom']),
   "auto_movement": zod.boolean(),
-  "subtle_rotation": zod.boolean(),
-  "words_per_line": zod.number().nullish()
+  "subtle_rotation": zod.boolean()
 })
 export const GetCaptionPresetsResponse = zod.array(GetCaptionPresetsResponseItem)
 
@@ -849,23 +938,21 @@ export const GetCaptionConfigResponse = zod.object({
   "background_color": zod.string().nullish(),
   "font_family": zod.string(),
   "font_size": zod.number(),
-  "line_spacing_factor": zod.number(),
-  "y_position": zod.number(),
-  "margin_x": zod.number(),
   "active_word_scale": zod.number(),
   "highlight_mode": zod.enum(['color', 'scale', 'both', 'mixed', 'zoom']),
   "auto_scale": zod.boolean(),
   "auto_movement": zod.boolean(),
   "subtle_rotation": zod.boolean(),
-  // Browser Caption Engine feature flag
+  "line_spacing_factor": zod.number().optional(),
+  "y_position": zod.number().optional(),
+  "margin_x": zod.number().optional(),
   "caption_engine": zod.enum(['standard', 'browser_experimental']),
   "template_id": zod.string().nullish(),
-  "template_overrides": zod.string().nullish(),
-  // Caption preset rotation
+  "template_overrides": zod.string().nullish().describe('JSON-serialized Partial<CaptionTemplate> overrides saved per-template'),
   "selected_preset_ids": zod.array(zod.string()),
   "caption_rotation_strategy": zod.string(),
   "last_used_preset_id": zod.string().nullish(),
-  "preset_usage_count": zod.record(zod.string(), zod.number()),
+  "preset_usage_count": zod.record(zod.string(), zod.number()).describe('Map of preset_id → usage count for rotation tracking'),
   "updated_at": zod.string()
 })
 
@@ -873,10 +960,10 @@ export const GetCaptionConfigResponse = zod.object({
 /**
  * @summary Update caption studio configuration
  */
-export const updateCaptionConfigBodyWordsPerLineMax = 6;
+export const updateCaptionConfigBodyWordsPerLineMax = 8;
 
-export const updateCaptionConfigBodyFontSizeMin = 60;
-export const updateCaptionConfigBodyFontSizeMax = 220;
+export const updateCaptionConfigBodyFontSizeMin = 24;
+export const updateCaptionConfigBodyFontSizeMax = 120;
 
 export const updateCaptionConfigBodyActiveWordScaleMax = 2;
 
@@ -892,23 +979,21 @@ export const UpdateCaptionConfigBody = zod.object({
   "background_color": zod.string().nullish(),
   "font_family": zod.string().optional(),
   "font_size": zod.number().min(updateCaptionConfigBodyFontSizeMin).max(updateCaptionConfigBodyFontSizeMax).optional(),
-  "line_spacing_factor": zod.number().min(1).max(3).optional(),
-  "y_position": zod.number().min(5).max(97).optional(),
-  "margin_x": zod.number().min(0).max(400).optional(),
   "active_word_scale": zod.number().min(1).max(updateCaptionConfigBodyActiveWordScaleMax).optional(),
   "highlight_mode": zod.enum(['color', 'scale', 'both', 'mixed', 'zoom']).optional(),
   "auto_scale": zod.boolean().optional(),
   "auto_movement": zod.boolean().optional(),
   "subtle_rotation": zod.boolean().optional(),
-  // Browser Caption Engine feature flag
+  "line_spacing_factor": zod.number().optional(),
+  "y_position": zod.number().optional(),
+  "margin_x": zod.number().optional(),
   "caption_engine": zod.enum(['standard', 'browser_experimental']).optional(),
   "template_id": zod.string().nullish(),
-  "template_overrides": zod.string().nullish(),
-  // Caption preset rotation
+  "template_overrides": zod.string().nullish().describe('JSON-serialized Partial<CaptionTemplate> overrides saved per-template'),
   "selected_preset_ids": zod.array(zod.string()).optional(),
   "caption_rotation_strategy": zod.string().optional(),
   "last_used_preset_id": zod.string().nullish(),
-  "preset_usage_count": zod.record(zod.string(), zod.number()).optional()
+  "preset_usage_count": zod.record(zod.string(), zod.number()).optional().describe('Map of preset_id → usage count for rotation tracking')
 })
 
 export const UpdateCaptionConfigResponse = zod.object({
@@ -921,21 +1006,21 @@ export const UpdateCaptionConfigResponse = zod.object({
   "background_color": zod.string().nullish(),
   "font_family": zod.string(),
   "font_size": zod.number(),
-  "line_spacing_factor": zod.number(),
-  "y_position": zod.number(),
-  "margin_x": zod.number(),
   "active_word_scale": zod.number(),
   "highlight_mode": zod.enum(['color', 'scale', 'both', 'mixed', 'zoom']),
   "auto_scale": zod.boolean(),
   "auto_movement": zod.boolean(),
   "subtle_rotation": zod.boolean(),
+  "line_spacing_factor": zod.number().optional(),
+  "y_position": zod.number().optional(),
+  "margin_x": zod.number().optional(),
   "caption_engine": zod.enum(['standard', 'browser_experimental']),
   "template_id": zod.string().nullish(),
-  "template_overrides": zod.string().nullish(),
+  "template_overrides": zod.string().nullish().describe('JSON-serialized Partial<CaptionTemplate> overrides saved per-template'),
   "selected_preset_ids": zod.array(zod.string()),
   "caption_rotation_strategy": zod.string(),
   "last_used_preset_id": zod.string().nullish(),
-  "preset_usage_count": zod.record(zod.string(), zod.number()),
+  "preset_usage_count": zod.record(zod.string(), zod.number()).describe('Map of preset_id → usage count for rotation tracking'),
   "updated_at": zod.string()
 })
 

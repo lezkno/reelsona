@@ -27,6 +27,8 @@ import type {
   AutomationRunResult,
   AvatarConfig,
   AvatarConfigInput,
+  BrandLogoInput,
+  BrandPaletteResult,
   CaptionConfig,
   CaptionConfigInput,
   CaptionPreset,
@@ -50,6 +52,7 @@ import type {
   OAuthCallbackInput,
   ProcessContentItemNow200,
   PublishInput,
+  ScheduleVideoBody,
   ScriptInput,
   ScriptResult,
   Settings,
@@ -1973,6 +1976,78 @@ export const useGenerateVideo = <TError = ErrorType<unknown>,
       return useMutation(getGenerateVideoMutationOptions(options));
     }
 
+export const getScheduleVideoUrl = (id: number,) => {
+
+
+
+
+  return `/api/videos/${id}/schedule`
+}
+
+/**
+ * @summary Set or clear the scheduled auto-publish time for a video
+ */
+export const scheduleVideo = async (id: number,
+    scheduleVideoBody: ScheduleVideoBody, options?: Parameters<typeof customFetch>[1]): Promise<Video> => {
+
+  return customFetch<Video>(getScheduleVideoUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(scheduleVideoBody)
+  }
+);}
+
+
+
+
+
+export const getScheduleVideoMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof scheduleVideo>>, TError,{id: number;data: BodyType<ScheduleVideoBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof scheduleVideo>>, TError,{id: number;data: BodyType<ScheduleVideoBody>}, TContext> => {
+
+const mutationKey = ['scheduleVideo'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof scheduleVideo>>, {id: number;data: BodyType<ScheduleVideoBody>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  scheduleVideo(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ScheduleVideoMutationResult = NonNullable<Awaited<ReturnType<typeof scheduleVideo>>>
+    export type ScheduleVideoMutationBody = BodyType<ScheduleVideoBody>
+    export type ScheduleVideoMutationError = ErrorType<void>
+
+    /**
+ * @summary Set or clear the scheduled auto-publish time for a video
+ */
+export const useScheduleVideo = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof scheduleVideo>>, TError,{id: number;data: BodyType<ScheduleVideoBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof scheduleVideo>>,
+        TError,
+        {id: number;data: BodyType<ScheduleVideoBody>},
+        TContext
+      > => {
+      return useMutation(getScheduleVideoMutationOptions(options));
+    }
+
 export const getGetVideoUrl = (id: number,) => {
 
 
@@ -2121,104 +2196,6 @@ export const usePublishVideo = <TError = ErrorType<void>,
       > => {
       return useMutation(getPublishVideoMutationOptions(options));
     }
-
-export const getScheduleVideoUrl = (id: number) => `/api/videos/${id}/schedule`
-
-/**
- * @summary Schedule a ready video for future Instagram publication
- */
-export const scheduleVideo = async (
-  id: number,
-  scheduleInput: { scheduled_publish_at?: string | null },
-  options?: Parameters<typeof customFetch>[1]
-): Promise<Video> => {
-  return customFetch<Video>(getScheduleVideoUrl(id), {
-    ...options,
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(scheduleInput),
-  });
-};
-
-export const useScheduleVideo = <TError = ErrorType<void>, TContext = unknown>(
-  options?: {
-    mutation?: UseMutationOptions<
-      Awaited<ReturnType<typeof scheduleVideo>>,
-      TError,
-      { id: number; data: { scheduled_publish_at?: string | null } },
-      TContext
-    >;
-    request?: SecondParameter<typeof customFetch>;
-  }
-): UseMutationResult<
-  Awaited<ReturnType<typeof scheduleVideo>>,
-  TError,
-  { id: number; data: { scheduled_publish_at?: string | null } },
-  TContext
-> => {
-  const mutationKey = ['scheduleVideo'];
-  const { mutation: mutationOptions, request: requestOptions } = options
-    ? options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey
-      ? options
-      : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey }, request: undefined };
-
-  const mutationFn: MutationFunction<
-    Awaited<ReturnType<typeof scheduleVideo>>,
-    { id: number; data: { scheduled_publish_at?: string | null } }
-  > = (props) => {
-    const { id, data } = props ?? {};
-    return scheduleVideo(id, data, requestOptions);
-  };
-
-  return useMutation({ mutationFn, ...mutationOptions });
-};
-
-export const getDeleteVideoUrl = (id: number) => `/api/videos/${id}`
-
-/**
- * @summary Delete a video and detach it from its content plan item
- */
-export const deleteVideo = async (
-  id: number,
-  options?: Parameters<typeof customFetch>[1]
-): Promise<{ success: boolean; message: string }> => {
-  return customFetch<{ success: boolean; message: string }>(getDeleteVideoUrl(id), {
-    ...options,
-    method: 'DELETE',
-  });
-};
-
-export const useDeleteVideo = <TError = ErrorType<void>, TContext = unknown>(
-  options?: {
-    mutation?: UseMutationOptions<
-      Awaited<ReturnType<typeof deleteVideo>>,
-      TError,
-      { id: number },
-      TContext
-    >;
-    request?: SecondParameter<typeof customFetch>;
-  }
-): UseMutationResult<
-  Awaited<ReturnType<typeof deleteVideo>>,
-  TError,
-  { id: number },
-  TContext
-> => {
-  const mutationKey = ['deleteVideo'];
-  const { mutation: mutationOptions, request: requestOptions } = options
-    ? options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey
-      ? options
-      : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey }, request: undefined };
-
-  const mutationFn: MutationFunction<
-    Awaited<ReturnType<typeof deleteVideo>>,
-    { id: number }
-  > = ({ id }) => deleteVideo(id, requestOptions);
-
-  return useMutation({ mutationFn, ...mutationOptions });
-};
 
 export const getGetAutomationUrl = () => {
 
@@ -2437,6 +2414,77 @@ export const useTriggerAutomation = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getTriggerAutomationMutationOptions(options));
+    }
+
+export const getExtractBrandPaletteUrl = () => {
+
+
+
+
+  return `/api/settings/brand-logo`
+}
+
+/**
+ * @summary Extract brand color palette from an uploaded logo and save the logo URL
+ */
+export const extractBrandPalette = async (brandLogoInput: BrandLogoInput, options?: Parameters<typeof customFetch>[1]): Promise<BrandPaletteResult> => {
+
+  return customFetch<BrandPaletteResult>(getExtractBrandPaletteUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(brandLogoInput)
+  }
+);}
+
+
+
+
+
+export const getExtractBrandPaletteMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof extractBrandPalette>>, TError,{data: BodyType<BrandLogoInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof extractBrandPalette>>, TError,{data: BodyType<BrandLogoInput>}, TContext> => {
+
+const mutationKey = ['extractBrandPalette'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof extractBrandPalette>>, {data: BodyType<BrandLogoInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  extractBrandPalette(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ExtractBrandPaletteMutationResult = NonNullable<Awaited<ReturnType<typeof extractBrandPalette>>>
+    export type ExtractBrandPaletteMutationBody = BodyType<BrandLogoInput>
+    export type ExtractBrandPaletteMutationError = ErrorType<void>
+
+    /**
+ * @summary Extract brand color palette from an uploaded logo and save the logo URL
+ */
+export const useExtractBrandPalette = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof extractBrandPalette>>, TError,{data: BodyType<BrandLogoInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof extractBrandPalette>>,
+        TError,
+        {data: BodyType<BrandLogoInput>},
+        TContext
+      > => {
+      return useMutation(getExtractBrandPaletteMutationOptions(options));
     }
 
 export const getGetSettingsUrl = () => {

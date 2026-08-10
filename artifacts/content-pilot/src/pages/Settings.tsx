@@ -1,8 +1,12 @@
-import { useGetSettings, useUpdateSettings, getGetSettingsQueryKey, SettingsTone, type SettingsInput } from "@workspace/api-client-react"
+import {
+  useGetSettings, useUpdateSettings, useExtractBrandPalette,
+  getGetSettingsQueryKey, SettingsTone, type SettingsInput,
+} from "@workspace/api-client-react"
 import {
   useHeyGenAccount, useConnectHeyGen, useDisconnectHeyGen,
   HEYGEN_ACCOUNT_QUERY_KEY,
 } from "@workspace/api-client-react"
+import { useUpload } from "@workspace/object-storage-web"
 import heygenLogoUrl from "@/assets/heygen-logo.png"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -15,8 +19,8 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Progress } from "@/components/ui/progress"
 import { useQueryClient } from "@tanstack/react-query"
 import { useToast } from "@/hooks/use-toast"
-import { useEffect, useState } from "react"
-import { Save, CheckCircle2, XCircle, Loader2, Link2, Link2Off, Eye, EyeOff, RefreshCw, Play } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
+import { Save, CheckCircle2, XCircle, Loader2, Link2, Link2Off, Eye, EyeOff, RefreshCw, Play, Upload, X, Palette } from "lucide-react"
 import AccessStatus from "@/components/AccessStatus"
 
 const WELCOME_STORAGE_KEY = "reelsona_welcome_dismissed"
@@ -42,6 +46,254 @@ function normalizeLanguage(value: string | null | undefined): string {
   if (v.startsWith("de") || v === "deutsch") return "de"
   if (v.startsWith("it") || v === "italiano") return "it"
   return "es"
+}
+
+// ── Brand Identity card ───────────────────────────────────────────────────────
+
+function BrandIdentityCard() {
+  const { data: settings, isLoading } = useGetSettings()
+  const updateSettings = useUpdateSettings()
+  const extractPalette = useExtractBrandPalette()
+  const queryClient = useQueryClient()
+  const { toast } = useToast()
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const [uploading, setUploading] = useState(false)
+  const [extracting, setExtracting] = useState(false)
+  // Local copy of palette overrides the server one while the user is working
+  const [localPalette, setLocalPalette] = useState<string[] | null>(null)
+
+  const { uploadFile } = useUpload()
+
+  const palette: string[] = localPalette ?? (settings?.brand_palette as string[] | null) ?? []
+  const primaryColor = settings?.brand_primary_color ?? null
+  const accentColor  = settings?.brand_accent_color  ?? null
+  const logoUrl = settings?.brand_logo_url ? `/api/storage${settings.brand_logo_url}` : null
+
+  const busy = uploading || extracting || updateSettings.isPending
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ""
+    if (!file) return
+    if (!file.type.startsWith("image/") || file.type === "image/svg+xml") {
+      toast({ title: "Solo PNG, JPEG o WEBP", description: "El análisis de color no funciona con SVG.", variant: "destructive" })
+      return
+    }
+
+    setUploading(true)
+    try {
+      const result = await uploadFile(file)
+      if (!result) return
+
+      setUploading(false)
+      setExtracting(true)
+      const data = await extractPalette.mutateAsync({ data: { object_path: result.objectPath } })
+      setLocalPalette(data.palette)
+      await queryClient.invalidateQueries({ queryKey: getGetSettingsQueryKey() })
+      toast({
+        title: "¡Logo analizado!",
+        description: `Se detectaron ${data.palette.length} colores. Hacé clic en uno para asignarlo como primario o acento.`,
+      })
+    } catch (err: any) {
+      toast({ title: "Error al procesar el logo", description: err?.message ?? "Intentá de nuevo.", variant: "destructive" })
+    } finally {
+      setUploading(false)
+      setExtracting(false)
+    }
+  }
+
+  async function assignColor(hex: string, role: "primary" | "accent") {
+    const update = role === "primary"
+      ? { brand_primary_color: hex }
+      : { brand_accent_color: hex }
+    await updateSettings.mutateAsync({ data: update })
+    await queryClient.invalidateQueries({ queryKey: getGetSettingsQueryKey() })
+    toast({ title: role === "primary" ? "Color primario guardado" : "Color de acento guardado", description: hex })
+  }
+
+  async function handleRemove() {
+    await updateSettings.mutateAsync({
+      data: { brand_logo_url: null, brand_primary_color: null, brand_accent_color: null, brand_palette: null },
+    })
+    await queryClient.invalidateQueries({ queryKey: getGetSettingsQueryKey() })
+    setLocalPalette(null)
+    toast({ title: "Identidad de marca eliminada" })
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-pink-500 flex items-center justify-center shrink-0">
+              <Palette className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <CardTitle className="text-base">Identidad Visual</CardTitle>
+              <CardDescription className="text-xs mt-0.5">
+                Subí tu logo y el sistema detecta tu paleta automáticamente
+              </CardDescription>
+            </div>
+          </div>
+          {logoUrl && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-muted-foreground shrink-0"
+              onClick={handleRemove}
+              disabled={busy}
+              title="Eliminar logo y colores"
+            >
+              <X className="w-3.5 h-3.5" />
+            </Button>
+          )}
+        </div>
+      </CardHeader>
+
+      <CardContent className="space-y-5">
+        {isLoading ? (
+          <Skeleton className="h-24 w-full rounded-xl" />
+        ) : (
+          <>
+            {/* ── Logo upload area ── */}
+            <div
+              className={`
+                relative flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed p-6
+                transition-colors cursor-pointer
+                ${busy ? "opacity-60 pointer-events-none" : "hover:border-primary/50 hover:bg-muted/30"}
+                ${logoUrl ? "border-border" : "border-muted-foreground/30"}
+              `}
+              onClick={() => !busy && fileInputRef.current?.click()}
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                className="hidden"
+                onChange={handleFileChange}
+              />
+
+              {logoUrl ? (
+                <img
+                  src={logoUrl}
+                  alt="Logo de marca"
+                  className="h-16 max-w-[160px] object-contain rounded"
+                  onError={(e) => { (e.target as HTMLImageElement).style.display = "none" }}
+                />
+              ) : (
+                <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center">
+                  <Upload className="w-5 h-5 text-muted-foreground" />
+                </div>
+              )}
+
+              <div className="text-center">
+                {uploading ? (
+                  <p className="text-sm text-muted-foreground flex items-center gap-1.5">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Subiendo logo…
+                  </p>
+                ) : extracting ? (
+                  <p className="text-sm text-muted-foreground flex items-center gap-1.5">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Analizando colores…
+                  </p>
+                ) : logoUrl ? (
+                  <p className="text-xs text-muted-foreground">Clic para reemplazar el logo</p>
+                ) : (
+                  <>
+                    <p className="text-sm font-medium">Subí tu logo</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">PNG, JPEG o WEBP</p>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* ── Palette swatches ── */}
+            {palette.length > 0 && (
+              <div className="space-y-3">
+                <p className="text-sm font-medium">Colores detectados</p>
+                <p className="text-xs text-muted-foreground -mt-1">
+                  Clic en "1°" para primario · "2°" para acento
+                </p>
+                <div className="flex flex-wrap gap-3">
+                  {palette.map((hex) => {
+                    const isPrimary = primaryColor === hex
+                    const isAccent  = accentColor  === hex
+                    return (
+                      <div key={hex} className="flex flex-col items-center gap-1.5">
+                        {/* Color swatch */}
+                        <div
+                          className="w-10 h-10 rounded-full border-2 shadow-sm relative"
+                          style={{
+                            backgroundColor: hex,
+                            borderColor: isPrimary || isAccent ? hex : "transparent",
+                            outline: isPrimary || isAccent ? "2px solid white" : undefined,
+                            outlineOffset: isPrimary || isAccent ? "-3px" : undefined,
+                          }}
+                        >
+                          {isPrimary && (
+                            <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[9px] font-bold w-4 h-4 rounded-full flex items-center justify-center leading-none">1°</span>
+                          )}
+                          {isAccent && (
+                            <span className="absolute -top-1 -right-1 bg-violet-500 text-white text-[9px] font-bold w-4 h-4 rounded-full flex items-center justify-center leading-none">2°</span>
+                          )}
+                        </div>
+                        {/* Role buttons */}
+                        <div className="flex gap-1">
+                          <button
+                            onClick={() => assignColor(hex, "primary")}
+                            disabled={busy || isPrimary}
+                            className={`text-[10px] px-1.5 py-0.5 rounded font-medium transition-colors
+                              ${isPrimary
+                                ? "bg-primary text-primary-foreground"
+                                : "bg-muted hover:bg-primary/10 text-muted-foreground hover:text-primary"
+                              }`}
+                          >
+                            1°
+                          </button>
+                          <button
+                            onClick={() => assignColor(hex, "accent")}
+                            disabled={busy || isAccent}
+                            className={`text-[10px] px-1.5 py-0.5 rounded font-medium transition-colors
+                              ${isAccent
+                                ? "bg-violet-500 text-white"
+                                : "bg-muted hover:bg-violet-100 text-muted-foreground hover:text-violet-600"
+                              }`}
+                          >
+                            2°
+                          </button>
+                        </div>
+                        <span className="text-[9px] text-muted-foreground font-mono">{hex}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* ── Active colors summary ── */}
+            {(primaryColor || accentColor) && (
+              <div className="flex flex-wrap gap-3 pt-2 border-t">
+                {primaryColor && (
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 rounded-full border border-border shadow-sm" style={{ backgroundColor: primaryColor }} />
+                    <span className="text-xs text-muted-foreground">Primario</span>
+                    <span className="text-xs font-mono font-medium">{primaryColor}</span>
+                  </div>
+                )}
+                {accentColor && (
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 rounded-full border border-border shadow-sm" style={{ backgroundColor: accentColor }} />
+                    <span className="text-xs text-muted-foreground">Acento</span>
+                    <span className="text-xs font-mono font-medium">{accentColor}</span>
+                  </div>
+                )}
+              </div>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  )
 }
 
 // ── HeyGen integration card ───────────────────────────────────────────────────
@@ -339,6 +591,17 @@ export default function Settings() {
           <p className="text-sm text-muted-foreground mt-0.5">Conecta tus herramientas externas para activar el pipeline de producción.</p>
         </div>
         <HeyGenIntegrationCard />
+      </div>
+
+      {/* ── Identidad Visual de Marca ── */}
+      <div className="space-y-4">
+        <div>
+          <h2 className="text-xl font-display font-semibold">Identidad Visual</h2>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Los colores seleccionados se guardan y se usarán automáticamente en las portadas de cada Reel.
+          </p>
+        </div>
+        <BrandIdentityCard />
       </div>
 
       {/* ── Identidad y Tono ── */}

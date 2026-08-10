@@ -5,6 +5,17 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { customFetch } from "./custom-fetch";
 
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+import type { VideoEffects } from "./generated/api.schemas";
+
+/** Default video effects configuration (all effects disabled). */
+export const DEFAULT_VIDEO_EFFECTS: VideoEffects = {
+  zoom: false,
+  ai_broll: false,
+  text_cards: false,
+};
+
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
 export interface AuthUser {
@@ -95,6 +106,17 @@ export function useRescheduleOverdue() {
 
 export interface RetryVideoResult {
   success: boolean;
+}
+
+export function useDeleteVideo() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id }: { id: number }) =>
+      customFetch<{ ok: boolean }>(`/api/videos/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["videos"] });
+    },
+  });
 }
 
 export function useRetryVideo() {
@@ -368,15 +390,69 @@ export function useRegenerateScript() {
 }
 
 // ── Strategic Audit ───────────────────────────────────────────────────────────
+// These types are not in the OpenAPI spec (strategy routes use custom fetchers).
+// They are defined here alongside the hooks that use them.
 
-import type {
-  StrategyProfile,
-  NicheRadarAccount,
-  RadarSuggestion,
-  RadarStatus,
-} from "./generated/api.schemas";
+interface AccountDataTopPost {
+  id: string; thumbnail_url: string | null; caption: string | null;
+  like_count: number; comments_count: number; plays: number | null;
+  engagement_rate: number | null; permalink: string | null;
+}
+interface AccountData {
+  avg_engagement: number; avg_reach: number; best_posting_times: string[];
+  top_posts: AccountDataTopPost[]; top_captions: string[];
+  follower_count: number; media_count: number; fetched_at: string;
+}
+interface MarketInsights {
+  top_themes: string[]; working_formats: string[]; audience_pains: string[];
+  content_gaps: string[]; saturated_topics: string[]; opportunities: string[];
+  shareable_hooks: string[]; analyzed_at: string;
+}
+interface ContentStrategyPillar {
+  name: string; objective: string; frequency_pct: number; example_topics: string[];
+}
+interface ContentStrategy {
+  pillars: ContentStrategyPillar[];
+  editorial_angles: string[];
+  format_mix: { educational: number; emotional: number; sales: number; controversial: number; storytelling: number };
+  unique_value_prop: string; hook_types: string[]; recommended_ctas: string[];
+  posting_frequency: string; generated_at: string;
+}
 
-export type { StrategyProfile, NicheRadarAccount, RadarSuggestion, RadarStatus };
+export interface StrategyProfile {
+  id: number;
+  account_data: AccountData | null;
+  market_insights: MarketInsights | null;
+  content_strategy: ContentStrategy | null;
+  steps_completed: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NicheRadarAccount {
+  id: number;
+  ig_username: string;
+  profile_url: string | null;
+  bio: string | null;
+  followers: number | null;
+  relevance_score: number | null;
+  use_as_reference: boolean;
+  source: string;
+  top_posts_json: unknown | null;
+  last_synced_at: string | null;
+  created_at: string;
+}
+
+export interface RadarSuggestion {
+  ig_username: string;
+  reason: string;
+  approximate_followers: string;
+  content_type: string;
+}
+
+export interface RadarStatus {
+  apify_available: boolean;
+}
 
 const STRATEGY_PROFILE_KEY  = ["strategy", "profile"] as const;
 const RADAR_ACCOUNTS_KEY    = ["strategy", "radar"]   as const;

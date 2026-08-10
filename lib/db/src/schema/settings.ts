@@ -20,6 +20,14 @@ export const settingsTable = pgTable("settings", {
   welcomeDismissed: boolean("welcome_dismissed").notNull().default(false),
   /** Account-level video effects defaults applied to every new video */
   videoEffects: jsonb("video_effects").notNull().default({ zoom: false, ai_broll: false, text_cards: false }),
+  /** Object storage path of the brand logo uploaded by the user */
+  brandLogoUrl: text("brand_logo_url"),
+  /** Primary brand color (hex, e.g. #1A2B3C) chosen by the user */
+  brandPrimaryColor: text("brand_primary_color"),
+  /** Accent brand color (hex) chosen by the user */
+  brandAccentColor: text("brand_accent_color"),
+  /** Full extracted palette from the logo (array of hex strings) */
+  brandPaletteColors: text("brand_palette_colors").array(),
 });
 
 export const insertSettingsSchema = createInsertSchema(settingsTable).omit({ id: true });

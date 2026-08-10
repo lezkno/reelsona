@@ -24,6 +24,7 @@ import { getStrategyProfile, toStrategyContext } from "./strategy-profile";
 import { generateVideo, getVideoStatus, listVoices, getAvatarDefaultVoiceId } from "./heygen";
 import { createReelContainer, checkContainerStatus, publishContainer, getPermalink } from "./instagram-api";
 import { getSignedCaptionedVideoUrl } from "./objectStorage";
+import { generateBrandCover } from "./brand-cover";
 
 /** Sentinel stored in preferred_voice_id meaning "use the avatar's own HeyGen default voice" (legacy, kept for backwards compat). */
 export const AVATAR_DEFAULT_VOICE = "avatar_default";
@@ -1325,6 +1326,51 @@ async function _publishVideoToInstagramInner(videoId: number, videoUrl?: string)
     caption = [item?.caption, item?.hashtags].filter(Boolean).join("\n\n");
   }
 
+  // Generate a branded cover image when both brand colors AND auto_cover_enabled are set.
+  // Falls back gracefully to no cover if the flag is off, brand settings are missing, or upload fails.
+  let brandCoverUrl: string | null = null;
+  try {
+    const [automationRow] = await db
+      .select({ autoCoverEnabled: automationConfigTable.autoCoverEnabled })
+      .from(automationConfigTable)
+      .where(eq(automationConfigTable.userId, video.userId))
+      .limit(1);
+    const [brandSettings] = await db
+      .select({ brandPrimaryColor: settingsTable.brandPrimaryColor, brandAccentColor: settingsTable.brandAccentColor })
+      .from(settingsTable)
+      .where(eq(settingsTable.userId, video.userId))
+      .limit(1);
+    if (automationRow?.autoCoverEnabled && brandSettings?.brandPrimaryColor) {
+      // Use hook text for the cover; fall back to video topic
+      const hookText = (() => {
+        if (!video.contentPlanId) return video.topic ?? "Reel";
+        // item was already queried above; re-query for hook specifically
+        return null; // resolved below
+      })();
+      // Re-fetch hook if we have a content plan item
+      let coverText = hookText ?? video.topic ?? "Reel";
+      if (video.contentPlanId) {
+        const [itemForCover] = await db
+          .select({ hook: contentPlanItemsTable.hook, topic: contentPlanItemsTable.topic })
+          .from(contentPlanItemsTable)
+          .where(eq(contentPlanItemsTable.id, video.contentPlanId))
+          .limit(1);
+        coverText = itemForCover?.hook ?? itemForCover?.topic ?? video.topic ?? "Reel";
+      }
+      brandCoverUrl = await generateBrandCover(
+        videoId,
+        coverText,
+        brandSettings.brandPrimaryColor,
+        brandSettings.brandAccentColor ?? null
+      );
+      if (brandCoverUrl) {
+        logger.info({ videoId, coverUrl: brandCoverUrl.slice(0, 80) }, "[Publish] Brand cover generated");
+      }
+    }
+  } catch (err) {
+    logger.warn({ videoId, err }, "[Publish] Brand cover generation failed — continuing without cover");
+  }
+
   // Create container (or resume existing one from a previous attempt)
   let containerId: string;
   if (video.igContainerId) {
@@ -1332,7 +1378,7 @@ async function _publishVideoToInstagramInner(videoId: number, videoUrl?: string)
     containerId = video.igContainerId;
     logger.info({ videoId, containerId }, "[Publish] Resuming existing Instagram container");
   } else {
-    containerId = await createReelContainer(igAccount.accessToken, igAccount.igUserId, url, caption);
+    containerId = await createReelContainer(igAccount.accessToken, igAccount.igUserId, url, caption, brandCoverUrl);
     // Persist the container ID BEFORE polling so a crash/restart can resume
     await db
       .update(videosTable)
@@ -1375,11 +1421,11 @@ async function _publishVideoToInstagramInner(videoId: number, videoUrl?: string)
     if (prePublish?.igMediaId) {
       // Already published in a previous run — reuse the saved igMediaId.
       igMediaId = prePublish.igMediaId;
-      permalink = prePublish.igPermalink ?? await getPermalink(igAccount.accessToken, igMediaId);
+      permalink = prePublish.igPermalink ?? await getPermalink(igAccount.accessToken, igMediaId) ?? "";
       logger.info({ videoId, igMediaId }, "[Publish] igMediaId already saved — skipping duplicate publishContainer call");
     } else {
       igMediaId = await publishContainer(igAccount.accessToken, igAccount.igUserId, containerId);
-      permalink = await getPermalink(igAccount.accessToken, igMediaId);
+      permalink = await getPermalink(igAccount.accessToken, igMediaId) ?? "";
     }
 
     await db

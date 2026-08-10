@@ -22,6 +22,7 @@ function mapConfig(c: typeof automationConfigTable.$inferSelect, processingLocke
     auto_generate_video: c.autoGenerateVideo,
     auto_publish: c.autoPublish,
     captions_enabled: c.captionsEnabled,
+    auto_cover_enabled: c.autoCoverEnabled,
     last_run_at: c.lastRunAt?.toISOString() ?? null,
     next_run_at: c.nextRunAt?.toISOString() ?? null,
     last_run_status: c.lastRunStatus ?? null,
@@ -87,6 +88,7 @@ router.put("/automation", async (req, res): Promise<void> => {
   if (d.auto_generate_video !== undefined) updates.autoGenerateVideo = d.auto_generate_video;
   if (d.auto_publish !== undefined) updates.autoPublish = d.auto_publish;
   if (d.captions_enabled !== undefined) updates.captionsEnabled = d.captions_enabled;
+  if (d.auto_cover_enabled !== undefined) updates.autoCoverEnabled = d.auto_cover_enabled;
 
   let config;
   if (existing) {

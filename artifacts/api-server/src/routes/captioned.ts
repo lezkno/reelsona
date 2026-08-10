@@ -23,11 +23,14 @@ router.use("/captioned-objects", async (req, res, next): Promise<void> => {
   // req.path = "/captioned-videos/file.mp4" → strip leading slash
   const objectName = req.path.replace(/^\//, "");
 
-  // Security: only serve objects in the captioned-videos/ namespace
+  // Security: only serve objects in explicitly allowed namespaces.
+  // captioned-videos/ — browser caption engine output videos
+  // brand-covers/     — branded Reel cover images (fetched by Instagram)
+  const ALLOWED_NAMESPACES = ["captioned-videos/", "brand-covers/"];
   if (
     !objectName ||
     objectName.includes("..") ||
-    !objectName.startsWith("captioned-videos/") ||
+    !ALLOWED_NAMESPACES.some((ns) => objectName.startsWith(ns)) ||
     objectName.split("/").some((part) => part === "")
   ) {
     res.status(403).json({ error: "Forbidden" });
