@@ -151,7 +151,8 @@ function HeyGenIntegrationCard() {
 
           {isLoading ? (
             <Skeleton className="h-10 w-full" />
-          ) : !isConnected || editing ? (
+          ) : editing || (!isConnected) || (isConnected && !editing && keySource !== "env") ? (
+            /* Input form: when disconnected, or editing an existing key */
             <div className="space-y-3">
               <div className="relative">
                 <Input
@@ -195,7 +196,7 @@ function HeyGenIntegrationCard() {
                   {connect.isPending ? (
                     <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Verificando...</>
                   ) : (
-                    <><Link2 className="w-3.5 h-3.5" /> {isConnected ? "Actualizar clave" : "Conectar cuenta"}</>
+                    <><Link2 className="w-3.5 h-3.5" /> {keySource === "db" ? "Actualizar clave" : "Conectar mi cuenta"}</>
                   )}
                 </Button>
                 {editing && (
@@ -205,34 +206,44 @@ function HeyGenIntegrationCard() {
                 )}
               </div>
             </div>
+          ) : keySource === "env" ? (
+            /* Connected via server-level env var — let the user override with their own key */
+            <div className="space-y-3">
+              <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 px-3 py-2.5 flex items-start gap-2.5">
+                <span className="text-base mt-0.5 shrink-0">🔑</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-amber-800 dark:text-amber-300">Clave compartida del servidor</p>
+                  <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5 leading-snug">
+                    Hay una API Key configurada a nivel del servidor. Todos los usuarios la comparten.
+                    Podés conectar tu propia cuenta de HeyGen para que los créditos se descuenten de tu cuenta personal.
+                  </p>
+                </div>
+              </div>
+              <Button variant="outline" size="sm" onClick={startEdit} className="gap-1.5 text-xs">
+                <Link2 className="w-3 h-3" /> Conectar mi propia cuenta
+              </Button>
+            </div>
           ) : (
-            /* Connected — show masked key + actions */
+            /* Connected via user's own DB key — show masked key + change/disconnect */
             <div className="flex items-center gap-2">
               <div className="flex-1 font-mono text-sm bg-muted/50 border rounded-md px-3 py-2 text-muted-foreground select-none">
-                {keySource === "env"
-                  ? "●●●●●●●●●●●●  (configurada en el servidor)"
-                  : "●●●●●●●●●●●●●●●●●●●●●●●●●●●"}
+                ●●●●●●●●●●●●●●●●●●●●●●●●●●●
               </div>
-              {keySource === "db" && (
-                <div className="flex gap-1.5 shrink-0">
-                  <Button variant="outline" size="sm" onClick={startEdit} className="gap-1.5 text-xs">
-                    <Link2 className="w-3 h-3" /> Cambiar
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleDisconnect}
-                    disabled={disconnect.isPending}
-                    className="gap-1.5 text-xs text-destructive hover:text-destructive"
-                  >
-                    {disconnect.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Link2Off className="w-3 h-3" />}
-                    Desconectar
-                  </Button>
-                </div>
-              )}
-              {keySource === "env" && (
-                <span className="text-xs text-muted-foreground italic shrink-0">Solo lectura</span>
-              )}
+              <div className="flex gap-1.5 shrink-0">
+                <Button variant="outline" size="sm" onClick={startEdit} className="gap-1.5 text-xs">
+                  <Link2 className="w-3 h-3" /> Cambiar
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleDisconnect}
+                  disabled={disconnect.isPending}
+                  className="gap-1.5 text-xs text-destructive hover:text-destructive"
+                >
+                  {disconnect.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Link2Off className="w-3 h-3" />}
+                  Desconectar
+                </Button>
+              </div>
             </div>
           )}
         </div>
