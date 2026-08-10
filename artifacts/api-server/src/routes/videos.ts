@@ -443,7 +443,11 @@ router.post("/videos/:id/regenerate-cover", async (req, res): Promise<void> => {
   if (!video) { res.status(404).json({ error: "Video not found" }); return; }
 
   const [settings] = await db
-    .select({ brandPrimaryColor: settingsTable.brandPrimaryColor, brandAccentColor: settingsTable.brandAccentColor })
+    .select({
+      brandPrimaryColor: settingsTable.brandPrimaryColor,
+      brandAccentColor: settingsTable.brandAccentColor,
+      heygenApiKey: settingsTable.heygenApiKey,
+    })
     .from(settingsTable)
     .where(eq(settingsTable.userId, userId))
     .limit(1);
@@ -470,10 +474,10 @@ router.post("/videos/:id/regenerate-cover", async (req, res): Promise<void> => {
   // Fire-and-forget: resolve avatar photo → generate cover → persist
   ;(async () => {
     try {
-      const heygenKey = process.env.HEYGEN_API_KEY ?? "";
+      const heygenKey = settings.heygenApiKey ?? undefined;
       let referenceUrl: string | null = null;
       if (video.avatarId) {
-        referenceUrl = await fetchAvatarPreviewImage(video.avatarId, heygenKey || undefined);
+        referenceUrl = await fetchAvatarPreviewImage(video.avatarId, heygenKey);
       }
       referenceUrl ??= video.thumbnailUrl ?? null;
 

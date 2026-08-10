@@ -17,7 +17,7 @@ import { promises as fs } from "fs";
 import { randomUUID } from "crypto";
 import axios from "axios";
 import OpenAI, { toFile } from "openai";
-import { createCanvas, type SKRSContext2D } from "@napi-rs/canvas";
+import { createCanvas, loadImage, type SKRSContext2D } from "@napi-rs/canvas";
 import { objectStorageClient } from "./objectStorage";
 import { logger as rootLogger } from "./logger";
 
@@ -197,13 +197,12 @@ async function generateAICover(
 
     // gpt-image-1 edit output is always PNG. Re-encode to JPEG so Instagram
     // accepts it as cover_url (Instagram rejects non-JPEG cover images).
+    // loadImage() awaits the decode before drawImage so the canvas isn't blank.
     const pngBuffer = Buffer.from(b64, "base64");
     const W = 1024, H = 1536;
     const cvs = createCanvas(W, H);
     const ctx2 = cvs.getContext("2d");
-    const { Image } = await import("@napi-rs/canvas");
-    const img = new Image();
-    img.src = pngBuffer;
+    const img = await loadImage(pngBuffer);
     ctx2.drawImage(img, 0, 0, W, H);
     const imageBuffer = cvs.toBuffer("image/jpeg");
 
