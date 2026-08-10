@@ -2,7 +2,8 @@ import { Route, Switch, Router as WouterRouter, useLocation } from "wouter"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { Toaster } from "@/components/ui/toaster"
 import { TooltipProvider } from "@/components/ui/tooltip"
-import { Loader2 } from "lucide-react"
+import { Loader2, Zap } from "lucide-react"
+import { Button } from "@/components/ui/button"
 
 import { Layout } from "@/components/layout/Layout"
 import NotFound from "@/pages/not-found"
@@ -27,7 +28,7 @@ import PrivacyPolicy from "@/pages/PrivacyPolicy"
 import TermsAndConditions from "@/pages/TermsAndConditions"
 import CheckoutSuccess from "@/pages/CheckoutSuccess"
 import Landing from "@/pages/Landing"
-import { useAuthStatus } from "@workspace/api-client-react"
+import { useAuthStatus, useHeyGenAccount } from "@workspace/api-client-react"
 import { useEntitlement } from "@/hooks/useEntitlement"
 import ResendActivation from "@/pages/ResendActivation"
 
@@ -53,6 +54,40 @@ function ToolRoute({ component: Component }: { component: React.ComponentType })
   return <Component />
 }
 
+/** Shown when the user hasn't configured their HeyGen API key. */
+function HeyGenKeyGate() {
+  const [, navigate] = useLocation()
+  return (
+    <div className="flex flex-col items-center justify-center min-h-[60vh] gap-5 text-center px-4">
+      <div className="w-16 h-16 rounded-2xl bg-muted flex items-center justify-center">
+        <Zap className="w-7 h-7 text-muted-foreground" />
+      </div>
+      <div className="space-y-1">
+        <h2 className="text-xl font-bold">Conecta tu cuenta de HeyGen</h2>
+        <p className="text-muted-foreground text-sm">Configurá tu API Key en Ajustes para acceder a esta sección.</p>
+      </div>
+      <Button onClick={() => navigate("/settings")}>Ir a Ajustes</Button>
+    </div>
+  )
+}
+
+/**
+ * Combines tool-access guard + HeyGen API key requirement.
+ * Use for any route that generates or manages HeyGen videos.
+ */
+function HeyGenRoute({ component: Component }: { component: React.ComponentType }) {
+  const { data: entitlement } = useEntitlement()
+  const { data: heygen, isLoading: heygenLoading } = useHeyGenAccount()
+
+  if (entitlement && !entitlement.isAdmin && !entitlement.toolAccessActive) {
+    return <AccessExpired />
+  }
+  if (!heygenLoading && heygen && !heygen.connected) {
+    return <HeyGenKeyGate />
+  }
+  return <Component />
+}
+
 function Router() {
   return (
     <Layout>
@@ -73,20 +108,22 @@ function Router() {
         <Route path="/audit">
           {() => <ToolRoute component={Audit} />}
         </Route>
+
+        {/* HeyGen routes — also require a configured HeyGen API key */}
         <Route path="/content">
-          {() => <ToolRoute component={ContentPlan} />}
+          {() => <HeyGenRoute component={ContentPlan} />}
         </Route>
         <Route path="/avatars">
-          {() => <ToolRoute component={Avatars} />}
+          {() => <HeyGenRoute component={Avatars} />}
         </Route>
         <Route path="/videos">
-          {() => <ToolRoute component={Videos} />}
+          {() => <HeyGenRoute component={Videos} />}
         </Route>
         <Route path="/automation">
-          {() => <ToolRoute component={Automation} />}
+          {() => <HeyGenRoute component={Automation} />}
         </Route>
         <Route path="/captions">
-          {() => <ToolRoute component={CaptionStudio} />}
+          {() => <HeyGenRoute component={CaptionStudio} />}
         </Route>
 
         <Route component={NotFound} />

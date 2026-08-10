@@ -213,7 +213,9 @@ router.post("/videos/:id/recaption", async (req, res): Promise<void> => {
   let subtitleUrl: string | null = null;
   if (video.heygenVideoId) {
     try {
-      const [settings] = await db.select().from(settingsTable).limit(1);
+      const [settings] = await db.select().from(settingsTable)
+        .where(eq(settingsTable.userId, req.session.user!.userId))
+        .limit(1);
       const apiKey = (settings as any)?.heygenApiKey ?? "";
       const status = await getVideoStatus(video.heygenVideoId, apiKey || undefined);
       if (status.subtitle_url) subtitleUrl = status.subtitle_url;

@@ -16,8 +16,15 @@ function getRedirectUri() {
   return window.location.origin + "/connect"
 }
 
+// localStorage key for CSRF state — shared across tabs so the new-tab OAuth flow works
+const IG_STATE_KEY = "ig_oauth_state"
+
 export default function Connect() {
-  const { data: status, isLoading } = useGetInstagramAccount()
+  // Poll when not yet connected so the original tab auto-refreshes after the
+  // new-tab OAuth flow completes.
+  const { data: status, isLoading } = useGetInstagramAccount({
+    query: { refetchInterval: (q: any) => (q.state.data?.connected ? false : 4000) } as any,
+  })
   const disconnect = useDisconnectInstagram()
   const handleCallback = useHandleInstagramCallback()
   const queryClient = useQueryClient()
@@ -41,13 +48,14 @@ export default function Connect() {
     if (code && code !== handledCode.current) {
       handledCode.current = code
       const returnedState = params.get('state')
-      const expectedState = sessionStorage.getItem('ig_oauth_state')
+      // localStorage is shared between tabs; sessionStorage is not
+      const expectedState = localStorage.getItem(IG_STATE_KEY)
       if (expectedState && returnedState !== expectedState) {
         toast({ title: "Error de seguridad", description: "El parámetro state no coincide. Intenta conectar de nuevo.", variant: "destructive" })
         setLocation("/connect")
         return
       }
-      sessionStorage.removeItem('ig_oauth_state')
+      localStorage.removeItem(IG_STATE_KEY)
       handleCallback.mutate({ data: { code, redirect_uri: redirectUri } }, {
         onSuccess: () => {
           toast({ title: "Cuenta Conectada", description: "Tu cuenta de Instagram se vinculó correctamente." })
@@ -55,8 +63,9 @@ export default function Connect() {
           queryClient.invalidateQueries({ queryKey: getGetInstagramPostsQueryKey() })
           setLocation("/connect")
         },
-        onError: () => {
-          toast({ title: "Error", description: "Hubo un problema al conectar tu cuenta.", variant: "destructive" })
+        onError: (err: any) => {
+          const detail = err?.message ?? "Hubo un problema al conectar tu cuenta."
+          toast({ title: "Error al conectar", description: detail, variant: "destructive" })
           setLocation("/connect")
         }
       })
@@ -78,7 +87,7 @@ export default function Connect() {
   const handleConnect = async () => {
     // CSRF protection: random state, validated when Meta redirects back
     const state = crypto.randomUUID()
-    sessionStorage.setItem('ig_oauth_state', state)
+    localStorage.setItem(IG_STATE_KEY, state)
     // Fetch auth URL passing our real redirect_uri as a query param
     const res = await fetch(`/api/instagram/auth-url?redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}`)
     if (!res.ok) {

@@ -62,8 +62,21 @@ router.post("/instagram/callback", async (req, res): Promise<void> => {
   }
   const { code, redirect_uri } = parsed.data;
 
-  const accessToken = await exchangeCodeForToken(code, redirect_uri);
-  const accountInfo = await getAccountInfo(accessToken);
+  let accessToken: string;
+  let accountInfo: Awaited<ReturnType<typeof getAccountInfo>>;
+  try {
+    accessToken = await exchangeCodeForToken(code, redirect_uri);
+    accountInfo = await getAccountInfo(accessToken);
+  } catch (err: any) {
+    // Surface the actual Instagram/Meta error so it reaches the client
+    const igMessage =
+      err?.response?.data?.error_message ??
+      err?.response?.data?.error?.message ??
+      err?.message ??
+      "Error desconocido";
+    res.status(400).json({ error: `Instagram: ${igMessage}` });
+    return;
+  }
 
   // Upsert account
   const existing = await db
