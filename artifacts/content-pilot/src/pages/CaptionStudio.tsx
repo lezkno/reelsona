@@ -523,7 +523,10 @@ const PREVIEW_SCALE  = PHONE_SCREEN_H / REAL_VIDEO_H  // ≈ 0.231
 
 const PHONE_SCREEN_W = 250  // px — matches PhoneFrame screen width (270 outer − 2×10 padding)
 const CARD_PREVIEW_H = 320  // px — h-[320px] on the card preview container
-const CARD_SCALE     = CARD_PREVIEW_H / PHONE_SCREEN_H  // ≈ 0.495
+// Thumbnail anchored at the BOTTOM of the frame (where captions live).
+// scale(0.80) → shows bottom ~90% of the 444px frame; top ~44px clipped.
+// Captions at any yPercent (62–87%) all land in the lower half of the card.
+const CARD_SCALE     = 0.80
 
 function BrowserTemplateCard({
   template,
@@ -563,16 +566,17 @@ function BrowserTemplateCard({
       <div className="h-[320px] relative overflow-hidden select-none"
         style={{ background: "linear-gradient(to bottom, #1a1a2e 0%, #16213e 60%, #0f3460 100%)" }}
       >
-        {/* Mini video frame: 250×444, CSS-scaled to CARD_PREVIEW_H.
-            Uses the same pixel values as TemplateCaptionPreview → pixel-perfect WYSIWYG. */}
+        {/* Mini video frame: 250×444, anchored at bottom so captions are visible.
+            scale(0.80) + bottom-anchor clips the top ~44px (avatar area) and
+            places captions in the lower portion of the card. */}
         <div style={{
           position:        "absolute",
-          top:             0,
+          bottom:          0,
           left:            "50%",
           marginLeft:      -(PHONE_SCREEN_W / 2),
           width:           PHONE_SCREEN_W,
           height:          PHONE_SCREEN_H,
-          transformOrigin: "top center",
+          transformOrigin: "bottom center",
           transform:       `scale(${CARD_SCALE})`,
           background:      "linear-gradient(160deg, #1a1a2e 0%, #16213e 55%, #0f3460 100%)",
         }}>
@@ -702,15 +706,15 @@ function CardTemplateCard({
         className="h-[320px] relative overflow-hidden select-none"
         style={{ background: "linear-gradient(to bottom, #1a1a2e 0%, #16213e 60%, #0f3460 100%)" }}
       >
-        {/* Mini video frame: 250×444, CSS-scaled to CARD_PREVIEW_H */}
+        {/* Mini video frame: 250×444, anchored at bottom — shows caption area */}
         <div style={{
           position:        "absolute",
-          top:             0,
+          bottom:          0,
           left:            "50%",
           marginLeft:      -(PHONE_SCREEN_W / 2),
           width:           PHONE_SCREEN_W,
           height:          PHONE_SCREEN_H,
-          transformOrigin: "top center",
+          transformOrigin: "bottom center",
           transform:       `scale(${CARD_SCALE})`,
           background:      "linear-gradient(160deg, #1a1a2e 0%, #16213e 55%, #0f3460 100%)",
         }}>
