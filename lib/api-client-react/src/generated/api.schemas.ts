@@ -281,6 +281,9 @@ export interface ContentPlanItem {
   suggested_visual_support?: string | null;
   /** Why this topic works/doesn't without screen sharing @nullable */
   avatar_fit_reason?: string | null;
+  // ── Video effects ──────────────────────────────────────────────────────────
+  /** Per-item video effects override; null means use account default @nullable */
+  video_effects_override?: VideoEffects | null;
   // ──────────────────────────────────────────────────────────────────────────
   created_at: string;
   updated_at: string;

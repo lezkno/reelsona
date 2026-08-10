@@ -388,6 +388,27 @@ export default function Videos() {
                     </div>
                   )}
 
+                  {/* Video effects badges */}
+                  {(() => {
+                    const fx = video.video_effects
+                    if (!fx) return null
+                    const active = [
+                      fx.zoom       && "Zoom",
+                      fx.ai_broll   && "B-roll",
+                      fx.text_cards && "Texto",
+                    ].filter(Boolean) as string[]
+                    if (active.length === 0) return null
+                    return (
+                      <div className="flex flex-wrap gap-1 mb-2">
+                        {active.map((label) => (
+                          <Badge key={label} variant="outline" className="text-[10px] gap-0.5 text-violet-600 border-violet-300 bg-violet-50 dark:text-violet-400 dark:border-violet-700 dark:bg-violet-950/40">
+                            <Wand2 className="w-2.5 h-2.5" /> {label}
+                          </Badge>
+                        ))}
+                      </div>
+                    )
+                  })()}
+
                   {/* Action buttons — ready videos */}
                   {!selectMode && video.status === 'ready' && (captionStatus === 'done' || captionStatus === 'failed' || captionStatus === 'disabled') && (
                     <div className="flex flex-col gap-1.5 mb-3">

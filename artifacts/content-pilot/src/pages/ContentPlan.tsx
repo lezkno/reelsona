@@ -917,7 +917,11 @@ export default function ContentPlan() {
                                 )}
 
                                 {/* ── Viral Editorial Engine metadata ──────────── */}
-                                {(item.viral_score != null || item.editorial_angle || item.share_reason) && (
+                                {(() => {
+                                  const fx = item.video_effects_override ?? settings?.video_effects
+                                  const hasActiveEffect = fx && (fx.zoom || fx.ai_broll || fx.text_cards)
+                                  return (item.viral_score != null || item.editorial_angle || item.share_reason || hasActiveEffect)
+                                })() && (
                                   <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                                     {/* Viral score badge */}
                                     {item.viral_score != null && (
@@ -985,6 +989,22 @@ export default function ContentPlan() {
                                         </TooltipContent>
                                       </Tooltip>
                                     )}
+                                    {/* Video effects badges (override or account default) */}
+                                    {(() => {
+                                      const fx = item.video_effects_override ?? settings?.video_effects
+                                      if (!fx) return null
+                                      const active = [
+                                        fx.zoom       && "Zoom",
+                                        fx.ai_broll   && "B-roll",
+                                        fx.text_cards && "Texto",
+                                      ].filter(Boolean) as string[]
+                                      if (active.length === 0) return null
+                                      return active.map((label) => (
+                                        <span key={label} className="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400">
+                                          <SlidersHorizontal className="w-2.5 h-2.5" /> {label}
+                                        </span>
+                                      ))
+                                    })()}
                                   </div>
                                 )}
                                 {/* ─────────────────────────────────────────────── */}

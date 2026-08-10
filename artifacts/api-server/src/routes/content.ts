@@ -95,6 +95,7 @@ function mapItem(
     audience_pain: item.audiencePain ?? null,
     novelty_level: item.noveltyLevel ?? null,
     // ────────────────────────────────────────────────────────────────────────
+    video_effects_override: item.videoEffectsOverride ?? null,
     created_at: item.createdAt.toISOString(),
     updated_at: item.updatedAt.toISOString(),
   };

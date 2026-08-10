@@ -303,6 +303,7 @@ export const GetContentPlanResponseItem = zod.object({
   "share_reason": zod.string().nullish(),
   "audience_pain": zod.string().nullish(),
   "novelty_level": zod.string().nullish(),
+  "video_effects_override": VideoEffects.nullish(),
   "created_at": zod.string(),
   "updated_at": zod.string()
 })
@@ -346,6 +347,7 @@ export const GenerateContentPlanResponseItem = zod.object({
   "share_reason": zod.string().nullish(),
   "audience_pain": zod.string().nullish(),
   "novelty_level": zod.string().nullish(),
+  "video_effects_override": VideoEffects.nullish(),
   "created_at": zod.string(),
   "updated_at": zod.string()
 })
@@ -388,6 +390,7 @@ export const CreateContentItemResponse = zod.object({
   "share_reason": zod.string().nullish(),
   "audience_pain": zod.string().nullish(),
   "novelty_level": zod.string().nullish(),
+  "video_effects_override": VideoEffects.nullish(),
   "created_at": zod.string(),
   "updated_at": zod.string()
 })
@@ -459,6 +462,7 @@ export const GetContentItemResponse = zod.object({
   "share_reason": zod.string().nullish(),
   "audience_pain": zod.string().nullish(),
   "novelty_level": zod.string().nullish(),
+  "video_effects_override": VideoEffects.nullish(),
   "created_at": zod.string(),
   "updated_at": zod.string()
 })
@@ -507,6 +511,7 @@ export const UpdateContentItemResponse = zod.object({
   "share_reason": zod.string().nullish(),
   "audience_pain": zod.string().nullish(),
   "novelty_level": zod.string().nullish(),
+  "video_effects_override": VideoEffects.nullish(),
   "created_at": zod.string(),
   "updated_at": zod.string()
 })
