@@ -522,7 +522,7 @@ const PREVIEW_SCALE  = PHONE_SCREEN_H / REAL_VIDEO_H  // ≈ 0.231
 // of the phone preview — no separate CARD_H scaling needed.
 
 const PHONE_SCREEN_W = 250  // px — matches PhoneFrame screen width (270 outer − 2×10 padding)
-const CARD_PREVIEW_H = 220  // px — h-[220px] on the card preview container
+const CARD_PREVIEW_H = 320  // px — h-[320px] on the card preview container
 const CARD_SCALE     = CARD_PREVIEW_H / PHONE_SCREEN_H  // ≈ 0.495
 
 function BrowserTemplateCard({
@@ -560,7 +560,7 @@ function BrowserTemplateCard({
       }`}
     >
       {/* Outer crop window — fixed height, clips the scaled mini-frame */}
-      <div className="h-[220px] relative overflow-hidden select-none"
+      <div className="h-[320px] relative overflow-hidden select-none"
         style={{ background: "linear-gradient(to bottom, #1a1a2e 0%, #16213e 60%, #0f3460 100%)" }}
       >
         {/* Mini video frame: 250×444, CSS-scaled to CARD_PREVIEW_H.
@@ -699,7 +699,7 @@ function CardTemplateCard({
     >
       {/* Outer crop window — same dimensions as BrowserTemplateCard */}
       <div
-        className="h-[220px] relative overflow-hidden select-none"
+        className="h-[320px] relative overflow-hidden select-none"
         style={{ background: "linear-gradient(to bottom, #1a1a2e 0%, #16213e 60%, #0f3460 100%)" }}
       >
         {/* Mini video frame: 250×444, CSS-scaled to CARD_PREVIEW_H */}
@@ -1725,7 +1725,7 @@ export default function CaptionStudio() {
             <p className="text-sm text-muted-foreground mb-4">
               El preview es exactamente lo que queda en el video final. Lo que ves es lo que se renderiza.
             </p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+            <div className="grid grid-cols-4 gap-3">
               {BROWSER_CAPTION_TEMPLATES.map((tmpl) => (
                 <BrowserTemplateCard
                   key={tmpl.id}
@@ -2040,7 +2040,7 @@ export default function CaptionStudio() {
               </div>
 
               {/* Template grid — same layout as caption templates */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+              <div className="grid grid-cols-4 gap-3">
                 {CARD_TEMPLATES.map((tmpl) => (
                   <CardTemplateCard
                     key={tmpl.id}
