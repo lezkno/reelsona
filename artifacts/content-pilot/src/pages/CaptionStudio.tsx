@@ -737,6 +737,42 @@ function PhoneFrame({ children }: { children: React.ReactNode }) {
   )
 }
 
+// ── Card overlay preview (CSS approximation of each card type) ────────────────
+function CardOverlayPreview({
+  card,
+}: {
+  card: { type: "hook"|"stat"|"cta"; useAi: boolean; text?: string; headline?: string; subtext?: string }
+}) {
+  const label = card.useAi ? "IA adapta el texto al guion" : undefined
+
+  if (card.type === "hook") return (
+    <div className="rounded-xl border border-white/10 px-2.5 py-2 text-white text-[9px] font-bold leading-snug" style={{ background: "rgba(0,0,0,0.76)" }}>
+      {card.useAi
+        ? <span className="text-white/60 italic">"{label}"</span>
+        : <span>{card.text || "Texto del hook"}</span>}
+    </div>
+  )
+
+  if (card.type === "stat") return (
+    <div className="rounded-xl px-2.5 py-2 text-white text-center" style={{ background: "#0ea5e9" }}>
+      {card.useAi
+        ? <p className="text-[8px] text-white/80 italic">{label}</p>
+        : <>
+            <p className="text-[18px] font-black leading-none" style={{ fontFamily: "Montserrat, sans-serif" }}>{card.headline || "73%"}</p>
+            <p className="text-[7px] font-semibold mt-0.5 text-white/85">{card.subtext || "de creadores usan IA"}</p>
+          </>}
+    </div>
+  )
+
+  return (
+    <div className="rounded-xl px-2.5 py-2 text-white text-[9px] font-bold flex items-center gap-1" style={{ background: "linear-gradient(90deg, #f43f5e, #f97316)" }}>
+      {card.useAi
+        ? <span className="text-white/80 italic text-[8px]">{label}</span>
+        : <span>{card.text || "Texto del CTA"}</span>}
+    </div>
+  )
+}
+
 function CaptionPreview({
   config,
   onYPositionChange,
@@ -1147,11 +1183,38 @@ export default function CaptionStudio() {
   const [allTmplOverrides, setAllTmplOverrides] = useState<Record<string, Partial<CaptionTemplate>>>({})
   const overrideSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // ── Card template state (for text_cards effect) ───────────────────────────
+  const [localCard, setLocalCard] = useState<{
+    type: "hook" | "stat" | "cta"
+    useAi: boolean
+    text: string
+    headline: string
+    subtext: string
+  }>({ type: "hook", useAi: false, text: "", headline: "", subtext: "" })
+  const [savedCard, setSavedCard] = useState<{
+    type: "hook" | "stat" | "cta"; useAi: boolean; text?: string; headline?: string; subtext?: string
+  } | null>(null)
+  const [savingCard, setSavingCard] = useState(false)
+
   useEffect(() => {
     fetch("/api/captions/browser/status")
       .then((r) => r.json())
       .then((d: { available: boolean }) => setBrowserEngineAvailable(d.available))
       .catch(() => setBrowserEngineAvailable(false))
+  }, [])
+
+  // Load saved card template from API
+  useEffect(() => {
+    fetch("/api/cards/template")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { card_template: { type: "hook"|"stat"|"cta"; useAi: boolean; text?: string; headline?: string; subtext?: string } | null } | null) => {
+        if (d?.card_template) {
+          const t = d.card_template
+          setLocalCard({ type: t.type, useAi: t.useAi, text: t.text ?? "", headline: t.headline ?? "", subtext: t.subtext ?? "" })
+          setSavedCard(t)
+        }
+      })
+      .catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -1201,6 +1264,31 @@ export default function CaptionStudio() {
         toast({ title: "Error", description: "No se pudo guardar los efectos.", variant: "destructive" })
       },
     })
+  }
+
+  const saveCardTemplate = async () => {
+    setSavingCard(true)
+    try {
+      const body = {
+        type: localCard.type,
+        useAi: localCard.useAi,
+        ...(localCard.type === "stat"
+          ? { headline: localCard.headline, subtext: localCard.subtext }
+          : { text: localCard.text }),
+      }
+      const r = await fetch("/api/cards/template", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ card_template: body }),
+      })
+      if (!r.ok) throw new Error("save failed")
+      setSavedCard(body)
+      toast({ title: "Plantilla guardada ✓", description: "Se usará en el próximo video procesado." })
+    } catch {
+      toast({ title: "Error", description: "No se pudo guardar la plantilla.", variant: "destructive" })
+    } finally {
+      setSavingCard(false)
+    }
   }
 
   const set = <K extends keyof CaptionConfig>(key: K, value: CaptionConfig[K]) => {
@@ -1497,7 +1585,8 @@ export default function CaptionStudio() {
         </CardContent>
       </Card>
 
-      {/* Rotation banner */}
+      {/* Rotation banner — only visible when captions are enabled */}
+      {captionsEnabled && (
       <Card className={`border-2 ${rotationEnabled ? "border-primary/40 bg-primary/5" : "border-dashed"}`}>
         <CardContent className="p-5 flex flex-col sm:flex-row items-start sm:items-center gap-4 justify-between">
           <div className="flex items-start gap-3">
@@ -1544,13 +1633,119 @@ export default function CaptionStudio() {
           <Switch checked={rotationEnabled} onCheckedChange={handleRotationToggle} disabled={isVideoProcessing} className="shrink-0" />
         </CardContent>
       </Card>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Left: preset selector + advanced */}
         <div className="lg:col-span-2 space-y-6">
 
-          {/* Plantillas del motor canvas */}
-          <div>
+          {/* ── Card Templates (visible when text_cards effect is enabled) ─── */}
+          {videoEffects.text_cards && (
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <h2 className="text-xl font-display font-bold">Plantillas de Cards</h2>
+                {savedCard && (
+                  <span className="text-xs bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 px-2 py-0.5 rounded-full font-medium">Activa</span>
+                )}
+              </div>
+              <p className="text-sm text-muted-foreground mb-4">
+                Define una card fija para todos tus videos — no se regenera con IA en cada procesamiento.
+              </p>
+              <Card>
+                <CardContent className="p-5 space-y-4">
+                  {/* Type selector */}
+                  <div className="space-y-2">
+                    <Label>Tipo de card</Label>
+                    <Select value={localCard.type} onValueChange={(v) => setLocalCard((c) => ({ ...c, type: v as "hook"|"stat"|"cta" }))}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="hook">🎣 Hook — Pregunta o dato impactante (inicio del video)</SelectItem>
+                        <SelectItem value="stat">📊 Stat — Número o porcentaje con contexto (mitad del video)</SelectItem>
+                        <SelectItem value="cta">📣 CTA — Llamada a la acción (final del video)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {/* Use AI toggle */}
+                  <div className="flex items-start gap-3 rounded-xl border bg-muted/30 px-4 py-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-violet-500" /> Generar texto con IA
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        La IA adapta el texto de la card al guion de cada video
+                      </p>
+                    </div>
+                    <Switch checked={localCard.useAi} onCheckedChange={(v) => setLocalCard((c) => ({ ...c, useAi: v }))} />
+                  </div>
+                  {/* Fixed text inputs — only when useAi is false */}
+                  {!localCard.useAi && localCard.type !== "stat" && (
+                    <div className="space-y-2">
+                      <Label>{localCard.type === "hook" ? "Texto del hook" : "Texto del CTA"}</Label>
+                      <input
+                        type="text"
+                        value={localCard.text}
+                        onChange={(e) => setLocalCard((c) => ({ ...c, text: e.target.value }))}
+                        placeholder={
+                          localCard.type === "hook"
+                            ? "¿Sabías que el 73% de los creadores usan IA?"
+                            : "Seguime para más estrategias de contenido"
+                        }
+                        className="w-full rounded-md border bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        maxLength={localCard.type === "hook" ? 80 : 60}
+                      />
+                      <p className="text-xs text-muted-foreground text-right">
+                        {localCard.text.length}/{localCard.type === "hook" ? 80 : 60}
+                      </p>
+                    </div>
+                  )}
+                  {!localCard.useAi && localCard.type === "stat" && (
+                    <>
+                      <div className="space-y-2">
+                        <Label>Número o porcentaje <span className="text-muted-foreground font-normal">(ej: 2.3M · 73% · +500)</span></Label>
+                        <input
+                          type="text"
+                          value={localCard.headline}
+                          onChange={(e) => setLocalCard((c) => ({ ...c, headline: e.target.value }))}
+                          placeholder="73%"
+                          className="w-full rounded-md border bg-background px-3 py-2 text-sm font-bold ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          maxLength={12}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Contexto <span className="text-muted-foreground font-normal">(ej: de creadores ya usan IA)</span></Label>
+                        <input
+                          type="text"
+                          value={localCard.subtext}
+                          onChange={(e) => setLocalCard((c) => ({ ...c, subtext: e.target.value }))}
+                          placeholder="de creadores ya usan IA"
+                          className="w-full rounded-md border bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          maxLength={40}
+                        />
+                      </div>
+                    </>
+                  )}
+                  <Button
+                    onClick={saveCardTemplate}
+                    disabled={
+                      savingCard ||
+                      (!localCard.useAi && (
+                        localCard.type === "stat"
+                          ? !localCard.headline || !localCard.subtext
+                          : !localCard.text
+                      ))
+                    }
+                    className="w-full gap-2"
+                  >
+                    {savingCard ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                    {savingCard ? "Guardando..." : "Guardar plantilla"}
+                  </Button>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {/* Plantillas del motor canvas — only visible when captions are enabled */}
+          {captionsEnabled && <div>
             <div className="flex items-center gap-2 mb-1">
               <h2 className="text-xl font-display font-bold">Plantillas</h2>
               {browserEngineAvailable === false && (
@@ -1571,10 +1766,10 @@ export default function CaptionStudio() {
                 />
               ))}
             </div>
-          </div>
+          </div>}
 
           {/* ── Browser template advanced settings ─────────────────────── */}
-          {!rotationEnabled && mergedTmpl && (
+          {!rotationEnabled && mergedTmpl && captionsEnabled && (
             <div>
               <div className="flex items-center justify-between mb-1">
                 <h2 className="text-xl font-display font-bold">Ajustes de plantilla</h2>
@@ -1926,27 +2121,44 @@ export default function CaptionStudio() {
         <div className="space-y-6 lg:sticky lg:top-6 lg:self-start">
           <div>
             <h2 className="text-xl font-display font-bold mb-4">Vista previa</h2>
-            {mergedTmpl
-              ? (
-                  <TemplateCaptionPreview
-                    template={mergedTmpl}
-                    yOverride={local.y_position ?? undefined}
-                    marginXOverride={local.margin_x ?? undefined}
+            {/* Wrap in relative container so we can overlay the card preview */}
+            <div className="relative">
+              {mergedTmpl
+                ? (
+                    <TemplateCaptionPreview
+                      template={mergedTmpl}
+                      yOverride={local.y_position ?? undefined}
+                      marginXOverride={local.margin_x ?? undefined}
+                      onYPositionChange={(y) => set("y_position", y)}
+                      onXMarginChange={(x) => set("margin_x", x)}
+                    />
+                  )
+                : (
+                  <CaptionPreview
+                    config={local}
                     onYPositionChange={(y) => set("y_position", y)}
                     onXMarginChange={(x) => set("margin_x", x)}
                   />
                 )
-              : (
-                <CaptionPreview
-                  config={local}
-                  onYPositionChange={(y) => set("y_position", y)}
-                  onXMarginChange={(x) => set("margin_x", x)}
-                />
-              )
-            }
+              }
+              {/* Card overlay — positioned at ~54% from screen top, matching the engine placement */}
+              {videoEffects.text_cards && savedCard && (
+                <div
+                  className="absolute pointer-events-none"
+                  style={{ top: 274, left: "50%", transform: "translateX(-50%)", width: 180 }}
+                >
+                  <CardOverlayPreview card={savedCard} />
+                </div>
+              )}
+            </div>
             <p className="text-xs text-muted-foreground mt-2 text-center">
               Preview usa la misma definición de plantilla que el render final. <span className="text-violet-500 font-medium">WYSIWYG.</span>
             </p>
+            {videoEffects.text_cards && savedCard && (
+              <p className="text-xs text-orange-600 dark:text-orange-400 mt-1 text-center font-medium">
+                + Card de {savedCard.type === "hook" ? "Hook" : savedCard.type === "stat" ? "Stat" : "CTA"} activa
+              </p>
+            )}
           </div>
 
         </div>

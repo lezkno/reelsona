@@ -29,6 +29,21 @@ const FONTS_DIR     = path.join(_dir, "../assets/fonts");
 
 export type CardType = "hook" | "stat" | "cta";
 
+/**
+ * A card template saved by the user in Effects Studio.
+ * When useAi is false, the text fields are used directly (no AI call during processing).
+ */
+export interface SavedCardTemplate {
+  type: CardType;
+  useAi: boolean;
+  /** Text for hook or cta cards (useAi: false) */
+  text?: string;
+  /** Headline for stat cards (useAi: false), e.g. "2.3M" */
+  headline?: string;
+  /** Subtext for stat cards (useAi: false), e.g. "usuarios activos" */
+  subtext?: string;
+}
+
 export interface HookCard {
   type: "hook";
   /** Full sentence / question to display */
@@ -459,6 +474,15 @@ async function compositeCards(
  * Main entry point — analyze the script, render cards, composite onto video.
  * Returns the path to the processed video (or the original source on failure).
  */
+/** Builds a TextCard directly from a SavedCardTemplate (no AI needed). Returns null if fields are missing. */
+function buildCardFromTemplate(t: SavedCardTemplate): TextCard | null {
+  if (t.type === "hook" && t.text) return { type: "hook", text: t.text };
+  if (t.type === "cta"  && t.text) return { type: "cta",  text: t.text };
+  if (t.type === "stat" && t.headline && t.subtext)
+    return { type: "stat", headline: t.headline, subtext: t.subtext };
+  return null;
+}
+
 export async function applyTextCards(
   sourcePath: string,
   script: string,
@@ -466,14 +490,28 @@ export async function applyTextCards(
   videoHeight: number,
   videoDurationSec: number,
   tmpDir: string,
+  cardTemplate?: SavedCardTemplate,
 ): Promise<string> {
   try {
-    logger.info("[TextCards] Analyzing script for card moments...");
-    const cards = await analyzeScriptForCards(script, videoDurationSec);
+    let cards: TextCard[];
 
-    if (cards.length === 0) {
-      logger.info("[TextCards] No cards identified — skipping");
-      return sourcePath;
+    if (cardTemplate && !cardTemplate.useAi) {
+      // ── Template mode: use fixed card text, skip AI entirely ────────────
+      const fixed = buildCardFromTemplate(cardTemplate);
+      if (!fixed) {
+        logger.info("[TextCards] Card template has no content — skipping");
+        return sourcePath;
+      }
+      cards = [fixed];
+      logger.info({ type: cardTemplate.type }, "[TextCards] Using saved card template (no AI)");
+    } else {
+      // ── AI mode: analyze script to identify card moments ────────────────
+      logger.info("[TextCards] Analyzing script for card moments...");
+      cards = await analyzeScriptForCards(script, videoDurationSec);
+      if (cards.length === 0) {
+        logger.info("[TextCards] No cards identified — skipping");
+        return sourcePath;
+      }
     }
 
     logger.info({ count: cards.length, types: cards.map((c) => c.type) }, "[TextCards] Cards identified");

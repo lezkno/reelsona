@@ -145,6 +145,38 @@ router.put("/captions/config", async (req, res): Promise<void> => {
   res.json(UpdateCaptionConfigResponse.parse(mapConfig(config)));
 });
 
+// ── Card Templates ────────────────────────────────────────────────────────────
+
+/** GET /api/cards/template — returns the saved card template for the current user */
+router.get("/cards/template", async (req, res): Promise<void> => {
+  const userId = req.session.user!.userId;
+  const [config] = await db.select({ cardTemplate: captionConfigTable.cardTemplate })
+    .from(captionConfigTable)
+    .where(eq(captionConfigTable.userId, userId))
+    .limit(1);
+  res.json({ card_template: config?.cardTemplate ?? null });
+});
+
+/** PUT /api/cards/template — saves or clears the card template for the current user */
+router.put("/cards/template", async (req, res): Promise<void> => {
+  const userId = req.session.user!.userId;
+  const { card_template } = req.body;
+
+  const [existing] = await db.select({ id: captionConfigTable.id })
+    .from(captionConfigTable)
+    .where(eq(captionConfigTable.userId, userId))
+    .limit(1);
+
+  if (existing) {
+    await db.update(captionConfigTable)
+      .set({ cardTemplate: card_template ?? null, updatedAt: new Date() })
+      .where(eq(captionConfigTable.id, existing.id));
+  } else {
+    await db.insert(captionConfigTable).values({ userId, cardTemplate: card_template ?? null });
+  }
+  res.json({ ok: true });
+});
+
 // ── Browser Engine diagnostic ─────────────────────────────────────────────────
 
 /**

@@ -694,6 +694,8 @@ export async function runCaptionProcessing(
       // Pass video effects so the browser engine can apply zoom, B-roll, etc.
       videoEffects: videoEffects,
       visualSuggestions,
+      // Pass saved card template so the engine can skip AI generation when a fixed template is configured
+      cardTemplate: captionCfg.cardTemplate ?? undefined,
     });
 
     if (browserResult.url) {

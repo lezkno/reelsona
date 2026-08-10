@@ -3,6 +3,18 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { users } from "./users";
 
+export interface SavedCardTemplate {
+  type: "hook" | "stat" | "cta";
+  /** When true, AI generates the card text using the script; when false, uses fixed text fields below. */
+  useAi: boolean;
+  /** Text for hook or cta cards (useAi: false) */
+  text?: string;
+  /** Headline for stat cards (useAi: false), e.g. "2.3M" */
+  headline?: string;
+  /** Subtext for stat cards (useAi: false), e.g. "usuarios activos" */
+  subtext?: string;
+}
+
 export const captionConfigTable = pgTable("caption_config", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull().references(() => users.id),
@@ -32,6 +44,7 @@ export const captionConfigTable = pgTable("caption_config", {
   captionRotationStrategy: text("caption_rotation_strategy").notNull().default("sequential"),
   lastUsedPresetId: text("last_used_preset_id"),
   presetUsageCount: json("preset_usage_count").$type<Record<string, number>>().notNull().default({}),
+  cardTemplate: json("card_template").$type<SavedCardTemplate | null>(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
