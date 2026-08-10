@@ -649,6 +649,133 @@ function BrowserTemplateCard({
   )
 }
 
+// ── Card Template definitions ─────────────────────────────────────────────────
+
+interface CardTemplateDefinition {
+  id: string
+  name: string
+  description: string
+  type: "hook" | "stat" | "cta"
+  defaultUseAi: boolean
+  previewText?: string
+  previewHeadline?: string
+  previewSubtext?: string
+}
+
+const CARD_TEMPLATES: CardTemplateDefinition[] = [
+  {
+    id: "hook-impacto",
+    name: "Hook de Impacto",
+    description: "Pregunta o afirmación impactante en los primeros segundos del video para capturar la atención.",
+    type: "hook",
+    defaultUseAi: false,
+    previewText: "¿Sabías que el 73% falla en esto?",
+  },
+]
+
+// ── Card Template Card (same layout as BrowserTemplateCard) ───────────────────
+// Mini phone preview with the actual card style rendered inside at 52% from top.
+
+function CardTemplateCard({
+  tmpl,
+  selected,
+  onClick,
+}: {
+  tmpl: CardTemplateDefinition
+  selected: boolean
+  onClick: () => void
+}) {
+  const cardTopY = PHONE_SCREEN_H * 0.52
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`relative w-full rounded-xl overflow-hidden border-2 transition-all text-left ${
+        selected
+          ? "border-orange-500 ring-2 ring-orange-500/30 shadow-lg scale-[1.01]"
+          : "border-border hover:border-orange-400/40 hover:scale-[1.005]"
+      }`}
+    >
+      {/* Outer crop window — same dimensions as BrowserTemplateCard */}
+      <div
+        className="h-[220px] relative overflow-hidden select-none"
+        style={{ background: "linear-gradient(to bottom, #1a1a2e 0%, #16213e 60%, #0f3460 100%)" }}
+      >
+        {/* Mini video frame: 250×444, CSS-scaled to CARD_PREVIEW_H */}
+        <div style={{
+          position:        "absolute",
+          top:             0,
+          left:            "50%",
+          marginLeft:      -(PHONE_SCREEN_W / 2),
+          width:           PHONE_SCREEN_W,
+          height:          PHONE_SCREEN_H,
+          transformOrigin: "top center",
+          transform:       `scale(${CARD_SCALE})`,
+          background:      "linear-gradient(160deg, #1a1a2e 0%, #16213e 55%, #0f3460 100%)",
+        }}>
+          {/* Bottom fade — mirrors TemplateCaptionPreview */}
+          <div
+            className="absolute bottom-0 left-0 right-0 h-44 pointer-events-none"
+            style={{ background: "linear-gradient(to top, rgba(0,0,0,0.75) 0%, transparent 100%)" }}
+          />
+
+          {/* Card positioned at engine placement (52% from top) */}
+          <div className="absolute px-5" style={{ top: cardTopY, left: 0, right: 0 }}>
+            {tmpl.type === "hook" && (
+              <div style={{
+                background: "rgba(0,0,0,0.76)",
+                border: "1.5px solid rgba(255,255,255,0.14)",
+                borderRadius: 14,
+                padding: "12px 16px",
+              }}>
+                <span style={{ color: "#fff", fontFamily: "Poppins, sans-serif", fontWeight: 800, fontSize: 34, lineHeight: 1.25 }}>
+                  {tmpl.previewText}
+                </span>
+              </div>
+            )}
+            {tmpl.type === "stat" && (
+              <div style={{ background: "#0ea5e9", borderRadius: 14, padding: "12px 16px", textAlign: "center" }}>
+                <p style={{ color: "#fff", fontFamily: "Montserrat, sans-serif", fontWeight: 900, fontSize: 80, lineHeight: 1 }}>
+                  {tmpl.previewHeadline}
+                </p>
+                <p style={{ color: "rgba(255,255,255,0.85)", fontFamily: "Poppins, sans-serif", fontWeight: 700, fontSize: 26 }}>
+                  {tmpl.previewSubtext}
+                </p>
+              </div>
+            )}
+            {tmpl.type === "cta" && (
+              <div style={{ background: "linear-gradient(90deg, #f43f5e, #f97316)", borderRadius: 14, padding: "12px 16px" }}>
+                <span style={{ color: "#fff", fontFamily: "Poppins, sans-serif", fontWeight: 800, fontSize: 32, lineHeight: 1.25 }}>
+                  {tmpl.previewText}
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Selected indicator */}
+      {selected && (
+        <div className="absolute top-2 right-2 w-6 h-6 rounded-full bg-orange-500 text-white flex items-center justify-center shadow">
+          <CheckCircle2 className="w-4 h-4" />
+        </div>
+      )}
+
+      {/* Info panel — mirrors BrowserTemplateCard */}
+      <div className="p-3 border-t bg-card">
+        <p className="font-bold text-sm leading-tight">{tmpl.name}</p>
+        <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{tmpl.description}</p>
+        <div className="flex gap-1 mt-2 flex-wrap">
+          <Badge variant="outline" className="text-[9px] py-0 px-1.5 border-orange-400/50 text-orange-600 dark:text-orange-400">
+            {tmpl.type === "hook" ? "🎣 Hook" : tmpl.type === "stat" ? "📊 Stat" : "📣 CTA"}
+          </Badge>
+        </div>
+      </div>
+    </button>
+  )
+}
+
 // ─── Live Preview ─────────────────────────────────────────────────────────────
 
 // Dimidium function-word list for preview (same logic as engine)
@@ -1195,6 +1322,7 @@ export default function CaptionStudio() {
     type: "hook" | "stat" | "cta"; useAi: boolean; text?: string; headline?: string; subtext?: string
   } | null>(null)
   const [savingCard, setSavingCard] = useState(false)
+  const [selectedCardTemplateId, setSelectedCardTemplateId] = useState<string | null>(null)
 
   useEffect(() => {
     fetch("/api/captions/browser/status")
@@ -1212,6 +1340,9 @@ export default function CaptionStudio() {
           const t = d.card_template
           setLocalCard({ type: t.type, useAi: t.useAi, text: t.text ?? "", headline: t.headline ?? "", subtext: t.subtext ?? "" })
           setSavedCard(t)
+          // Restore which template card was selected (match by type)
+          const matching = CARD_TEMPLATES.find((ct) => ct.type === t.type)
+          if (matching) setSelectedCardTemplateId(matching.id)
         }
       })
       .catch(() => {})
@@ -1527,6 +1658,309 @@ export default function CaptionStudio() {
         </CardContent>
       </Card>
 
+      {/* ── Captions: rotation banner ─────────────────────────────────────── */}
+      {captionsEnabled && (
+      <Card className={`border-2 ${rotationEnabled ? "border-primary/40 bg-primary/5" : "border-dashed"}`}>
+        <CardContent className="p-5 flex flex-col sm:flex-row items-start sm:items-center gap-4 justify-between">
+          <div className="flex items-start gap-3">
+            <div className={`mt-0.5 w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${rotationEnabled ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
+              <Shuffle className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="font-bold text-base">Rotar captions en modo automático</p>
+              <p className="text-sm text-muted-foreground max-w-md">
+                {rotationEnabled
+                  ? rotationIds.size > 0
+                    ? `${rotationIds.size} plantilla${rotationIds.size !== 1 ? "s" : ""} en rotación. Haz clic en las plantillas para agregarlas o quitarlas.`
+                    : "Selecciona al menos una plantilla. Si no eliges ninguna se usa siempre la misma."
+                  : "Activa para que cada video use una plantilla diferente de forma automática."}
+              </p>
+              {rotationEnabled && rotationIds.size === 0 && (
+                <p className="text-xs text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1">
+                  <span>⚠</span>{" "}
+                  {local.template_id
+                    ? "Sin selección se usará siempre la plantilla activa por defecto."
+                    : "Sin plantillas seleccionadas y sin plantilla por defecto, los videos no recibirán estilo de captions."}
+                </p>
+              )}
+              {rotationEnabled && (
+                <div className="flex gap-1.5 mt-2">
+                  {[{ value: "sequential", label: "Secuencial" }, { value: "random", label: "Aleatorio" }].map(({ value, label }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => { setRotationStrategy(value); saveRotation(rotationIds, value) }}
+                      className={`px-2.5 py-1 rounded-lg border text-xs font-medium transition-all ${
+                        rotationStrategy === value
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "bg-background text-muted-foreground border-border hover:border-primary/50"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+          <Switch checked={rotationEnabled} onCheckedChange={handleRotationToggle} disabled={isVideoProcessing} className="shrink-0" />
+        </CardContent>
+      </Card>
+      )}
+
+      {/* ── Captions: plantillas + ajustes ───────────────────────────────── */}
+      {captionsEnabled && (
+        <div className="space-y-6">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <h2 className="text-xl font-display font-bold">Plantillas</h2>
+              {browserEngineAvailable === false && (
+                <span className="w-2 h-2 rounded-full bg-amber-400" title="Canvas no disponible — contactá soporte" />
+              )}
+            </div>
+            <p className="text-sm text-muted-foreground mb-4">
+              El preview es exactamente lo que queda en el video final. Lo que ves es lo que se renderiza.
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+              {BROWSER_CAPTION_TEMPLATES.map((tmpl) => (
+                <BrowserTemplateCard
+                  key={tmpl.id}
+                  template={allTmplOverrides[tmpl.id] ? { ...tmpl, ...allTmplOverrides[tmpl.id] } : tmpl}
+                  selected={rotationEnabled ? rotationIds.has(tmpl.id) : local.template_id === tmpl.id}
+                  saving={!rotationEnabled && savingPresetId === tmpl.id}
+                  onClick={() => rotationEnabled ? toggleRotationTemplate(tmpl.id) : (!isVideoProcessing && applyBrowserTemplate(tmpl))}
+                />
+              ))}
+            </div>
+          </div>
+
+          {/* Browser template advanced settings */}
+          {!rotationEnabled && mergedTmpl && (
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <h2 className="text-xl font-display font-bold">Ajustes de plantilla</h2>
+                {Object.keys(currentOverrides).length > 0 && (
+                  <button
+                    type="button"
+                    onClick={resetOverrides}
+                    disabled={isVideoProcessing}
+                    className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 disabled:opacity-40"
+                  >
+                    Restaurar valores originales
+                  </button>
+                )}
+              </div>
+              <p className="text-sm text-muted-foreground mb-4">
+                Ajusta los valores de la plantilla <strong>{activeTmpl?.name}</strong>. El preview se actualiza en tiempo real y los cambios se aplican al video final.
+              </p>
+              <Card>
+                <CardContent className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <Label>
+                      Tamaño de letra:&nbsp;
+                      <span className="text-primary font-bold">{ov("fontSize")}px</span>
+                      {currentOverrides.fontSize !== undefined && (
+                        <span className="ml-1 text-[10px] text-violet-500">(modificado)</span>
+                      )}
+                    </Label>
+                    <Slider min={60} max={220} step={5} value={[ov("fontSize") ?? 88]} onValueChange={([v]) => setOverride("fontSize", v)} disabled={isVideoProcessing} className="mt-3" />
+                    <div className="flex justify-between text-[10px] text-muted-foreground">
+                      <span>60 — compacto</span><span>Default: {activeTmpl?.fontSize}px</span><span>220 — máximo</span>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>
+                      Palabras por línea:&nbsp;
+                      <span className="text-primary font-bold">{ov("wordsPerLine")}</span>
+                      {currentOverrides.wordsPerLine !== undefined && (
+                        <span className="ml-1 text-[10px] text-violet-500">(modificado)</span>
+                      )}
+                    </Label>
+                    <Slider min={1} max={6} step={1} value={[ov("wordsPerLine") ?? 3]} onValueChange={([v]) => setOverride("wordsPerLine", v)} disabled={isVideoProcessing} className="mt-3" />
+                    <div className="flex justify-between text-[10px] text-muted-foreground">
+                      <span>1 — una palabra</span><span>Default: {activeTmpl?.wordsPerLine}</span><span>6 — frase larga</span>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>
+                      Grosor del outline:&nbsp;
+                      <span className="text-primary font-bold">{ov("outlineWidth")}px</span>
+                      {currentOverrides.outlineWidth !== undefined && (
+                        <span className="ml-1 text-[10px] text-violet-500">(modificado)</span>
+                      )}
+                    </Label>
+                    <Slider min={0} max={20} step={1} value={[ov("outlineWidth") ?? 0]} onValueChange={([v]) => setOverride("outlineWidth", v)} disabled={isVideoProcessing} className="mt-3" />
+                    <div className="flex justify-between text-[10px] text-muted-foreground">
+                      <span>0 — sin outline</span><span>Default: {activeTmpl?.outlineWidth}px</span><span>20 — trazo grueso</span>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>
+                      Opacidad de palabras inactivas:&nbsp;
+                      <span className="text-primary font-bold">{Math.round((ov("inactiveOpacity") ?? 1) * 100)}%</span>
+                      {currentOverrides.inactiveOpacity !== undefined && (
+                        <span className="ml-1 text-[10px] text-violet-500">(modificado)</span>
+                      )}
+                    </Label>
+                    <Slider min={0} max={1} step={0.05} value={[ov("inactiveOpacity") ?? 1]} onValueChange={([v]) => setOverride("inactiveOpacity", Math.round(v * 20) / 20)} disabled={isVideoProcessing} className="mt-3" />
+                    <div className="flex justify-between text-[10px] text-muted-foreground">
+                      <span>0% — invisibles</span><span>Default: {Math.round((activeTmpl?.inactiveOpacity ?? 1) * 100)}%</span><span>100% — igual que activa</span>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>
+                      Color de texto
+                      {currentOverrides.primaryColor !== undefined && (
+                        <span className="ml-1 text-[10px] text-violet-500">(modificado)</span>
+                      )}
+                    </Label>
+                    <div className="flex items-center gap-3">
+                      <input type="color" value={ov("primaryColor") ?? "#FFFFFF"} onChange={(e) => setOverride("primaryColor", e.target.value)} disabled={isVideoProcessing} className="w-10 h-10 rounded-md border cursor-pointer bg-background p-0.5" />
+                      <div>
+                        <p className="text-sm font-mono">{ov("primaryColor")}</p>
+                        <p className="text-[10px] text-muted-foreground">Default: {activeTmpl?.primaryColor}</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>
+                      Color de palabra activa
+                      {currentOverrides.activeWordColor !== undefined && (
+                        <span className="ml-1 text-[10px] text-violet-500">(modificado)</span>
+                      )}
+                    </Label>
+                    <div className="flex items-center gap-3">
+                      <input type="color" value={ov("activeWordColor") ?? "#FFFFFF"} onChange={(e) => setOverride("activeWordColor", e.target.value)} disabled={isVideoProcessing} className="w-10 h-10 rounded-md border cursor-pointer bg-background p-0.5" />
+                      <div>
+                        <p className="text-sm font-mono">{ov("activeWordColor")}</p>
+                        <p className="text-[10px] text-muted-foreground">Default: {activeTmpl?.activeWordColor}</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>
+                      Color del outline
+                      {currentOverrides.outlineColor !== undefined && (
+                        <span className="ml-1 text-[10px] text-violet-500">(modificado)</span>
+                      )}
+                    </Label>
+                    <div className="flex items-center gap-3">
+                      <input type="color" value={ov("outlineColor") ?? "#000000"} onChange={(e) => setOverride("outlineColor", e.target.value)} disabled={isVideoProcessing} className="w-10 h-10 rounded-md border cursor-pointer bg-background p-0.5" />
+                      <div>
+                        <p className="text-sm font-mono">{ov("outlineColor")}</p>
+                        <p className="text-[10px] text-muted-foreground">Default: {activeTmpl?.outlineColor}</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="sm:col-span-2 flex items-start gap-2 p-3 rounded-lg bg-muted/40">
+                    <span className="text-base mt-0.5 shrink-0">✥</span>
+                    <div>
+                      <p className="text-xs font-medium mb-0.5">Posición vertical y margen</p>
+                      <p className="text-xs text-muted-foreground leading-snug">Arrastrá el preview del celular para mover los captions.</p>
+                      <p className="text-xs text-primary font-medium mt-1">
+                        ↕ {Math.round(local.y_position ?? (activeTmpl?.yPercent ?? 75))}% &nbsp;·&nbsp; ← {Math.round(local.margin_x ?? ((activeTmpl?.marginXPercent ?? 5) * 1080 / 100))}px
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {/* Ajustes avanzados (sin plantilla canvas activa) */}
+          {!rotationEnabled && !activeTmpl && (
+            <div>
+              <h2 className="text-xl font-display font-bold mb-4">Ajustes avanzados</h2>
+              <div className="relative">
+                {isVideoProcessing && (
+                  <div className="absolute inset-0 z-10 rounded-xl backdrop-blur-[2px] bg-background/70 flex flex-col items-center justify-center gap-2 pointer-events-auto">
+                    <Loader2 className="w-6 h-6 animate-spin text-amber-500" />
+                    <p className="text-sm font-semibold text-center px-6">Ajustes bloqueados</p>
+                    <p className="text-xs text-muted-foreground text-center px-8 leading-snug">Espera a que el video termine de procesarse.</p>
+                  </div>
+                )}
+                <Card>
+                  <CardContent className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-6">
+                    <div className="space-y-2 sm:col-span-2 flex items-start gap-2 p-3 rounded-lg bg-muted/40">
+                      <span className="text-base mt-0.5 shrink-0">✥</span>
+                      <div>
+                        <p className="text-xs font-medium mb-0.5">Posición libre</p>
+                        <p className="text-xs text-muted-foreground leading-snug">
+                          Arrastrá el preview del celular: <strong>arriba/abajo</strong> mueve la altura, <strong>izquierda/derecha</strong> ajusta el margen.
+                        </p>
+                        <p className="text-xs text-primary font-medium mt-1">
+                          ↕ {Math.round(local.y_position ?? 75)}% &nbsp;·&nbsp; ← {Math.round(local.margin_x ?? 60)}px
+                        </p>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Margen lateral: <span className="text-primary font-bold">{Math.round(local.margin_x ?? 60)}px</span></Label>
+                      <Slider min={0} max={300} step={5} value={[local.margin_x ?? 60]} onValueChange={([v]) => set("margin_x", v)} className="mt-3" />
+                      <div className="flex justify-between text-[10px] text-muted-foreground"><span>0 — sin margen</span><span>300 — centrado</span></div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Tamaño de letra: <span className="text-primary font-bold">{local.font_size ?? 88}px</span></Label>
+                      <Slider min={60} max={220} step={5} value={[local.font_size ?? 88]} onValueChange={([v]) => set("font_size", v)} className="mt-3" />
+                      <div className="flex justify-between text-[10px] text-muted-foreground"><span>60 — compacto</span><span>220 — máximo impacto</span></div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>
+                        Espacio entre líneas: <span className="text-primary font-bold">
+                          {{ 1.0: "Súper ajustado", 1.1: "Ajustado", 1.2: "Normal", 1.4: "Amplio", 1.7: "Muy amplio", 2.0: "Máximo" }[String(local.line_spacing_factor ?? 1.1)] ?? `${local.line_spacing_factor ?? 1.1}×`}
+                        </span>
+                      </Label>
+                      <Slider min={1.0} max={2.0} step={0.1} value={[local.line_spacing_factor ?? 1.1]} onValueChange={([v]) => set("line_spacing_factor", Math.round(v * 10) / 10)} className="mt-3" />
+                      <div className="flex justify-between text-[10px] text-muted-foreground"><span>1.0 — líneas pegadas</span><span>2.0 — muy separadas</span></div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Palabras por línea: <span className="text-primary font-bold">{local.words_per_line ?? 3}</span></Label>
+                      <Slider min={1} max={6} step={1} value={[local.words_per_line ?? 3]} onValueChange={([v]) => set("words_per_line", v)} className="mt-3" />
+                      <p className="text-xs text-muted-foreground">Aplica en modo Highlight y Dimidium</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Modo de efecto</Label>
+                      <Select value={local.highlight_mode ?? "color"} onValueChange={(v) => set("highlight_mode", v as any)}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {Object.entries(HIGHLIGHT_LABELS).map(([v, l]) => (
+                            <SelectItem key={v} value={v}>{l}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Fuente</Label>
+                      <Select value={local.font_family ?? "Oswald"} onValueChange={(v) => set("font_family", v)}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {FONT_OPTIONS.map((f) => (
+                            <SelectItem key={f} value={f} style={{ fontFamily: f }}>{f}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Color del texto</Label>
+                      <div className="flex items-center gap-2">
+                        <input type="color" value={local.primary_color ?? "#FFFFFF"} onChange={(e) => set("primary_color", e.target.value)} className="w-10 h-10 rounded-md border cursor-pointer bg-background p-0.5" />
+                        <span className="text-sm text-muted-foreground font-mono">{local.primary_color ?? "#FFFFFF"}</span>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Color de palabra activa</Label>
+                      <div className="flex items-center gap-2">
+                        <input type="color" value={local.active_word_color ?? "#FFE600"} onChange={(e) => set("active_word_color", e.target.value)} className="w-10 h-10 rounded-md border cursor-pointer bg-background p-0.5" />
+                        <span className="text-sm text-muted-foreground font-mono">{local.active_word_color ?? "#FFE600"}</span>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── Video Effects ─────────────────────────────────────────────────── */}
       <Card className={`border-2 ${(videoEffects.zoom || videoEffects.ai_broll || videoEffects.text_cards) ? "border-primary/40 bg-primary/5" : "border-dashed"}`}>
         <CardContent className="p-5 space-y-4">
@@ -1585,536 +2019,133 @@ export default function CaptionStudio() {
         </CardContent>
       </Card>
 
-      {/* Rotation banner — only visible when captions are enabled */}
-      {captionsEnabled && (
-      <Card className={`border-2 ${rotationEnabled ? "border-primary/40 bg-primary/5" : "border-dashed"}`}>
-        <CardContent className="p-5 flex flex-col sm:flex-row items-start sm:items-center gap-4 justify-between">
-          <div className="flex items-start gap-3">
-            <div className={`mt-0.5 w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${rotationEnabled ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
-              <Shuffle className="w-5 h-5" />
-            </div>
-            <div>
-              <p className="font-bold text-base">Rotar captions en modo automático</p>
-              <p className="text-sm text-muted-foreground max-w-md">
-                {rotationEnabled
-                  ? rotationIds.size > 0
-                    ? `${rotationIds.size} plantilla${rotationIds.size !== 1 ? "s" : ""} en rotación. Haz clic en las plantillas para agregarlas o quitarlas.`
-                    : "Selecciona al menos una plantilla. Si no eliges ninguna se usa siempre la misma."
-                  : "Activa para que cada video use una plantilla diferente de forma automática."}
-              </p>
-              {rotationEnabled && rotationIds.size === 0 && (
-                <p className="text-xs text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1">
-                  <span>⚠</span>{" "}
-                  {local.template_id
-                    ? "Sin selección se usará siempre la plantilla activa por defecto."
-                    : "Sin plantillas seleccionadas y sin plantilla por defecto, los videos no recibirán estilo de captions."}
-                </p>
-              )}
-              {rotationEnabled && (
-                <div className="flex gap-1.5 mt-2">
-                  {[{ value: "sequential", label: "Secuencial" }, { value: "random", label: "Aleatorio" }].map(({ value, label }) => (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => { setRotationStrategy(value); saveRotation(rotationIds, value) }}
-                      className={`px-2.5 py-1 rounded-lg border text-xs font-medium transition-all ${
-                        rotationStrategy === value
-                          ? "bg-primary text-primary-foreground border-primary"
-                          : "bg-background text-muted-foreground border-border hover:border-primary/50"
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-          <Switch checked={rotationEnabled} onCheckedChange={handleRotationToggle} disabled={isVideoProcessing} className="shrink-0" />
-        </CardContent>
-      </Card>
-      )}
-
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Left: preset selector + advanced */}
         <div className="lg:col-span-2 space-y-6">
 
           {/* ── Card Templates (visible when text_cards effect is enabled) ─── */}
           {videoEffects.text_cards && (
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <h2 className="text-xl font-display font-bold">Plantillas de Cards</h2>
-                {savedCard && (
-                  <span className="text-xs bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 px-2 py-0.5 rounded-full font-medium">Activa</span>
-                )}
-              </div>
-              <p className="text-sm text-muted-foreground mb-4">
-                Define una card fija para todos tus videos — no se regenera con IA en cada procesamiento.
-              </p>
-              <Card>
-                <CardContent className="p-5 space-y-4">
-                  {/* Type selector */}
-                  <div className="space-y-2">
-                    <Label>Tipo de card</Label>
-                    <Select value={localCard.type} onValueChange={(v) => setLocalCard((c) => ({ ...c, type: v as "hook"|"stat"|"cta" }))}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="hook">🎣 Hook — Pregunta o dato impactante (inicio del video)</SelectItem>
-                        <SelectItem value="stat">📊 Stat — Número o porcentaje con contexto (mitad del video)</SelectItem>
-                        <SelectItem value="cta">📣 CTA — Llamada a la acción (final del video)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  {/* Use AI toggle */}
-                  <div className="flex items-start gap-3 rounded-xl border bg-muted/30 px-4 py-3">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold flex items-center gap-1.5">
-                        <Sparkles className="w-3.5 h-3.5 text-violet-500" /> Generar texto con IA
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        La IA adapta el texto de la card al guion de cada video
-                      </p>
-                    </div>
-                    <Switch checked={localCard.useAi} onCheckedChange={(v) => setLocalCard((c) => ({ ...c, useAi: v }))} />
-                  </div>
-                  {/* Fixed text inputs — only when useAi is false */}
-                  {!localCard.useAi && localCard.type !== "stat" && (
-                    <div className="space-y-2">
-                      <Label>{localCard.type === "hook" ? "Texto del hook" : "Texto del CTA"}</Label>
-                      <input
-                        type="text"
-                        value={localCard.text}
-                        onChange={(e) => setLocalCard((c) => ({ ...c, text: e.target.value }))}
-                        placeholder={
-                          localCard.type === "hook"
-                            ? "¿Sabías que el 73% de los creadores usan IA?"
-                            : "Seguime para más estrategias de contenido"
-                        }
-                        className="w-full rounded-md border bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        maxLength={localCard.type === "hook" ? 80 : 60}
-                      />
-                      <p className="text-xs text-muted-foreground text-right">
-                        {localCard.text.length}/{localCard.type === "hook" ? 80 : 60}
-                      </p>
-                    </div>
+            <div className="space-y-6">
+              {/* Header */}
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <h2 className="text-xl font-display font-bold">Plantillas de Cards</h2>
+                  {savedCard && selectedCardTemplateId && (
+                    <span className="text-xs bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 px-2 py-0.5 rounded-full font-medium">Activa</span>
                   )}
-                  {!localCard.useAi && localCard.type === "stat" && (
-                    <>
-                      <div className="space-y-2">
-                        <Label>Número o porcentaje <span className="text-muted-foreground font-normal">(ej: 2.3M · 73% · +500)</span></Label>
-                        <input
-                          type="text"
-                          value={localCard.headline}
-                          onChange={(e) => setLocalCard((c) => ({ ...c, headline: e.target.value }))}
-                          placeholder="73%"
-                          className="w-full rounded-md border bg-background px-3 py-2 text-sm font-bold ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                          maxLength={12}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Contexto <span className="text-muted-foreground font-normal">(ej: de creadores ya usan IA)</span></Label>
-                        <input
-                          type="text"
-                          value={localCard.subtext}
-                          onChange={(e) => setLocalCard((c) => ({ ...c, subtext: e.target.value }))}
-                          placeholder="de creadores ya usan IA"
-                          className="w-full rounded-md border bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                          maxLength={40}
-                        />
-                      </div>
-                    </>
-                  )}
-                  <Button
-                    onClick={saveCardTemplate}
-                    disabled={
-                      savingCard ||
-                      (!localCard.useAi && (
-                        localCard.type === "stat"
-                          ? !localCard.headline || !localCard.subtext
-                          : !localCard.text
-                      ))
-                    }
-                    className="w-full gap-2"
-                  >
-                    {savingCard ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                    {savingCard ? "Guardando..." : "Guardar plantilla"}
-                  </Button>
-                </CardContent>
-              </Card>
-            </div>
-          )}
-
-          {/* Plantillas del motor canvas — only visible when captions are enabled */}
-          {captionsEnabled && <div>
-            <div className="flex items-center gap-2 mb-1">
-              <h2 className="text-xl font-display font-bold">Plantillas</h2>
-              {browserEngineAvailable === false && (
-                <span className="w-2 h-2 rounded-full bg-amber-400" title="Canvas no disponible — contactá soporte" />
-              )}
-            </div>
-            <p className="text-sm text-muted-foreground mb-4">
-              El preview es exactamente lo que queda en el video final. Lo que ves es lo que se renderiza.
-            </p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-              {BROWSER_CAPTION_TEMPLATES.map((tmpl) => (
-                <BrowserTemplateCard
-                  key={tmpl.id}
-                  template={allTmplOverrides[tmpl.id] ? { ...tmpl, ...allTmplOverrides[tmpl.id] } : tmpl}
-                  selected={rotationEnabled ? rotationIds.has(tmpl.id) : local.template_id === tmpl.id}
-                  saving={!rotationEnabled && savingPresetId === tmpl.id}
-                  onClick={() => rotationEnabled ? toggleRotationTemplate(tmpl.id) : (!isVideoProcessing && applyBrowserTemplate(tmpl))}
-                />
-              ))}
-            </div>
-          </div>}
-
-          {/* ── Browser template advanced settings ─────────────────────── */}
-          {!rotationEnabled && mergedTmpl && captionsEnabled && (
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <h2 className="text-xl font-display font-bold">Ajustes de plantilla</h2>
-                {Object.keys(currentOverrides).length > 0 && (
-                  <button
-                    type="button"
-                    onClick={resetOverrides}
-                    disabled={isVideoProcessing}
-                    className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 disabled:opacity-40"
-                  >
-                    Restaurar valores originales
-                  </button>
-                )}
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Elegí una plantilla y configurá el texto. Se aplica igual en cada video — sin llamar a la IA en cada procesamiento.
+                </p>
               </div>
-              <p className="text-sm text-muted-foreground mb-4">
-                Ajusta los valores de la plantilla <strong>{activeTmpl?.name}</strong>. El preview se actualiza en tiempo real y los cambios se aplican al video final.
-              </p>
-              <Card>
-                <CardContent className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-6">
 
-                  {/* Font size */}
-                  <div className="space-y-2">
-                    <Label>
-                      Tamaño de letra:&nbsp;
-                      <span className="text-primary font-bold">{ov("fontSize")}px</span>
-                      {currentOverrides.fontSize !== undefined && (
-                        <span className="ml-1 text-[10px] text-violet-500">(modificado)</span>
-                      )}
-                    </Label>
-                    <Slider
-                      min={60} max={220} step={5}
-                      value={[ov("fontSize") ?? 88]}
-                      onValueChange={([v]) => setOverride("fontSize", v)}
-                      disabled={isVideoProcessing}
-                      className="mt-3"
-                    />
-                    <div className="flex justify-between text-[10px] text-muted-foreground">
-                      <span>60 — compacto</span>
-                      <span>Default: {activeTmpl?.fontSize}px</span>
-                      <span>220 — máximo</span>
-                    </div>
-                  </div>
+              {/* Template grid — same layout as caption templates */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                {CARD_TEMPLATES.map((tmpl) => (
+                  <CardTemplateCard
+                    key={tmpl.id}
+                    tmpl={tmpl}
+                    selected={selectedCardTemplateId === tmpl.id}
+                    onClick={() => {
+                      setSelectedCardTemplateId(tmpl.id)
+                      setLocalCard((c) => ({ ...c, type: tmpl.type, useAi: tmpl.defaultUseAi }))
+                    }}
+                  />
+                ))}
+              </div>
 
-                  {/* Words per line */}
-                  <div className="space-y-2">
-                    <Label>
-                      Palabras por línea:&nbsp;
-                      <span className="text-primary font-bold">{ov("wordsPerLine")}</span>
-                      {currentOverrides.wordsPerLine !== undefined && (
-                        <span className="ml-1 text-[10px] text-violet-500">(modificado)</span>
-                      )}
-                    </Label>
-                    <Slider
-                      min={1} max={6} step={1}
-                      value={[ov("wordsPerLine") ?? 3]}
-                      onValueChange={([v]) => setOverride("wordsPerLine", v)}
-                      disabled={isVideoProcessing}
-                      className="mt-3"
-                    />
-                    <div className="flex justify-between text-[10px] text-muted-foreground">
-                      <span>1 — una palabra</span>
-                      <span>Default: {activeTmpl?.wordsPerLine}</span>
-                      <span>6 — frase larga</span>
-                    </div>
-                  </div>
-
-                  {/* Outline width */}
-                  <div className="space-y-2">
-                    <Label>
-                      Grosor del outline:&nbsp;
-                      <span className="text-primary font-bold">{ov("outlineWidth")}px</span>
-                      {currentOverrides.outlineWidth !== undefined && (
-                        <span className="ml-1 text-[10px] text-violet-500">(modificado)</span>
-                      )}
-                    </Label>
-                    <Slider
-                      min={0} max={20} step={1}
-                      value={[ov("outlineWidth") ?? 0]}
-                      onValueChange={([v]) => setOverride("outlineWidth", v)}
-                      disabled={isVideoProcessing}
-                      className="mt-3"
-                    />
-                    <div className="flex justify-between text-[10px] text-muted-foreground">
-                      <span>0 — sin outline</span>
-                      <span>Default: {activeTmpl?.outlineWidth}px</span>
-                      <span>20 — trazo grueso</span>
-                    </div>
-                  </div>
-
-                  {/* Inactive opacity */}
-                  <div className="space-y-2">
-                    <Label>
-                      Opacidad de palabras inactivas:&nbsp;
-                      <span className="text-primary font-bold">{Math.round((ov("inactiveOpacity") ?? 1) * 100)}%</span>
-                      {currentOverrides.inactiveOpacity !== undefined && (
-                        <span className="ml-1 text-[10px] text-violet-500">(modificado)</span>
-                      )}
-                    </Label>
-                    <Slider
-                      min={0} max={1} step={0.05}
-                      value={[ov("inactiveOpacity") ?? 1]}
-                      onValueChange={([v]) => setOverride("inactiveOpacity", Math.round(v * 20) / 20)}
-                      disabled={isVideoProcessing}
-                      className="mt-3"
-                    />
-                    <div className="flex justify-between text-[10px] text-muted-foreground">
-                      <span>0% — invisibles</span>
-                      <span>Default: {Math.round((activeTmpl?.inactiveOpacity ?? 1) * 100)}%</span>
-                      <span>100% — igual que activa</span>
-                    </div>
-                  </div>
-
-                  {/* Primary color */}
-                  <div className="space-y-2">
-                    <Label>
-                      Color de texto
-                      {currentOverrides.primaryColor !== undefined && (
-                        <span className="ml-1 text-[10px] text-violet-500">(modificado)</span>
-                      )}
-                    </Label>
-                    <div className="flex items-center gap-3">
-                      <input
-                        type="color"
-                        value={ov("primaryColor") ?? "#FFFFFF"}
-                        onChange={(e) => setOverride("primaryColor", e.target.value)}
-                        disabled={isVideoProcessing}
-                        className="w-10 h-10 rounded-md border cursor-pointer bg-background p-0.5"
-                      />
-                      <div>
-                        <p className="text-sm font-mono">{ov("primaryColor")}</p>
-                        <p className="text-[10px] text-muted-foreground">Default: {activeTmpl?.primaryColor}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Active word color */}
-                  <div className="space-y-2">
-                    <Label>
-                      Color de palabra activa
-                      {currentOverrides.activeWordColor !== undefined && (
-                        <span className="ml-1 text-[10px] text-violet-500">(modificado)</span>
-                      )}
-                    </Label>
-                    <div className="flex items-center gap-3">
-                      <input
-                        type="color"
-                        value={ov("activeWordColor") ?? "#FFFFFF"}
-                        onChange={(e) => setOverride("activeWordColor", e.target.value)}
-                        disabled={isVideoProcessing}
-                        className="w-10 h-10 rounded-md border cursor-pointer bg-background p-0.5"
-                      />
-                      <div>
-                        <p className="text-sm font-mono">{ov("activeWordColor")}</p>
-                        <p className="text-[10px] text-muted-foreground">Default: {activeTmpl?.activeWordColor}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Outline color */}
-                  <div className="space-y-2">
-                    <Label>
-                      Color del outline
-                      {currentOverrides.outlineColor !== undefined && (
-                        <span className="ml-1 text-[10px] text-violet-500">(modificado)</span>
-                      )}
-                    </Label>
-                    <div className="flex items-center gap-3">
-                      <input
-                        type="color"
-                        value={ov("outlineColor") ?? "#000000"}
-                        onChange={(e) => setOverride("outlineColor", e.target.value)}
-                        disabled={isVideoProcessing}
-                        className="w-10 h-10 rounded-md border cursor-pointer bg-background p-0.5"
-                      />
-                      <div>
-                        <p className="text-sm font-mono">{ov("outlineColor")}</p>
-                        <p className="text-[10px] text-muted-foreground">Default: {activeTmpl?.outlineColor}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Vertical position — hint */}
-                  <div className="sm:col-span-2 flex items-start gap-2 p-3 rounded-lg bg-muted/40">
-                    <span className="text-base mt-0.5 shrink-0">✥</span>
-                    <div>
-                      <p className="text-xs font-medium mb-0.5">Posición vertical y margen</p>
-                      <p className="text-xs text-muted-foreground leading-snug">
-                        Arrastrá el preview del celular para mover los captions.
-                      </p>
-                      <p className="text-xs text-primary font-medium mt-1">
-                        ↕ {Math.round(local.y_position ?? (activeTmpl?.yPercent ?? 75))}% &nbsp;·&nbsp; ← {Math.round(local.margin_x ?? ((activeTmpl?.marginXPercent ?? 5) * 1080 / 100))}px
-                      </p>
-                    </div>
-                  </div>
-
-                </CardContent>
-              </Card>
-            </div>
-          )}
-
-          {/* Advanced config — hidden when a browser template is active or rotation is on */}
-          {!rotationEnabled && !activeTmpl && (<div>
-            <h2 className="text-xl font-display font-bold mb-4">Ajustes avanzados</h2>
-            <div className="relative">
-              {isVideoProcessing && (
-                <div className="absolute inset-0 z-10 rounded-xl backdrop-blur-[2px] bg-background/70 flex flex-col items-center justify-center gap-2 pointer-events-auto">
-                  <Loader2 className="w-6 h-6 animate-spin text-amber-500" />
-                  <p className="text-sm font-semibold text-center px-6">Ajustes bloqueados</p>
-                  <p className="text-xs text-muted-foreground text-center px-8 leading-snug">
-                    Espera a que el video termine de procesarse.
+              {/* Settings panel — appears after selecting a template (mirrors "Ajustes de plantilla") */}
+              {selectedCardTemplateId && (
+                <div>
+                  <h3 className="text-base font-semibold mb-1">Ajustes de la card</h3>
+                  <p className="text-sm text-muted-foreground mb-3">
+                    Configurá el texto que aparecerá en la card de cada video.
                   </p>
+                  <Card>
+                    <CardContent className="p-5 space-y-4">
+                      {/* Use AI toggle */}
+                      <div className="flex items-start gap-3 rounded-xl border bg-muted/30 px-4 py-3">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold flex items-center gap-1.5">
+                            <Sparkles className="w-3.5 h-3.5 text-violet-500" /> Generar texto con IA
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            La IA adapta el texto de la card al guion de cada video
+                          </p>
+                        </div>
+                        <Switch checked={localCard.useAi} onCheckedChange={(v) => setLocalCard((c) => ({ ...c, useAi: v }))} />
+                      </div>
+
+                      {/* Fixed text inputs — only when useAi is false */}
+                      {!localCard.useAi && localCard.type !== "stat" && (
+                        <div className="space-y-2">
+                          <Label>{localCard.type === "hook" ? "Texto del hook" : "Texto del CTA"}</Label>
+                          <input
+                            type="text"
+                            value={localCard.text}
+                            onChange={(e) => setLocalCard((c) => ({ ...c, text: e.target.value }))}
+                            placeholder={
+                              localCard.type === "hook"
+                                ? "¿Sabías que el 73% de los creadores usan IA?"
+                                : "Seguime para más estrategias de contenido"
+                            }
+                            className="w-full rounded-md border bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            maxLength={localCard.type === "hook" ? 80 : 60}
+                          />
+                          <p className="text-xs text-muted-foreground text-right">
+                            {localCard.text.length}/{localCard.type === "hook" ? 80 : 60}
+                          </p>
+                        </div>
+                      )}
+                      {!localCard.useAi && localCard.type === "stat" && (
+                        <>
+                          <div className="space-y-2">
+                            <Label>Número o porcentaje <span className="text-muted-foreground font-normal">(ej: 2.3M · 73% · +500)</span></Label>
+                            <input
+                              type="text"
+                              value={localCard.headline}
+                              onChange={(e) => setLocalCard((c) => ({ ...c, headline: e.target.value }))}
+                              placeholder="73%"
+                              className="w-full rounded-md border bg-background px-3 py-2 text-sm font-bold ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              maxLength={12}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Contexto <span className="text-muted-foreground font-normal">(ej: de creadores ya usan IA)</span></Label>
+                            <input
+                              type="text"
+                              value={localCard.subtext}
+                              onChange={(e) => setLocalCard((c) => ({ ...c, subtext: e.target.value }))}
+                              placeholder="de creadores ya usan IA"
+                              className="w-full rounded-md border bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              maxLength={40}
+                            />
+                          </div>
+                        </>
+                      )}
+
+                      <Button
+                        onClick={saveCardTemplate}
+                        disabled={
+                          savingCard ||
+                          (!localCard.useAi && (
+                            localCard.type === "stat"
+                              ? !localCard.headline || !localCard.subtext
+                              : !localCard.text
+                          ))
+                        }
+                        className="w-full gap-2"
+                      >
+                        {savingCard ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                        {savingCard ? "Guardando..." : "Guardar plantilla"}
+                      </Button>
+                    </CardContent>
+                  </Card>
                 </div>
               )}
-            <Card>
-              <CardContent className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-6">
-
-                <div className="space-y-2 sm:col-span-2 flex items-start gap-2 p-3 rounded-lg bg-muted/40">
-                  <span className="text-base mt-0.5 shrink-0">✥</span>
-                  <div>
-                    <p className="text-xs font-medium mb-0.5">Posición libre</p>
-                    <p className="text-xs text-muted-foreground leading-snug">
-                      Arrastrá el preview del celular: <strong>arriba/abajo</strong> mueve la altura, <strong>izquierda/derecha</strong> ajusta el margen.
-                    </p>
-                    <p className="text-xs text-primary font-medium mt-1">
-                      ↕ {Math.round(local.y_position ?? 75)}% &nbsp;·&nbsp; ← {Math.round(local.margin_x ?? 60)}px
-                    </p>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>
-                    Margen lateral: <span className="text-primary font-bold">{Math.round(local.margin_x ?? 60)}px</span>
-                  </Label>
-                  <Slider
-                    min={0} max={300} step={5}
-                    value={[local.margin_x ?? 60]}
-                    onValueChange={([v]) => set("margin_x", v)}
-                    className="mt-3"
-                  />
-                  <div className="flex justify-between text-[10px] text-muted-foreground">
-                    <span>0 — sin margen</span>
-                    <span>300 — centrado</span>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>
-                    Tamaño de letra: <span className="text-primary font-bold">{local.font_size ?? 88}px</span>
-                  </Label>
-                  <Slider
-                    min={60} max={220} step={5}
-                    value={[local.font_size ?? 88]}
-                    onValueChange={([v]) => set("font_size", v)}
-                    className="mt-3"
-                  />
-                  <div className="flex justify-between text-[10px] text-muted-foreground">
-                    <span>60 — compacto</span>
-                    <span>220 — máximo impacto</span>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>
-                    Espacio entre líneas: <span className="text-primary font-bold">
-                      {{ 1.0: "Súper ajustado", 1.1: "Ajustado", 1.2: "Normal", 1.4: "Amplio", 1.7: "Muy amplio", 2.0: "Máximo" }[String(local.line_spacing_factor ?? 1.1)] ?? `${local.line_spacing_factor ?? 1.1}×`}
-                    </span>
-                  </Label>
-                  <Slider
-                    min={1.0} max={2.0} step={0.1}
-                    value={[local.line_spacing_factor ?? 1.1]}
-                    onValueChange={([v]) => set("line_spacing_factor", Math.round(v * 10) / 10)}
-                    className="mt-3"
-                  />
-                  <div className="flex justify-between text-[10px] text-muted-foreground">
-                    <span>1.0 — líneas pegadas</span>
-                    <span>2.0 — muy separadas</span>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Palabras por línea: <span className="text-primary font-bold">{local.words_per_line ?? 3}</span></Label>
-                  <Slider
-                    min={1} max={6} step={1}
-                    value={[local.words_per_line ?? 3]}
-                    onValueChange={([v]) => set("words_per_line", v)}
-                    className="mt-3"
-                  />
-                  <p className="text-xs text-muted-foreground">Aplica en modo Highlight y Dimidium</p>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Modo de efecto</Label>
-                  <Select value={local.highlight_mode ?? "color"} onValueChange={(v) => set("highlight_mode", v as any)}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {Object.entries(HIGHLIGHT_LABELS).map(([v, l]) => (
-                        <SelectItem key={v} value={v}>{l}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Fuente</Label>
-                  <Select value={local.font_family ?? "Oswald"} onValueChange={(v) => set("font_family", v)}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {FONT_OPTIONS.map((f) => (
-                        <SelectItem key={f} value={f} style={{ fontFamily: f }}>{f}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Color del texto</Label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="color"
-                      value={local.primary_color ?? "#FFFFFF"}
-                      onChange={(e) => set("primary_color", e.target.value)}
-                      className="w-10 h-10 rounded-md border cursor-pointer bg-background p-0.5"
-                    />
-                    <span className="text-sm text-muted-foreground font-mono">{local.primary_color ?? "#FFFFFF"}</span>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Color de palabra activa</Label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="color"
-                      value={local.active_word_color ?? "#FFE600"}
-                      onChange={(e) => set("active_word_color", e.target.value)}
-                      className="w-10 h-10 rounded-md border cursor-pointer bg-background p-0.5"
-                    />
-                    <span className="text-sm text-muted-foreground font-mono">{local.active_word_color ?? "#FFE600"}</span>
-                  </div>
-                </div>
-
-              </CardContent>
-            </Card>
             </div>
-          </div>
-          )}{/* end advanced config */}
+          )}
+
         </div>
 
         {/* Right: live preview + pipeline — sticky on desktop so it stays visible while scrolling */}
