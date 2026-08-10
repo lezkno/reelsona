@@ -95,7 +95,7 @@ export function WelcomeModal() {
           <div className="flex justify-center mb-4">
             <img src="/logo.png" alt="Reelsona" className="w-16 h-16 object-contain drop-shadow-lg" />
           </div>
-          <DialogHeader className="space-y-1 text-center">
+          <DialogHeader className="space-y-1 text-center items-center">
             <DialogTitle className="text-2xl font-display font-bold text-sidebar-foreground leading-tight">
               Tu máquina de contenido con IA está lista
             </DialogTitle>
