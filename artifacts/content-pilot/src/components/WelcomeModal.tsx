@@ -30,9 +30,17 @@ export function WelcomeModal() {
   const { data: settings, isLoading } = useGetSettings()
   const { mutate: updateSettings } = useUpdateSettings()
 
+  // Track whether we've already made the open/close decision for this session.
+  // Without this guard, any settings invalidation (e.g. toggling video effects)
+  // re-runs the effect and can re-open the modal if welcome_dismissed is still false.
+  const hasChecked = React.useRef(false)
+
   // Open on first visit — use server-side flag, fall back to localStorage while loading
   useEffect(() => {
-    if (isLoading) return
+    if (hasChecked.current) return  // Only decide once per session
+    if (isLoading) return           // Wait until we have an answer
+
+    hasChecked.current = true       // Lock — no more re-evaluations
 
     if (settings) {
       // Server value is authoritative
