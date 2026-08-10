@@ -1,29 +1,23 @@
 /**
  * brand-cover.ts — generate an AI-powered cover image for Instagram Reels.
  *
- * Primary path: gpt-image-1 in reference-based edit mode — the HeyGen avatar
- * thumbnail is passed as a visual reference so the model preserves the avatar's
- * look while composing a cinematic 9:16 cover with the hook text and brand colors.
+ * Primary path: gpt-image-1 images.generate — creates a professional branded
+ * cover from the hook text and brand colors using a detailed text prompt.
+ * No image reference upload needed (avoids proxy multipart issues).
  *
- * Fallback path: @napi-rs/canvas draws a simple but branded JPEG cover when the
- * AI call is unavailable (missing API keys, timeout, quota, etc.) so the publish
- * pipeline always has a cover to send to Instagram.
+ * Fallback path: @napi-rs/canvas draws a styled branded JPEG cover when the
+ * AI call is unavailable (missing API keys, timeout, quota, etc.).
  */
 
-import * as path from "path";
-import * as os from "os";
-import * as fsSync from "fs";
-import { promises as fs } from "fs";
 import { randomUUID } from "crypto";
-import axios from "axios";
-import OpenAI, { toFile } from "openai";
+import OpenAI from "openai";
 import { createCanvas, loadImage, type SKRSContext2D } from "@napi-rs/canvas";
 import { objectStorageClient } from "./objectStorage";
 import { logger as rootLogger } from "./logger";
 
 const logger = rootLogger.child({ module: "brand-cover" });
 
-// ── helpers ──────────────────────────────────────────────────────────────────
+// ── helpers ───────────────────────────────────────────────────────────────────
 
 function luminance(hex: string): number {
   const c = hex.replace("#", "");
@@ -32,6 +26,20 @@ function luminance(hex: string): number {
   const b = parseInt(c.substring(4, 6), 16) / 255;
   const lin = (x: number) => (x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4));
   return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+
+function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  const c = hex.replace("#", "");
+  return {
+    r: parseInt(c.substring(0, 2), 16),
+    g: parseInt(c.substring(2, 4), 16),
+    b: parseInt(c.substring(4, 6), 16),
+  };
+}
+
+function darken(hex: string, amount: number): string {
+  const { r, g, b } = hexToRgb(hex);
+  return `rgb(${Math.max(0, r - amount)},${Math.max(0, g - amount)},${Math.max(0, b - amount)})`;
 }
 
 function wrapText(ctx: SKRSContext2D, text: string, maxWidth: number): string[] {
@@ -51,10 +59,7 @@ function wrapText(ctx: SKRSContext2D, text: string, maxWidth: number): string[] 
   return lines;
 }
 
-async function uploadJpegToGcs(
-  buffer: Buffer,
-  objectName: string
-): Promise<string> {
+async function uploadJpegToGcs(buffer: Buffer, objectName: string): Promise<string> {
   const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
   const domain = process.env.REPLIT_DEV_DOMAIN;
   if (!bucketId || !domain) throw new Error("Object Storage not configured");
@@ -69,44 +74,91 @@ async function generateCanvasCover(
   videoId: number,
   hookText: string,
   primaryColor: string,
-  accentColor: string | null
+  accentColor: string | null,
 ): Promise<string | null> {
   try {
     const W = 1080, H = 1920;
     const canvas = createCanvas(W, H);
     const ctx = canvas.getContext("2d");
+    const accent = accentColor ?? "#ffffff";
+    const { r: pr, g: pg, b: pb } = hexToRgb(primaryColor);
+    const dark = darken(primaryColor, 40);
 
-    const grad = ctx.createLinearGradient(0, 0, 0, H);
-    grad.addColorStop(0, primaryColor);
-    grad.addColorStop(1, primaryColor + "cc");
-    ctx.fillStyle = grad;
+    // ── Background gradient ───────────────────────────────────────────────────
+    const bgGrad = ctx.createLinearGradient(0, 0, W * 0.4, H);
+    bgGrad.addColorStop(0, dark);
+    bgGrad.addColorStop(0.5, primaryColor);
+    bgGrad.addColorStop(1, dark);
+    ctx.fillStyle = bgGrad;
     ctx.fillRect(0, 0, W, H);
 
-    const accent = accentColor ?? "#ffffff";
-    ctx.fillStyle = accent;
-    ctx.fillRect(0, H - 16, W, 16);
-    ctx.fillRect(0, 0, W, 8);
+    // ── Diagonal accent band ──────────────────────────────────────────────────
+    ctx.save();
+    ctx.globalAlpha = 0.14;
+    const bandGrad = ctx.createLinearGradient(0, H * 0.3, W, H * 0.7);
+    bandGrad.addColorStop(0, "transparent");
+    bandGrad.addColorStop(0.5, accent);
+    bandGrad.addColorStop(1, "transparent");
+    ctx.fillStyle = bandGrad;
+    ctx.beginPath();
+    ctx.moveTo(0, H * 0.32);
+    ctx.lineTo(W, H * 0.22);
+    ctx.lineTo(W, H * 0.68);
+    ctx.lineTo(0, H * 0.78);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
 
+    // ── Left accent sidebar ───────────────────────────────────────────────────
+    const sideGrad = ctx.createLinearGradient(0, 0, 0, H);
+    sideGrad.addColorStop(0, "transparent");
+    sideGrad.addColorStop(0.5, accent);
+    sideGrad.addColorStop(1, "transparent");
+    ctx.fillStyle = sideGrad;
+    ctx.globalAlpha = 0.85;
+    ctx.fillRect(0, 0, 18, H);
+    ctx.globalAlpha = 1;
+
+    // ── Top + bottom bars ─────────────────────────────────────────────────────
+    ctx.fillStyle = accent;
+    ctx.fillRect(0, 0, W, 14);
+    ctx.fillRect(0, H - 14, W, 14);
+
+    // ── Hook text ─────────────────────────────────────────────────────────────
     const textColor = luminance(primaryColor) > 0.35 ? "#111111" : "#ffffff";
-    const fontSize = hookText.length > 80 ? 62 : hookText.length > 50 ? 74 : 88;
-    ctx.fillStyle = textColor;
+    const maxW = W - 120;
+    const fontSize = hookText.length > 80 ? 72 : hookText.length > 50 ? 86 : 100;
     ctx.font = `bold ${fontSize}px sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
 
-    const maxW = W - 120;
-    const lines = wrapText(ctx, hookText, maxW);
-    const lh = fontSize * 1.25;
+    const lines = wrapText(ctx, hookText.toUpperCase(), maxW);
+    const lh = fontSize * 1.2;
     const totalH = lines.length * lh;
     const startY = H / 2 - totalH / 2 + lh / 2;
 
-    ctx.shadowColor = luminance(primaryColor) > 0.35 ? "rgba(0,0,0,0.15)" : "rgba(0,0,0,0.35)";
-    ctx.shadowBlur = 8;
-    ctx.shadowOffsetY = 4;
+    // Subtle highlight box behind text
+    ctx.globalAlpha = 0.12;
+    ctx.fillStyle = accent;
+    ctx.fillRect(48, startY - fontSize * 0.8, W - 96, totalH + fontSize * 0.6);
+    ctx.globalAlpha = 1;
+
+    // Text shadow
+    ctx.shadowColor = luminance(primaryColor) > 0.35 ? "rgba(0,0,0,0.3)" : "rgba(0,0,0,0.6)";
+    ctx.shadowBlur = 28;
+    ctx.shadowOffsetY = 8;
+    ctx.fillStyle = textColor;
     lines.forEach((line, i) => ctx.fillText(line, W / 2, startY + i * lh));
 
-    const buffer = canvas.toBuffer("image/jpeg");
-    const objectName = `brand-covers/${videoId}-${randomUUID().slice(0, 8)}.jpg`;
+    // Accent underline beneath last line
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+    ctx.fillStyle = accent;
+    const underY = startY + (lines.length - 1) * lh + fontSize * 0.65;
+    ctx.fillRect(W / 2 - 160, underY, 320, 10);
+
+    const buffer = canvas.toBuffer("image/jpeg", 92);
+    const objectName = `brand-covers/${videoId}-canvas-${randomUUID().slice(0, 8)}.jpg`;
     const url = await uploadJpegToGcs(buffer, objectName);
     logger.info({ videoId, objectName }, "[BrandCover] Canvas cover uploaded");
     return url;
@@ -116,30 +168,30 @@ async function generateCanvasCover(
   }
 }
 
-// ── AI cover (gpt-image-1) ────────────────────────────────────────────────────
+// ── AI cover (gpt-image-1 generate) ──────────────────────────────────────────
 
 /**
- * Build the generation prompt. The model is steered toward the brand's visual
- * identity: primary/accent colors frame the hook text on the left while the
- * avatar (referenced from the thumbnail) anchors the right side.
+ * Build the generation prompt. Uses images.generate (no file upload) which is
+ * reliably supported by the Replit AI proxy. The avatar/presenter appearance is
+ * described textually instead of sent as a reference image.
  */
-function buildCoverPrompt(
-  hookText: string,
-  primaryColor: string,
-  accentColor: string | null
-): string {
+function buildCoverPrompt(hookText: string, primaryColor: string, accentColor: string | null): string {
   const accent = accentColor ?? "#ffffff";
   return (
-    `Create a professional Instagram Reel thumbnail cover (9:16 vertical format). ` +
-    `The cover promotes a video with this hook: "${hookText}". ` +
-    `Layout: the person/avatar from the reference image is positioned on the RIGHT side of the frame, ` +
-    `showing an expressive, confident gesture. The LEFT 2/3 of the frame features the hook text ` +
-    `"${hookText.toUpperCase()}" rendered in ultra-bold condensed white typography, large and impactful. ` +
-    `Brand primary color ${primaryColor} is used as a background tone or gradient. ` +
-    `Accent color ${accent} highlights the text or adds a glowing bar element. ` +
-    `Background is dark and cinematic with bokeh depth-of-field. ` +
-    `High contrast, agency-quality, photorealistic. No extra text, no watermarks, no logos. ` +
-    `Vertical 9:16 composition filling the entire frame.`
+    `Instagram Reel thumbnail cover image, portrait 9:16 format, 1024×1536 px, ultra-high quality photography and design.\n\n` +
+    `HERO TEXT — render these words exactly, large, ultra-bold condensed sans-serif, covering ~75% of the frame width:\n` +
+    `"${hookText}"\n\n` +
+    `Visual design requirements:\n` +
+    `• Background: deep cinematic gradient built around the primary brand color ${primaryColor} — dark, moody, professional\n` +
+    `• Accent color ${accent}: applied as a glowing neon underline bar beneath the text AND as an edge light stripe on one side\n` +
+    `• Add a confident, well-lit human presenter or influencer standing on the RIGHT side of the frame, facing the camera, professional attire, photographically realistic\n` +
+    `• The hero text occupies the LEFT ~60% of the frame in a bold vertical stack\n` +
+    `• Background atmosphere: bokeh light particles, cinematic depth-of-field, subtle abstract light streaks in ${primaryColor} tones\n` +
+    `• Overall mood: high-energy modern social media advertising, vibrant yet professional, agency-grade production\n\n` +
+    `Hard constraints:\n` +
+    `• ONLY text allowed is the hook above — no other words, labels, captions, or UI elements\n` +
+    `• No logos, watermarks, borders, or padding — full bleed edge to edge\n` +
+    `• Maximum contrast between text and background for legibility on mobile screens`
   );
 }
 
@@ -148,7 +200,6 @@ async function generateAICover(
   hookText: string,
   primaryColor: string,
   accentColor: string | null,
-  thumbnailUrl: string
 ): Promise<string | null> {
   const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
   const baseURL = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
@@ -157,76 +208,65 @@ async function generateAICover(
     return null;
   }
 
-  let tmpFile: string | null = null;
   try {
-    // Download the HeyGen thumbnail to a temp file
-    const thumbResp = await axios.get<ArrayBuffer>(thumbnailUrl, {
-      responseType: "arraybuffer",
-      timeout: 30_000,
-    });
-    const thumbBuffer = Buffer.from(thumbResp.data);
-
-    // Write to /tmp so toFile can reference it
-    tmpFile = path.join(os.tmpdir(), `thumb_${videoId}_${randomUUID().slice(0, 8)}.jpg`);
-    await fs.writeFile(tmpFile, thumbBuffer);
-
     const client = new OpenAI({ apiKey, baseURL, timeout: 120_000 });
     const prompt = buildCoverPrompt(hookText, primaryColor, accentColor);
 
-    logger.info({ videoId, prompt: prompt.slice(0, 120) }, "[BrandCover] Requesting AI cover from gpt-image-1");
+    logger.info({ videoId, hookText, primaryColor, accentColor, promptLength: prompt.length }, "[BrandCover] Requesting AI cover from gpt-image-1 (generate)");
 
-    // Use images.edit with the avatar thumbnail as a visual reference.
-    // gpt-image-1 in reference-based mode (no mask) uses the input image as
-    // compositional context while generating a fresh stylised frame.
-    const response = await (client.images.edit as unknown as (
-      body: Record<string, unknown>
-    ) => Promise<{ data?: Array<{ b64_json?: string }> }>)({
+    // images.generate — no file upload required, works reliably with the Replit proxy.
+    // images.edit was abandoned because multipart form uploads were returning non-image
+    // data (SVG error placeholders) from the proxy.
+    const response = await (client.images as any).generate({
       model: "gpt-image-1",
-      image: await toFile(fsSync.createReadStream(tmpFile), "thumbnail.jpg", { type: "image/jpeg" }),
       prompt,
-      // 1024x1536 is the documented gpt-image-1 portrait size (9:16 ≈ 2:3).
       size: "1024x1536",
       n: 1,
     });
 
-    const b64 = response.data?.[0]?.b64_json;
+    const b64 = response?.data?.[0]?.b64_json;
     if (!b64) {
-      logger.warn({ videoId }, "[BrandCover] gpt-image-1 returned no image data");
+      logger.warn({ videoId, responseKeys: Object.keys(response ?? {}) }, "[BrandCover] gpt-image-1 returned no b64_json");
       return null;
     }
 
-    // gpt-image-1 edit output is always PNG. Re-encode to JPEG so Instagram
-    // accepts it as cover_url (Instagram rejects non-JPEG cover images).
-    // loadImage() awaits the decode before drawImage so the canvas isn't blank.
-    const pngBuffer = Buffer.from(b64, "base64");
+    const imgBuffer = Buffer.from(b64, "base64");
 
-    // Guard: if the proxy returned an error page / SVG placeholder instead of a
-    // real PNG, bail out and let the canvas fallback handle it cleanly.
-    const PNG_MAGIC = 0x89504e47;
-    if (pngBuffer.length < 4 || pngBuffer.readUInt32BE(0) !== PNG_MAGIC) {
+    // Detect image format via magic bytes
+    const isPng  = imgBuffer.length >= 4 && imgBuffer.readUInt32BE(0) === 0x89504e47;
+    const isJpeg = imgBuffer.length >= 2 && imgBuffer[0] === 0xFF && imgBuffer[1] === 0xD8;
+
+    if (!isPng && !isJpeg) {
       logger.warn(
-        { videoId, preview: pngBuffer.slice(0, 120).toString("utf-8") },
-        "[BrandCover] gpt-image-1 response is not a valid PNG — falling back to canvas"
+        { videoId, byteLength: imgBuffer.length, prefix: imgBuffer.slice(0, 200).toString("utf-8") },
+        "[BrandCover] gpt-image-1 returned unrecognised format — falling back to canvas",
       );
       return null;
     }
 
-    const W = 1024, H = 1536;
-    const cvs = createCanvas(W, H);
-    const ctx2 = cvs.getContext("2d");
-    const img = await loadImage(pngBuffer);
-    ctx2.drawImage(img, 0, 0, W, H);
-    const imageBuffer = cvs.toBuffer("image/jpeg");
+    let jpegBuffer: Buffer;
+    if (isPng) {
+      // Transcode PNG → JPEG (Instagram rejects PNG cover_url)
+      const W = 1024, H = 1536;
+      const cvs = createCanvas(W, H);
+      const ctx2 = cvs.getContext("2d");
+      const img = await loadImage(imgBuffer);  // awaits decode before drawImage
+      ctx2.drawImage(img, 0, 0, W, H);
+      jpegBuffer = cvs.toBuffer("image/jpeg", 92);
+    } else {
+      jpegBuffer = imgBuffer;
+    }
 
     const objectName = `brand-covers/${videoId}-ai-${randomUUID().slice(0, 8)}.jpg`;
-    const url = await uploadJpegToGcs(imageBuffer, objectName);
+    const url = await uploadJpegToGcs(jpegBuffer, objectName);
     logger.info({ videoId, objectName }, "[BrandCover] AI cover uploaded ✓");
     return url;
-  } catch (err) {
-    logger.warn({ videoId, err }, "[BrandCover] AI cover generation failed — will fall back to canvas");
+  } catch (err: any) {
+    logger.warn(
+      { videoId, errMessage: err?.message, errStatus: err?.status },
+      "[BrandCover] AI cover generation failed — will fall back to canvas"
+    );
     return null;
-  } finally {
-    if (tmpFile) fs.unlink(tmpFile).catch(() => {});
   }
 }
 
@@ -236,16 +276,21 @@ async function generateAICover(
  * Generate a branded Reel cover image and return its public HTTPS URL.
  *
  * Strategy:
- *   1. If thumbnailUrl is available, try gpt-image-1 reference-based edit.
- *   2. Fall back to a canvas-drawn branded cover (always available, no AI cost).
+ *   1. Try gpt-image-1 images.generate (text prompt, no file upload).
+ *   2. Fall back to a canvas-drawn branded cover (always available).
  *   3. If both fail, return null (publish proceeds without a custom cover).
+ *
+ * The thumbnailUrl parameter is kept for API compatibility but is no longer
+ * used as an input image (the edit endpoint caused proxy issues). Instead, the
+ * avatar/presenter look is described textually in the generation prompt.
  */
 export async function generateBrandCover(
   videoId: number,
   hookText: string,
   primaryColor: string,
   accentColor: string | null,
-  thumbnailUrl?: string | null
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _thumbnailUrl?: string | null,
 ): Promise<string | null> {
   const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
   const domain = process.env.REPLIT_DEV_DOMAIN;
@@ -254,12 +299,10 @@ export async function generateBrandCover(
     return null;
   }
 
-  // Try AI cover first (requires thumbnail + OpenAI keys)
-  if (thumbnailUrl) {
-    const aiUrl = await generateAICover(videoId, hookText, primaryColor, accentColor, thumbnailUrl);
-    if (aiUrl) return aiUrl;
-  }
+  // 1. AI cover (gpt-image-1 generate)
+  const aiUrl = await generateAICover(videoId, hookText, primaryColor, accentColor);
+  if (aiUrl) return aiUrl;
 
-  // Canvas fallback
+  // 2. Canvas fallback
   return generateCanvasCover(videoId, hookText, primaryColor, accentColor);
 }
