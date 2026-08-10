@@ -143,9 +143,11 @@ router.get("/heygen/looks", async (req, res): Promise<void> => {
 });
 
 router.get("/heygen/avatar-config", async (req, res): Promise<void> => {
-  let [config] = await db.select().from(avatarConfigTable).limit(1);
+  const userId = req.session.user!.userId;
+  let [config] = await db.select().from(avatarConfigTable)
+    .where(eq(avatarConfigTable.userId, userId)).limit(1);
   if (!config) {
-    [config] = await db.insert(avatarConfigTable).values({}).returning();
+    [config] = await db.insert(avatarConfigTable).values({ userId }).returning();
   }
   res.json(
     GetAvatarConfigResponse.parse({
@@ -165,7 +167,9 @@ router.put("/heygen/avatar-config", async (req, res): Promise<void> => {
     return;
   }
 
-  const [existing] = await db.select().from(avatarConfigTable).limit(1);
+  const userId = req.session.user!.userId;
+  const [existing] = await db.select().from(avatarConfigTable)
+    .where(eq(avatarConfigTable.userId, userId)).limit(1);
   let config;
   if (existing) {
     [config] = await db
@@ -183,6 +187,7 @@ router.put("/heygen/avatar-config", async (req, res): Promise<void> => {
     [config] = await db
       .insert(avatarConfigTable)
       .values({
+        userId,
         selectedAvatarIds: parsed.data.selected_avatar_ids,
         preferredVoiceId: parsed.data.preferred_voice_id ?? null,
         voiceOverrides: parsed.data.voice_overrides ?? {},

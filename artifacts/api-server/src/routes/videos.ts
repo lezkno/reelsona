@@ -114,13 +114,14 @@ router.use("/captioned-objects", async (req, res, next): Promise<void> => {
 });
 
 router.get("/videos", async (req, res): Promise<void> => {
+  const userId = req.session.user!.userId;
   const queryParsed = GetVideosQueryParams.safeParse(req.query);
   const status = queryParsed.success ? queryParsed.data.status ?? "all" : "all";
 
   const videos =
     status !== "all"
-      ? await db.select().from(videosTable).where(eq(videosTable.status, status)).orderBy(desc(videosTable.createdAt)).limit(50)
-      : await db.select().from(videosTable).orderBy(desc(videosTable.createdAt)).limit(50);
+      ? await db.select().from(videosTable).where(and(eq(videosTable.status, status), eq(videosTable.userId, userId))).orderBy(desc(videosTable.createdAt)).limit(50)
+      : await db.select().from(videosTable).where(eq(videosTable.userId, userId)).orderBy(desc(videosTable.createdAt)).limit(50);
 
   res.json(GetVideosResponse.parse(videos.map(mapVideo)));
 });
@@ -132,10 +133,12 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
     return;
   }
 
+  const userId = req.session.user!.userId;
+
   const [item] = await db
     .select()
     .from(contentPlanItemsTable)
-    .where(eq(contentPlanItemsTable.id, parsed.data.content_plan_id))
+    .where(and(eq(contentPlanItemsTable.id, parsed.data.content_plan_id), eq(contentPlanItemsTable.userId, userId)))
     .limit(1);
 
   if (!item) {
@@ -153,7 +156,7 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
   const [alreadyGenerating] = await db
     .select({ id: videosTable.id, topic: videosTable.topic })
     .from(videosTable)
-    .where(eq(videosTable.status, "generating"))
+    .where(and(eq(videosTable.status, "generating"), eq(videosTable.userId, userId)))
     .limit(1);
   if (alreadyGenerating) {
     res.status(409).json({
@@ -163,7 +166,6 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
   }
 
   // Resolve the user's HeyGen API key and video effects from their settings row
-  const userId = req.session.user!.userId;
   const [userSettings] = await db
     .select({ heygenApiKey: settingsTable.heygenApiKey, videoEffects: settingsTable.videoEffects })
     .from(settingsTable)
@@ -178,7 +180,8 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
   // Ensure avatar/voice are set AND that the stored avatarId is still in the active selection.
   // If the user removed the previously assigned avatar, re-pick from the current list.
   {
-    const [avatarCfg] = await db.select().from(avatarConfigTable).limit(1);
+    const [avatarCfg] = await db.select().from(avatarConfigTable)
+      .where(eq(avatarConfigTable.userId, userId)).limit(1);
     if (!avatarCfg?.selectedAvatarIds?.length) {
       res.status(400).json({ error: "No hay avatares configurados: selecciona al menos uno en la página de Avatares" });
       return;
@@ -196,7 +199,7 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
       await db
         .update(avatarConfigTable)
         .set({ lastUsedAvatarId: item.avatarId, updatedAt: new Date() })
-        .where(eq(avatarConfigTable.id, avatarCfg.id));
+        .where(and(eq(avatarConfigTable.id, avatarCfg.id), eq(avatarConfigTable.userId, userId)));
       // Force voice re-resolution for the new avatar
       item.voiceId = null;
     }
@@ -212,7 +215,7 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
     await db
       .update(contentPlanItemsTable)
       .set({ avatarId: item.avatarId, voiceId: item.voiceId, updatedAt: new Date() })
-      .where(eq(contentPlanItemsTable.id, item.id));
+      .where(and(eq(contentPlanItemsTable.id, item.id), eq(contentPlanItemsTable.userId, userId)));
   }
 
   // Atomically claim the item (scripted -> generating) so concurrent requests
@@ -220,7 +223,7 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
   const claimed = await db
     .update(contentPlanItemsTable)
     .set({ status: "generating", updatedAt: new Date() })
-    .where(and(eq(contentPlanItemsTable.id, item.id), eq(contentPlanItemsTable.status, "scripted")))
+    .where(and(eq(contentPlanItemsTable.id, item.id), eq(contentPlanItemsTable.status, "scripted"), eq(contentPlanItemsTable.userId, userId)))
     .returning({ id: contentPlanItemsTable.id });
   if (claimed.length === 0) {
     res.status(409).json({ error: "Este video ya se está generando" });
@@ -230,8 +233,10 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
   // Manual videos request captions whenever Caption Studio is configured,
   // regardless of the automation captionsEnabled toggle (which only controls
   // the automatic pipeline). null = captions requested; "disabled" = skip.
-  const [captionCfg] = await db.select().from(captionConfigTable).limit(1);
-  const [automationCfg] = await db.select().from(automationConfigTable).limit(1);
+  const [captionCfg] = await db.select().from(captionConfigTable)
+    .where(eq(captionConfigTable.userId, userId)).limit(1);
+  const [automationCfg] = await db.select().from(automationConfigTable)
+    .where(eq(automationConfigTable.userId, userId)).limit(1);
 
   // Resolve effective video effects: item override (if set) merged over account default
   const DEFAULT_EFFECTS = { zoom: false, ai_broll: false, text_cards: false };
@@ -246,6 +251,7 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
   const [videoRow] = await db
     .insert(videosTable)
     .values({
+      userId,
       contentPlanId: item.id,
       topic: item.topic,
       avatarId: item.avatarId,
@@ -260,7 +266,7 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
   await db
     .update(contentPlanItemsTable)
     .set({ videoId: videoRow.id, updatedAt: new Date() })
-    .where(eq(contentPlanItemsTable.id, item.id));
+    .where(and(eq(contentPlanItemsTable.id, item.id), eq(contentPlanItemsTable.userId, userId)));
 
   // Fire and forget video generation — pass the user's own HeyGen key
   generateVideo({
@@ -271,25 +277,32 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
     captionsEnabled: automationCfg?.captionsEnabled ?? false,
   }, heygenApiKey)
     .then(async (heygenVideoId) => {
-      await db.update(videosTable).set({ heygenVideoId, updatedAt: new Date() }).where(eq(videosTable.id, videoRow.id));
+      await db.update(videosTable).set({ heygenVideoId, updatedAt: new Date() })
+        .where(and(eq(videosTable.id, videoRow.id), eq(videosTable.userId, userId)));
       // Update avatar usage
-      const [avatarCfg] = await db.select().from(avatarConfigTable).limit(1);
+      const [avatarCfg] = await db.select().from(avatarConfigTable)
+        .where(eq(avatarConfigTable.userId, userId)).limit(1);
       if (avatarCfg) {
         const usageCount = (avatarCfg.avatarUsageCount as Record<string, number>) ?? {};
         if (item.avatarId) usageCount[item.avatarId] = (usageCount[item.avatarId] ?? 0) + 1;
-        await db.update(avatarConfigTable).set({ lastUsedAvatarId: item.avatarId, avatarUsageCount: usageCount, updatedAt: new Date() }).where(eq(avatarConfigTable.id, avatarCfg.id));
+        await db.update(avatarConfigTable)
+          .set({ lastUsedAvatarId: item.avatarId, avatarUsageCount: usageCount, updatedAt: new Date() })
+          .where(and(eq(avatarConfigTable.id, avatarCfg.id), eq(avatarConfigTable.userId, userId)));
       }
     })
     .catch(async (err) => {
       const error = err instanceof Error ? err.message : String(err);
-      await db.update(videosTable).set({ status: "failed", errorMessage: error, updatedAt: new Date() }).where(eq(videosTable.id, videoRow.id));
-      await db.update(contentPlanItemsTable).set({ status: "failed", updatedAt: new Date() }).where(eq(contentPlanItemsTable.id, item.id));
+      await db.update(videosTable).set({ status: "failed", errorMessage: error, updatedAt: new Date() })
+        .where(and(eq(videosTable.id, videoRow.id), eq(videosTable.userId, userId)));
+      await db.update(contentPlanItemsTable).set({ status: "failed", updatedAt: new Date() })
+        .where(and(eq(contentPlanItemsTable.id, item.id), eq(contentPlanItemsTable.userId, userId)));
     });
 
   res.status(202).json(GenerateVideoResponse.parse(mapVideo(videoRow)));
 });
 
 router.get("/videos/:id", async (req, res): Promise<void> => {
+  const userId = req.session.user!.userId;
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const paramsParsed = GetVideoParams.safeParse({ id: Number(raw) });
   if (!paramsParsed.success) {
@@ -297,7 +310,8 @@ router.get("/videos/:id", async (req, res): Promise<void> => {
     return;
   }
 
-  const [video] = await db.select().from(videosTable).where(eq(videosTable.id, paramsParsed.data.id)).limit(1);
+  const [video] = await db.select().from(videosTable)
+    .where(and(eq(videosTable.id, paramsParsed.data.id), eq(videosTable.userId, userId))).limit(1);
   if (!video) {
     res.status(404).json({ error: "Video not found" });
     return;
@@ -307,6 +321,7 @@ router.get("/videos/:id", async (req, res): Promise<void> => {
 });
 
 router.post("/videos/:id/publish", async (req, res): Promise<void> => {
+  const userId = req.session.user!.userId;
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const paramsParsed = PublishVideoParams.safeParse({ id: Number(raw) });
   if (!paramsParsed.success) {
@@ -316,7 +331,8 @@ router.post("/videos/:id/publish", async (req, res): Promise<void> => {
 
   const bodyParsed = PublishVideoBody.safeParse(req.body ?? {});
 
-  const [video] = await db.select().from(videosTable).where(eq(videosTable.id, paramsParsed.data.id)).limit(1);
+  const [video] = await db.select().from(videosTable)
+    .where(and(eq(videosTable.id, paramsParsed.data.id), eq(videosTable.userId, userId))).limit(1);
   if (!video) {
     res.status(404).json({ error: "Video not found" });
     return;
@@ -334,7 +350,8 @@ router.post("/videos/:id/publish", async (req, res): Promise<void> => {
   // If custom caption provided, update content item
   if (bodyParsed.success && bodyParsed.data.caption && video.contentPlanId) {
     const caption = [bodyParsed.data.caption, bodyParsed.data.hashtags].filter(Boolean).join("\n\n");
-    await db.update(contentPlanItemsTable).set({ caption, updatedAt: new Date() }).where(eq(contentPlanItemsTable.id, video.contentPlanId));
+    await db.update(contentPlanItemsTable).set({ caption, updatedAt: new Date() })
+      .where(and(eq(contentPlanItemsTable.id, video.contentPlanId), eq(contentPlanItemsTable.userId, userId)));
   }
 
   try {
@@ -345,7 +362,8 @@ router.post("/videos/:id/publish", async (req, res): Promise<void> => {
     return;
   }
 
-  const [updated] = await db.select().from(videosTable).where(eq(videosTable.id, video.id)).limit(1);
+  const [updated] = await db.select().from(videosTable)
+    .where(and(eq(videosTable.id, video.id), eq(videosTable.userId, userId))).limit(1);
   res.json(PublishVideoResponse.parse(mapVideo(updated ?? video)));
 });
 
@@ -355,11 +373,13 @@ router.post("/videos/:id/publish", async (req, res): Promise<void> => {
  * content plan item back to "scripted" so the user can regenerate it.
  */
 router.post("/videos/:id/retry", async (req, res): Promise<void> => {
+  const userId = req.session.user!.userId;
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const id = Number(raw);
   if (!id || isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
 
-  const [video] = await db.select().from(videosTable).where(eq(videosTable.id, id)).limit(1);
+  const [video] = await db.select().from(videosTable)
+    .where(and(eq(videosTable.id, id), eq(videosTable.userId, userId))).limit(1);
   if (!video) { res.status(404).json({ error: "Video not found" }); return; }
   if (video.status !== "failed") {
     res.status(400).json({ error: "Solo se pueden reintentar videos en estado fallido" });
@@ -371,21 +391,23 @@ router.post("/videos/:id/retry", async (req, res): Promise<void> => {
     await db
       .update(contentPlanItemsTable)
       .set({ videoId: null, status: "scripted", updatedAt: new Date() })
-      .where(eq(contentPlanItemsTable.id, video.contentPlanId));
+      .where(and(eq(contentPlanItemsTable.id, video.contentPlanId), eq(contentPlanItemsTable.userId, userId)));
   }
 
   // Delete the failed video row; a fresh one will be created on next generate
-  await db.delete(videosTable).where(eq(videosTable.id, id));
+  await db.delete(videosTable).where(and(eq(videosTable.id, id), eq(videosTable.userId, userId)));
 
   res.json({ success: true });
 });
 
 router.delete("/videos/:id", async (req, res): Promise<void> => {
+  const userId = req.session.user!.userId;
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const id = Number(raw);
   if (!id || isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
 
-  const [video] = await db.select().from(videosTable).where(eq(videosTable.id, id)).limit(1);
+  const [video] = await db.select().from(videosTable)
+    .where(and(eq(videosTable.id, id), eq(videosTable.userId, userId))).limit(1);
   if (!video) { res.status(404).json({ error: "Video not found" }); return; }
 
   // Detach from content plan item first (nullify videoId so the item stays)
@@ -393,14 +415,15 @@ router.delete("/videos/:id", async (req, res): Promise<void> => {
     await db
       .update(contentPlanItemsTable)
       .set({ videoId: null, status: "scripted", updatedAt: new Date() })
-      .where(eq(contentPlanItemsTable.id, video.contentPlanId));
+      .where(and(eq(contentPlanItemsTable.id, video.contentPlanId), eq(contentPlanItemsTable.userId, userId)));
   }
 
-  await db.delete(videosTable).where(eq(videosTable.id, id));
+  await db.delete(videosTable).where(and(eq(videosTable.id, id), eq(videosTable.userId, userId)));
   res.json({ success: true, message: "Deleted" });
 });
 
 router.patch("/videos/:id/schedule", async (req, res): Promise<void> => {
+  const userId = req.session.user!.userId;
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const paramsParsed = ScheduleVideoParams.safeParse({ id: Number(raw) });
   if (!paramsParsed.success) { res.status(400).json({ error: "Invalid id" }); return; }
@@ -408,7 +431,8 @@ router.patch("/videos/:id/schedule", async (req, res): Promise<void> => {
   const bodyParsed = ScheduleVideoBody.safeParse(req.body ?? {});
   if (!bodyParsed.success) { res.status(400).json({ error: "Invalid body" }); return; }
 
-  const [video] = await db.select().from(videosTable).where(eq(videosTable.id, paramsParsed.data.id)).limit(1);
+  const [video] = await db.select().from(videosTable)
+    .where(and(eq(videosTable.id, paramsParsed.data.id), eq(videosTable.userId, userId))).limit(1);
   if (!video) { res.status(404).json({ error: "Video not found" }); return; }
   if (video.status !== "ready") { res.status(400).json({ error: "Video is not ready" }); return; }
 
@@ -418,9 +442,10 @@ router.patch("/videos/:id/schedule", async (req, res): Promise<void> => {
 
   await db.update(videosTable)
     .set({ scheduledPublishAt: scheduledAt, updatedAt: new Date() })
-    .where(eq(videosTable.id, video.id));
+    .where(and(eq(videosTable.id, video.id), eq(videosTable.userId, userId)));
 
-  const [updated] = await db.select().from(videosTable).where(eq(videosTable.id, video.id)).limit(1);
+  const [updated] = await db.select().from(videosTable)
+    .where(and(eq(videosTable.id, video.id), eq(videosTable.userId, userId))).limit(1);
   res.json(ScheduleVideoResponse.parse(mapVideo(updated ?? video)));
 });
 

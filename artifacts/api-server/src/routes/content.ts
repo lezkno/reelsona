@@ -145,18 +145,19 @@ router.get("/content/plan", async (req, res): Promise<void> => {
   const conditions =
     status !== "all" ? [eq(contentPlanItemsTable.status, status)] : [];
 
+  const userId = req.session.user!.userId;
   // Fetch items + automation config in parallel
   const [items, [automation]] = await Promise.all([
     db
       .select()
       .from(contentPlanItemsTable)
-      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .where(conditions.length > 0 ? and(eq(contentPlanItemsTable.userId, userId), ...conditions) : eq(contentPlanItemsTable.userId, userId))
       .orderBy(
         sql`${contentPlanItemsTable.scheduledAt} ASC NULLS LAST`,
         contentPlanItemsTable.createdAt
       )
       .limit(limit),
-    db.select().from(automationConfigTable).limit(1),
+    db.select().from(automationConfigTable).where(eq(automationConfigTable.userId, userId)).limit(1),
   ]);
 
   const captionsGloballyEnabled = automation?.captionsEnabled ?? false;
@@ -195,22 +196,24 @@ router.post("/content/plan/generate", async (req, res): Promise<void> => {
     return;
   }
 
-  const [settings] = await db.select().from(settingsTable).limit(1);
+  const userId = req.session.user!.userId;
+  const [settings] = await db.select().from(settingsTable).where(eq(settingsTable.userId, userId)).limit(1);
   const niche = settings?.niche ?? "marketing digital";
   const keywords = settings?.topicKeywords ?? [];
   const tone = settings?.tone ?? "casual";
   const language = settings?.language ?? "es";
 
-  const existingItems = await db.select({ topic: contentPlanItemsTable.topic }).from(contentPlanItemsTable).limit(20);
+  const existingItems = await db.select({ topic: contentPlanItemsTable.topic }).from(contentPlanItemsTable)
+    .where(eq(contentPlanItemsTable.userId, userId)).limit(20);
   const existingTopics = existingItems.map((i) => i.topic);
 
   // Compute publishing slots from the automation schedule (days of week + times)
-  const [automation] = await db.select().from(automationConfigTable).limit(1);
+  const [automation] = await db.select().from(automationConfigTable).where(eq(automationConfigTable.userId, userId)).limit(1);
   const now = new Date();
   const futureScheduled = await db
     .select({ scheduledAt: contentPlanItemsTable.scheduledAt })
     .from(contentPlanItemsTable)
-    .where(and(isNotNull(contentPlanItemsTable.scheduledAt), gte(contentPlanItemsTable.scheduledAt, now)));
+    .where(and(eq(contentPlanItemsTable.userId, userId), isNotNull(contentPlanItemsTable.scheduledAt), gte(contentPlanItemsTable.scheduledAt, now)));
 
   // Start scheduling from the day AFTER the last already-planned item so new
   // content never lands in the same week as existing content.
@@ -273,6 +276,7 @@ router.post("/content/plan/generate", async (req, res): Promise<void> => {
     .insert(contentPlanItemsTable)
     .values(
       topics.slice(0, slots.length).map((t, i) => ({
+        userId,
         topic: t.topic,
         scheduledAt: slots[i],
         status: "draft",
@@ -299,16 +303,18 @@ router.post("/content", async (req, res): Promise<void> => {
     return;
   }
 
+  const userId = req.session.user!.userId;
   let topic = parsed.data.topic?.trim() ?? "";
 
   // If no topic given, ask the AI for one
   if (!topic) {
-    const [settings] = await db.select().from(settingsTable).limit(1);
+    const [settings] = await db.select().from(settingsTable).where(eq(settingsTable.userId, userId)).limit(1);
     const niche = settings?.niche ?? "marketing digital";
     const keywords = settings?.topicKeywords ?? [];
     const tone = settings?.tone ?? "casual";
     const language = settings?.language ?? "es";
-    const existingItems = await db.select({ topic: contentPlanItemsTable.topic }).from(contentPlanItemsTable).limit(20);
+    const existingItems = await db.select({ topic: contentPlanItemsTable.topic }).from(contentPlanItemsTable)
+      .where(eq(contentPlanItemsTable.userId, userId)).limit(20);
     const [auditInsights, strategyProfile] = await Promise.all([
       getLatestAuditCache().catch(() => null),
       getStrategyProfile().catch(() => null),
@@ -325,6 +331,7 @@ router.post("/content", async (req, res): Promise<void> => {
   const [inserted] = await db
     .insert(contentPlanItemsTable)
     .values({
+      userId,
       topic,
       scheduledAt: parsed.data.scheduled_at ? new Date(parsed.data.scheduled_at) : null,
       status: "draft",
@@ -335,6 +342,7 @@ router.post("/content", async (req, res): Promise<void> => {
 });
 
 router.post("/content/:id/process", async (req, res): Promise<void> => {
+  const userId = req.session.user!.userId;
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const paramsParsed = ProcessContentItemNowParams.safeParse({ id: Number(raw) });
   if (!paramsParsed.success) {
@@ -345,7 +353,7 @@ router.post("/content/:id/process", async (req, res): Promise<void> => {
   const [item] = await db
     .select()
     .from(contentPlanItemsTable)
-    .where(eq(contentPlanItemsTable.id, paramsParsed.data.id))
+    .where(and(eq(contentPlanItemsTable.id, paramsParsed.data.id), eq(contentPlanItemsTable.userId, userId)))
     .limit(1);
 
   if (!item) {
@@ -361,27 +369,29 @@ router.post("/content/:id/process", async (req, res): Promise<void> => {
   await db
     .update(contentPlanItemsTable)
     .set({ scheduledAt: new Date(), updatedAt: new Date() })
-    .where(eq(contentPlanItemsTable.id, item.id));
+    .where(and(eq(contentPlanItemsTable.id, item.id), eq(contentPlanItemsTable.userId, userId)));
 
-  const result = await runAutomationCycle(item.id);
+  const result = await runAutomationCycle(userId, item.id);
   res.json(ProcessContentItemNowResponse.parse({ success: result.success, message: result.message }));
 });
 
 // Suggest a fresh AI topic for an existing content item (without generating the script).
 // Returns a single {topic} string so the user can accept/retry/cancel inline.
 router.post("/content/:id/suggest-topic", async (req, res): Promise<void> => {
+  const userId = req.session.user!.userId;
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const id = Number(raw);
   if (!id) { res.status(400).json({ error: "Invalid id" }); return; }
 
-  const [settings] = await db.select().from(settingsTable).limit(1);
+  const [settings] = await db.select().from(settingsTable).where(eq(settingsTable.userId, userId)).limit(1);
   const niche    = settings?.niche ?? "marketing digital";
   const keywords = settings?.topicKeywords ?? [];
   const tone     = settings?.tone ?? "casual";
   const language = settings?.language ?? "es";
 
   // Avoid repeating any existing topic
-  const existing = await db.select({ topic: contentPlanItemsTable.topic }).from(contentPlanItemsTable);
+  const existing = await db.select({ topic: contentPlanItemsTable.topic }).from(contentPlanItemsTable)
+    .where(eq(contentPlanItemsTable.userId, userId));
   const existingTopics = existing.map((i) => i.topic);
 
   const [auditInsights, strategyProfile] = await Promise.all([
@@ -402,7 +412,7 @@ router.post("/content/script", async (req, res): Promise<void> => {
     return;
   }
 
-  const [settings] = await db.select().from(settingsTable).limit(1);
+  const [settings] = await db.select().from(settingsTable).where(eq(settingsTable.userId, req.session.user!.userId)).limit(1);
   const niche = settings?.niche ?? "marketing digital";
   const tone = settings?.tone ?? "casual";
   const language = settings?.language ?? "es";
@@ -424,6 +434,7 @@ router.post("/content/script", async (req, res): Promise<void> => {
 });
 
 router.get("/content/:id", async (req, res): Promise<void> => {
+  const userId = req.session.user!.userId;
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const idParsed = GetContentItemParams.safeParse({ id: Number(raw) });
   if (!idParsed.success) {
@@ -434,7 +445,7 @@ router.get("/content/:id", async (req, res): Promise<void> => {
   const [item] = await db
     .select()
     .from(contentPlanItemsTable)
-    .where(eq(contentPlanItemsTable.id, idParsed.data.id))
+    .where(and(eq(contentPlanItemsTable.id, idParsed.data.id), eq(contentPlanItemsTable.userId, userId)))
     .limit(1);
 
   if (!item) {
@@ -446,6 +457,7 @@ router.get("/content/:id", async (req, res): Promise<void> => {
 });
 
 router.patch("/content/:id", async (req, res): Promise<void> => {
+  const userId = req.session.user!.userId;
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const paramsParsed = UpdateContentItemParams.safeParse({ id: Number(raw) });
   if (!paramsParsed.success) {
@@ -474,14 +486,15 @@ router.patch("/content/:id", async (req, res): Promise<void> => {
 
   // If script was added, move to scripted status
   if (b.script && b.script.length > 10) {
-    const [existing] = await db.select().from(contentPlanItemsTable).where(eq(contentPlanItemsTable.id, paramsParsed.data.id)).limit(1);
+    const [existing] = await db.select().from(contentPlanItemsTable)
+      .where(and(eq(contentPlanItemsTable.id, paramsParsed.data.id), eq(contentPlanItemsTable.userId, userId))).limit(1);
     if (existing?.status === "draft") updates.status = "scripted";
   }
 
   const [updated] = await db
     .update(contentPlanItemsTable)
     .set(updates)
-    .where(eq(contentPlanItemsTable.id, paramsParsed.data.id))
+    .where(and(eq(contentPlanItemsTable.id, paramsParsed.data.id), eq(contentPlanItemsTable.userId, userId)))
     .returning();
 
   if (!updated) {
@@ -496,9 +509,10 @@ router.post("/content/:id/regenerate-caption", async (req, res): Promise<void> =
   const id = Number(req.params.id);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
 
+  const userId = req.session.user!.userId;
   const [[item], [settings], auditInsights] = await Promise.all([
-    db.select().from(contentPlanItemsTable).where(eq(contentPlanItemsTable.id, id)).limit(1),
-    db.select().from(settingsTable).limit(1),
+    db.select().from(contentPlanItemsTable).where(and(eq(contentPlanItemsTable.id, id), eq(contentPlanItemsTable.userId, userId))).limit(1),
+    db.select().from(settingsTable).where(eq(settingsTable.userId, userId)).limit(1),
     getLatestAuditCache().catch(() => null),
   ]);
   if (!item) { res.status(404).json({ error: "Not found" }); return; }
@@ -532,9 +546,10 @@ router.post("/content/:id/regenerate", async (req, res): Promise<void> => {
     return;
   }
 
+  const userId = req.session.user!.userId;
   const [[item], [settings], auditInsights] = await Promise.all([
-    db.select().from(contentPlanItemsTable).where(eq(contentPlanItemsTable.id, id)).limit(1),
-    db.select().from(settingsTable).limit(1),
+    db.select().from(contentPlanItemsTable).where(and(eq(contentPlanItemsTable.id, id), eq(contentPlanItemsTable.userId, userId))).limit(1),
+    db.select().from(settingsTable).where(eq(settingsTable.userId, userId)).limit(1),
     getLatestAuditCache().catch(() => null),
   ]);
   if (!item) { res.status(404).json({ error: "Not found" }); return; }
@@ -566,7 +581,7 @@ router.post("/content/:id/regenerate", async (req, res): Promise<void> => {
       status: "scripted",
       updatedAt: new Date(),
     })
-    .where(eq(contentPlanItemsTable.id, id))
+    .where(and(eq(contentPlanItemsTable.id, id), eq(contentPlanItemsTable.userId, userId)))
     .returning();
 
   if (!updated) { res.status(404).json({ error: "Not found" }); return; }
@@ -576,7 +591,8 @@ router.post("/content/:id/regenerate", async (req, res): Promise<void> => {
 
 // ── POST /content/plan/reschedule-overdue — move past-dated drafts to future slots ──
 
-router.post("/content/plan/reschedule-overdue", async (_req, res): Promise<void> => {
+router.post("/content/plan/reschedule-overdue", async (req, res): Promise<void> => {
+  const userId = req.session.user!.userId;
   try {
     const now = new Date();
 
@@ -586,6 +602,7 @@ router.post("/content/plan/reschedule-overdue", async (_req, res): Promise<void>
       .from(contentPlanItemsTable)
       .where(
         and(
+          eq(contentPlanItemsTable.userId, userId),
           inArray(contentPlanItemsTable.status, ["draft", "scripted"]),
           isNotNull(contentPlanItemsTable.scheduledAt),
           lt(contentPlanItemsTable.scheduledAt, now),
@@ -599,13 +616,14 @@ router.post("/content/plan/reschedule-overdue", async (_req, res): Promise<void>
     }
 
     // Load automation config to know posting days/times/timezone
-    const [automation] = await db.select().from(automationConfigTable).limit(1);
+    const [automation] = await db.select().from(automationConfigTable)
+      .where(eq(automationConfigTable.userId, userId)).limit(1);
 
     // Find the last FUTURE scheduled item to anchor new slots after it
     const futureScheduled = await db
       .select({ scheduledAt: contentPlanItemsTable.scheduledAt })
       .from(contentPlanItemsTable)
-      .where(and(isNotNull(contentPlanItemsTable.scheduledAt), gte(contentPlanItemsTable.scheduledAt, now)));
+      .where(and(eq(contentPlanItemsTable.userId, userId), isNotNull(contentPlanItemsTable.scheduledAt), gte(contentPlanItemsTable.scheduledAt, now)));
 
     const occupiedDates = futureScheduled.map((r) => r.scheduledAt!).filter(Boolean);
     const lastScheduled = occupiedDates.length > 0
@@ -642,7 +660,7 @@ router.post("/content/plan/reschedule-overdue", async (_req, res): Promise<void>
       await db
         .update(contentPlanItemsTable)
         .set({ scheduledAt: newSlots[i], updatedAt: now })
-        .where(eq(contentPlanItemsTable.id, overdueItems[i].id));
+        .where(and(eq(contentPlanItemsTable.id, overdueItems[i].id), eq(contentPlanItemsTable.userId, userId)));
     }
 
     res.json({ rescheduled: overdueItems.length });
@@ -653,7 +671,8 @@ router.post("/content/plan/reschedule-overdue", async (_req, res): Promise<void>
 
 // ── POST /content/plan/reanalyze — re-score all draft items against strategy ──
 
-router.post("/content/plan/reanalyze", async (_req, res): Promise<void> => {
+router.post("/content/plan/reanalyze", async (req, res): Promise<void> => {
+  const userId = req.session.user!.userId;
   try {
     const strategyProfile = await getStrategyProfile();
     if (!strategyProfile?.content_strategy) {
@@ -665,7 +684,7 @@ router.post("/content/plan/reanalyze", async (_req, res): Promise<void> => {
     const drafts = await db
       .select({ id: contentPlanItemsTable.id, topic: contentPlanItemsTable.topic })
       .from(contentPlanItemsTable)
-      .where(eq(contentPlanItemsTable.status, "draft"));
+      .where(and(eq(contentPlanItemsTable.status, "draft"), eq(contentPlanItemsTable.userId, userId)));
 
     if (drafts.length === 0) {
       res.json({ updated: 0 });
@@ -692,7 +711,7 @@ router.post("/content/plan/reanalyze", async (_req, res): Promise<void> => {
           audiencePain:           score.audience_pain,
           shareReason:            score.share_reason,
         })
-        .where(eq(contentPlanItemsTable.id, score.id));
+        .where(and(eq(contentPlanItemsTable.id, score.id), eq(contentPlanItemsTable.userId, userId)));
     }
 
     res.json({ updated: scores.length });
@@ -703,6 +722,7 @@ router.post("/content/plan/reanalyze", async (_req, res): Promise<void> => {
 });
 
 router.delete("/content/:id", async (req, res): Promise<void> => {
+  const userId = req.session.user!.userId;
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const paramsParsed = DeleteContentItemParams.safeParse({ id: Number(raw) });
   if (!paramsParsed.success) {
@@ -714,13 +734,14 @@ router.delete("/content/:id", async (req, res): Promise<void> => {
   const [item] = await db
     .select({ videoId: contentPlanItemsTable.videoId })
     .from(contentPlanItemsTable)
-    .where(eq(contentPlanItemsTable.id, paramsParsed.data.id))
+    .where(and(eq(contentPlanItemsTable.id, paramsParsed.data.id), eq(contentPlanItemsTable.userId, userId)))
     .limit(1);
 
-  await db.delete(contentPlanItemsTable).where(eq(contentPlanItemsTable.id, paramsParsed.data.id));
+  await db.delete(contentPlanItemsTable)
+    .where(and(eq(contentPlanItemsTable.id, paramsParsed.data.id), eq(contentPlanItemsTable.userId, userId)));
 
   if (item?.videoId) {
-    await db.delete(videosTable).where(eq(videosTable.id, item.videoId));
+    await db.delete(videosTable).where(and(eq(videosTable.id, item.videoId), eq(videosTable.userId, userId)));
   }
 
   res.json(DeleteContentItemResponse.parse({ success: true, message: "Deleted" }));

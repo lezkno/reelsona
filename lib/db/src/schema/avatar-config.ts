@@ -1,9 +1,11 @@
-import { pgTable, serial, text, timestamp, json } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, timestamp, json } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
+import { users } from "./users";
 
 export const avatarConfigTable = pgTable("avatar_config", {
   id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
   selectedAvatarIds: text("selected_avatar_ids").array().notNull().default([]),
   preferredVoiceId: text("preferred_voice_id"),
   /** Per-avatar voice overrides: avatarId → voiceId. Missing key = use HeyGen's own default voice. */

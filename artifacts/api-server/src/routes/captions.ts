@@ -79,10 +79,12 @@ router.get("/captions/presets", (_req, res): void => {
   res.json(GetCaptionPresetsResponse.parse(presets));
 });
 
-router.get("/captions/config", async (_req, res): Promise<void> => {
-  let [config] = await db.select().from(captionConfigTable).limit(1);
+router.get("/captions/config", async (req, res): Promise<void> => {
+  const userId = req.session.user!.userId;
+  let [config] = await db.select().from(captionConfigTable)
+    .where(eq(captionConfigTable.userId, userId)).limit(1);
   if (!config) {
-    [config] = await db.insert(captionConfigTable).values({}).returning();
+    [config] = await db.insert(captionConfigTable).values({ userId }).returning();
   }
   res.json(GetCaptionConfigResponse.parse(mapConfig(config)));
 });
@@ -126,7 +128,9 @@ router.put("/captions/config", async (req, res): Promise<void> => {
   if (d.last_used_preset_id        !== undefined) updates.lastUsedPresetId        = d.last_used_preset_id ?? null;
   if (d.preset_usage_count         !== undefined) updates.presetUsageCount        = d.preset_usage_count;
 
-  const [existing] = await db.select().from(captionConfigTable).limit(1);
+  const userId = req.session.user!.userId;
+  const [existing] = await db.select().from(captionConfigTable)
+    .where(eq(captionConfigTable.userId, userId)).limit(1);
   let config;
   if (existing) {
     [config] = await db
@@ -135,7 +139,7 @@ router.put("/captions/config", async (req, res): Promise<void> => {
       .where(eq(captionConfigTable.id, existing.id))
       .returning();
   } else {
-    [config] = await db.insert(captionConfigTable).values(updates).returning();
+    [config] = await db.insert(captionConfigTable).values({ ...updates, userId }).returning();
   }
 
   res.json(UpdateCaptionConfigResponse.parse(mapConfig(config)));

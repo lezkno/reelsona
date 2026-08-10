@@ -78,17 +78,20 @@ router.post("/instagram/callback", async (req, res): Promise<void> => {
     return;
   }
 
-  // Upsert account
+  const userId = req.session.user!.userId;
+
+  // Upsert account — one Instagram account per app user
   const existing = await db
     .select()
     .from(instagramAccountsTable)
-    .where(eq(instagramAccountsTable.igUserId, accountInfo.id))
+    .where(eq(instagramAccountsTable.userId, userId))
     .limit(1);
 
   if (existing.length > 0) {
     await db
       .update(instagramAccountsTable)
       .set({
+        igUserId: accountInfo.id,
         username: accountInfo.username,
         name: accountInfo.name ?? null,
         profilePictureUrl: accountInfo.profile_picture_url ?? null,
@@ -97,9 +100,10 @@ router.post("/instagram/callback", async (req, res): Promise<void> => {
         accessToken,
         updatedAt: new Date(),
       })
-      .where(eq(instagramAccountsTable.igUserId, accountInfo.id));
+      .where(eq(instagramAccountsTable.userId, userId));
   } else {
     await db.insert(instagramAccountsTable).values({
+      userId,
       igUserId: accountInfo.id,
       username: accountInfo.username,
       name: accountInfo.name ?? null,
@@ -113,7 +117,7 @@ router.post("/instagram/callback", async (req, res): Promise<void> => {
   const [account] = await db
     .select()
     .from(instagramAccountsTable)
-    .where(eq(instagramAccountsTable.igUserId, accountInfo.id))
+    .where(eq(instagramAccountsTable.userId, userId))
     .limit(1);
 
   res.json(
@@ -130,7 +134,8 @@ router.post("/instagram/callback", async (req, res): Promise<void> => {
 });
 
 router.get("/instagram/account", async (req, res): Promise<void> => {
-  const [account] = await db.select().from(instagramAccountsTable).limit(1);
+  const [account] = await db.select().from(instagramAccountsTable)
+    .where(eq(instagramAccountsTable.userId, req.session.user!.userId)).limit(1);
   if (!account) {
     res.json(GetInstagramAccountResponse.parse({ connected: false }));
     return;
@@ -152,20 +157,23 @@ router.get("/instagram/account", async (req, res): Promise<void> => {
 });
 
 router.delete("/instagram/disconnect", async (req, res): Promise<void> => {
-  await db.delete(instagramAccountsTable);
+  await db.delete(instagramAccountsTable).where(eq(instagramAccountsTable.userId, req.session.user!.userId));
   res.json(DisconnectInstagramResponse.parse({ success: true, message: "Disconnected" }));
 });
 
 router.get("/instagram/audit", async (req, res): Promise<void> => {
-  const [account] = await db.select().from(instagramAccountsTable).limit(1);
+  const [account] = await db.select().from(instagramAccountsTable)
+    .where(eq(instagramAccountsTable.userId, req.session.user!.userId)).limit(1);
   if (!account) {
     res.status(400).json({ error: "No Instagram account connected" });
     return;
   }
 
+  const { settingsTable: stbl } = await import("@workspace/db");
   const [settingsRow] = await db
     .select()
-    .from((await import("@workspace/db")).settingsTable)
+    .from(stbl)
+    .where(eq(stbl.userId, req.session.user!.userId))
     .limit(1);
 
   const media = await getMediaList(account.accessToken, account.igUserId, 20);
@@ -245,7 +253,8 @@ router.get("/instagram/audit", async (req, res): Promise<void> => {
 });
 
 router.get("/instagram/posts", async (req, res): Promise<void> => {
-  const [account] = await db.select().from(instagramAccountsTable).limit(1);
+  const [account] = await db.select().from(instagramAccountsTable)
+    .where(eq(instagramAccountsTable.userId, req.session.user!.userId)).limit(1);
   if (!account) {
     res.json([]);
     return;

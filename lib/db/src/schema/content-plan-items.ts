@@ -1,9 +1,11 @@
 import { pgTable, serial, text, integer, timestamp, real, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
+import { users } from "./users";
 
 export const contentPlanItemsTable = pgTable("content_plan_items", {
   id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
   topic: text("topic").notNull(),
   hook: text("hook"),
   script: text("script"),

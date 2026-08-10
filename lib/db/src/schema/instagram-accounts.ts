@@ -1,9 +1,11 @@
 import { pgTable, serial, text, integer, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
+import { users } from "./users";
 
 export const instagramAccountsTable = pgTable("instagram_accounts", {
   id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
   igUserId: text("ig_user_id").notNull().unique(),
   username: text("username").notNull(),
   name: text("name"),

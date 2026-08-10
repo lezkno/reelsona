@@ -1,9 +1,11 @@
 import { pgTable, serial, text, integer, timestamp, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
+import { users } from "./users";
 
 export const videosTable = pgTable("videos", {
   id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
   contentPlanId: integer("content_plan_id"),
   heygenVideoId: text("heygen_video_id"),
   topic: text("topic"),

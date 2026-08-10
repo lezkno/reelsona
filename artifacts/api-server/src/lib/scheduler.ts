@@ -46,6 +46,7 @@ const PROACTIVE_PREP_HORIZON_HOURS = 3;
  * Returns the number of draft items created (0 when all slots are occupied).
  */
 async function fillEmptyScheduledSlots(
+  userId: number,
   automation: typeof automationConfigTable.$inferSelect,
   settings: typeof settingsTable.$inferSelect
 ): Promise<number> {
@@ -58,7 +59,7 @@ async function fillEmptyScheduledSlots(
   const futureScheduled = await db
     .select({ scheduledAt: contentPlanItemsTable.scheduledAt })
     .from(contentPlanItemsTable)
-    .where(and(isNotNull(contentPlanItemsTable.scheduledAt), gte(contentPlanItemsTable.scheduledAt, now)));
+    .where(and(eq(contentPlanItemsTable.userId, userId), isNotNull(contentPlanItemsTable.scheduledAt), gte(contentPlanItemsTable.scheduledAt, now)));
 
   const occupied = futureScheduled.map((r) => r.scheduledAt!).filter(Boolean);
   const occupiedKeys = new Set(occupied.map((d) => Math.floor(d.getTime() / 60000)));
@@ -88,6 +89,7 @@ async function fillEmptyScheduledSlots(
   const recentRows = await db
     .select({ topic: contentPlanItemsTable.topic })
     .from(contentPlanItemsTable)
+    .where(eq(contentPlanItemsTable.userId, userId))
     .limit(20);
   const existingTopics = recentRows.map((r) => r.topic).filter(Boolean);
 
@@ -114,6 +116,7 @@ async function fillEmptyScheduledSlots(
   if (rawTopics.length === 0) return 0;
 
   const toInsert = emptySlots.slice(0, rawTopics.length).map((slot, i) => ({
+    userId,
     topic:        rawTopics[i].topic,
     scheduledAt:  slot,
     status:       "draft" as const,
@@ -161,8 +164,10 @@ const activePublishes = new Set<number>();
  * 2. HeyGen's own default voice for this avatar's group (getAvatarDefaultVoiceId)
  * 3. null — caller must handle missing voice explicitly; no auto-pick
  */
-export async function resolveVoiceId(avatarId: string | null, apiKey?: string): Promise<string | null> {
-  const [avatarCfg] = await db.select().from(avatarConfigTable).limit(1);
+export async function resolveVoiceId(avatarId: string | null, apiKey?: string, userId?: number): Promise<string | null> {
+  const [avatarCfg] = userId
+    ? await db.select().from(avatarConfigTable).where(eq(avatarConfigTable.userId, userId)).limit(1)
+    : await db.select().from(avatarConfigTable).limit(1);
 
   // 1. Check per-avatar override first
   if (avatarId) {
@@ -254,46 +259,49 @@ export function pickNextAvatar(
   return pool[Math.floor(Math.random() * pool.length)];
 }
 
-export async function runAutomationCycle(targetItemId?: number): Promise<{
+export async function runAutomationCycle(userId: number, targetItemId?: number): Promise<{
   success: boolean;
   message: string;
   contentItemId?: number;
   videoId?: number;
 }> {
-  logger.info({ targetItemId }, "Starting automation cycle");
+  logger.info({ userId, targetItemId }, "Starting automation cycle");
 
-  // Load automation config (a manual "create now" run ignores the enabled flag)
-  const [automation] = await db.select().from(automationConfigTable).limit(1);
+  // Load automation config scoped to this user
+  const [automation] = await db.select().from(automationConfigTable)
+    .where(eq(automationConfigTable.userId, userId)).limit(1);
   if (!automation) {
-    logger.warn("Automation cycle aborted: automation_config row missing");
+    logger.warn({ userId }, "Automation cycle aborted: automation_config row missing");
     return { success: false, message: "Automation not configured" };
   }
   if (!automation.enabled && targetItemId === undefined) {
-    logger.warn("Automation cycle aborted: automation is disabled");
+    logger.warn({ userId }, "Automation cycle aborted: automation is disabled");
     return { success: false, message: "Automation disabled" };
   }
 
-  // Load settings (scoped to automation owner if possible, else first available)
-  const [settings] = await db.select().from(settingsTable).limit(1);
+  // Load settings scoped to this user
+  const [settings] = await db.select().from(settingsTable)
+    .where(eq(settingsTable.userId, userId)).limit(1);
   if (!settings?.niche) {
     logger.warn(
-      { hasSettingsRow: !!settings },
-      "Automation cycle aborted: niche not configured in settings — go to Settings and fill in your niche"
+      { userId, hasSettingsRow: !!settings },
+      "Automation cycle aborted: niche not configured in settings"
     );
     return { success: false, message: "Niche not configured" };
   }
   const heygenApiKey = settings.heygenApiKey ?? undefined;
 
-  // Load avatar config
-  const [avatarCfg] = await db.select().from(avatarConfigTable).limit(1);
+  // Load avatar config scoped to this user
+  const [avatarCfg] = await db.select().from(avatarConfigTable)
+    .where(eq(avatarConfigTable.userId, userId)).limit(1);
   if (!avatarCfg?.selectedAvatarIds?.length) {
-    logger.warn("Automation cycle aborted: no avatars configured — go to Avatar Config and select at least one");
+    logger.warn({ userId }, "Automation cycle aborted: no avatars configured");
     return { success: false, message: "No avatars configured" };
   }
 
-  // Load IG account — only required when auto-publish is on.
-  // Script and video generation should work even without an IG account connected.
-  const [igAccount] = await db.select().from(instagramAccountsTable).limit(1);
+  // Load IG account scoped to this user
+  const [igAccount] = await db.select().from(instagramAccountsTable)
+    .where(eq(instagramAccountsTable.userId, userId)).limit(1);
   if (!igAccount && automation.autoPublish && targetItemId === undefined) {
     logger.warn("Automation cycle aborted: auto-publish is on but no Instagram account is connected");
     return { success: false, message: "Instagram account not connected" };
@@ -305,7 +313,7 @@ export async function runAutomationCycle(targetItemId?: number): Promise<{
   // to click "Generar Ideas" manually.
   if (targetItemId === undefined) {
     try {
-      const filled = await fillEmptyScheduledSlots(automation, settings);
+      const filled = await fillEmptyScheduledSlots(userId, automation, settings);
       if (filled > 0) {
         logger.info({ filled }, "[AutoFill] Slot fill complete — new drafts added to pipeline");
       }
@@ -331,8 +339,9 @@ export async function runAutomationCycle(targetItemId?: number): Promise<{
     .from(contentPlanItemsTable)
     .where(
       targetItemId !== undefined
-        ? and(eq(contentPlanItemsTable.id, targetItemId), eq(contentPlanItemsTable.status, "scripted"))
+        ? and(eq(contentPlanItemsTable.id, targetItemId), eq(contentPlanItemsTable.status, "scripted"), eq(contentPlanItemsTable.userId, userId))
         : and(
+            eq(contentPlanItemsTable.userId, userId),
             eq(contentPlanItemsTable.status, "scripted"),
             lte(contentPlanItemsTable.scheduledAt, prepHorizon),
             gte(contentPlanItemsTable.scheduledAt, todayStart),
@@ -351,8 +360,9 @@ export async function runAutomationCycle(targetItemId?: number): Promise<{
       .from(contentPlanItemsTable)
       .where(
         targetItemId !== undefined
-          ? and(eq(contentPlanItemsTable.id, targetItemId), eq(contentPlanItemsTable.status, "draft"))
+          ? and(eq(contentPlanItemsTable.id, targetItemId), eq(contentPlanItemsTable.status, "draft"), eq(contentPlanItemsTable.userId, userId))
           : and(
+              eq(contentPlanItemsTable.userId, userId),
               eq(contentPlanItemsTable.status, "draft"),
               lte(contentPlanItemsTable.scheduledAt, prepHorizon),
               gte(contentPlanItemsTable.scheduledAt, todayStart),
@@ -505,6 +515,7 @@ export async function runAutomationCycle(targetItemId?: number): Promise<{
   const [videoRow] = await db
     .insert(videosTable)
     .values({
+      userId,
       contentPlanId: contentItem.id,
       topic: contentItem.topic,
       avatarId: contentItem.avatarId,
@@ -1288,9 +1299,7 @@ export function startScheduler(): void {
   });
 
   // Every 5 minutes: process any content item whose scheduled time has arrived.
-  // The content plan items are the single source of truth for when to publish
-  // (they were assigned slots from the configured days/times when generated,
-  // and the user can reschedule them freely).
+  // Runs a separate automation cycle for each user that has automation enabled.
   cron.schedule("*/5 * * * *", async () => {
     if (cycleRunning) {
       logger.warn("Skipping automation tick: previous cycle still running");
@@ -1298,34 +1307,43 @@ export function startScheduler(): void {
     }
     cycleRunning = true;
     try {
-      const [automation] = await db.select().from(automationConfigTable).limit(1);
-      if (!automation?.enabled) return;
-
       const now = new Date();
-      const dueItems = await db
-        .select({ id: contentPlanItemsTable.id })
-        .from(contentPlanItemsTable)
-        .where(
-          and(
-            inArray(contentPlanItemsTable.status, ["draft", "scripted"]),
-            lte(contentPlanItemsTable.scheduledAt, now)
+
+      // Find all users with automation enabled
+      const enabledConfigs = await db
+        .select({ id: automationConfigTable.id, userId: automationConfigTable.userId })
+        .from(automationConfigTable)
+        .where(eq(automationConfigTable.enabled, true));
+
+      if (enabledConfigs.length === 0) return;
+
+      for (const config of enabledConfigs) {
+        const dueItems = await db
+          .select({ id: contentPlanItemsTable.id })
+          .from(contentPlanItemsTable)
+          .where(
+            and(
+              eq(contentPlanItemsTable.userId, config.userId),
+              inArray(contentPlanItemsTable.status, ["draft", "scripted"]),
+              lte(contentPlanItemsTable.scheduledAt, now)
+            )
           )
-        )
-        .limit(1);
+          .limit(1);
 
-      if (dueItems.length === 0) return;
+        if (dueItems.length === 0) continue;
 
-      logger.info({ itemId: dueItems[0].id }, "Scheduled automation cycle triggered");
-      const result = await runAutomationCycle();
+        logger.info({ userId: config.userId, itemId: dueItems[0].id }, "Scheduled automation cycle triggered");
+        const result = await runAutomationCycle(config.userId);
 
-      await db
-        .update(automationConfigTable)
-        .set({
-          lastRunAt: now,
-          lastRunStatus: result.success ? "success" : `failed: ${result.message}`,
-          updatedAt: now,
-        })
-        .where(eq(automationConfigTable.id, automation.id));
+        await db
+          .update(automationConfigTable)
+          .set({
+            lastRunAt: now,
+            lastRunStatus: result.success ? "success" : `failed: ${result.message}`,
+            updatedAt: now,
+          })
+          .where(eq(automationConfigTable.id, config.id));
+      }
     } catch (err) {
       logger.error({ err }, "Error in scheduled automation cycle");
     } finally {

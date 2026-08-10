@@ -1,9 +1,11 @@
 import { pgTable, serial, text, integer, boolean, real, timestamp, json } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
+import { users } from "./users";
 
 export const captionConfigTable = pgTable("caption_config", {
   id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
   presetId: text("preset_id").notNull().default("viral"),
   position: text("position").notNull().default("bottom"), // top | center | bottom
   wordsPerLine: integer("words_per_line").notNull().default(3),

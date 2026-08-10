@@ -80,13 +80,16 @@ router.get("/strategy/profile", async (_req, res): Promise<void> => {
 
 // ── POST /strategy/account — run IG audit and save account_data ───────────────
 
-router.post("/strategy/account", async (_req, res): Promise<void> => {
-  const [account] = await db.select().from(instagramAccountsTable).limit(1);
+router.post("/strategy/account", async (req, res): Promise<void> => {
+  const userId = req.session.user!.userId;
+  const [account] = await db.select().from(instagramAccountsTable)
+    .where(eq(instagramAccountsTable.userId, userId)).limit(1);
   if (!account) {
     res.status(400).json({ error: "No Instagram account connected" });
     return;
   }
-  const [settingsRow] = await db.select().from(settingsTable).limit(1);
+  const [settingsRow] = await db.select().from(settingsTable)
+    .where(eq(settingsTable.userId, userId)).limit(1);
 
   try {
     const media = await getMediaList(account.accessToken, account.igUserId, 20);
@@ -174,8 +177,9 @@ router.get("/strategy/radar/status", (_req, res) => {
 
 // ── GET /strategy/radar/suggestions ──────────────────────────────────────────
 
-router.get("/strategy/radar/suggestions", async (_req, res): Promise<void> => {
-  const [settingsRow] = await db.select().from(settingsTable).limit(1);
+router.get("/strategy/radar/suggestions", async (req, res): Promise<void> => {
+  const [settingsRow] = await db.select().from(settingsTable)
+    .where(eq(settingsTable.userId, req.session.user!.userId)).limit(1);
   if (!settingsRow?.niche) {
     res.json({ suggestions: [] });
     return;
@@ -387,13 +391,14 @@ router.delete("/strategy/radar/:id", async (req, res): Promise<void> => {
 
 // ── POST /strategy/market — synthesize MarketInsights ────────────────────────
 
-router.post("/strategy/market", async (_req, res): Promise<void> => {
+router.post("/strategy/market", async (req, res): Promise<void> => {
   const profile = await getStrategyProfile();
   if (!profile?.account_data) {
     res.status(400).json({ error: "Run the Account audit first (step 1)" });
     return;
   }
-  const [settingsRow] = await db.select().from(settingsTable).limit(1);
+  const [settingsRow] = await db.select().from(settingsTable)
+    .where(eq(settingsTable.userId, req.session.user!.userId)).limit(1);
   const radarAccounts = await db
     .select()
     .from(nicheRadarAccountsTable)
@@ -430,7 +435,7 @@ router.post("/strategy/market", async (_req, res): Promise<void> => {
 
 // ── POST /strategy/strategy — generate ContentStrategy ───────────────────────
 
-router.post("/strategy/strategy", async (_req, res): Promise<void> => {
+router.post("/strategy/strategy", async (req, res): Promise<void> => {
   const profile = await getStrategyProfile();
   if (!profile?.account_data) {
     res.status(400).json({ error: "Run the Account audit first (step 1)" });
@@ -440,7 +445,8 @@ router.post("/strategy/strategy", async (_req, res): Promise<void> => {
     res.status(400).json({ error: "Run the Market study first (step 3)" });
     return;
   }
-  const [settingsRow] = await db.select().from(settingsTable).limit(1);
+  const [settingsRow] = await db.select().from(settingsTable)
+    .where(eq(settingsTable.userId, req.session.user!.userId)).limit(1);
   const radarAccounts = await db
     .select()
     .from(nicheRadarAccountsTable)

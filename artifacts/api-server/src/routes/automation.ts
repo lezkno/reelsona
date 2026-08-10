@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { automationConfigTable, videosTable, instagramAccountsTable, settingsTable } from "@workspace/db";
-import { eq, or } from "drizzle-orm";
+import { and, eq, or } from "drizzle-orm";
 import {
   GetAutomationResponse,
   UpdateAutomationBody,
@@ -29,15 +29,18 @@ function mapConfig(c: typeof automationConfigTable.$inferSelect, processingLocke
   };
 }
 
-/** Returns true if any video is currently being processed (HeyGen rendering or caption render). */
-async function isProcessingLocked(): Promise<boolean> {
+/** Returns true if any of this user's videos is currently being processed (HeyGen rendering or caption render). */
+async function isProcessingLocked(userId: number): Promise<boolean> {
   const processing = await db
     .select({ id: videosTable.id })
     .from(videosTable)
     .where(
-      or(
-        eq(videosTable.status, "processing"),
-        eq(videosTable.captionStatus as any, "processing")
+      and(
+        eq(videosTable.userId, userId),
+        or(
+          eq(videosTable.status, "processing"),
+          eq(videosTable.captionStatus as any, "processing")
+        )
       )
     )
     .limit(1);
@@ -45,11 +48,13 @@ async function isProcessingLocked(): Promise<boolean> {
 }
 
 router.get("/automation", async (req, res): Promise<void> => {
-  let [config] = await db.select().from(automationConfigTable).limit(1);
+  const userId = req.session.user!.userId;
+  let [config] = await db.select().from(automationConfigTable)
+    .where(eq(automationConfigTable.userId, userId)).limit(1);
   if (!config) {
-    [config] = await db.insert(automationConfigTable).values({}).returning();
+    [config] = await db.insert(automationConfigTable).values({ userId }).returning();
   }
-  const locked = await isProcessingLocked();
+  const locked = await isProcessingLocked(userId);
   res.json(GetAutomationResponse.parse(mapConfig(config, locked)));
 });
 
@@ -59,9 +64,10 @@ router.put("/automation", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
+  const userId = req.session.user!.userId;
 
   // Block config changes while a video is being processed
-  if (await isProcessingLocked()) {
+  if (await isProcessingLocked(userId)) {
     res.status(409).json({
       error: "No se pueden cambiar las configuraciones mientras hay un video procesándose.",
       processing_locked: true,
@@ -69,7 +75,8 @@ router.put("/automation", async (req, res): Promise<void> => {
     return;
   }
 
-  const [existing] = await db.select().from(automationConfigTable).limit(1);
+  const [existing] = await db.select().from(automationConfigTable)
+    .where(eq(automationConfigTable.userId, userId)).limit(1);
   const updates: Partial<typeof automationConfigTable.$inferInsert> = { updatedAt: new Date() };
   const d = parsed.data;
   if (d.enabled !== undefined) updates.enabled = d.enabled;
@@ -85,7 +92,7 @@ router.put("/automation", async (req, res): Promise<void> => {
   if (existing) {
     [config] = await db.update(automationConfigTable).set(updates).where(eq(automationConfigTable.id, existing.id)).returning();
   } else {
-    [config] = await db.insert(automationConfigTable).values(updates).returning();
+    [config] = await db.insert(automationConfigTable).values({ ...updates, userId }).returning();
   }
 
   res.json(UpdateAutomationResponse.parse(mapConfig(config, false)));
@@ -197,8 +204,10 @@ function detectNicheSlots(niche: string): { slots: TimeSlot[]; matched: string |
 }
 
 router.get("/automation/recommended-times", async (req, res): Promise<void> => {
-  const [settings] = await db.select().from(settingsTable).limit(1)
-  const [igAccount] = await db.select().from(instagramAccountsTable).limit(1)
+  const userId = req.session.user!.userId;
+  const [settings] = await db.select().from(settingsTable).where(eq(settingsTable.userId, userId)).limit(1)
+  const [igAccount] = await db.select().from(instagramAccountsTable)
+    .where(eq(instagramAccountsTable.userId, userId)).limit(1)
 
   const niche = settings?.niche ?? ""
   const { slots, matched } = detectNicheSlots(niche)
@@ -214,7 +223,8 @@ router.get("/automation/recommended-times", async (req, res): Promise<void> => {
 
 router.post("/automation/trigger", async (req, res): Promise<void> => {
   req.log.info("Manual automation trigger requested");
-  const result = await runAutomationCycle();
+  const userId = req.session.user!.userId;
+  const result = await runAutomationCycle(userId);
   res.status(202).json(
     TriggerAutomationResponse.parse({
       triggered: result.success,
