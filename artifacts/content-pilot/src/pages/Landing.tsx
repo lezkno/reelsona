@@ -86,6 +86,54 @@ const globalStyles = `
 
   @keyframes node-pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
   .node-pulse { animation: node-pulse 2s cubic-bezier(.4,0,.6,1) infinite; }
+
+  /* ── Responsive: before/after split ── */
+  .before-after-split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    border-radius: 28px;
+    overflow: hidden;
+    border: 1px solid #1c1c1c;
+  }
+
+  /* In-flow VS separator — hidden on desktop, shown between stacked panels on mobile */
+  .before-after-vs-inflow { display: none; }
+
+  @media (max-width: 767px) {
+    .before-after-split { grid-template-columns: 1fr; }
+    /* Absolute badge overlaps on mobile — hide it */
+    .before-after-vs-badge { display: none !important; }
+    /* In-flow VS appears between the two stacked panels */
+    .before-after-vs-inflow {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.85rem;
+      background: #0d0d0d;
+      border-top: 1px solid #1c1c1c;
+      border-bottom: 1px solid #1c1c1c;
+      font-family: var(--font-display,'Outfit',sans-serif);
+      font-weight: 900;
+      font-size: 0.72rem;
+      letter-spacing: 0.06em;
+      color: #444;
+    }
+    /* Remove right border from left panel when stacked (it becomes a spurious side border) */
+    .before-after-left { border-right: none !important; }
+  }
+
+  /* ── Responsive: product UI panel ── */
+  .product-ui-grid {
+    display: grid;
+    grid-template-columns: 1fr 2fr;
+    gap: 0;
+  }
+  .product-ui-sidebar { display: block; }
+
+  @media (max-width: 767px) {
+    .product-ui-grid { grid-template-columns: 1fr; }
+    .product-ui-sidebar { display: none; }
+  }
 `;
 
 // ─── Data ───────────────────────────────────────────────────────────────────
@@ -395,10 +443,10 @@ export default function Landing() {
 
           {/* Single container split by a VS divider */}
           <div className="reveal-up stagger-1" style={{ position: "relative" }}>
-            <div style={{ borderRadius: 28, overflow: "hidden", border: "1px solid #1c1c1c", display: "grid", gridTemplateColumns: "1fr 1fr" }}>
+            <div className="before-after-split">
 
               {/* ── LEFT: Caos ── */}
-              <div style={{ position: "relative", padding: "2.5rem", backgroundColor: "#0e0e0e", borderRight: "1px solid #1c1c1c", overflow: "hidden" }}>
+              <div className="before-after-left" style={{ position: "relative", padding: "2.5rem", backgroundColor: "#0e0e0e", borderRight: "1px solid #1c1c1c", overflow: "hidden" }}>
                 {/* noise texture overlay */}
                 <div style={{ position: "absolute", inset: 0, backgroundImage: "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E\")", opacity: 0.6, pointerEvents: "none" }} />
                 {/* red glow top-right */}
@@ -424,6 +472,9 @@ export default function Landing() {
                   </div>
                 </div>
               </div>
+
+              {/* In-flow VS separator — only visible on mobile when panels stack */}
+              <div className="before-after-vs-inflow">VS</div>
 
               {/* ── RIGHT: Sistema ── */}
               <div style={{ position: "relative", padding: "2.5rem", backgroundColor: "#0a0d14", overflow: "hidden" }}>
@@ -458,8 +509,8 @@ export default function Landing() {
               </div>
             </div>
 
-            {/* VS badge — centered between the two halves */}
-            <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 10, width: 44, height: 44, borderRadius: "9999px", backgroundColor: "#090909", border: "1px solid #2a2a2a", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--font-display,'Outfit',sans-serif)", fontWeight: 900, fontSize: "0.72rem", letterSpacing: "0.04em", color: "#444", boxShadow: "0 0 0 6px #0b0b0b" }}>
+            {/* VS badge — centered between the two halves (desktop only) */}
+            <div className="before-after-vs-badge" style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 10, width: 44, height: 44, borderRadius: "9999px", backgroundColor: "#090909", border: "1px solid #2a2a2a", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--font-display,'Outfit',sans-serif)", fontWeight: 900, fontSize: "0.72rem", letterSpacing: "0.04em", color: "#444", boxShadow: "0 0 0 6px #0b0b0b" }}>
               VS
             </div>
           </div>
@@ -499,9 +550,9 @@ export default function Landing() {
               </div>
 
               {/* Dashboard content */}
-              <div className="grid" style={{ gridTemplateColumns: "1fr 2fr", gap: 0 }}>
+              <div className="product-ui-grid">
                 {/* Left sidebar */}
-                <div style={{ borderRight: "1px solid rgba(255,255,255,0.05)", padding: "1.5rem" }}>
+                <div className="product-ui-sidebar" style={{ borderRight: "1px solid rgba(255,255,255,0.05)", padding: "1.5rem" }}>
                   <div className="flex items-center justify-between" style={{ marginBottom: "1.25rem" }}>
                     <span style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontWeight: 700, fontSize: "0.9rem", color: "#e0e0e0" }}>Próximos Reels</span>
                     <span style={{ backgroundColor: "rgba(79,110,247,0.18)", color: "#4F6EF7", fontSize: "0.6rem", fontWeight: 800, letterSpacing: "0.06em", padding: "0.2rem 0.5rem", borderRadius: 6 }}>AUTOPILOT ON</span>
