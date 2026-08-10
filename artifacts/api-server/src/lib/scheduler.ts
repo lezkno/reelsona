@@ -138,14 +138,20 @@ async function fillEmptyScheduledSlots(
 }
 
 /**
- * Resolve the HeyGen API key for background scheduler jobs.
- * Uses only the user-supplied key stored in the settings row.
+ * Resolve the HeyGen API key for a specific user's scheduler jobs.
+ * Always scoped to the given userId so that videos belonging to user A
+ * are never polled with user B's key.
  */
-async function resolveHeyGenApiKey(): Promise<string | undefined> {
+async function resolveHeyGenApiKey(userId: number): Promise<string | undefined> {
   const [row] = await db
     .select({ heygenApiKey: settingsTable.heygenApiKey })
     .from(settingsTable)
-    .where(isNotNull(settingsTable.heygenApiKey))
+    .where(
+      and(
+        eq(settingsTable.userId, userId),
+        isNotNull(settingsTable.heygenApiKey)
+      )
+    )
     .limit(1);
   return row?.heygenApiKey ?? undefined;
 }
@@ -983,7 +989,6 @@ export async function pollAndPublishVideos(): Promise<void> {
   }
 
   // ── Poll HeyGen for videos still generating ───────────────────────────────
-  const pollApiKey = await resolveHeyGenApiKey();
   const generatingVideos = await db
     .select()
     .from(videosTable)
@@ -1025,6 +1030,7 @@ export async function pollAndPublishVideos(): Promise<void> {
     }
 
     try {
+      const pollApiKey = await resolveHeyGenApiKey(video.userId);
       const status = await getVideoStatus(video.heygenVideoId, pollApiKey);
       if (status.status === "completed" && status.video_url) {
         await db
