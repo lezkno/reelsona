@@ -544,6 +544,7 @@ function HeyGenIntegrationCard() {
 function OpenAIIntegrationCard() {
   const { data: settings, isLoading } = useGetSettings()
   const updateSettings = useUpdateSettings()
+  const queryClient    = useQueryClient()
   const { toast } = useToast()
 
   const [apiKeyInput, setApiKeyInput] = useState("")
@@ -556,6 +557,7 @@ function OpenAIIntegrationCard() {
     if (!apiKeyInput.trim()) return
     updateSettings.mutate({ data: { openai_api_key: apiKeyInput.trim() } }, {
       onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: getGetSettingsQueryKey() })
         toast({ title: "API Key guardada", description: "Las generaciones de IA usarán tu clave personal de OpenAI." })
         setApiKeyInput("")
         setEditing(false)
@@ -566,8 +568,11 @@ function OpenAIIntegrationCard() {
 
   const handleRemove = () => {
     updateSettings.mutate({ data: { openai_api_key: null } }, {
-      onSuccess: () => toast({ title: "API Key eliminada", description: "Se usará la clave compartida del sistema." }),
-      onError:   () => toast({ title: "Error", variant: "destructive" }),
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: getGetSettingsQueryKey() })
+        toast({ title: "API Key eliminada" })
+      },
+      onError: () => toast({ title: "Error", variant: "destructive" }),
     })
     setEditing(false)
     setApiKeyInput("")
