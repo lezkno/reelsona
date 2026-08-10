@@ -924,7 +924,7 @@ export async function applyCaptions(
   options?: {
     subtitleUrl?: string | null;
     videoDurationSeconds?: number | null;
-    videoEffects?: { zoom?: boolean; ai_broll?: boolean } | null;
+    videoEffects?: { zoom?: boolean; ai_broll?: boolean; text_cards?: boolean } | null;
     /** AI-generated visual suggestions for this content item (from suggestedVisualSupport column) */
     visualSuggestions?: string | null;
   }
@@ -1079,6 +1079,24 @@ export async function applyCaptions(
         options?.visualSuggestions,
       );
       logger.info("[CaptionEngine] B-roll overlay done ✓");
+    }
+
+    // 4d. Optional text cards overlay (hook / stat / CTA).
+    // Runs AFTER B-roll and BEFORE caption burn so captions appear on top.
+    if (options?.videoEffects?.text_cards && script) {
+      const { applyTextCards } = await import("./text-cards-engine");
+      logger.info("[CaptionEngine] Applying text cards overlay...");
+      const cardsTmpDir = path.join(CAPTION_DIR, `textcards_${id}`);
+      await fs.mkdir(cardsTmpDir, { recursive: true });
+      captionInputPath = await applyTextCards(
+        captionInputPath,
+        script,
+        videoWidth,
+        videoHeight,
+        videoDuration,
+        cardsTmpDir,
+      );
+      logger.info("[CaptionEngine] Text cards overlay done ✓");
     }
 
     // 5. Burn with FFmpeg — pass fontsdir so libass finds our bundled fonts

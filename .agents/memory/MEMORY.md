@@ -16,3 +16,4 @@
 - [Multi-tenancy audit complete](multi-tenancy.md) — All 6 tables (caption_config, automation_config, avatar_config, instagram_accounts, content_plan_items, videos) have userId; every route and scheduler query is scoped; runAutomationCycle(userId, targetItemId?) signature; cron iterates all enabled automationConfigs by userId.
 - [B-Roll Engine](broll-engine.md) — AI B-roll pipeline (gpt-image-1 1024×1536, yuva420p overlay); runs after zoom, before captions; use router.use() not router.get("/*") for wildcard routes.
 - [Instagram Publish Pipeline](instagram-publish-pipeline.md) — /captioned-objects must be in captioned.ts (before requireAuth); publish must fire-and-forget to avoid 30s proxy timeout.
+- [Text Cards Engine](text-cards-engine.md) — hook/stat/CTA overlays via GPT-4o-mini + @napi-rs/canvas; use local Ctx interface not CanvasRenderingContext2D; pipeline: zoom→broll→cards→captions.

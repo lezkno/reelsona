@@ -595,8 +595,8 @@ export async function applyCaptionsBrowser(
     marginXPct?: number;
     /** Per-template style overrides from Caption Studio advanced settings. Applied on top of the base template. */
     templateOverrides?: Partial<CaptionTemplate>;
-    /** Video effects to apply before caption compositing (e.g. Ken Burns zoom, B-roll). */
-    videoEffects?: { zoom?: boolean; ai_broll?: boolean } | null;
+    /** Video effects to apply before caption compositing (e.g. Ken Burns zoom, B-roll, text cards). */
+    videoEffects?: { zoom?: boolean; ai_broll?: boolean; text_cards?: boolean } | null;
     /** AI-generated visual suggestions for this content item (from suggestedVisualSupport column). */
     visualSuggestions?: string | null;
   },
@@ -733,6 +733,24 @@ export async function applyCaptionsBrowser(
         opts.visualSuggestions,
       );
       logger.info("[BrowserEngine] B-roll overlay done ✓");
+    }
+
+    // ── 3e. Text cards overlay (hook / stat / CTA) ────────────────────────
+    // Runs AFTER B-roll and BEFORE caption compositing so captions sit on top.
+    if (opts?.videoEffects?.text_cards && script) {
+      logger.info("[BrowserEngine] Applying text cards overlay...");
+      const { applyTextCards } = await import("./text-cards-engine");
+      const cardsTmpDir = path.join(tmpDir, "textcards");
+      await (await import("fs/promises")).mkdir(cardsTmpDir, { recursive: true });
+      captionSourcePath = await applyTextCards(
+        captionSourcePath,
+        script,
+        videoInfo.width,
+        videoInfo.height,
+        videoInfo.duration,
+        cardsTmpDir,
+      );
+      logger.info("[BrowserEngine] Text cards overlay done ✓");
     }
 
     // ── 5. Build CaptionCues ──────────────────────────────────────────────

@@ -1440,10 +1440,10 @@ export default function CaptionStudio() {
       </Card>
 
       {/* ── Video Effects ─────────────────────────────────────────────────── */}
-      <Card className="border-2 border-border">
+      <Card className={`border-2 ${(videoEffects.zoom || videoEffects.ai_broll || videoEffects.text_cards) ? "border-primary/40 bg-primary/5" : "border-dashed"}`}>
         <CardContent className="p-5 space-y-4">
           <div className="flex items-start gap-3">
-            <div className="mt-0.5 w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-muted text-muted-foreground">
+            <div className={`mt-0.5 w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${(videoEffects.zoom || videoEffects.ai_broll || videoEffects.text_cards) ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
               <Zap className="w-5 h-5" />
             </div>
             <div>
