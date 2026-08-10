@@ -8,6 +8,7 @@ import {
 } from "@workspace/api-client-react"
 import { useUpload } from "@workspace/object-storage-web"
 import heygenLogoUrl from "@/assets/heygen-logo.png"
+import openaiLogoUrl from "@/assets/openai-logo.png"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -589,9 +590,7 @@ function OpenAIIntegrationCard() {
       <CardHeader className="pb-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-[#10a37f] flex items-center justify-center shrink-0">
-              <Sparkles className="w-5 h-5 text-white" />
-            </div>
+            <img src={openaiLogoUrl} alt="OpenAI" className="w-10 h-10 rounded-xl shrink-0 object-cover" />
             <div>
               <CardTitle className="text-base">ChatGPT / OpenAI</CardTitle>
               <CardDescription className="text-xs mt-0.5">Scripts, captions y análisis estratégico</CardDescription>
