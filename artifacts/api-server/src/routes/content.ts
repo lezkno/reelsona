@@ -542,7 +542,8 @@ router.post("/content/:id/regenerate-caption", async (req, res): Promise<void> =
     item.topic,
     item.script ?? item.hook ?? item.topic,
     niche, tone, language,
-    auditInsights?.topCaptions?.slice(0, 3)
+    auditInsights?.topCaptions?.slice(0, 3),
+    settings?.openaiApiKey,
   );
   res.json(result);
 });
