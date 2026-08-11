@@ -331,8 +331,80 @@ export async function getLookSupportedEngines(lookId: string, apiKey?: string): 
  *  \n         →  " "    (line-breaks create unintended pauses)
  *  multi-space → " "
  */
-export function normalizeScriptForTTS(script: string): string {
-  return script
+/**
+ * Expand written abbreviations that TTS voices read letter-by-letter,
+ * sounding unnatural. This is a deterministic safety net — the AI prompt
+ * already instructs the model to avoid them, but this catches any that slip.
+ */
+function expandAbbreviations(script: string, language?: string): string {
+  const lang = (language ?? "es").toLowerCase().trim();
+  const isEs = lang.startsWith("es") || lang === "español";
+  const isEn = lang.startsWith("en") || lang === "english" || lang === "inglés";
+
+  const replacements: [RegExp, string][] = isEs
+    ? [
+        // Tech / marketing — read as individual letters in Spanish TTS
+        [/\bIA\b/g,        "inteligencia artificial"],
+        [/\bAI\b/g,        "inteligencia artificial"],
+        [/\bROI\b/g,       "retorno de inversión"],
+        [/\bKPIs?\b/gi,    "indicadores clave"],
+        [/\bCEO\b/g,       "director ejecutivo"],
+        [/\bCMO\b/g,       "director de marketing"],
+        [/\bCFO\b/g,       "director financiero"],
+        [/\bCTO\b/g,       "director de tecnología"],
+        [/\bCRM\b/g,       "gestión de clientes"],
+        [/\bSaaS\b/gi,     "software como servicio"],
+        [/\bB2B\b/g,       "negocio a negocio"],
+        [/\bB2C\b/g,       "negocio a consumidor"],
+        [/\bCTR\b/g,       "tasa de clics"],
+        [/\bSEO\b/g,       "posicionamiento en buscadores"],
+        [/\bSEM\b/g,       "marketing en buscadores"],
+        [/\bCTA\b/g,       "llamada a la acción"],
+        [/\bROAS\b/g,      "retorno en publicidad"],
+        [/\bCPC\b/g,       "costo por clic"],
+        [/\bCPM\b/g,       "costo por mil impresiones"],
+        [/\bURLs?\b/g,     "enlaces"],
+        // Written-only abbreviations that break TTS flow
+        [/\betc\.\s*/g,    "etcétera "],
+        [/\bvs\.\s*/g,     "versus "],
+        [/\bp\.ej\.\s*/g,  "por ejemplo "],
+        [/\bej\.\s*/g,     "por ejemplo "],
+        [/\baprox\.\s*/g,  "aproximadamente "],
+        [/\bUSD\b/g,       "dólares"],
+        [/\bEUR\b/g,       "euros"],
+        // Titles
+        [/\bDr\.\s+/g,     "Doctor "],
+        [/\bDra\.\s+/g,    "Doctora "],
+        [/\bLic\.\s+/g,    "Licenciado "],
+        [/\bSr\.\s+/g,     "Señor "],
+        [/\bSra\.\s+/g,    "Señora "],
+      ]
+    : isEn
+    ? [
+        [/\bAI\b/g,        "artificial intelligence"],
+        [/\bROI\b/g,       "return on investment"],
+        [/\bKPIs?\b/gi,    "key performance indicators"],
+        [/\bCEO\b/g,       "chief executive officer"],
+        [/\bCMO\b/g,       "chief marketing officer"],
+        [/\bCTO\b/g,       "chief technology officer"],
+        [/\bCRM\b/g,       "customer relationship management"],
+        [/\bSaaS\b/gi,     "software as a service"],
+        [/\bB2B\b/g,       "business to business"],
+        [/\bB2C\b/g,       "business to consumer"],
+        [/\bCTR\b/g,       "click-through rate"],
+        [/\bSEO\b/g,       "search engine optimization"],
+        [/\bCTA\b/g,       "call to action"],
+        [/\betc\.\s*/g,    "etcetera "],
+        [/\bvs\.\s*/g,     "versus "],
+        [/\bURLs?\b/g,     "links"],
+      ]
+    : [];
+
+  return replacements.reduce((s, [pat, rep]) => s.replace(pat, rep), script);
+}
+
+export function normalizeScriptForTTS(script: string, language?: string): string {
+  return expandAbbreviations(script, language)
     .replace(/ — /g, ", ")
     .replace(/—/g, ", ")
     .replace(/\.\.\./g, ",")
@@ -362,6 +434,11 @@ export interface GenerateVideoParams {
    * Range 0.5–1.5. null/undefined → omit from payload (use HeyGen default).
    */
   voiceSpeed?: number | null;
+  /**
+   * BCP-47 language code or plain name ("es", "en", "español", etc.).
+   * Used by normalizeScriptForTTS to expand abbreviations correctly.
+   */
+  language?: string;
 }
 
 export interface VideoStatus {
@@ -417,9 +494,10 @@ export async function generateVideo(params: GenerateVideoParams, apiKey?: string
       : "[HeyGen v3] Avatar IV — engine: avatar_iv, expressiveness: high"
   );
 
-  // Normalize script punctuation before sending — removes em-dashes, ellipsis,
-  // and semicolons that cause unnatural pauses in cloned Spanish voices.
-  const normalizedScript = normalizeScriptForTTS(params.script);
+  // Normalize script before sending: expands abbreviations (IA→inteligencia
+  // artificial, ROI→retorno de inversión, etc.) and removes punctuation that
+  // causes unnatural pauses in cloned voices (em-dashes, ellipsis, semicolons).
+  const normalizedScript = normalizeScriptForTTS(params.script, params.language);
 
   // v3 flat payload
   const payload: Record<string, unknown> = {

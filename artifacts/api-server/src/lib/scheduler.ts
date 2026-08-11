@@ -619,6 +619,7 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
       title: contentItem.topic,
       captionsEnabled: automation.captionsEnabled ?? false,
       voiceSpeed: settings.heygenVoiceSpeed ?? undefined,
+      language: settings.language ?? "es",
     }, heygenApiKey);
 
     await db
