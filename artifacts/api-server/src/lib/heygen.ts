@@ -469,10 +469,12 @@ export async function generateVideo(params: GenerateVideoParams, apiKey?: string
       { heygenStatus, heygenBody, payload: { ...payload, script: `[${String(payload.script).length} chars]` } },
       "[HeyGen v3] POST /v3/videos failed"
     );
+    const body = heygenBody as Record<string, unknown> | null | undefined;
     const heygenMsg =
-      (heygenBody as { message?: string })?.message ??
-      (heygenBody as { error?: string })?.error ??
-      JSON.stringify(heygenBody);
+      typeof body?.message === "string" ? body.message :
+      typeof body?.error === "string"   ? body.error   :
+      body != null                      ? JSON.stringify(body) :
+      "unknown error";
     throw new Error(`HeyGen ${heygenStatus ?? "error"}: ${heygenMsg}`);
   });
 
