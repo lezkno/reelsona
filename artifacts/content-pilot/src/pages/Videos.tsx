@@ -538,7 +538,6 @@ export default function Videos() {
                     const active = [
                       fx.zoom       && "Zoom",
                       fx.ai_broll   && "B-roll",
-                      fx.text_cards && "Texto",
                     ].filter(Boolean) as string[]
                     if (active.length === 0) return null
                     return (
@@ -625,43 +624,22 @@ export default function Videos() {
                     </div>
                   )}
 
-                  {/* Re-apply button for already-published videos (lets users test new effects) */}
-                  {!selectMode && video.status === 'published' && video.video_url && (
+                  {/* Download button for published videos */}
+                  {!selectMode && video.status === 'published' && (video.captioned_video_url || video.video_url) && (
                     <div className="flex flex-col gap-1.5 mb-3">
                       <Button
-                        size="sm"
-                        variant="outline"
+                        size="sm" variant="outline"
                         className="w-full text-xs gap-1.5"
-                        disabled={reapplyCaptions.isPending}
+                        disabled={!!downloading[`video-${video.id}`]}
                         onClick={() => {
-                          reapplyCaptions.mutate({ id: video.id }, {
-                            onSuccess: () => {
-                              queryClient.invalidateQueries({ queryKey: getGetVideosQueryKey() })
-                              queryClient.invalidateQueries({ queryKey: getGetContentPlanQueryKey() })
-                              toast({ title: "Re-procesando efectos", description: "Los efectos se están aplicando. El video se actualizará automáticamente." })
-                            },
-                            onError: (err: any) => toast({ title: "Error", description: err?.message ?? "No se pudo re-aplicar los efectos", variant: "destructive" }),
-                          })
+                          const url = video.captioned_video_url ?? video.video_url ?? ""
+                          const name = (video.topic ?? `video-${video.id}`).replace(/[^\w\s-]/g, "").replace(/\s+/g, "_").slice(0, 60) + ".mp4"
+                          downloadFile(url, name, `video-${video.id}`)
                         }}
                       >
-                        {reapplyCaptions.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
-                        {reapplyCaptions.isPending ? "Aplicando…" : "Re-aplicar efectos"}
+                        {downloading[`video-${video.id}`] ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                        Descargar video
                       </Button>
-                      {(video.captioned_video_url || video.video_url) && (
-                        <Button
-                          size="sm" variant="outline"
-                          className="w-full text-xs gap-1.5"
-                          disabled={!!downloading[`video-${video.id}`]}
-                          onClick={() => {
-                            const url = video.captioned_video_url ?? video.video_url ?? ""
-                            const name = (video.topic ?? `video-${video.id}`).replace(/[^\w\s-]/g, "").replace(/\s+/g, "_").slice(0, 60) + ".mp4"
-                            downloadFile(url, name, `video-${video.id}`)
-                          }}
-                        >
-                          {downloading[`video-${video.id}`] ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-                          Descargar video
-                        </Button>
-                      )}
                     </div>
                   )}
 
