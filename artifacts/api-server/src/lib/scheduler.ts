@@ -282,7 +282,17 @@ async function pruneDeletedAvatars(
 
   let available: Set<string>;
   try {
-    available = await getAllAvailableAvatarIds(heygenApiKey);
+    const result = await getAllAvailableAvatarIds(heygenApiKey);
+    if (!result.complete) {
+      // At least one HeyGen call failed — the set may be missing IDs.
+      // Skip pruning entirely to avoid removing avatars that are still valid.
+      logger.warn(
+        { partialCount: result.ids.size },
+        "[AvatarSync] getAllAvailableAvatarIds returned incomplete result — skipping prune",
+      );
+      return avatarCfg;
+    }
+    available = result.ids;
   } catch {
     // If we can't reach HeyGen, don't prune — avoid false positives
     return avatarCfg;

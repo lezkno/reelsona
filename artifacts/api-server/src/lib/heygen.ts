@@ -241,14 +241,27 @@ const AVAILABLE_IDS_TTL = 5 * 60 * 1000;
  * Result is cached for 5 minutes per API key to avoid spamming HeyGen on every cycle.
  * Pass forceRefresh=true to bypass the cache (e.g. after a confirmed deletion).
  */
+export interface AvatarIdResult {
+  /** All avatar IDs collected from the HeyGen account. */
+  ids: Set<string>;
+  /**
+   * true  — every API call succeeded; the set is authoritative.
+   * false — at least one call failed; the set may be missing IDs.
+   *         Callers must NOT use this for destructive operations (e.g. pruning).
+   */
+  complete: boolean;
+}
+
 export async function getAllAvailableAvatarIds(
   apiKey?: string,
   forceRefresh = false,
-): Promise<Set<string>> {
+): Promise<AvatarIdResult> {
   const cacheKey = apiKey ?? AVATAR_IDS_SENTINEL;
   const cached = availableAvatarIdsCache.get(cacheKey);
   if (!forceRefresh && cached && Date.now() - cached.at < AVAILABLE_IDS_TTL) {
-    return cached.ids;
+    // Cached entries were only stored after a fully-successful fetch, so they
+    // are always authoritative.
+    return { ids: cached.ids, complete: true };
   }
 
   const ids = new Set<string>();
@@ -265,7 +278,7 @@ export async function getAllAvailableAvatarIds(
     const groupsRes = await client.get("/v2/avatar_group.list", { params: { include_public: false } });
     const groups: HeyGenAvatarGroup[] = groupsRes.data?.data?.avatar_group_list ?? [];
 
-    await Promise.allSettled(
+    const lookResults = await Promise.allSettled(
       groups.map(async (group) => {
         const looksRes = await client.get(`/v2/avatar_group/${group.id}/avatars`);
         const looks: Record<string, unknown>[] = looksRes.data?.data?.avatar_list ?? [];
@@ -283,13 +296,27 @@ export async function getAllAvailableAvatarIds(
       })
     );
 
+    const failedLooks = lookResults.filter((r) => r.status === "rejected");
+    if (failedLooks.length > 0) {
+      // One or more group-look fetches failed — the set is partial.
+      // Do NOT cache it (next cycle will retry) and signal incompleteness so
+      // callers skip any destructive operations.
+      logger.warn(
+        { failedGroups: failedLooks.length, totalGroups: groups.length, partialCount: ids.size },
+        "[HeyGen] getAllAvailableAvatarIds: partial result — skipping cache update",
+      );
+      return { ids, complete: false };
+    }
+
+    // All fetches succeeded — cache and report as authoritative.
     availableAvatarIdsCache.set(cacheKey, { ids, at: Date.now() });
     logger.info({ count: ids.size }, "[HeyGen] Available avatar IDs refreshed");
+    return { ids, complete: true };
   } catch (err) {
     logger.warn({ err }, "[HeyGen] getAllAvailableAvatarIds failed — keeping previous cache");
-    // Return whatever we collected so far (partial set preferred over nothing)
+    // Network / auth error before we could collect anything useful.
+    return { ids, complete: false };
   }
-  return ids;
 }
 
 /** Invalidate the available-avatar-IDs cache for a given API key (call after a confirmed deletion). */
