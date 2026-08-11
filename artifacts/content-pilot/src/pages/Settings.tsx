@@ -821,7 +821,7 @@ export default function Settings() {
             <Textarea
               value={formData.niche_description || ''}
               onChange={e => handleChange('niche_description', e.target.value)}
-              placeholder="Describe a quién le hablas, qué problemas resuelves y tu propuesta de valor única..."
+              placeholder="Describe tu nicho en detalle: a quién le hablas, qué problema resuelve tu contenido y cuál es tu propuesta de valor única."
               className="min-h-[120px]"
             />
           </div>
@@ -862,7 +862,7 @@ export default function Settings() {
                 onValueChange={(v) => handleChange('language', v)}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Seleccioná un idioma" />
+                  <SelectValue placeholder="Selecciona un idioma" />
                 </SelectTrigger>
                 <SelectContent>
                   {LANGUAGES.map(l => (
@@ -886,7 +886,7 @@ export default function Settings() {
             </div>
 
             <div className="space-y-2">
-              <Label>¿Qué ofrecés? <span className="text-muted-foreground font-normal">(producto / servicio / curso)</span></Label>
+              <Label>¿Qué ofreces? <span className="text-muted-foreground font-normal">(producto / servicio / curso)</span></Label>
               <Textarea
                 value={formData.offer || ''}
                 onChange={e => handleChange('offer', e.target.value)}
@@ -896,41 +896,21 @@ export default function Settings() {
             </div>
 
             <div className="space-y-2">
-              <Label>¿A quién le hablás? <span className="text-muted-foreground font-normal">(audiencia ideal)</span></Label>
-              <Textarea
-                value={formData.ideal_audience || ''}
-                onChange={e => handleChange('ideal_audience', e.target.value)}
-                placeholder="Ej: Emprendedores de 25-40 años con conocimientos básicos de redes sociales que quieren monetizar su expertise pero no saben cómo estructurar su oferta."
-                className="min-h-[80px]"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>¿Por qué sos diferente? <span className="text-muted-foreground font-normal">(propuesta de valor)</span></Label>
-              <Textarea
-                value={formData.unique_value_prop || ''}
-                onChange={e => handleChange('unique_value_prop', e.target.value)}
-                placeholder="Ej: Mi método combina estrategia de contenido con sistemas de venta automatizados. Mis alumnos venden sin depender de seguidores ni anuncios pagos."
-                className="min-h-[80px]"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>¿Cómo hablás? <span className="text-muted-foreground font-normal">(estilo de comunicación)</span></Label>
+              <Label>¿Cómo hablas? <span className="text-muted-foreground font-normal">(estilo de comunicación y voz)</span></Label>
               <Textarea
                 value={formData.voice_style || ''}
                 onChange={e => handleChange('voice_style', e.target.value)}
-                placeholder="Ej: Directo y sin rodeos. Uso ejemplos concretos y números reales. Nunca prometo resultados garantizados. Palabras que uso siempre: 'accionable', 'sin excusas', 'sistema'. Evito: 'increíble', 'revolucionario', frases motivacionales vacías."
+                placeholder="Ej: Directo y sin rodeos. Uso ejemplos concretos y números reales. Palabras que uso siempre: 'accionable', 'sistema'. Evito: 'increíble', 'revolucionario', frases motivacionales vacías."
                 className="min-h-[80px]"
               />
             </div>
 
             <div className="space-y-2">
-              <Label>Objeciones frecuentes <span className="text-muted-foreground font-normal">(y cómo las respondés)</span></Label>
+              <Label>Objeciones frecuentes <span className="text-muted-foreground font-normal">(y cómo las respondes)</span></Label>
               <Textarea
                 value={formData.common_objections || ''}
                 onChange={e => handleChange('common_objections', e.target.value)}
-                placeholder={'Ej:\n"No tengo tiempo" → Les digo que con 2 horas semanales es suficiente si tienen el sistema correcto.\n"Es muy caro" → Les muestro que una sola venta recupera la inversión.\n"Ya probé y no me funcionó" → Pregunto qué probaron exactamente y muestro por qué mi enfoque es diferente.'}
+                placeholder={'Ej:\n"No tengo tiempo" → Con 2 horas semanales es suficiente si tienes el sistema correcto.\n"Es muy caro" → Una sola venta recupera la inversión.\n"Ya lo intenté y no funcionó" → Muestro por qué este enfoque es diferente.'}
                 className="min-h-[100px]"
               />
             </div>
@@ -945,11 +925,11 @@ export default function Settings() {
               <Textarea
                 value={formData.custom_cta || ''}
                 onChange={e => handleChange('custom_cta', e.target.value)}
-                placeholder={'Ej: "Si querés más información sobre mi curso, registrate en el link de mi biografía." o "Escribí la palabra CURSO en los comentarios y te mando el link directo."'}
+                placeholder={'Ej: "Si quieres más información sobre mi curso, regístrate en el link de mi biografía." o "Escribe la palabra CURSO en los comentarios y te envío el link directo."'}
                 className="min-h-[70px]"
               />
               <p className="text-xs text-muted-foreground">
-                Esta frase exacta será la última oración de cada guion. Si la dejás vacía, el avatar usará el CTA genérico del sistema.
+                Esta frase exacta será la última oración de cada guion. Si la dejas vacía, el avatar usará el CTA genérico del sistema.
               </p>
             </div>
           </div>
