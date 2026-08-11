@@ -29,7 +29,7 @@ import {
   TrendingUp, Users, Clock, BarChart2, Target, Lightbulb, Zap,
   AlertTriangle, CheckCircle2, Circle, RefreshCw, Loader2, Plus,
   Trash2, ExternalLink, Wifi, WifiOff, ChevronRight, Star,
-  Heart, Flame, Sparkles, Instagram,
+  Heart, Flame, Sparkles, Instagram, Check,
   Map, FileText, ArrowRight, Award,
 } from "lucide-react"
 
@@ -255,6 +255,65 @@ function TabRadar() {
           {apifyAvailable ? <><Wifi className="w-3 h-3" /> Radar conectado</> : <><WifiOff className="w-3 h-3" /> Sin Apify — modo manual</>}
         </div>
       </div>
+
+      {/* ── Progress indicator ─────────────────────────────────────────── */}
+      {(() => {
+        const MIN_RECOMMENDED = 5
+        const MAX_RECOMMENDED = 10
+        const activeCount = accounts.filter((a) => a.use_as_reference).length
+        const isComplete  = activeCount >= MIN_RECOMMENDED
+        const pct         = Math.min(100, Math.round((activeCount / MIN_RECOMMENDED) * 100))
+
+        return (
+          <div className={`rounded-xl border px-4 py-3.5 space-y-2.5 transition-colors ${
+            isComplete
+              ? "border-emerald-500/30 bg-emerald-500/5"
+              : "border-border bg-muted/30"
+          }`}>
+            {/* Header row */}
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <span className="text-sm font-semibold">
+                Cuentas de referencia&nbsp;
+                <span className="font-normal text-muted-foreground text-xs">
+                  — recomendado {MIN_RECOMMENDED}–{MAX_RECOMMENDED} cuentas para comenzar
+                </span>
+              </span>
+              {isComplete ? (
+                <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 border border-emerald-500/20 shrink-0">
+                  <Check className="w-2.5 h-2.5" /> Completado
+                </span>
+              ) : (
+                <span className="text-xs font-semibold text-muted-foreground shrink-0">
+                  {activeCount} / {MIN_RECOMMENDED}
+                </span>
+              )}
+            </div>
+
+            {/* Progress bar */}
+            <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ${isComplete ? "bg-emerald-500" : "bg-primary"}`}
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+
+            {/* Contextual message */}
+            {activeCount === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                Agrega entre {MIN_RECOMMENDED} y {MAX_RECOMMENDED} cuentas referentes de tu nicho. La IA las usará para calibrar tu estrategia y temas de contenido.
+              </p>
+            ) : isComplete ? (
+              <p className="text-xs text-emerald-700 dark:text-emerald-400">
+                Estás siguiendo <strong>{activeCount}</strong> cuenta{activeCount !== 1 ? "s" : ""} de referencia. Tomaremos esta información para generar tus contenidos.
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Estás siguiendo <strong>{activeCount}</strong> cuenta{activeCount !== 1 ? "s" : ""} — agrega {MIN_RECOMMENDED - activeCount} más para completar el radar mínimo recomendado.
+              </p>
+            )}
+          </div>
+        )
+      })()}
 
       {!apifyAvailable && (
         <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
