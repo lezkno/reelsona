@@ -1871,9 +1871,9 @@ export default function CaptionStudio() {
         </div>
       )}
 
-      {/* ── 5-col layout: 4 cols content · 1 col preview sticky ──────────── */}
-      <div className="grid grid-cols-5 gap-8 items-start">
-        <div className="col-span-4 space-y-6">
+      {/* ── Layout: 1-col on mobile, 5-col on lg+ (preview floats right on desktop) ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 lg:gap-8 items-start">
+        <div className="lg:col-span-4 space-y-6 order-2 lg:order-1">
 
       {/* Enable / status banner */}
       <Card className={`border-2 ${captionsEnabled ? "border-primary/40 bg-primary/5" : "border-dashed"}`}>
@@ -1958,7 +1958,7 @@ export default function CaptionStudio() {
             <p className="text-sm text-muted-foreground mb-4">
               El preview es exactamente lo que queda en el video final. Lo que ves es lo que se renderiza.
             </p>
-            <div className="grid grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
               {BROWSER_CAPTION_TEMPLATES.map((tmpl) => (
                 <BrowserTemplateCard
                   key={tmpl.id}
@@ -2272,7 +2272,7 @@ export default function CaptionStudio() {
       {/* ── Card Templates (visible when text_cards effect is enabled) ─────── */}
       {videoEffects.text_cards && (
         <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-start gap-3 sm:justify-between">
             <div>
               <h2 className="text-xl font-display font-bold">Plantillas de Cards</h2>
               <p className="text-sm text-muted-foreground mt-0.5">
@@ -2284,7 +2284,7 @@ export default function CaptionStudio() {
               size="sm"
               onClick={saveCardConfig}
               disabled={savingCards || isVideoProcessing}
-              className="gap-2 shrink-0"
+              className="gap-2 shrink-0 self-start"
             >
               {savingCards ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
               {savingCards ? "Guardando…" : "Guardar cards"}
@@ -2332,8 +2332,8 @@ export default function CaptionStudio() {
 
         </div>{/* end col-span-4 */}
 
-        {/* 5th col: phone preview — sticky, flota mientras el usuario scrollea */}
-        <div className="col-span-1 sticky top-6 self-start space-y-2">
+        {/* Preview — top on mobile, sticky sidebar on desktop */}
+        <div className="lg:col-span-1 lg:sticky lg:top-6 self-start space-y-2 order-1 lg:order-2">
           <p className="text-[11px] font-semibold text-center text-muted-foreground uppercase tracking-widest mb-2">
             Vista previa
           </p>
