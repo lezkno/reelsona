@@ -74,7 +74,7 @@ router.get("/captions/presets", (_req, res): void => {
     highlight_mode: p.highlightMode,
     auto_movement: p.autoMovement,
     subtle_rotation: p.subtleRotation,
-    words_per_line: p.wordsPerLine ?? null,
+    words_per_line: p.wordsPerLine ?? undefined,
   }));
   res.json(GetCaptionPresetsResponse.parse(presets));
 });
