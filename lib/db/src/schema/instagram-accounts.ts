@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, timestamp, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { users } from "./users";
@@ -14,6 +14,8 @@ export const instagramAccountsTable = pgTable("instagram_accounts", {
   mediaCount: integer("media_count").notNull().default(0),
   accessToken: text("access_token").notNull(),
   tokenExpiresAt: timestamp("token_expires_at"),
+  /** True when a token refresh has failed and the user must reconnect. */
+  needsReconnection: boolean("needs_reconnection").notNull().default(false),
   connectedAt: timestamp("connected_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

@@ -16,13 +16,13 @@ import { enrichProfileWithApify } from "./apify";
 import { applyCaptions, CAPTION_DIR, type CaptionStyle, CAPTION_PRESETS } from "./caption-engine";
 import { computeUpcomingSlots } from "./schedule";
 import { applyCaptionsBrowser } from "./browser-caption-engine";
-import { eq, and, lte, gte, lt, inArray, isNull, isNotNull, or } from "drizzle-orm";
+import { eq, and, lte, gte, lt, inArray, isNull, isNotNull, or, desc } from "drizzle-orm";
 import { logger } from "./logger";
 import { generateScript, regenerateCaption, generateContentTopics } from "./ai-scripts";
 import { getLatestAuditCache } from "./audit-cache";
 import { getStrategyProfile, toStrategyContext } from "./strategy-profile";
 import { generateVideo, getVideoStatus, listVoices, getAvatarDefaultVoiceId, fetchAvatarPreviewImage, getAllAvailableAvatarIds, invalidateAvatarIdsCache } from "./heygen";
-import { createReelContainer, checkContainerStatus, publishContainer, getPermalink } from "./instagram-api";
+import { createReelContainer, checkContainerStatus, publishContainer, getPermalink, refreshInstagramToken } from "./instagram-api";
 import { getSignedCaptionedVideoUrl } from "./objectStorage";
 import { generateBrandCover } from "./brand-cover";
 
@@ -975,6 +975,49 @@ async function runCopyGeneration(contentItemId: number): Promise<void> {
   }
 }
 
+/**
+ * Auto-refresh Instagram long-lived tokens that expire in < 30 days.
+ * Instagram allows refreshing any valid token (even with 1 day left) via ig_refresh_token.
+ * On failure, marks the account as needs_reconnection so the user is warned before
+ * the next publish attempt rather than seeing a cryptic "Container processing failed".
+ */
+async function refreshExpiringTokens(): Promise<void> {
+  const thirtyDaysFromNow = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+  try {
+    const expiringAccounts = await db
+      .select()
+      .from(instagramAccountsTable)
+      .where(
+        and(
+          isNotNull(instagramAccountsTable.tokenExpiresAt),
+          lte(instagramAccountsTable.tokenExpiresAt as any, thirtyDaysFromNow),
+          // Don't retry accounts already marked as broken — they need manual reconnection
+          eq(instagramAccountsTable.needsReconnection, false),
+        )
+      );
+
+    for (const account of expiringAccounts) {
+      try {
+        const { accessToken: newToken, expiresAt } = await refreshInstagramToken(account.accessToken);
+        await db
+          .update(instagramAccountsTable)
+          .set({ accessToken: newToken, tokenExpiresAt: expiresAt, needsReconnection: false, updatedAt: new Date() })
+          .where(eq(instagramAccountsTable.id, account.id));
+        logger.info({ userId: account.userId, newExpiry: expiresAt.toISOString() }, "[IG/TokenRefresh] Token auto-refreshed successfully");
+      } catch (err) {
+        logger.error({ userId: account.userId, err }, "[IG/TokenRefresh] Auto-refresh failed — marking account as needs_reconnection");
+        await db
+          .update(instagramAccountsTable)
+          .set({ needsReconnection: true, updatedAt: new Date() })
+          .where(eq(instagramAccountsTable.id, account.id));
+      }
+    }
+  } catch (err) {
+    // Non-fatal: log and continue — the rest of the polling cycle must not be blocked
+    logger.warn({ err }, "[IG/TokenRefresh] Error querying expiring tokens");
+  }
+}
+
 export async function pollAndPublishVideos(): Promise<void> {
   // ── Recovery: content items in "ready" state with null copy_status ────────
   // Handles server restarts or items created before copy generation was added.
@@ -1105,8 +1148,13 @@ export async function pollAndPublishVideos(): Promise<void> {
   // Only publish when both caption AND copy are in a terminal state so the
   // Instagram description is ready before the post goes live.
   if (automation?.enabled && automation?.autoPublish) {
+    // Rate limit: 5 minutes minimum between auto-publishes per account.
+    // Prevents IG bans from burst-publishing when many videos are "ready" at once.
+    const AUTO_PUBLISH_MIN_GAP_MS = 5 * 60 * 1000;
+    const recentCutoff = new Date(Date.now() - AUTO_PUBLISH_MIN_GAP_MS);
+
     const readyVideos = await db
-      .select({ id: videosTable.id, scheduledPublishAt: videosTable.scheduledPublishAt })
+      .select({ id: videosTable.id, scheduledPublishAt: videosTable.scheduledPublishAt, userId: videosTable.userId })
       .from(videosTable)
       .leftJoin(contentPlanItemsTable, eq(contentPlanItemsTable.id, videosTable.contentPlanId))
       .where(
@@ -1121,8 +1169,36 @@ export async function pollAndPublishVideos(): Promise<void> {
         )
       );
 
+    // Track which userIds already had a publish triggered this cycle (max 1 per account per cycle)
+    const publishedThisCycle = new Set<number>();
+
     for (const video of readyVideos) {
-      if (video.scheduledPublishAt) continue; // handled above (or not yet due)
+      if (video.scheduledPublishAt) continue; // handled in the scheduled sweep above
+
+      // Max 1 auto-publish per user account per cron cycle
+      if (publishedThisCycle.has(video.userId)) {
+        logger.info({ videoId: video.id, userId: video.userId }, "[Scheduler] Rate limit: already auto-publishing for this account this cycle — deferring");
+        continue;
+      }
+
+      // Check if this account published anything in the last 5 minutes
+      const [recentPublish] = await db
+        .select({ publishedAt: videosTable.publishedAt })
+        .from(videosTable)
+        .where(and(
+          eq(videosTable.userId, video.userId),
+          eq(videosTable.status, "published"),
+          gte(videosTable.publishedAt as any, recentCutoff),
+        ))
+        .orderBy(desc(videosTable.publishedAt))
+        .limit(1);
+
+      if (recentPublish) {
+        logger.info({ videoId: video.id, userId: video.userId }, "[Scheduler] Rate limit: last publish was < 5 min ago — deferring to next cycle");
+        continue;
+      }
+
+      publishedThisCycle.add(video.userId);
       try {
         logger.info({ id: video.id }, "[Scheduler] Publishing stalled ready video");
         await publishVideoToInstagram(video.id);
@@ -1291,6 +1367,10 @@ export async function pollAndPublishVideos(): Promise<void> {
       }
     }
   }
+
+  // ── Token refresh sweep — runs every polling cycle (every minute) ─────────
+  // Refreshes tokens expiring in < 30 days before they cause publish failures.
+  await refreshExpiringTokens();
 }
 
 export async function publishVideoToInstagram(videoId: number, videoUrl?: string): Promise<void> {
@@ -1364,9 +1444,11 @@ async function _publishVideoToInstagramInner(videoId: number, videoUrl?: string)
           url = await getSignedCaptionedVideoUrl(objectName);
           logger.info({ videoId, objectName }, "[Publish] Generated signed GCS URL for Instagram");
         } catch (signErr) {
-          // Signing failed (e.g. sidecar unavailable) — fall back to stored URL and let Instagram try
-          url = captionedUrl;
-          logger.warn({ videoId, signErr }, "[Publish] Could not sign GCS URL — falling back to stored URL");
+          // Signing failed — fall back to the ORIGINAL public HeyGen URL, NOT captionedUrl.
+          // captionedUrl points to the Replit dev domain (mTLS) which Instagram's servers cannot
+          // reach from outside, so using it as a fallback always causes "Container processing failed".
+          url = rawUrl;
+          logger.warn({ videoId, signErr }, "[Publish] Could not sign GCS URL — falling back to original HeyGen URL (captions will be missing)");
         }
       } else {
         url = captionedUrl;
@@ -1396,8 +1478,17 @@ async function _publishVideoToInstagramInner(videoId: number, videoUrl?: string)
     }
   }
 
-  const [igAccount] = await db.select().from(instagramAccountsTable).limit(1);
-  if (!igAccount) throw new Error("Instagram account not connected");
+  // ── Fix: always scope to the video's owner — never use a global .limit(1) which
+  // could publish a video from User A on the Instagram account of User B.
+  const [igAccount] = await db.select().from(instagramAccountsTable)
+    .where(eq(instagramAccountsTable.userId, video.userId)).limit(1);
+  if (!igAccount) throw new Error("Instagram account not connected for this user");
+
+  // Guard: if auto-refresh previously failed, throw a clear error so the video
+  // ends up as "failed" with an actionable message instead of a cryptic IG error.
+  if (igAccount.needsReconnection) {
+    throw new Error("El token de Instagram expiró. Reconecta tu cuenta en Ajustes → Instagram para continuar publicando.");
+  }
 
   let caption = "";
   if (video.contentPlanId) {

@@ -1,12 +1,13 @@
 import { useGetInstagramAccount, useDisconnectInstagram, useHandleInstagramCallback, getGetInstagramAccountQueryKey, getGetInstagramPostsQueryKey } from "@workspace/api-client-react"
-import { ExternalLink } from "lucide-react"
+import { ExternalLink, AlertTriangle, RefreshCw } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Instagram, LogOut, CheckCircle2, User, Image as ImageIcon } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { useToast } from "@/hooks/use-toast"
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useLocation } from "wouter"
 
 // The redirect_uri must be exactly the same in both:
@@ -19,6 +20,16 @@ function getRedirectUri() {
 // localStorage key for CSRF state — shared across tabs so the new-tab OAuth flow works
 const IG_STATE_KEY = "ig_oauth_state"
 
+function formatExpiry(isoDate: string | null | undefined): string | null {
+  if (!isoDate) return null
+  const d = new Date(isoDate)
+  const diff = d.getTime() - Date.now()
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24))
+  if (days <= 0) return "Expirado"
+  if (days === 1) return "Expira mañana"
+  return `Expira en ${days} días`
+}
+
 export default function Connect() {
   // Poll when not yet connected so the original tab auto-refreshes after the
   // new-tab OAuth flow completes.
@@ -30,7 +41,8 @@ export default function Connect() {
   const queryClient = useQueryClient()
   const { toast } = useToast()
   const [, setLocation] = useLocation()
-  
+  const [isRefreshing, setIsRefreshing] = useState(false)
+
   const handledCode = useRef<string | null>(null)
   const redirectUri = getRedirectUri()
 
@@ -48,7 +60,6 @@ export default function Connect() {
     if (code && code !== handledCode.current) {
       handledCode.current = code
       const returnedState = params.get('state')
-      // localStorage is shared between tabs; sessionStorage is not
       const expectedState = localStorage.getItem(IG_STATE_KEY)
       if (expectedState && returnedState !== expectedState) {
         toast({ title: "Error de seguridad", description: "El parámetro state no coincide. Intenta conectar de nuevo.", variant: "destructive" })
@@ -85,10 +96,8 @@ export default function Connect() {
   }
 
   const handleConnect = async () => {
-    // CSRF protection: random state, validated when Meta redirects back
     const state = crypto.randomUUID()
     localStorage.setItem(IG_STATE_KEY, state)
-    // Fetch auth URL passing our real redirect_uri as a query param
     const res = await fetch(`/api/instagram/auth-url?redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}`)
     if (!res.ok) {
       toast({ title: "Error", description: "No se pudo generar la URL de autorización.", variant: "destructive" })
@@ -96,6 +105,25 @@ export default function Connect() {
     }
     const { url } = await res.json() as { url: string }
     window.open(url, '_blank', 'noopener,noreferrer')
+  }
+
+  const handleRefreshToken = async () => {
+    setIsRefreshing(true)
+    try {
+      const res = await fetch('/api/instagram/refresh-token', { method: 'POST' })
+      if (res.ok) {
+        toast({ title: "Token renovado", description: "Tu conexión con Instagram se actualizó correctamente." })
+        queryClient.invalidateQueries({ queryKey: getGetInstagramAccountQueryKey() })
+      } else {
+        const data = await res.json().catch(() => ({}))
+        toast({ title: "No se pudo renovar el token", description: data.error ?? "Reconecta tu cuenta manualmente.", variant: "destructive" })
+        queryClient.invalidateQueries({ queryKey: getGetInstagramAccountQueryKey() })
+      }
+    } catch {
+      toast({ title: "Error de red", description: "No se pudo conectar con el servidor.", variant: "destructive" })
+    } finally {
+      setIsRefreshing(false)
+    }
   }
 
   if (isLoading) {
@@ -115,6 +143,14 @@ export default function Connect() {
     )
   }
 
+  const account = status?.account
+  const needsReconnection = account?.needs_reconnection === true
+  const expiryLabel = formatExpiry(account?.token_expires_at)
+  const expiresInDays = account?.token_expires_at
+    ? Math.floor((new Date(account.token_expires_at).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+    : null
+  const tokenExpiringSoon = expiresInDays !== null && expiresInDays <= 7 && !needsReconnection
+
   return (
     <div className="space-y-8 max-w-3xl mx-auto mt-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div>
@@ -122,7 +158,39 @@ export default function Connect() {
         <p className="text-muted-foreground mt-1 text-lg">Conecta tu cuenta para publicar automáticamente y analizar tu contenido.</p>
       </div>
 
-      {!status?.connected || !status.account ? (
+      {/* ── Reconnection required alert ───────────────────────────────────── */}
+      {needsReconnection && (
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Tu token de Instagram expiró</AlertTitle>
+          <AlertDescription className="flex flex-col gap-3">
+            <span>La conexión con Instagram caducó y la publicación automática está bloqueada. Reconecta tu cuenta para restablecer el acceso.</span>
+            <div className="flex gap-2">
+              <Button size="sm" variant="destructive" onClick={handleConnect}>
+                <Instagram className="w-4 h-4 mr-2" />
+                Reconectar cuenta
+              </Button>
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* ── Token expiring soon warning ───────────────────────────────────── */}
+      {tokenExpiringSoon && (
+        <Alert>
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Conexión próxima a vencer — {expiryLabel}</AlertTitle>
+          <AlertDescription className="flex flex-col gap-3">
+            <span>Tu token de Instagram vence pronto. Renuévalo ahora para evitar interrupciones en la publicación automática.</span>
+            <Button size="sm" variant="outline" onClick={handleRefreshToken} disabled={isRefreshing}>
+              <RefreshCw className={`w-4 h-4 mr-2 ${isRefreshing ? "animate-spin" : ""}`} />
+              {isRefreshing ? "Renovando…" : "Renovar token"}
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {!status?.connected || !account ? (
         <Card className="border-2 border-primary/20 shadow-lg shadow-primary/5">
           <CardHeader className="text-center pb-2">
             <div className="w-16 h-16 bg-primary/10 text-primary rounded-full flex items-center justify-center mx-auto mb-4">
@@ -130,7 +198,7 @@ export default function Connect() {
             </div>
             <CardTitle className="text-2xl">Conecta tu cuenta</CardTitle>
             <CardDescription className="text-base max-w-md mx-auto">
-              Autoriza a ContentPilot a publicar Reels en tu nombre y leer las estadísticas de tus posts.
+              Autoriza a Reelsona a publicar Reels en tu nombre y leer las estadísticas de tus posts.
             </CardDescription>
           </CardHeader>
           <CardContent className="text-center pt-6">
@@ -139,21 +207,27 @@ export default function Connect() {
               Conectar con Meta
             </Button>
             <p className="text-xs text-muted-foreground mt-4">
-              Solo publicaremos el contenido que tú apruebes o que esté automatizado.
+              Requiere cuenta de Instagram <strong>Business</strong> o <strong>Creator</strong>. Las cuentas personales no son compatibles.
             </p>
           </CardContent>
         </Card>
       ) : (
-        <Card className="border-green-500/20 shadow-lg shadow-green-500/5">
+        <Card className={`shadow-lg ${needsReconnection ? "border-destructive/40 shadow-destructive/5" : "border-green-500/20 shadow-green-500/5"}`}>
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
                 <CardTitle className="flex items-center gap-2 text-2xl">
-                  <CheckCircle2 className="w-6 h-6 text-green-500" />
-                  Cuenta Conectada
+                  {needsReconnection
+                    ? <AlertTriangle className="w-6 h-6 text-destructive" />
+                    : <CheckCircle2 className="w-6 h-6 text-green-500" />
+                  }
+                  {needsReconnection ? "Reconexión necesaria" : "Cuenta Conectada"}
                 </CardTitle>
                 <CardDescription className="text-base mt-1">
-                  Tu sistema está listo para publicar en esta cuenta.
+                  {needsReconnection
+                    ? "La publicación automática está pausada hasta que reconectes."
+                    : "Tu sistema está listo para publicar en esta cuenta."
+                  }
                 </CardDescription>
               </div>
               <Button variant="outline" size="sm" onClick={handleDisconnect} disabled={disconnect.isPending} className="text-destructive border-destructive/20 hover:bg-destructive hover:text-white">
@@ -164,10 +238,10 @@ export default function Connect() {
           </CardHeader>
           <CardContent>
             <div className="bg-muted/50 rounded-xl p-6 border flex items-center gap-6">
-              {status.account.profile_picture_url ? (
-                <img 
-                  src={status.account.profile_picture_url} 
-                  alt={status.account.username} 
+              {account.profile_picture_url ? (
+                <img
+                  src={account.profile_picture_url}
+                  alt={account.username}
                   className="w-20 h-20 rounded-full border-4 border-background shadow-md object-cover"
                 />
               ) : (
@@ -175,31 +249,37 @@ export default function Connect() {
                   <User className="w-8 h-8" />
                 </div>
               )}
-              
+
               <div className="flex-1">
-                <h3 className="text-2xl font-bold font-display">@{status.account.username}</h3>
-                {status.account.name && <p className="text-muted-foreground">{status.account.name}</p>}
-                
+                <h3 className="text-2xl font-bold font-display">@{account.username}</h3>
+                {account.name && <p className="text-muted-foreground">{account.name}</p>}
+
                 <div className="flex items-center gap-6 mt-4">
                   <div>
                     <p className="text-sm font-medium text-muted-foreground flex items-center gap-1">
                       <Users className="w-4 h-4" /> Seguidores
                     </p>
-                    <p className="text-xl font-bold mt-0.5">{status.account.followers_count.toLocaleString()}</p>
+                    <p className="text-xl font-bold mt-0.5">{account.followers_count.toLocaleString()}</p>
                   </div>
                   <div>
                     <p className="text-sm font-medium text-muted-foreground flex items-center gap-1">
                       <ImageIcon className="w-4 h-4" /> Publicaciones
                     </p>
-                    <p className="text-xl font-bold mt-0.5">{status.account.media_count.toLocaleString()}</p>
+                    <p className="text-xl font-bold mt-0.5">{account.media_count.toLocaleString()}</p>
                   </div>
                 </div>
+
+                {/* Token expiry info (shown when not needsReconnection and date is known) */}
+                {!needsReconnection && expiryLabel && (
+                  <p className={`text-xs mt-3 ${tokenExpiringSoon ? "text-orange-500 font-medium" : "text-muted-foreground"}`}>
+                    🔑 {expiryLabel}
+                  </p>
+                )}
               </div>
             </div>
           </CardContent>
         </Card>
       )}
-
     </div>
   )
 }

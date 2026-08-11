@@ -15,12 +15,14 @@ import {
 import {
   getAuthUrl,
   exchangeCodeForToken,
+  refreshInstagramToken,
   getAccountInfo,
   getMediaList,
   getMediaInsights,
 } from "../lib/instagram-api";
 import { analyzeAuditAndRecommend } from "../lib/ai-scripts";
 import { saveAuditCache } from "../lib/audit-cache";
+import { logger } from "../lib/logger";
 
 const router = Router();
 
@@ -63,18 +65,30 @@ router.post("/instagram/callback", async (req, res): Promise<void> => {
   const { code, redirect_uri } = parsed.data;
 
   let accessToken: string;
+  let expiresAt: Date;
   let accountInfo: Awaited<ReturnType<typeof getAccountInfo>>;
   try {
-    accessToken = await exchangeCodeForToken(code, redirect_uri);
+    ({ accessToken, expiresAt } = await exchangeCodeForToken(code, redirect_uri));
     accountInfo = await getAccountInfo(accessToken);
   } catch (err: any) {
-    // Surface the actual Instagram/Meta error so it reaches the client
     const igMessage =
       err?.response?.data?.error_message ??
       err?.response?.data?.error?.message ??
       err?.message ??
       "Error desconocido";
     res.status(400).json({ error: `Instagram: ${igMessage}` });
+    return;
+  }
+
+  // ── Account type guard ─────────────────────────────────────────────────────
+  // instagram_business_* scopes only work for Business and Creator accounts.
+  // Personal accounts cannot publish or access insights.
+  const accountType: string | undefined = accountInfo.account_type;
+  if (accountType === "PERSONAL") {
+    logger.warn({ username: accountInfo.username, accountType }, "[IG/Connect] Rejected: personal account tried to connect");
+    res.status(400).json({
+      error: "Reelsona requiere una cuenta de Instagram de tipo Business o Creator. Las cuentas personales no pueden publicar Reels ni acceder a métricas mediante la API de Instagram Business.",
+    });
     return;
   }
 
@@ -98,6 +112,8 @@ router.post("/instagram/callback", async (req, res): Promise<void> => {
         followersCount: accountInfo.followers_count ?? 0,
         mediaCount: accountInfo.media_count ?? 0,
         accessToken,
+        tokenExpiresAt: expiresAt,
+        needsReconnection: false,
         updatedAt: new Date(),
       })
       .where(eq(instagramAccountsTable.userId, userId));
@@ -111,6 +127,8 @@ router.post("/instagram/callback", async (req, res): Promise<void> => {
       followersCount: accountInfo.followers_count ?? 0,
       mediaCount: accountInfo.media_count ?? 0,
       accessToken,
+      tokenExpiresAt: expiresAt,
+      needsReconnection: false,
     });
   }
 
@@ -129,6 +147,7 @@ router.post("/instagram/callback", async (req, res): Promise<void> => {
       followers_count: account.followersCount,
       media_count: account.mediaCount,
       connected_at: account.connectedAt.toISOString(),
+      account_type: accountType ?? null,
     })
   );
 });
@@ -151,6 +170,9 @@ router.get("/instagram/account", async (req, res): Promise<void> => {
         followers_count: account.followersCount,
         media_count: account.mediaCount,
         connected_at: account.connectedAt.toISOString(),
+        token_expires_at: account.tokenExpiresAt?.toISOString() ?? null,
+        needs_reconnection: account.needsReconnection ?? false,
+        account_type: null,  // not stored in DB; only returned at connect time
       },
     })
   );
@@ -161,11 +183,49 @@ router.delete("/instagram/disconnect", async (req, res): Promise<void> => {
   res.json(DisconnectInstagramResponse.parse({ success: true, message: "Disconnected" }));
 });
 
+/**
+ * POST /instagram/refresh-token
+ * Manually trigger a token refresh for the connected account.
+ * Called by the frontend when the token is close to expiry or when auto-refresh fails.
+ */
+router.post("/instagram/refresh-token", async (req, res): Promise<void> => {
+  const [account] = await db.select().from(instagramAccountsTable)
+    .where(eq(instagramAccountsTable.userId, req.session.user!.userId)).limit(1);
+  if (!account) {
+    res.status(404).json({ error: "No Instagram account connected" });
+    return;
+  }
+  try {
+    const { accessToken, expiresAt } = await refreshInstagramToken(account.accessToken);
+    await db.update(instagramAccountsTable).set({
+      accessToken,
+      tokenExpiresAt: expiresAt,
+      needsReconnection: false,
+      updatedAt: new Date(),
+    }).where(eq(instagramAccountsTable.userId, req.session.user!.userId));
+    logger.info({ userId: req.session.user!.userId }, "[IG/Refresh] Token refreshed manually");
+    res.json({ success: true, token_expires_at: expiresAt.toISOString() });
+  } catch (err: any) {
+    const message = err?.response?.data?.error?.message ?? err?.message ?? "Unknown error";
+    logger.error({ userId: req.session.user!.userId, message }, "[IG/Refresh] Manual token refresh failed — marking account as needs reconnection");
+    await db.update(instagramAccountsTable)
+      .set({ needsReconnection: true, updatedAt: new Date() })
+      .where(eq(instagramAccountsTable.userId, req.session.user!.userId));
+    res.status(400).json({ error: "El token de Instagram ha expirado. Por favor reconecta tu cuenta." });
+  }
+});
+
 router.get("/instagram/audit", async (req, res): Promise<void> => {
   const [account] = await db.select().from(instagramAccountsTable)
     .where(eq(instagramAccountsTable.userId, req.session.user!.userId)).limit(1);
   if (!account) {
     res.status(400).json({ error: "No Instagram account connected" });
+    return;
+  }
+
+  // Guard: token has failed to refresh — prompt reconnection before doing any API calls
+  if (account.needsReconnection) {
+    res.status(401).json({ error: "TOKEN_EXPIRED", message: "Tu token de Instagram ha expirado. Reconecta tu cuenta para continuar." });
     return;
   }
 
@@ -178,9 +238,21 @@ router.get("/instagram/audit", async (req, res): Promise<void> => {
 
   const media = await getMediaList(account.accessToken, account.igUserId, 20);
 
+  // Fetch insights — detect account-level errors (expired token, wrong permissions)
+  // early and return a proper HTTP error instead of silently showing zeros.
+  let accountLevelError: string | null = null;
   const postsWithInsights = await Promise.all(
     media.map(async (m: { id: string; media_type: string; media_url?: string; thumbnail_url?: string; permalink?: string; caption?: string; like_count: number; comments_count: number; timestamp: string }) => {
-      const insights = await getMediaInsights(account.accessToken, m.id, m.media_type);
+      const result = await getMediaInsights(account.accessToken, m.id, m.media_type);
+
+      // Bubble up account-level errors so we can return a proper status code
+      if (result.error === "token_expired" && !accountLevelError) {
+        accountLevelError = "TOKEN_EXPIRED";
+      } else if (result.error === "permission_denied" && !accountLevelError) {
+        accountLevelError = "PERMISSION_DENIED";
+      }
+
+      const insights = result.values;
       const reach = insights.reach ?? 0;
       const engagements = (m.like_count ?? 0) + (m.comments_count ?? 0) + (insights.saved ?? 0);
       const engagementRate = reach > 0 ? (engagements / reach) * 100 : 0;
@@ -201,6 +273,20 @@ router.get("/instagram/audit", async (req, res): Promise<void> => {
     })
   );
 
+  // If every post returned a token/permission error, abort with a clear status code
+  if (accountLevelError === "TOKEN_EXPIRED") {
+    // Mark account as needing reconnection so the UI and scheduler know
+    await db.update(instagramAccountsTable)
+      .set({ needsReconnection: true, updatedAt: new Date() })
+      .where(eq(instagramAccountsTable.userId, req.session.user!.userId));
+    res.status(401).json({ error: "TOKEN_EXPIRED", message: "Tu token de Instagram expiró. Reconecta tu cuenta." });
+    return;
+  }
+  if (accountLevelError === "PERMISSION_DENIED") {
+    res.status(403).json({ error: "PERMISSION_DENIED", message: "Faltan permisos de Instagram. Desconecta tu cuenta y vuelve a conectarla." });
+    return;
+  }
+
   const sorted = [...postsWithInsights].sort((a, b) => (b.engagement_rate ?? 0) - (a.engagement_rate ?? 0));
   const avgEngagement =
     postsWithInsights.length > 0
@@ -211,7 +297,6 @@ router.get("/instagram/audit", async (req, res): Promise<void> => {
       ? postsWithInsights.reduce((s, p) => s + (p.reach ?? 0), 0) / postsWithInsights.length
       : 0;
 
-  // Use up to 10 captions for analysis but save top-5 full captions for future generation use
   const topCaptions = sorted.slice(0, 10).map((p) => p.caption ?? "");
   const aiAnalysis = await analyzeAuditAndRecommend(
     settingsRow?.niche ?? "general",
@@ -220,7 +305,6 @@ router.get("/instagram/audit", async (req, res): Promise<void> => {
     settingsRow?.language ?? "es"
   );
 
-  // Persist audit to cache for future generation cycles (non-blocking)
   const top5Captions = sorted.slice(0, 5).map((p) => p.caption ?? "").filter(Boolean);
   saveAuditCache({
     topCaptions: top5Captions,
@@ -228,7 +312,7 @@ router.get("/instagram/audit", async (req, res): Promise<void> => {
     avgEngagement,
     bestPostingTimes: aiAnalysis.best_posting_times,
     contentInsights: aiAnalysis.content_insights,
-  }).catch(() => { /* non-fatal — already logged inside saveAuditCache */ });
+  }).catch(() => { /* non-fatal */ });
 
   const result = {
     account: {
@@ -260,6 +344,12 @@ router.get("/instagram/posts", async (req, res): Promise<void> => {
     return;
   }
 
+  // Guard: token known-bad — return posts without insights rather than hitting the API
+  if (account.needsReconnection) {
+    res.status(401).json({ error: "TOKEN_EXPIRED", message: "Tu token de Instagram expiró. Reconecta tu cuenta." });
+    return;
+  }
+
   const queryParsed = GetInstagramPostsQueryParams.safeParse(req.query);
   const limit = queryParsed.success ? (queryParsed.data.limit ?? 20) : 20;
 
@@ -267,11 +357,16 @@ router.get("/instagram/posts", async (req, res): Promise<void> => {
 
   const posts = await Promise.all(
     media.map(async (m: { id: string; media_type: string; media_url?: string; thumbnail_url?: string; permalink?: string; caption?: string; like_count: number; comments_count: number; timestamp: string }) => {
-      const insights = await getMediaInsights(account.accessToken, m.id, m.media_type);
+      const result = await getMediaInsights(account.accessToken, m.id, m.media_type);
+      const insights = result.values;
       const reach = insights.reach ?? null;
       const views = insights.views ?? null;
       const engagements = (m.like_count ?? 0) + (m.comments_count ?? 0) + (insights.saved ?? 0);
       const engagementRate = reach ? (engagements / reach) * 100 : null;
+
+      // Surface account-level insight errors so the frontend can warn the user
+      const insightsError: string | null = (result.error && result.error !== "not_found") ? result.error : null;
+
       return {
         id: m.id,
         media_type: m.media_type,
@@ -285,6 +380,7 @@ router.get("/instagram/posts", async (req, res): Promise<void> => {
         plays: views,
         engagement_rate: engagementRate,
         timestamp: m.timestamp,
+        insights_error: insightsError,
       };
     })
   );

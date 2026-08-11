@@ -57,7 +57,9 @@ export const HandleInstagramCallbackResponse = zod.object({
   "profile_picture_url": zod.string().nullish(),
   "followers_count": zod.number(),
   "media_count": zod.number(),
-  "connected_at": zod.string()
+  "connected_at": zod.string(),
+  /** "BUSINESS", "MEDIA_CREATOR", or "PERSONAL". Personal accounts cannot use business scopes. */
+  "account_type": zod.string().nullish()
 })
 
 
@@ -73,7 +75,13 @@ export const GetInstagramAccountResponse = zod.object({
   "profile_picture_url": zod.string().nullish(),
   "followers_count": zod.number(),
   "media_count": zod.number(),
-  "connected_at": zod.string()
+  "connected_at": zod.string(),
+  /** ISO timestamp of when the long-lived token expires (~60 days after connection). */
+  "token_expires_at": zod.string().nullish(),
+  /** True when a token refresh has failed and the user must reconnect. */
+  "needs_reconnection": zod.boolean().nullish(),
+  /** "BUSINESS", "MEDIA_CREATOR", or "PERSONAL". */
+  "account_type": zod.string().nullish()
 }).optional()
 })
 
@@ -144,7 +152,9 @@ export const GetInstagramPostsResponseItem = zod.object({
   "impressions": zod.number().nullish(),
   "plays": zod.number().nullish(),
   "engagement_rate": zod.number().nullish(),
-  "timestamp": zod.string()
+  "timestamp": zod.string(),
+  /** Set when insights could not be fetched. "token_expired" | "permission_denied" | "rate_limited" | "not_found" | "unknown" */
+  "insights_error": zod.string().nullish()
 })
 export const GetInstagramPostsResponse = zod.array(GetInstagramPostsResponseItem)
 

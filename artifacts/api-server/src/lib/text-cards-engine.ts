@@ -136,7 +136,7 @@ async function analyzeScriptForCards(
   const openai = makeOpenAIClient(openaiApiKey);
 
   const resp = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
+    model: "gpt-5.4-mini",
     messages: [
       { role: "system",  content: SYSTEM_PROMPT },
       { role: "user",    content: `Script:\n\n${script}` },

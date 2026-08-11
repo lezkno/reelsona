@@ -649,7 +649,7 @@ async function analyzeScriptForZooms(
   const numbered = sentences.slice(0, cap).map((s, i) => `${i}: ${s}`).join("\n");
 
   const { choices } = await client.chat.completions.create({
-    model:       "gpt-4o-mini",
+    model:       "gpt-5.4-mini",
     temperature: 0,
     max_tokens:  80,
     messages: [

@@ -63,6 +63,12 @@ export interface InstagramAccount {
   followers_count: number;
   media_count: number;
   connected_at: string;
+  /** ISO timestamp of when the long-lived token expires (~60 days). @nullable */
+  token_expires_at?: string | null;
+  /** True when a token refresh has failed and the user must reconnect. @nullable */
+  needs_reconnection?: boolean | null;
+  /** "BUSINESS", "MEDIA_CREATOR", or "PERSONAL". @nullable */
+  account_type?: string | null;
 }
 
 export interface InstagramAccountStatus {
@@ -100,6 +106,8 @@ export interface InstagramPost {
   /** @nullable */
   engagement_rate?: number | null;
   timestamp: string;
+  /** Set when insights could not be fetched. "token_expired" | "permission_denied" | "rate_limited" | "not_found" | "unknown". @nullable */
+  insights_error?: string | null;
 }
 
 export interface AuditResult {
