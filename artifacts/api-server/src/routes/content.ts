@@ -272,7 +272,8 @@ router.post("/content/plan/generate", async (req, res): Promise<void> => {
     postsPerDay,
     existingTopics,
     auditInsights ?? undefined,
-    strategyContext ?? undefined
+    strategyContext ?? undefined,
+    settings?.openaiApiKey,
   );
 
   // Server-side safety net: remove any topics the AI returned more than once
@@ -327,7 +328,7 @@ router.post("/content", async (req, res): Promise<void> => {
       getStrategyProfile().catch(() => null),
     ]);
     const strategyCtx = strategyProfile ? toStrategyContext(strategyProfile) : undefined;
-    const generated = await generateContentTopics(niche, keywords, tone, language, 1, 1, existingItems.map((i) => i.topic), auditInsights ?? undefined, strategyCtx ?? undefined);
+    const generated = await generateContentTopics(niche, keywords, tone, language, 1, 1, existingItems.map((i) => i.topic), auditInsights ?? undefined, strategyCtx ?? undefined, settings?.openaiApiKey);
     if (!generated[0]?.topic) {
       res.status(500).json({ error: "No se pudo generar el tema" });
       return;
@@ -406,7 +407,7 @@ router.post("/content/:id/suggest-topic", async (req, res): Promise<void> => {
     getStrategyProfile().catch(() => null),
   ]);
   const strategyCtxSuggest = strategyProfile ? toStrategyContext(strategyProfile) : undefined;
-  const [generated] = await generateContentTopics(niche, keywords, tone, language, 1, 1, existingTopics, auditInsights ?? undefined, strategyCtxSuggest ?? undefined);
+  const [generated] = await generateContentTopics(niche, keywords, tone, language, 1, 1, existingTopics, auditInsights ?? undefined, strategyCtxSuggest ?? undefined, settings?.openaiApiKey);
   if (!generated?.topic) { res.status(500).json({ error: "No se pudo generar el tema" }); return; }
 
   res.json({ topic: generated.topic });
