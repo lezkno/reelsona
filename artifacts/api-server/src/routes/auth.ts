@@ -147,7 +147,7 @@ router.post("/auth/forgot-password", async (req: Request, res: Response): Promis
       updatedAt: new Date(),
     }).where(eq(users.id, user.id));
 
-    const resetUrl = `${getAppUrl()}/content-pilot/reset-password?token=${token}`;
+    const resetUrl = `${getAppUrl()}/reset-password?token=${token}`;
     sendEmail({ to: user.email, ...passwordResetEmail(user.fullName ?? user.username, resetUrl) }).catch(() => {});
     res.json({ ok: true });
   } catch { res.status(500).json({ error: "Error interno" }); }
