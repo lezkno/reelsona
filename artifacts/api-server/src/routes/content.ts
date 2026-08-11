@@ -429,6 +429,12 @@ router.post("/content/script", async (req, res): Promise<void> => {
     nicheDescription: settings?.nicheDescription,
     topicKeywords: (settings?.topicKeywords as string[] | null) ?? undefined,
     openaiApiKey: settings?.openaiApiKey,
+    offer: settings?.offer,
+    idealAudience: settings?.idealAudience,
+    uniqueValueProp: settings?.uniqueValueProp,
+    voiceStyle: settings?.voiceStyle,
+    commonObjections: settings?.commonObjections,
+    customCta: settings?.customCta,
   });
 
   res.json(

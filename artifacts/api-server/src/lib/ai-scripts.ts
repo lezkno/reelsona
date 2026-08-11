@@ -218,6 +218,9 @@ async function generateHookCandidates(
   openaiApiKey?: string | null,
   nicheDescription?: string | null,
   topicKeywords?: string[],
+  offer?: string | null,
+  idealAudience?: string | null,
+  voiceStyle?: string | null,
 ): Promise<{ candidates: string[]; winner: string; selectionReason: string }> {
   const client = makeOpenAIClient(openaiApiKey);
 
@@ -227,6 +230,9 @@ async function generateHookCandidates(
 
   const nicheContext = [
     nicheDescription ? `Descripción del creador: ${nicheDescription}` : "",
+    offer ? `Oferta del creador: ${offer}` : "",
+    idealAudience ? `Audiencia ideal: ${idealAudience}` : "",
+    voiceStyle ? `Estilo de voz: ${voiceStyle}` : "",
     topicKeywords?.length ? `Palabras clave del creador: ${topicKeywords.join(", ")}` : "",
   ].filter(Boolean).join("\n");
 
@@ -315,6 +321,12 @@ export async function generateScript(
     openaiApiKey?: string | null;
     nicheDescription?: string | null;
     topicKeywords?: string[];
+    offer?: string | null;
+    idealAudience?: string | null;
+    uniqueValueProp?: string | null;
+    voiceStyle?: string | null;
+    commonObjections?: string | null;
+    customCta?: string | null;
   }
 ): Promise<ScriptOutput> {
   const client = makeOpenAIClient(options?.openaiApiKey);
@@ -332,6 +344,7 @@ export async function generateScript(
     const hookResult = await generateHookCandidates(
       topic, niche, tone, language, options?.auditInsights, options?.openaiApiKey,
       options?.nicheDescription, options?.topicKeywords,
+      options?.offer, options?.idealAudience, options?.voiceStyle,
     );
     hookWinner = hookResult.winner;
     hookCandidatesList = hookResult.candidates;
@@ -357,12 +370,27 @@ export async function generateScript(
     options?.topicKeywords?.length ? `- Palabras clave del creador: ${options.topicKeywords.join(", ")}` : "",
   ].filter(Boolean).join("\n");
 
+  const creatorBrainLines = [
+    options?.offer            ? `- Oferta del creador: ${options.offer}` : "",
+    options?.idealAudience    ? `- Audiencia ideal: ${options.idealAudience}` : "",
+    options?.uniqueValueProp  ? `- Propuesta de valor única: ${options.uniqueValueProp}` : "",
+    options?.voiceStyle       ? `- Estilo de comunicación y voz: ${options.voiceStyle}` : "",
+    options?.commonObjections ? `- Objeciones frecuentes de la audiencia (úsalas para anticipar dudas en el guion): ${options.commonObjections}` : "",
+  ].filter(Boolean);
+  const creatorBrainContext = creatorBrainLines.length
+    ? `\nCONTEXTO DEL CREADOR — usá esta información para personalizar el guion con su voz, oferta y audiencia real:\n${creatorBrainLines.join("\n")}\n`
+    : "";
+
+  const ctaInstruction = options?.customCta
+    ? `2. La ÚLTIMA oración del guion DEBE ser EXACTAMENTE esta frase del creador (no la modifiques, no la parafrasees, úsala tal cual):\n   "${options.customCta}"`
+    : `2. La ÚLTIMA oración del guion SIEMPRE debe ser una de estas frases — elige UNA distinta cada vez (varía, no repitas siempre la misma):\n${ctaList}`;
+
   const prompt = `${EDITORIAL_BASE}
 
 ${TALKING_HEAD_CONSTRAINT}
 
 ${getLanguageInstruction(language)}
-${criterionInstruction}${auditContext}
+${criterionInstruction}${auditContext}${creatorBrainContext}
 Crea un guion de video para un Reel de Instagram con estas especificaciones:
 - Nicho: ${niche}
 - Tema: ${topic}
@@ -373,8 +401,7 @@ ${nicheContext}
 ${hookInstruction}
 REGLAS OBLIGATORIAS para el campo "script":
 1. El guion DEBE terminar con una llamada a la acción clara y directa hablada por el avatar.
-2. La ÚLTIMA oración del guion SIEMPRE debe ser una de estas frases — elige UNA distinta cada vez (varía, no repitas siempre la misma):
-${ctaList}
+${ctaInstruction}
 3. El hook debe ser la primera frase del guion (ya incluida dentro de "script").
 4. Sin indicaciones de escena, sin corchetes, sin asteriscos — solo texto hablado corrido.
 5. El tono debe sentirse conversacional, no como un comercial.

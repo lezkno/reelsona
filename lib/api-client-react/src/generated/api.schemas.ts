@@ -599,6 +599,18 @@ export interface Settings {
   brand_palette?: string[] | null;
   /** Whether the user has saved their own OpenAI API key */
   openai_api_key_set?: boolean;
+  /** What the creator offers (product/service/course) */
+  offer?: string | null;
+  /** Ideal audience description */
+  ideal_audience?: string | null;
+  /** Unique value proposition */
+  unique_value_prop?: string | null;
+  /** Communication style and voice traits */
+  voice_style?: string | null;
+  /** Common audience objections and how to handle them */
+  common_objections?: string | null;
+  /** Custom CTA phrase the avatar says at the end of every video */
+  custom_cta?: string | null;
 }
 
 export type SettingsInputTone = typeof SettingsInputTone[keyof typeof SettingsInputTone];
@@ -636,6 +648,12 @@ export interface SettingsInput {
   brand_palette?: string[] | null;
   /** Set or clear the user's own OpenAI API key (null = remove) */
   openai_api_key?: string | null;
+  offer?: string | null;
+  ideal_audience?: string | null;
+  unique_value_prop?: string | null;
+  voice_style?: string | null;
+  common_objections?: string | null;
+  custom_cta?: string | null;
 }
 
 export type CaptionPresetHighlightMode = typeof CaptionPresetHighlightMode[keyof typeof CaptionPresetHighlightMode];

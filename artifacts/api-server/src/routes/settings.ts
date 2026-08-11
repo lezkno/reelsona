@@ -35,6 +35,12 @@ function mapSettings(s: typeof settingsTable.$inferSelect) {
     brand_accent_color: s.brandAccentColor ?? null,
     brand_palette: s.brandPaletteColors ?? null,
     openai_api_key_set: !!s.openaiApiKey,
+    offer: s.offer ?? null,
+    ideal_audience: s.idealAudience ?? null,
+    unique_value_prop: s.uniqueValueProp ?? null,
+    voice_style: s.voiceStyle ?? null,
+    common_objections: s.commonObjections ?? null,
+    custom_cta: s.customCta ?? null,
   };
 }
 
@@ -140,6 +146,12 @@ router.put("/settings", async (req, res): Promise<void> => {
   if (d.brand_accent_color !== undefined) updates.brandAccentColor = d.brand_accent_color ?? null;
   if (d.brand_palette !== undefined) updates.brandPaletteColors = d.brand_palette ?? null;
   if (d.openai_api_key !== undefined) updates.openaiApiKey = d.openai_api_key ?? null;
+  if (d.offer !== undefined) updates.offer = d.offer ?? null;
+  if (d.ideal_audience !== undefined) updates.idealAudience = d.ideal_audience ?? null;
+  if (d.unique_value_prop !== undefined) updates.uniqueValueProp = d.unique_value_prop ?? null;
+  if (d.voice_style !== undefined) updates.voiceStyle = d.voice_style ?? null;
+  if (d.common_objections !== undefined) updates.commonObjections = d.common_objections ?? null;
+  if (d.custom_cta !== undefined) updates.customCta = d.custom_cta ?? null;
 
   let settings;
   if (existing) {

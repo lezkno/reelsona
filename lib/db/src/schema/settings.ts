@@ -30,6 +30,18 @@ export const settingsTable = pgTable("settings", {
   brandPaletteColors: text("brand_palette_colors").array(),
   /** User's own OpenAI API key — when set, bypasses the shared platform key */
   openaiApiKey: text("openai_api_key"),
+  /** What the creator offers (product / service / course) */
+  offer: text("offer"),
+  /** Ideal audience description */
+  idealAudience: text("ideal_audience"),
+  /** Unique value proposition */
+  uniqueValueProp: text("unique_value_prop"),
+  /** Communication style and voice traits */
+  voiceStyle: text("voice_style"),
+  /** Common objections from the audience and how to handle them */
+  commonObjections: text("common_objections"),
+  /** Custom CTA phrase the avatar says at the end of every video */
+  customCta: text("custom_cta"),
 });
 
 export const insertSettingsSchema = createInsertSchema(settingsTable).omit({ id: true });

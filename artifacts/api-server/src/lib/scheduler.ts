@@ -396,6 +396,12 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
         openaiApiKey: settings.openaiApiKey,
         nicheDescription: settings.nicheDescription,
         topicKeywords: (settings.topicKeywords as string[] | null) ?? undefined,
+        offer: settings.offer,
+        idealAudience: settings.idealAudience,
+        uniqueValueProp: settings.uniqueValueProp,
+        voiceStyle: settings.voiceStyle,
+        commonObjections: settings.commonObjections,
+        customCta: settings.customCta,
       },
     );
 
