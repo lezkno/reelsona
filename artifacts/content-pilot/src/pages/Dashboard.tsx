@@ -373,9 +373,15 @@ export default function Dashboard() {
                     </div>
                   )}
                   <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-3 text-white">
-                    <div className="flex items-center gap-3 text-xs font-medium">
+                    <div className="flex items-center gap-2 text-xs font-medium flex-wrap">
                       <span className="flex items-center gap-1"><Heart className="w-3.5 h-3.5" /> {post.like_count}</span>
                       <span className="flex items-center gap-1"><MessageCircle className="w-3.5 h-3.5" /> {post.comments_count}</span>
+                      {post.plays != null && (
+                        <span className="flex items-center gap-1"><Play className="w-3.5 h-3.5" /> {post.plays.toLocaleString()}</span>
+                      )}
+                      {post.reach != null && (
+                        <span className="flex items-center gap-1"><Map className="w-3.5 h-3.5" /> {post.reach.toLocaleString()}</span>
+                      )}
                       <ExternalLink className="w-3.5 h-3.5 ml-auto opacity-0 group-hover:opacity-100 transition-opacity" />
                     </div>
                     {post.caption && (

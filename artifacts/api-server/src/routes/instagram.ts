@@ -264,20 +264,30 @@ router.get("/instagram/posts", async (req, res): Promise<void> => {
   const limit = queryParsed.success ? (queryParsed.data.limit ?? 20) : 20;
 
   const media = await getMediaList(account.accessToken, account.igUserId, limit);
-  const posts = media.map((m: { id: string; media_type: string; media_url?: string; thumbnail_url?: string; permalink?: string; caption?: string; like_count: number; comments_count: number; timestamp: string }) => ({
-    id: m.id,
-    media_type: m.media_type,
-    thumbnail_url: m.thumbnail_url ?? m.media_url ?? null,
-    permalink: m.permalink ?? null,
-    caption: m.caption ?? null,
-    like_count: m.like_count ?? 0,
-    comments_count: m.comments_count ?? 0,
-    reach: null,
-    impressions: null,
-    plays: null,
-    engagement_rate: null,
-    timestamp: m.timestamp,
-  }));
+
+  const posts = await Promise.all(
+    media.map(async (m: { id: string; media_type: string; media_url?: string; thumbnail_url?: string; permalink?: string; caption?: string; like_count: number; comments_count: number; timestamp: string }) => {
+      const insights = await getMediaInsights(account.accessToken, m.id, m.media_type);
+      const reach = insights.reach ?? null;
+      const views = insights.views ?? null;
+      const engagements = (m.like_count ?? 0) + (m.comments_count ?? 0) + (insights.saved ?? 0);
+      const engagementRate = reach ? (engagements / reach) * 100 : null;
+      return {
+        id: m.id,
+        media_type: m.media_type,
+        thumbnail_url: m.thumbnail_url ?? m.media_url ?? null,
+        permalink: m.permalink ?? null,
+        caption: m.caption ?? null,
+        like_count: m.like_count ?? 0,
+        comments_count: m.comments_count ?? 0,
+        reach,
+        impressions: views,
+        plays: views,
+        engagement_rate: engagementRate,
+        timestamp: m.timestamp,
+      };
+    })
+  );
 
   res.json(GetInstagramPostsResponse.parse(posts));
 });
