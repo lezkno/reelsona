@@ -1,10 +1,14 @@
 ---
 name: Punch Zoom FFmpeg implementation
-description: How the punch-zoom video effect works, why zoompan was abandoned, and the SRT word-mapping bug fix.
+description: How the punch-zoom video effect works, why zoompan was abandoned, and the SRT word-mapping bug fix. Also applies to B-roll engine.
 ---
 
 ## Rule
-Implement punch zoom via **trim + scale + crop + concat**, NOT via zoompan with expressions.
+**Never use `zoompan` with dynamic expressions via execFile on this server.** It is broken in FFmpeg 6.1.2 (Replit NixOS). This applies to ALL video effects, including punch zoom AND B-roll Ken Burns animations.
+
+- Punch zoom: use **trim + scale + crop + concat**.
+- B-roll overlay: use **scale + crop** (center crop to exact video dims), no motion. Fade in/out is enough.
+- Any future "Ken Burns" or camera-motion effect must avoid zoompan entirely.
 
 ## Why
 In FFmpeg 6.1.2 (as installed on Replit via NixOS), `zoompan` with dynamic expressions fails:

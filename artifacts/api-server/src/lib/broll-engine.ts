@@ -56,7 +56,6 @@ const FADE_DUR        = 0.3;   // seconds for fade in and fade out
 const MIN_GAP_SEC     = 10;    // minimum gap between B-roll segments
 const MIN_START_SEC   = 4;     // don't start in the first N seconds (hook / opening)
 const MIN_END_MARGIN  = 5;     // don't start within last N seconds
-const BROLL_FPS       = 30;    // output framerate for Ken Burns animation
 
 /**
  * Safety suffix appended to every image prompt.
@@ -80,61 +79,6 @@ function estimateHoldDuration(sentence: string): number {
   if (wordCount <= 8)  return 2.5; // short sentence — quick cut
   if (wordCount <= 14) return 3.5; // medium sentence
   return 4.5;                       // long/dense sentence — more time to absorb
-}
-
-// ── Ken Burns motion ──────────────────────────────────────────────────────────
-
-type MotionVariant = "zoom-in" | "zoom-out" | "pan-right" | "pan-left";
-const MOTION_SEQUENCE: MotionVariant[] = ["zoom-in", "pan-right", "zoom-out", "pan-left"];
-
-/**
- * Build a zoompan filter string for a gentle Ken Burns effect.
- * The animation completes over segDurationSec and then holds at the endpoint.
- * Input image must be pre-scaled to ≥1.15× output dims (see composeBRoll).
- */
-function buildKenBurnsFilter(
-  motion: MotionVariant,
-  videoWidth: number,
-  videoHeight: number,
-  segDurationSec: number,
-  totalLoopSec: number,
-): string {
-  const segF   = Math.max(4, Math.round(segDurationSec * BROLL_FPS));
-  const totalF = Math.max(segF + 1, Math.round((totalLoopSec + 1) * BROLL_FPS));
-  const s      = `${videoWidth}x${videoHeight}`;
-
-  switch (motion) {
-    case "zoom-in":
-      // Slow push in: zoom 1.0 → 1.06, centered, then hold at 1.06
-      return (
-        `zoompan=z='min(1+0.06*on/${segF}\\,1.06)':` +
-        `x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':` +
-        `d=${totalF}:s=${s}:fps=${BROLL_FPS}`
-      );
-    case "zoom-out":
-      // Slow pull out: zoom 1.06 → 1.0, centered, then hold at 1.0
-      return (
-        `zoompan=z='max(1.06-0.06*on/${segF}\\,1)':` +
-        `x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':` +
-        `d=${totalF}:s=${s}:fps=${BROLL_FPS}`
-      );
-    case "pan-right":
-      // Gentle left-to-right pan at z=1.08, then hold at right endpoint
-      return (
-        `zoompan=z='1.08':` +
-        `x='min((iw-iw/zoom)*on/${segF}\\,iw-iw/zoom)':` +
-        `y='ih/2-(ih/zoom/2)':` +
-        `d=${totalF}:s=${s}:fps=${BROLL_FPS}`
-      );
-    case "pan-left":
-      // Gentle right-to-left pan at z=1.08, then hold at left endpoint
-      return (
-        `zoompan=z='1.08':` +
-        `x='max((iw-iw/zoom)*(1-on/${segF})\\,0)':` +
-        `y='ih/2-(ih/zoom/2)':` +
-        `d=${totalF}:s=${s}:fps=${BROLL_FPS}`
-      );
-  }
 }
 
 // ── Step 0: Visual direction generation ──────────────────────────────────────
@@ -471,12 +415,14 @@ export async function generateBRollImages(
  * Composite B-roll images onto the source video.
  *
  * Each image:
- *   • Is scaled to 1.15× video dimensions (provides room for Ken Burns zoom/pan)
- *   • Receives a Ken Burns motion (zoom-in / zoom-out / pan-right / pan-left, cycling)
+ *   • Is scaled+cropped to exact video dimensions (center crop)
  *   • Is converted to yuva420p (alpha channel required for fade)
  *   • Fades in over FADE_DUR seconds, holds, then fades out over FADE_DUR seconds
  *   • Is overlaid on top of the base video during its time window
  *   • Audio track is copied unchanged
+ *
+ * Note: zoompan (Ken Burns) is intentionally avoided — it is broken in FFmpeg 6.1.2
+ * via execFile and causes silent compositing failures. Simple scale+crop is reliable.
  *
  * Returns the path to the composited video, or sourcePath if compositing failed.
  */
@@ -492,18 +438,13 @@ export async function composeBRoll(
 
   const outputPath = path.join(tmpDir, "broll_composited.mp4");
 
-  // Pre-scale target: 1.15× video dims (rounded to even, required by libx264)
-  // This gives zoompan room to zoom/pan without hitting the image boundary.
-  const kbW = Math.ceil(videoWidth * 1.15 / 2) * 2;
-  const kbH = Math.ceil(videoHeight * 1.15 / 2) * 2;
-
   // Build input args: one -loop 1 -t <duration> -i <path> per image
   const inputArgs: string[] = [];
   for (const asset of assets) {
     inputArgs.push("-loop", "1", "-t", String(Math.ceil(videoDuration + 1)), "-i", asset.tmpPath);
   }
 
-  // Build filter_complex
+  // Build filter_complex — simple scale+crop (no zoompan; zoompan is broken in FFmpeg 6.1.2 via execFile)
   const filterParts: string[] = [];
   let prevLabel = "[0:v]";
 
@@ -513,27 +454,21 @@ export async function composeBRoll(
     const bvLabel  = `[bv${i}]`;
     const outLabel = i === assets.length - 1 ? "[vout]" : `[ov${i}]`;
 
-    const fadeInSt   = segment.startSec.toFixed(3);
-    const fadeOutSt  = Math.max(
+    const fadeInSt  = segment.startSec.toFixed(3);
+    const fadeOutSt = Math.max(
       segment.startSec + FADE_DUR,
       segment.startSec + segment.durationSec - FADE_DUR,
     ).toFixed(3);
 
-    // Ken Burns variant cycles through the sequence
-    const motion    = MOTION_SEQUENCE[i % MOTION_SEQUENCE.length];
-    const kenBurns  = buildKenBurnsFilter(motion, videoWidth, videoHeight, segment.durationSec, videoDuration);
-
     filterParts.push(
       `[${inputIdx}:v]` +
-        // 1. Scale to 1.15× dims (cover crop) — gives zoompan room to work
-        `scale=${kbW}:${kbH}:force_original_aspect_ratio=increase,` +
-        `crop=${kbW}:${kbH},` +
+        // 1. Scale to cover exact video dims, then center-crop
+        `scale=${videoWidth}:${videoHeight}:force_original_aspect_ratio=increase,` +
+        `crop=${videoWidth}:${videoHeight},` +
         `setsar=1,` +
-        // 2. Ken Burns motion — outputs exactly videoWidth×videoHeight
-        `${kenBurns},` +
-        // 3. Alpha channel for fade
+        // 2. Alpha channel for fade
         `format=yuva420p,` +
-        // 4. Fade in / out
+        // 3. Fade in / out
         `fade=t=in:st=${fadeInSt}:d=${FADE_DUR}:alpha=1,` +
         `fade=t=out:st=${fadeOutSt}:d=${FADE_DUR}:alpha=1` +
         `${bvLabel}`,
@@ -546,7 +481,7 @@ export async function composeBRoll(
 
   logger.info(
     { assetCount: assets.length, videoWidth, videoHeight, videoDuration },
-    "[BRoll] Running FFmpeg B-roll compositing with Ken Burns...",
+    "[BRoll] Running FFmpeg B-roll compositing...",
   );
 
   try {
