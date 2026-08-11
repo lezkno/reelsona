@@ -664,6 +664,10 @@ interface CardSlotConfig {
   headline?: string   // stat
   subtext?: string    // stat
   templateId?: string // visual style
+  /** Percentage of video duration where this card starts (0–100). Defaults: hook=6, stat=44, cta=81 */
+  timingPercent?: number
+  /** How long the card stays visible in seconds (default: 4) */
+  durationSec?: number
 }
 
 interface MultiCardConfig {
@@ -675,9 +679,9 @@ interface MultiCardConfig {
 
 const DEFAULT_MULTI_CARDS: MultiCardConfig = {
   version: 2,
-  hook: { enabled: false, useAi: false, text: "",     templateId: "dark" },
-  stat: { enabled: false, useAi: false, headline: "", subtext: "", templateId: "double-line" },
-  cta:  { enabled: false, useAi: false, text: "",     templateId: "accent-bar" },
+  hook: { enabled: false, useAi: false, text: "",     templateId: "dark",        timingPercent: 6,  durationSec: 4 },
+  stat: { enabled: false, useAi: false, headline: "", subtext: "", templateId: "double-line", timingPercent: 44, durationSec: 4 },
+  cta:  { enabled: false, useAi: false, text: "",     templateId: "accent-bar",  timingPercent: 81, durationSec: 4 },
 }
 
 // ── Card style templates (mirrors CARD_STYLE_TEMPLATES in text-cards-engine) ─
@@ -726,7 +730,7 @@ function CardSlotPanel({
   type,
   label,
   description,
-  timingLabel,
+  defaultTimingPercent,
   slot,
   onChange,
   disabled,
@@ -734,12 +738,14 @@ function CardSlotPanel({
   type: "hook" | "stat" | "cta"
   label: string
   description: string
-  timingLabel: string
+  /** Default timing percentage shown in the badge before the user customizes */
+  defaultTimingPercent: number
   slot: CardSlotConfig
   onChange: (s: CardSlotConfig) => void
   disabled?: boolean
 }) {
   const patch = (p: Partial<CardSlotConfig>) => onChange({ ...slot, ...p })
+  const effectivePercent = slot.timingPercent ?? defaultTimingPercent
 
   return (
     <Card className={`transition-opacity ${slot.enabled ? "" : "opacity-60"}`}>
@@ -749,7 +755,7 @@ function CardSlotPanel({
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="font-semibold text-sm">{label}</span>
-              <span className="text-[10px] text-muted-foreground bg-muted rounded px-1.5 py-0.5">{timingLabel} del video</span>
+              <span className="text-[10px] text-muted-foreground bg-muted rounded px-1.5 py-0.5">{effectivePercent}% del video</span>
             </div>
             <p className="text-xs text-muted-foreground mt-0.5 leading-snug">{description}</p>
           </div>
@@ -895,6 +901,38 @@ function CardSlotPanel({
                 </div>
               </>
             )}
+
+            {/* Timing controls */}
+            <div className="grid grid-cols-2 gap-3 pt-1 border-t">
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">
+                  Aparece en el&nbsp;<span className="text-foreground font-semibold">{slot.timingPercent ?? defaultTimingPercent}%</span> del video
+                </Label>
+                <Slider
+                  min={1} max={95} step={1}
+                  value={[slot.timingPercent ?? defaultTimingPercent]}
+                  onValueChange={([v]) => patch({ timingPercent: v })}
+                  disabled={disabled}
+                />
+                <div className="flex justify-between text-[10px] text-muted-foreground">
+                  <span>1% — inicio</span><span>95% — final</span>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">
+                  Duración:&nbsp;<span className="text-foreground font-semibold">{slot.durationSec ?? 4}s</span>
+                </Label>
+                <Slider
+                  min={1} max={10} step={0.5}
+                  value={[slot.durationSec ?? 4]}
+                  onValueChange={([v]) => patch({ durationSec: v })}
+                  disabled={disabled}
+                />
+                <div className="flex justify-between text-[10px] text-muted-foreground">
+                  <span>1s</span><span>10s</span>
+                </div>
+              </div>
+            </div>
           </>
         )}
       </CardContent>
@@ -2161,10 +2199,10 @@ export default function CaptionStudio() {
       )}
 
       {/* ── Video Effects ─────────────────────────────────────────────────── */}
-      <Card className={`border-2 ${(videoEffects.zoom || videoEffects.ai_broll) ? "border-primary/40 bg-primary/5" : "border-dashed"}`}>
+      <Card className={`border-2 ${(videoEffects.zoom || videoEffects.ai_broll || videoEffects.text_cards) ? "border-primary/40 bg-primary/5" : "border-dashed"}`}>
         <CardContent className="p-5 space-y-4">
           <div className="flex items-start gap-3">
-            <div className={`mt-0.5 w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${(videoEffects.zoom || videoEffects.ai_broll) ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
+            <div className={`mt-0.5 w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${(videoEffects.zoom || videoEffects.ai_broll || videoEffects.text_cards) ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
               <Zap className="w-5 h-5" />
             </div>
             <div>
@@ -2201,10 +2239,96 @@ export default function CaptionStudio() {
                 className="shrink-0 mt-0.5"
               />
             </div>
+            {/* Text Cards */}
+            <div className={`flex items-start gap-3 rounded-xl border px-4 py-3 sm:col-span-2 transition-colors ${videoEffects.text_cards ? "bg-primary/5 border-primary/30" : "bg-muted/30"}`}>
+              <div className="mt-0.5 flex-1 min-w-0">
+                <p className="text-sm font-semibold leading-tight flex items-center gap-1.5">
+                  <Type className="w-3.5 h-3.5 text-primary" />
+                  Text Cards
+                  {activeCardCount > 0 && (
+                    <span className="ml-1 text-[10px] font-semibold bg-primary/15 text-primary rounded-full px-2 py-0.5">
+                      {activeCardCount} activa{activeCardCount !== 1 ? "s" : ""}
+                    </span>
+                  )}
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5 leading-snug">
+                  {videoEffects.text_cards
+                    ? "Overlays de texto superpuestos al video. Configura las plantillas abajo."
+                    : "Overlays de texto sobre el video — hook, estadística, llamada a la acción"}
+                </p>
+              </div>
+              <Switch
+                checked={videoEffects.text_cards}
+                onCheckedChange={(v) => handleToggleEffect("text_cards", v)}
+                disabled={updateSettings.isPending || isVideoProcessing}
+                className="shrink-0 mt-0.5"
+              />
+            </div>
             {/* Auto cover — hidden until cover generation is production-ready */}
           </div>
         </CardContent>
       </Card>
+
+      {/* ── Card Templates (visible when text_cards effect is enabled) ─────── */}
+      {videoEffects.text_cards && (
+        <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-display font-bold">Plantillas de Cards</h2>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                Activa y configura cada tipo de card. La IA solo se usa para los campos marcados con&nbsp;<Sparkles className="w-3 h-3 inline text-violet-500" />.
+                Si no hay plantillas activas, el sistema analiza el guion con IA para decidir las cards.
+              </p>
+            </div>
+            <Button
+              size="sm"
+              onClick={saveCardConfig}
+              disabled={savingCards || isVideoProcessing}
+              className="gap-2 shrink-0"
+            >
+              {savingCards ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
+              {savingCards ? "Guardando…" : "Guardar cards"}
+            </Button>
+          </div>
+
+          <div className="space-y-3">
+            <CardSlotPanel
+              type="hook"
+              label="Hook"
+              description="Aparece al inicio para captar la atención — pregunta o afirmación impactante"
+              defaultTimingPercent={6}
+              slot={localCards.hook}
+              onChange={(s) => setLocalCards((prev) => ({ ...prev, hook: s }))}
+              disabled={isVideoProcessing}
+            />
+            <CardSlotPanel
+              type="stat"
+              label="Estadística"
+              description="Cifra o dato que refuerza el mensaje central del video"
+              defaultTimingPercent={44}
+              slot={localCards.stat}
+              onChange={(s) => setLocalCards((prev) => ({ ...prev, stat: s }))}
+              disabled={isVideoProcessing}
+            />
+            <CardSlotPanel
+              type="cta"
+              label="CTA"
+              description="Llamada a la acción al final — seguir, guardar o compartir"
+              defaultTimingPercent={81}
+              slot={localCards.cta}
+              onChange={(s) => setLocalCards((prev) => ({ ...prev, cta: s }))}
+              disabled={isVideoProcessing}
+            />
+          </div>
+
+          {/* Unsaved-changes hint */}
+          {JSON.stringify(localCards) !== JSON.stringify(savedCards) && (
+            <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+              <span>⚠</span> Hay cambios sin guardar — presioná "Guardar cards" para aplicarlos.
+            </p>
+          )}
+        </div>
+      )}
 
         </div>{/* end col-span-4 */}
 
@@ -2236,6 +2360,36 @@ export default function CaptionStudio() {
           <p className="text-[10px] text-muted-foreground text-center">
             <span className="text-violet-500 font-medium">WYSIWYG</span> — lo que ves se renderiza.
           </p>
+
+          {/* Card overlay preview — shown when text_cards is on and at least one slot is enabled */}
+          {videoEffects.text_cards && previewCard && (
+            <div className="mt-4 space-y-2">
+              <p className="text-[11px] font-semibold text-center text-muted-foreground uppercase tracking-widest">
+                Card preview
+              </p>
+              <PhoneFrame>
+                <div className="relative w-full h-full bg-zinc-900">
+                  {/* Simulated video background */}
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="text-zinc-600 text-[9px] text-center select-none opacity-50">
+                      <div className="text-2xl mb-1">🎬</div>
+                      <div>Video</div>
+                    </div>
+                  </div>
+                  {/* Card overlay positioned at 54% height (engine default) */}
+                  <div
+                    className="absolute left-2 right-2"
+                    style={{ top: "48%" }}
+                  >
+                    <CardOverlayPreview card={previewCard} />
+                  </div>
+                </div>
+              </PhoneFrame>
+              <p className="text-[10px] text-muted-foreground text-center">
+                Aproximación CSS del estilo.
+              </p>
+            </div>
+          )}
         </div>
 
       </div>{/* end 5-col grid */}

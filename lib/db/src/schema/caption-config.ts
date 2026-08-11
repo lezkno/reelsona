@@ -25,6 +25,10 @@ export interface CardSlotConfig {
   templateId?: string; // visual style id
   yPosition?: number;  // 0–1 fraction of video height for card center (default 0.54)
   fontScale?: number;  // font-size multiplier (default 1.0)
+  /** Percentage of video duration where this card starts (0–100). Defaults: hook=6, stat=44, cta=81 */
+  timingPercent?: number;
+  /** How long the card stays visible in seconds (default: 4) */
+  durationSec?: number;
 }
 
 /** Multi-card configuration — hook, stat and CTA each configured independently (v2 format). */

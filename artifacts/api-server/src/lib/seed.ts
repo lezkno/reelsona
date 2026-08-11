@@ -42,6 +42,15 @@ export async function seedAdminUser(): Promise<void> {
     // Migration 011: activation token columns (post-purchase "set your password" flow)
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS activation_token            TEXT",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS activation_token_expires_at TIMESTAMP",
+    // Card template column — stores the user's saved hook/stat/CTA card configuration (MultiCardConfig JSON)
+    "ALTER TABLE caption_config ADD COLUMN IF NOT EXISTS card_template JSONB",
+    // Business-profile columns on settings — used to personalize script generation prompts
+    "ALTER TABLE settings ADD COLUMN IF NOT EXISTS offer              TEXT",
+    "ALTER TABLE settings ADD COLUMN IF NOT EXISTS ideal_audience     TEXT",
+    "ALTER TABLE settings ADD COLUMN IF NOT EXISTS unique_value_prop  TEXT",
+    "ALTER TABLE settings ADD COLUMN IF NOT EXISTS voice_style        TEXT",
+    "ALTER TABLE settings ADD COLUMN IF NOT EXISTS common_objections  TEXT",
+    "ALTER TABLE settings ADD COLUMN IF NOT EXISTS custom_cta         TEXT",
   ];
   for (const stmt of alterations) {
     await db.execute(sql.raw(stmt));

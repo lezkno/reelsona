@@ -864,6 +864,7 @@ export async function runCaptionProcessing(
       videoEffects: videoEffects ?? undefined,
       visualSuggestions,
       openaiApiKey: captionSettings?.openaiApiKey,
+      cardTemplate: captionCfg.cardTemplate ?? undefined,
     });
 
     if (captionResult.url) {

@@ -52,6 +52,10 @@ export interface CardSlotConfig {
   headline?: string;   // stat
   subtext?: string;    // stat
   templateId?: string; // visual style (see CARD_STYLE_TEMPLATES)
+  /** Percentage of video duration where this card starts (0–100). Defaults: hook=6, stat=44, cta=81 */
+  timingPercent?: number;
+  /** How long the card stays visible in seconds (default: 4) */
+  durationSec?: number;
 }
 
 /** Multi-card configuration — hook, stat and CTA each configured independently (v2 format). */
@@ -787,10 +791,26 @@ export async function applyTextCards(
 
     // Build template map: card type → templateId
     const templateMap: Partial<Record<CardType, string>> = {};
+    // Build timing override map: card type → { fraction, durationSec }
+    const timingOverrides: Partial<Record<CardType, { fraction?: number; durationSec?: number }>> = {};
     if (cardConfig && "version" in cardConfig) {
       if (cardConfig.hook.templateId) templateMap.hook = cardConfig.hook.templateId;
       if (cardConfig.stat.templateId) templateMap.stat = cardConfig.stat.templateId;
       if (cardConfig.cta.templateId)  templateMap.cta  = cardConfig.cta.templateId;
+      // Per-slot timing overrides (user-defined)
+      const slots: Array<[CardType, typeof cardConfig.hook]> = [
+        ["hook", cardConfig.hook],
+        ["stat", cardConfig.stat],
+        ["cta",  cardConfig.cta],
+      ];
+      for (const [type, slot] of slots) {
+        if (slot.enabled) {
+          timingOverrides[type] = {
+            fraction:    slot.timingPercent !== undefined ? slot.timingPercent / 100 : undefined,
+            durationSec: slot.durationSec,
+          };
+        }
+      }
     }
 
     // ── Overlap prevention ────────────────────────────────────────────────────
@@ -823,10 +843,12 @@ export async function applyTextCards(
     }
 
     const candidates: CardCandidate[] = cards.map((card) => {
-      const fraction = useSingleCardOverride ? 0.80 : TIMING[card.type];
+      const override = timingOverrides[card.type];
+      const defaultFraction = useSingleCardOverride ? 0.80 : TIMING[card.type];
+      const fraction = override?.fraction ?? defaultFraction;
       const startSec = Math.max(1.5, videoDurationSec * fraction);
       const maxHold  = Math.max(FADE_DUR * 2 + 0.5, videoDurationSec - startSec - 1);
-      const holdSec  = Math.min(HOLD_SEC, maxHold);
+      const holdSec  = Math.min(override?.durationSec ?? HOLD_SEC, maxHold);
       const endSec   = startSec + holdSec;
       return { card, startSec, endSec };
     });

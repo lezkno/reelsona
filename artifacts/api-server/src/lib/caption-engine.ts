@@ -928,6 +928,8 @@ export async function applyCaptions(
     visualSuggestions?: string | null;
     /** User's own OpenAI API key — bypasses shared platform key when set */
     openaiApiKey?: string | null;
+    /** Saved card template — when set, skips AI analysis and uses the configured cards directly */
+    cardTemplate?: import("./text-cards-engine").MultiCardConfig | import("./text-cards-engine").SavedCardTemplate | null;
   }
 ): Promise<CaptionResult> {
   const subtitleUrl   = options?.subtitleUrl ?? null;
@@ -1097,7 +1099,7 @@ export async function applyCaptions(
         videoHeight,
         videoDuration,
         cardsTmpDir,
-        undefined,
+        options?.cardTemplate ?? undefined,
         options?.openaiApiKey,
       ));
       logger.info("[CaptionEngine] Text cards overlay done ✓");
