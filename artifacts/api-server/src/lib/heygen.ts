@@ -222,6 +222,74 @@ export async function listVoices(apiKey?: string): Promise<HeyGenVoice[]> {
   return voices;
 }
 
+// ── Available avatar IDs cache ────────────────────────────────────────────────
+// Rebuilt from HeyGen every 5 min.  Keyed with tp: prefix for photo looks so
+// callers can compare directly against selectedAvatarIds stored in the DB.
+let availableAvatarIdsCache: { ids: Set<string>; at: number } | null = null;
+const AVAILABLE_IDS_TTL = 5 * 60 * 1000;
+
+/**
+ * Return the full set of avatar/look IDs that currently exist in the user's
+ * HeyGen account.  IDs follow the same convention as selectedAvatarIds in the
+ * DB: photo-avatar looks are prefixed with "tp:", video-avatar looks are not.
+ *
+ * Result is cached for 5 minutes to avoid spamming HeyGen on every cycle.
+ * Pass forceRefresh=true to bypass the cache (e.g. after a confirmed deletion).
+ */
+export async function getAllAvailableAvatarIds(
+  apiKey?: string,
+  forceRefresh = false,
+): Promise<Set<string>> {
+  if (!forceRefresh && availableAvatarIdsCache && Date.now() - availableAvatarIdsCache.at < AVAILABLE_IDS_TTL) {
+    return availableAvatarIdsCache.ids;
+  }
+
+  const ids = new Set<string>();
+  try {
+    const client = getClient(apiKey);
+
+    // Standalone avatars (video avatars not part of a group)
+    const avatarsRes = await client.get("/v2/avatars");
+    for (const a of (avatarsRes.data?.data?.avatars ?? []) as HeyGenAvatar[]) {
+      if (a.avatar_id) ids.add(a.avatar_id);
+    }
+
+    // Avatar groups + their looks (covers both video and photo avatar groups)
+    const groupsRes = await client.get("/v2/avatar_group.list", { params: { include_public: false } });
+    const groups: HeyGenAvatarGroup[] = groupsRes.data?.data?.avatar_group_list ?? [];
+
+    await Promise.allSettled(
+      groups.map(async (group) => {
+        const looksRes = await client.get(`/v2/avatar_group/${group.id}/avatars`);
+        const looks: Record<string, unknown>[] = looksRes.data?.data?.avatar_list ?? [];
+        const isPhoto =
+          group.group_type === "PHOTO" || group.group_type === "GENERATED_PHOTO";
+        for (const look of looks) {
+          if (isPhoto) {
+            if (look["id"]) ids.add(`tp:${look["id"]}`);
+          } else {
+            // Video avatar looks: prefer avatar_id, fall back to id
+            if (look["avatar_id"]) ids.add(look["avatar_id"] as string);
+            else if (look["id"]) ids.add(look["id"] as string);
+          }
+        }
+      })
+    );
+
+    availableAvatarIdsCache = { ids, at: Date.now() };
+    logger.info({ count: ids.size }, "[HeyGen] Available avatar IDs refreshed");
+  } catch (err) {
+    logger.warn({ err }, "[HeyGen] getAllAvailableAvatarIds failed — keeping previous cache");
+    // Return whatever we collected so far (partial set preferred over nothing)
+  }
+  return ids;
+}
+
+/** Invalidate the available-avatar-IDs cache (call after a confirmed deletion). */
+export function invalidateAvatarIdsCache(): void {
+  availableAvatarIdsCache = null;
+}
+
 // Cache look engine eligibility for 30 minutes to avoid hammering the API
 const lookEngineCache = new Map<string, { engines: string[]; at: number }>();
 
@@ -239,7 +307,15 @@ export async function getLookSupportedEngines(lookId: string, apiKey?: string): 
     const engines: string[] = res.data?.data?.supported_api_engines ?? ["avatar_iv"];
     lookEngineCache.set(lookId, { engines, at: Date.now() });
     return engines;
-  } catch (err) {
+  } catch (err: unknown) {
+    const axiosErr = err as { response?: { status?: number; data?: unknown } };
+    const status = axiosErr.response?.status;
+    // 404 means the look/avatar was deleted from the HeyGen account — fail fast
+    // instead of silently falling back and sending an invalid avatar to /v3/videos.
+    if (status === 404) {
+      logger.error({ lookId, status }, "[HeyGen] Look not found (404) — avatar may have been deleted from HeyGen account");
+      throw new Error(`HeyGen avatar not found (${lookId}) — it may have been deleted from your HeyGen account`);
+    }
     logger.warn({ err, lookId }, "[HeyGen] Could not fetch look engines — defaulting to avatar_iv");
     return ["avatar_iv"];
   }
@@ -383,7 +459,23 @@ export async function generateVideo(params: GenerateVideoParams, apiKey?: string
     logger.info("[HeyGen v3] Captions requested — HeyGen will return subtitle_url in status");
   }
 
-  const res = await client.post("/v3/videos", payload);
+  logger.info({ payload: { ...payload, script: `[${String(payload.script).length} chars]` } }, "[HeyGen v3] Sending POST /v3/videos");
+  const res = await client.post("/v3/videos", payload).catch((err: unknown) => {
+    // Axios throws on 4xx/5xx — extract HeyGen's error body for diagnosis
+    const axiosErr = err as { response?: { status?: number; data?: unknown }; message?: string };
+    const heygenBody = axiosErr.response?.data;
+    const heygenStatus = axiosErr.response?.status;
+    logger.error(
+      { heygenStatus, heygenBody, payload: { ...payload, script: `[${String(payload.script).length} chars]` } },
+      "[HeyGen v3] POST /v3/videos failed"
+    );
+    const heygenMsg =
+      (heygenBody as { message?: string })?.message ??
+      (heygenBody as { error?: string })?.error ??
+      JSON.stringify(heygenBody);
+    throw new Error(`HeyGen ${heygenStatus ?? "error"}: ${heygenMsg}`);
+  });
+
   const videoId: string = res.data?.data?.id ?? res.data?.data?.video_id;
   if (!videoId) {
     logger.error({ response: res.data }, "HeyGen v3 did not return a video id");

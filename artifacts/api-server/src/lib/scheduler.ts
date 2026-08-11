@@ -21,7 +21,7 @@ import { logger } from "./logger";
 import { generateScript, regenerateCaption, generateContentTopics } from "./ai-scripts";
 import { getLatestAuditCache } from "./audit-cache";
 import { getStrategyProfile, toStrategyContext } from "./strategy-profile";
-import { generateVideo, getVideoStatus, listVoices, getAvatarDefaultVoiceId, fetchAvatarPreviewImage } from "./heygen";
+import { generateVideo, getVideoStatus, listVoices, getAvatarDefaultVoiceId, fetchAvatarPreviewImage, getAllAvailableAvatarIds, invalidateAvatarIdsCache } from "./heygen";
 import { createReelContainer, checkContainerStatus, publishContainer, getPermalink } from "./instagram-api";
 import { getSignedCaptionedVideoUrl } from "./objectStorage";
 import { generateBrandCover } from "./brand-cover";
@@ -267,6 +267,56 @@ export function pickNextAvatar(
   return pool[Math.floor(Math.random() * pool.length)];
 }
 
+/**
+ * Compare selectedAvatarIds against the live HeyGen account and remove any
+ * IDs that no longer exist (deleted looks / avatars).  Writes to DB only when
+ * something changed.  Returns the (possibly updated) avatarCfg row.
+ */
+async function pruneDeletedAvatars(
+  avatarCfg: typeof avatarConfigTable.$inferSelect,
+  heygenApiKey: string | undefined,
+): Promise<typeof avatarConfigTable.$inferSelect> {
+  const selected: string[] = avatarCfg.selectedAvatarIds ?? [];
+  if (selected.length === 0) return avatarCfg;
+
+  let available: Set<string>;
+  try {
+    available = await getAllAvailableAvatarIds(heygenApiKey);
+  } catch {
+    // If we can't reach HeyGen, don't prune — avoid false positives
+    return avatarCfg;
+  }
+
+  // If the set came back empty it's likely a network/auth failure — don't prune
+  if (available.size === 0) return avatarCfg;
+
+  const valid = selected.filter((id) => available.has(id));
+  const removed = selected.filter((id) => !available.has(id));
+
+  if (removed.length === 0) return avatarCfg;
+
+  logger.warn(
+    { removed, remaining: valid },
+    "[AvatarSync] Avatars deleted from HeyGen account — removing from selection",
+  );
+
+  const [updated] = await db
+    .update(avatarConfigTable)
+    .set({
+      selectedAvatarIds: valid,
+      // If lastUsedAvatarId was removed, clear it so the next pick starts fresh
+      lastUsedAvatarId:
+        avatarCfg.lastUsedAvatarId && removed.includes(avatarCfg.lastUsedAvatarId)
+          ? null
+          : avatarCfg.lastUsedAvatarId,
+      updatedAt: new Date(),
+    })
+    .where(eq(avatarConfigTable.id, avatarCfg.id))
+    .returning();
+
+  return updated;
+}
+
 export async function runAutomationCycle(userId: number, targetItemId?: number): Promise<{
   success: boolean;
   message: string;
@@ -300,8 +350,19 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
   const heygenApiKey = settings.heygenApiKey ?? undefined;
 
   // Load avatar config scoped to this user
-  const [avatarCfg] = await db.select().from(avatarConfigTable)
+  let [avatarCfg] = await db.select().from(avatarConfigTable)
     .where(eq(avatarConfigTable.userId, userId)).limit(1);
+
+  // Sync with HeyGen: auto-remove any selected avatar IDs that were deleted
+  // from the user's HeyGen account since the last cycle.
+  if (avatarCfg) {
+    try {
+      avatarCfg = await pruneDeletedAvatars(avatarCfg, heygenApiKey);
+    } catch (syncErr) {
+      logger.warn({ syncErr }, "[AvatarSync] pruneDeletedAvatars threw — skipping sync");
+    }
+  }
+
   if (!avatarCfg?.selectedAvatarIds?.length) {
     logger.warn({ userId }, "Automation cycle aborted: no avatars configured");
     return { success: false, message: "No avatars configured" };
@@ -581,6 +642,25 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
     return { success: true, message: "Video generation started", contentItemId: contentItem.id, videoId: videoRow.id };
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
+
+    // If HeyGen rejected because the avatar was deleted, auto-remove it from the
+    // selection so the next cycle picks a valid avatar instead of looping forever.
+    const isAvatarGone =
+      error.includes("not found") ||
+      (error.startsWith("HeyGen 404") || error.includes("avatar may have been deleted"));
+    if (isAvatarGone && contentItem.avatarId) {
+      const pruned = avatarCfg.selectedAvatarIds.filter((id) => id !== contentItem.avatarId);
+      await db
+        .update(avatarConfigTable)
+        .set({ selectedAvatarIds: pruned, updatedAt: new Date() })
+        .where(eq(avatarConfigTable.id, avatarCfg.id));
+      invalidateAvatarIdsCache();
+      logger.warn(
+        { removedId: contentItem.avatarId, remaining: pruned },
+        "[AvatarSync] Auto-removed deleted avatar from selection after generation failure",
+      );
+    }
+
     await db.update(videosTable).set({ status: "failed", errorMessage: error, updatedAt: new Date() }).where(eq(videosTable.id, videoRow.id));
     await db.update(contentPlanItemsTable).set({ status: "failed", updatedAt: new Date() }).where(eq(contentPlanItemsTable.id, contentItem.id));
     return { success: false, message: `Video generation failed: ${error}` };
