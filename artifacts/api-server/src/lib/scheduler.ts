@@ -140,6 +140,24 @@ async function fillEmptyScheduledSlots(
 }
 
 /**
+ * Fire-and-forget: fill any empty scheduled slots for a user immediately.
+ * Called after a manual reschedule so the vacated slot is filled right away
+ * instead of waiting up to 5 minutes for the next cron cycle.
+ */
+export async function triggerFillEmptySlots(userId: number): Promise<void> {
+  try {
+    const [[automation], [settings]] = await Promise.all([
+      db.select().from(automationConfigTable).where(eq(automationConfigTable.userId, userId)).limit(1),
+      db.select().from(settingsTable).where(eq(settingsTable.userId, userId)).limit(1),
+    ]);
+    if (!automation || !settings?.niche) return;
+    await fillEmptyScheduledSlots(userId, automation, settings);
+  } catch (err) {
+    logger.warn({ userId, err }, "[AutoFill] triggerFillEmptySlots failed — non-fatal");
+  }
+}
+
+/**
  * Resolve the HeyGen API key for a specific user's scheduler jobs.
  * Always scoped to the given userId so that videos belonging to user A
  * are never polled with user B's key.

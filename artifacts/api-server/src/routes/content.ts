@@ -26,7 +26,7 @@ import {
   DeleteContentItemResponse,
 } from "@workspace/api-zod";
 import { generateScript, generateContentTopics, regenerateCaption, regenerateScriptWithCriterion, reanalyzeTopicsWithStrategy, type RegenerateCriterion } from "../lib/ai-scripts";
-import { runAutomationCycle } from "../lib/scheduler";
+import { runAutomationCycle, triggerFillEmptySlots } from "../lib/scheduler";
 import { getLatestAuditCache } from "../lib/audit-cache";
 import { getStrategyProfile, toStrategyContext } from "../lib/strategy-profile";
 import { logger } from "../lib/logger";
@@ -521,6 +521,12 @@ router.patch("/content/:id", async (req, res): Promise<void> => {
   }
 
   res.json(UpdateContentItemResponse.parse(mapItem(updated)));
+
+  // If the user moved this item to a different date, immediately fill the
+  // slot it left behind instead of waiting for the next cron cycle (up to 5 min).
+  if (b.scheduled_at !== undefined) {
+    triggerFillEmptySlots(userId).catch(() => {/* non-fatal */});
+  }
 });
 
 router.post("/content/:id/regenerate-caption", async (req, res): Promise<void> => {
