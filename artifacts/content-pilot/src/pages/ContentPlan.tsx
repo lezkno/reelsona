@@ -284,6 +284,7 @@ export default function ContentPlan() {
                 setScriptDraft(null)
                 toast({ title: "Video Generándose", description: "HeyGen está creando el video. Esto puede tardar unos minutos." })
                 queryClient.invalidateQueries({ queryKey: getGetContentPlanQueryKey() })
+                queryClient.invalidateQueries({ queryKey: getGetVideosQueryKey() })
               },
               onError: (err: any) => {
                 const msg = err?.data?.error ?? "No se pudo iniciar la generación del video."

@@ -144,15 +144,17 @@ export default function Videos() {
         // OR while a cover regeneration is in flight.
         refetchInterval: (query: any) => {
           const data = query?.state?.data
-          if (!Array.isArray(data)) return false
           if (regeneratingCovers.size > 0) return 5000
+          if (!Array.isArray(data)) return 10000
           const anyActive = data.some((v: any) =>
             v.status === 'generating' ||
             v.status === 'publishing' ||
             ((v.caption_status === null || v.caption_status === 'processing') &&
               (v.status === 'ready' || v.status === 'published'))
           )
-          return anyActive ? 5000 : false
+          // Fast poll (5 s) while something is in-flight; slow poll (10 s) otherwise
+          // so scheduler-created videos appear without needing a manual refresh.
+          return anyActive ? 5000 : 10000
         },
       } as any,
     }
