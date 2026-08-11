@@ -160,7 +160,11 @@ export function WelcomeModal() {
               <Checkbox
                 id="dont-show"
                 checked={dontShow}
-                onCheckedChange={(v) => setDontShow(Boolean(v))}
+                onCheckedChange={(v) => {
+                  const val = Boolean(v)
+                  setDontShow(val)
+                  if (val) persistDismissal()
+                }}
               />
               <Label htmlFor="dont-show" className="text-xs text-muted-foreground cursor-pointer select-none">
                 No volver a mostrar
