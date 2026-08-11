@@ -792,6 +792,8 @@ export async function runCaptionProcessing(
       visualSuggestions,
       // Pass saved card template so the engine can skip AI generation when a fixed template is configured
       cardTemplate: captionCfg.cardTemplate ?? undefined,
+      // Pass user's OpenAI key so B-roll and other AI effects can generate images
+      openaiApiKey: captionSettings?.openaiApiKey,
     });
 
     if (browserResult.url) {

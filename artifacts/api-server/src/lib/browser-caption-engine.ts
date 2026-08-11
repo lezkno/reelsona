@@ -601,6 +601,8 @@ export async function applyCaptionsBrowser(
     visualSuggestions?: string | null;
     /** Saved card template from Effects Studio — when present with useAi:false, skips AI card generation. */
     cardTemplate?: import("./text-cards-engine").MultiCardConfig | import("./text-cards-engine").SavedCardTemplate;
+    /** User's personal OpenAI API key — required for B-roll image generation and other AI effects. */
+    openaiApiKey?: string | null;
   },
 ): Promise<CaptionResult> {
   logger.info({ templateId }, "[BrowserEngine] applyCaptionsBrowser invoked");
@@ -733,6 +735,7 @@ export async function applyCaptionsBrowser(
         videoInfo.duration,
         tmpDir,
         opts.visualSuggestions,
+        opts.openaiApiKey,
       );
       logger.info("[BrowserEngine] B-roll overlay done ✓");
     }
