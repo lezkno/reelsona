@@ -701,7 +701,7 @@ export async function applyCaptionsBrowser(
     // not a fragile frame counter.
     let captionSourcePath = videoPath;
     if (opts?.videoEffects?.zoom && script) {
-      const punchTs   = await findPunchZoomTimestampsAI(script, wordTimings, videoInfo.duration);
+      const punchTs   = await findPunchZoomTimestampsAI(script, wordTimings, videoInfo.duration, opts?.openaiApiKey);
       const punchArgs = buildPunchZoomArgs(punchTs, videoInfo.duration, videoInfo.width, videoInfo.height);
       if (punchArgs) {
         const zoomedPath = path.join(tmpDir, "zoomed.mp4");

@@ -112,7 +112,8 @@ async function fillEmptyScheduledSlots(
     1,
     existingTopics,
     auditInsights ?? undefined,
-    strategyContext ?? undefined
+    strategyContext ?? undefined,
+    settings.openaiApiKey,
   );
 
   if (rawTopics.length === 0) return 0;
@@ -933,7 +934,9 @@ async function runCopyGeneration(contentItemId: number): Promise<void> {
       item.script ?? item.topic,
       niche,
       tone,
-      language
+      language,
+      undefined,              // topCaptions — not available in automation context
+      settings?.openaiApiKey,
     );
 
     await db

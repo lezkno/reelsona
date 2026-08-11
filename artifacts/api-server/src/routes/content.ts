@@ -583,7 +583,8 @@ router.post("/content/:id/regenerate", async (req, res): Promise<void> => {
 
   const scriptResult = await regenerateScriptWithCriterion(
     item.topic, niche, tone, language, duration, criterion,
-    auditInsights ?? undefined
+    auditInsights ?? undefined,
+    settings?.openaiApiKey,
   );
 
   const [updated] = await db
