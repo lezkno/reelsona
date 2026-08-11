@@ -16,6 +16,8 @@ export const users = pgTable("users", {
   verificationTokenExpiresAt:  timestamp("verification_token_expires_at"),
   activationToken:             text("activation_token"),
   activationTokenExpiresAt:    timestamp("activation_token_expires_at"),
+  passwordResetToken:          text("password_reset_token"),
+  passwordResetTokenExpiresAt: timestamp("password_reset_token_expires_at"),
   createdAt:                 timestamp("created_at").notNull().defaultNow(),
   updatedAt:                 timestamp("updated_at").notNull().defaultNow(),
 });

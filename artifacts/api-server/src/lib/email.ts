@@ -104,6 +104,25 @@ export function verificationEmail(name: string, verifyUrl: string) {
   }
 }
 
+export function passwordResetEmail(name: string, resetUrl: string) {
+  return {
+    subject: "Recupera tu contraseña — Reelsona",
+    html: `
+      <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#111">
+        <h1 style="font-size:22px;margin-bottom:8px">Recuperar contraseña</h1>
+        <p style="color:#555">Hola${name ? ` ${name}` : ""}, recibimos una solicitud para restablecer la contraseña de tu cuenta en <strong>Reelsona</strong>.</p>
+        <p style="color:#555">Haz clic en el botón para elegir una nueva contraseña:</p>
+        <a href="${resetUrl}"
+           style="display:inline-block;margin-top:20px;padding:14px 32px;background:#6366f1;color:#fff;border-radius:8px;text-decoration:none;font-weight:700;font-size:16px">
+          Restablecer contraseña →
+        </a>
+        <p style="margin-top:20px;color:#888;font-size:13px">Este enlace es válido por 1 hora. Si no solicitaste este cambio, puedes ignorar este correo — tu contraseña no cambiará.</p>
+        <p style="margin-top:32px;font-size:12px;color:#999">Reelsona · info@reelsona.com</p>
+      </div>`,
+    text: `Hola${name ? ` ${name}` : ""}! Restablece tu contraseña de Reelsona aquí (válido 1 hora): ${resetUrl}`,
+  }
+}
+
 export function passwordChangedEmail(name: string) {
   return {
     subject: "Tu contraseña fue cambiada — Reelsona",

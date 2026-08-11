@@ -5,7 +5,7 @@ import { db } from "@workspace/db";
 import { users } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
 import { verifyPassword, hashPassword } from "../lib/password";
-import { sendEmail, passwordChangedEmail, verificationEmail, getAppUrl } from "../lib/email";
+import { sendEmail, passwordChangedEmail, passwordResetEmail, verificationEmail, getAppUrl } from "../lib/email";
 import { getUserAccess } from "../lib/access";
 
 const router = Router();
@@ -123,6 +123,73 @@ router.patch("/auth/profile", async (req: Request, res: Response): Promise<void>
   } catch {
     res.status(500).json({ error: "Error al actualizar perfil" });
   }
+});
+
+/**
+ * POST /api/auth/forgot-password
+ * Public. Sends a password-reset link. Always 200 to avoid revealing account existence.
+ * Body: { identifier } — email or username
+ */
+router.post("/auth/forgot-password", async (req: Request, res: Response): Promise<void> => {
+  const { identifier } = (req.body ?? {}) as { identifier?: string };
+  if (!identifier?.trim()) { res.status(400).json({ error: "Se requiere el correo o usuario" }); return; }
+  try {
+    const term = identifier.trim().toLowerCase();
+    let rows = await db.select().from(users).where(eq(users.username, term)).limit(1);
+    if (!rows.length) rows = await db.select().from(users).where(eq(users.email, term)).limit(1);
+    const user = rows[0];
+    if (!user || !user.isActive || !user.email) { res.json({ ok: true }); return; }
+
+    const token = randomBytes(32).toString("hex");
+    await db.update(users).set({
+      passwordResetToken: token,
+      passwordResetTokenExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      updatedAt: new Date(),
+    }).where(eq(users.id, user.id));
+
+    const resetUrl = `${getAppUrl()}/content-pilot/reset-password?token=${token}`;
+    sendEmail({ to: user.email, ...passwordResetEmail(user.fullName ?? user.username, resetUrl) }).catch(() => {});
+    res.json({ ok: true });
+  } catch { res.status(500).json({ error: "Error interno" }); }
+});
+
+/**
+ * GET /api/auth/reset-password/check?token=
+ * Public. Returns { ok: true } if token is valid and not expired.
+ */
+router.get("/auth/reset-password/check", async (req: Request, res: Response): Promise<void> => {
+  const token = String(req.query["token"] ?? "");
+  if (!token) { res.json({ ok: false }); return; }
+  try {
+    const [user] = await db.select().from(users).where(eq(users.passwordResetToken, token)).limit(1);
+    const valid = !!user && !!user.passwordResetTokenExpiresAt && user.passwordResetTokenExpiresAt > new Date();
+    res.json({ ok: valid });
+  } catch { res.status(500).json({ ok: false }); }
+});
+
+/**
+ * POST /api/auth/reset-password
+ * Public. Sets new password using a valid reset token.
+ * Body: { token, password }
+ */
+router.post("/auth/reset-password", async (req: Request, res: Response): Promise<void> => {
+  const { token, password } = (req.body ?? {}) as { token?: string; password?: string };
+  if (!token || !password) { res.status(400).json({ error: "Se requieren token y contraseña" }); return; }
+  if (password.length < 8) { res.status(400).json({ error: "La contraseña debe tener al menos 8 caracteres" }); return; }
+  try {
+    const [user] = await db.select().from(users).where(eq(users.passwordResetToken, token)).limit(1);
+    if (!user || !user.passwordResetTokenExpiresAt || user.passwordResetTokenExpiresAt < new Date()) {
+      res.status(400).json({ error: "El enlace no es válido o ya expiró" }); return;
+    }
+    await db.update(users).set({
+      passwordHash: hashPassword(password),
+      passwordResetToken: null,
+      passwordResetTokenExpiresAt: null,
+      updatedAt: new Date(),
+    }).where(eq(users.id, user.id));
+    if (user.email) sendEmail({ to: user.email, ...passwordChangedEmail(user.fullName ?? user.username) }).catch(() => {});
+    res.json({ ok: true });
+  } catch { res.status(500).json({ error: "Error al restablecer la contraseña" }); }
 });
 
 /**

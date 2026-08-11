@@ -31,6 +31,7 @@ import Landing from "@/pages/Landing"
 import { useAuthStatus, useHeyGenAccount } from "@workspace/api-client-react"
 import { useEntitlement } from "@/hooks/useEntitlement"
 import ResendActivation from "@/pages/ResendActivation"
+import ResetPassword from "@/pages/ResetPassword"
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -173,6 +174,7 @@ function App() {
             <Route path="/verify-email" component={VerifyEmail} />
             <Route path="/landing" component={Landing} />
             <Route path="/activate" component={Activate} />
+            <Route path="/reset-password" component={ResetPassword} />
             <Route path="/resend-activation" component={ResendActivation} />
             <Route path="/checkout/success" component={CheckoutSuccess} />
             <Route>
