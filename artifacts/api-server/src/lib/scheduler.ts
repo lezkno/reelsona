@@ -656,7 +656,7 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
         .update(avatarConfigTable)
         .set({ selectedAvatarIds: pruned, updatedAt: new Date() })
         .where(eq(avatarConfigTable.id, avatarCfg.id));
-      invalidateAvatarIdsCache();
+      invalidateAvatarIdsCache(heygenApiKey);
       logger.warn(
         { removedId: contentItem.avatarId, remaining: pruned },
         "[AvatarSync] Auto-removed deleted avatar from selection after generation failure",

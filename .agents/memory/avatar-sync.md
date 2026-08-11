@@ -23,3 +23,7 @@ HeyGen 400 errors were opaque ("Request failed with status code 400") when an av
 - If `getAllAvailableAvatarIds` returns an empty set (network failure / auth issue), no pruning happens to avoid false positives.
 - If all selected avatars are pruned, the cycle aborts with "No avatars configured" — user must add new avatars.
 - `lastUsedAvatarId` is also cleared if it was one of the removed avatars.
+
+## Multi-tenancy bug (fixed)
+
+The cache was a global `let` variable — NOT keyed by API key. In a multi-user environment, User A's cycle could cache User A's HeyGen avatar set, then User B's cycle within 5 min would get User A's cache and prune User B's avatars. Fixed: cache is now a `Map<apiKey, entry>` keyed by the resolved API key (sentinel `"__default__"` when no key). `invalidateAvatarIdsCache(apiKey?)` also takes the key to delete the right entry.

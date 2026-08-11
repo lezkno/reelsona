@@ -225,7 +225,12 @@ export async function listVoices(apiKey?: string): Promise<HeyGenVoice[]> {
 // ── Available avatar IDs cache ────────────────────────────────────────────────
 // Rebuilt from HeyGen every 5 min.  Keyed with tp: prefix for photo looks so
 // callers can compare directly against selectedAvatarIds stored in the DB.
-let availableAvatarIdsCache: { ids: Set<string>; at: number } | null = null;
+//
+// IMPORTANT: keyed by API key so that different users (with different HeyGen
+// accounts) never share a cache entry — a shared global cache would cause
+// User B's avatars to be pruned against User A's account.
+const AVATAR_IDS_SENTINEL = "__default__";
+const availableAvatarIdsCache = new Map<string, { ids: Set<string>; at: number }>();
 const AVAILABLE_IDS_TTL = 5 * 60 * 1000;
 
 /**
@@ -233,15 +238,17 @@ const AVAILABLE_IDS_TTL = 5 * 60 * 1000;
  * HeyGen account.  IDs follow the same convention as selectedAvatarIds in the
  * DB: photo-avatar looks are prefixed with "tp:", video-avatar looks are not.
  *
- * Result is cached for 5 minutes to avoid spamming HeyGen on every cycle.
+ * Result is cached for 5 minutes per API key to avoid spamming HeyGen on every cycle.
  * Pass forceRefresh=true to bypass the cache (e.g. after a confirmed deletion).
  */
 export async function getAllAvailableAvatarIds(
   apiKey?: string,
   forceRefresh = false,
 ): Promise<Set<string>> {
-  if (!forceRefresh && availableAvatarIdsCache && Date.now() - availableAvatarIdsCache.at < AVAILABLE_IDS_TTL) {
-    return availableAvatarIdsCache.ids;
+  const cacheKey = apiKey ?? AVATAR_IDS_SENTINEL;
+  const cached = availableAvatarIdsCache.get(cacheKey);
+  if (!forceRefresh && cached && Date.now() - cached.at < AVAILABLE_IDS_TTL) {
+    return cached.ids;
   }
 
   const ids = new Set<string>();
@@ -276,7 +283,7 @@ export async function getAllAvailableAvatarIds(
       })
     );
 
-    availableAvatarIdsCache = { ids, at: Date.now() };
+    availableAvatarIdsCache.set(cacheKey, { ids, at: Date.now() });
     logger.info({ count: ids.size }, "[HeyGen] Available avatar IDs refreshed");
   } catch (err) {
     logger.warn({ err }, "[HeyGen] getAllAvailableAvatarIds failed — keeping previous cache");
@@ -285,9 +292,10 @@ export async function getAllAvailableAvatarIds(
   return ids;
 }
 
-/** Invalidate the available-avatar-IDs cache (call after a confirmed deletion). */
-export function invalidateAvatarIdsCache(): void {
-  availableAvatarIdsCache = null;
+/** Invalidate the available-avatar-IDs cache for a given API key (call after a confirmed deletion). */
+export function invalidateAvatarIdsCache(apiKey?: string): void {
+  const cacheKey = apiKey ?? AVATAR_IDS_SENTINEL;
+  availableAvatarIdsCache.delete(cacheKey);
 }
 
 // Cache look engine eligibility for 30 minutes to avoid hammering the API
