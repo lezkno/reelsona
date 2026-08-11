@@ -22,7 +22,7 @@ import { useQueryClient } from "@tanstack/react-query"
 
 const NAV_ITEMS = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/course", label: "Implementación", icon: BookOpen },
+  { href: "/course", label: "Academia", icon: BookOpen },
   { href: "/connect", label: "Instagram", icon: Instagram },
   { href: "/audit", label: "Auditoría", icon: BarChart3 },
   { href: "/content", label: "Plan de Contenido", icon: ListVideo },
