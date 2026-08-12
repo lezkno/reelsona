@@ -274,8 +274,11 @@ export async function getAllAvailableAvatarIds(
       if (a.avatar_id) ids.add(a.avatar_id);
     }
 
-    // Avatar groups + their looks (covers both video and photo avatar groups)
-    const groupsRes = await client.get("/v2/avatar_group.list", { params: { include_public: false } });
+    // Avatar groups + their looks (covers both video and photo avatar groups).
+    // include_public: true is required — user's photo avatar (talking photo) groups
+    // may be stored as public groups. Omitting public groups causes all tp: IDs to
+    // be missing from the set, which makes pruneDeletedAvatars remove them all.
+    const groupsRes = await client.get("/v2/avatar_group.list", { params: { include_public: true } });
     const groups: HeyGenAvatarGroup[] = groupsRes.data?.data?.avatar_group_list ?? [];
 
     const lookResults = await Promise.allSettled(
