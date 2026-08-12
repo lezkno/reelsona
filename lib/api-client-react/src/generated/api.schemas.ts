@@ -171,6 +171,8 @@ export interface HeyGenVoice {
   /** @nullable */
   preview_audio_url?: string | null;
   is_cloned: boolean;
+  /** True when the voice was cloned by the current user (platform-level ownership) */
+  is_mine?: boolean;
 }
 
 /**

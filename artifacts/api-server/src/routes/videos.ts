@@ -129,7 +129,7 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
     .from(settingsTable)
     .where(eq(settingsTable.userId, userId))
     .limit(1);
-  const heygenApiKey = userSettings?.heygenApiKey ?? undefined;
+  const heygenApiKey = userSettings?.heygenApiKey ?? process.env.HEYGEN_API_KEY ?? undefined;
   if (!heygenApiKey) {
     res.status(400).json({ error: "No hay una API key de HeyGen configurada. Conecta tu cuenta en Configuración → Integraciones." });
     return;
@@ -475,8 +475,8 @@ router.post("/videos/:id/regenerate-cover", async (req, res): Promise<void> => {
   // Fire-and-forget: resolve avatar photo → generate cover → persist
   ;(async () => {
     try {
-      // Resolve avatar preview image using the user's HeyGen API key from DB
-      const heygenKey = settings.heygenApiKey ?? undefined;
+      // Resolve avatar preview image — prefer user key, fall back to platform key
+      const heygenKey = settings.heygenApiKey ?? process.env.HEYGEN_API_KEY ?? undefined;
       let avatarImageUrl: string | null = null;
       if (video.avatarId) {
         avatarImageUrl = await fetchAvatarPreviewImage(video.avatarId, heygenKey);

@@ -12,3 +12,4 @@ export * from "./niche-radar-accounts";
 export * from "./course-progress";
 export * from "./user-entitlements";
 export * from "./purchases";
+export * from "./heygen-cloned-voices";

@@ -222,6 +222,56 @@ export async function listVoices(apiKey?: string): Promise<HeyGenVoice[]> {
   return voices;
 }
 
+/**
+ * Clone a voice from an audio buffer.
+ * Returns the new voice_id assigned by HeyGen.
+ * Cloning is typically async — poll listVoices until the ID appears.
+ */
+export async function cloneVoice(
+  audioBuffer: Buffer,
+  filename: string,
+  displayName: string,
+  apiKey?: string,
+): Promise<string> {
+  // Use native FormData (Node 18+)
+  const form = new FormData();
+  form.append("audio", new Blob([new Uint8Array(audioBuffer)]), filename);
+  form.append("name", displayName);
+
+  const client = getClient(apiKey);
+  const res = await client.post("/v2/voice_clone", form);
+  const voiceId: string = res.data?.data?.voice_id ?? res.data?.voice_id;
+  if (!voiceId) throw new Error("HeyGen did not return a voice_id after cloning");
+  return voiceId;
+}
+
+/**
+ * Delete a cloned voice by its voice_id.
+ * Only works for voices created via clone — HeyGen rejects deletion of built-in voices.
+ */
+export async function deleteVoice(voiceId: string, apiKey?: string): Promise<void> {
+  const client = getClient(apiKey);
+  await client.delete(`/v2/voice/${encodeURIComponent(voiceId)}`);
+}
+
+/**
+ * Rename a cloned voice (updates the display name in HeyGen).
+ * If HeyGen does not support server-side rename, this is a no-op and
+ * the caller should rely on the local display_name in heygen_cloned_voices.
+ */
+export async function renameVoice(
+  voiceId: string,
+  newName: string,
+  apiKey?: string,
+): Promise<void> {
+  try {
+    const client = getClient(apiKey);
+    await client.patch(`/v2/voice/${encodeURIComponent(voiceId)}`, { name: newName });
+  } catch {
+    // HeyGen may not support rename — silently ignore; caller persists name in DB
+  }
+}
+
 // ── Available avatar IDs cache ────────────────────────────────────────────────
 // Rebuilt from HeyGen every 5 min.  Keyed with tp: prefix for photo looks so
 // callers can compare directly against selectedAvatarIds stored in the DB.
@@ -642,4 +692,288 @@ function mapStatus(s: string): VideoStatus["status"] {
   if (s === "failed") return "failed";
   if (s === "processing") return "processing";
   return "pending";
+}
+
+// ── v3 Avatar Groups ──────────────────────────────────────────────────────────
+
+export interface HeyGenV3AvatarGroup {
+  id: string;
+  name: string;
+  gender: string | null;
+  preview_image_url: string | null;
+  preview_video_url: string | null;
+  looks_count: number;
+  status: string | null;
+  created_at: number | null;
+}
+
+/**
+ * List avatar groups via GET /v3/avatars.
+ * ownership: "public" | "private" | "all" (omit for all)
+ * Uses cursor-based pagination with `token` / `next_token`.
+ */
+export async function listV3AvatarGroups(
+  ownership: "public" | "private" | "all",
+  token?: string,
+  limit = 24,
+  apiKey?: string,
+): Promise<{ groups: HeyGenV3AvatarGroup[]; has_more: boolean; next_token: string | null }> {
+  const client = getClient(apiKey);
+  const params: Record<string, unknown> = { limit };
+  if (ownership !== "all") params.ownership = ownership;
+  if (token) params.token = token;
+
+  const res = await client.get("/v3/avatars", { params, timeout: 20000 });
+  const raw: any[] = Array.isArray(res.data?.data) ? res.data.data : [];
+  const groups: HeyGenV3AvatarGroup[] = raw.map((g: any) => ({
+    id: g.id,
+    name: g.name,
+    gender: g.gender ?? null,
+    preview_image_url: g.preview_image_url ?? null,
+    preview_video_url: g.preview_video_url ?? null,
+    looks_count: g.looks_count ?? 0,
+    status: g.status ?? null,
+    created_at: g.created_at ?? null,
+  }));
+  return {
+    groups,
+    has_more: res.data?.has_more ?? false,
+    next_token: res.data?.next_token ?? null,
+  };
+}
+
+// ── v3 Looks ──────────────────────────────────────────────────────────────────
+
+export interface HeyGenV3Look {
+  /** Internal ID — photo_avatar looks are prefixed with "tp:" by the route layer */
+  id: string;
+  name: string;
+  avatar_type: "studio_avatar" | "digital_twin" | "photo_avatar" | string;
+  group_id: string | null;
+  preview_image_url: string | null;
+  preview_video_url: string | null;
+  status: string | null;
+  supported_api_engines: string[];
+  is_talking_photo: boolean;
+}
+
+/**
+ * List looks for a group via GET /v3/avatars/looks?group_id=<id>.
+ * Automatically normalises photo_avatar look IDs with the "tp:" prefix.
+ */
+export async function listV3GroupLooks(
+  groupId: string,
+  token?: string,
+  apiKey?: string,
+): Promise<{ looks: HeyGenV3Look[]; has_more: boolean; next_token: string | null }> {
+  const client = getClient(apiKey);
+  const params: Record<string, unknown> = { group_id: groupId, limit: 50 };
+  if (token) params.token = token;
+
+  const res = await client.get("/v3/avatars/looks", { params, timeout: 20000 });
+  const raw: any[] = Array.isArray(res.data?.data) ? res.data.data : [];
+  const looks: HeyGenV3Look[] = raw.map((l: any) => {
+    const isPhoto = l.avatar_type === "photo_avatar";
+    return {
+      id: isPhoto ? `tp:${l.id}` : l.id,
+      name: l.name,
+      avatar_type: l.avatar_type,
+      group_id: l.group_id ?? null,
+      preview_image_url: l.preview_image_url ?? null,
+      preview_video_url: l.preview_video_url ?? null,
+      status: l.status ?? null,
+      supported_api_engines: l.supported_api_engines ?? [],
+      is_talking_photo: isPhoto,
+    };
+  });
+  return {
+    looks,
+    has_more: res.data?.has_more ?? false,
+    next_token: res.data?.next_token ?? null,
+  };
+}
+
+// ── Avatar creation ───────────────────────────────────────────────────────────
+
+/**
+ * Upload a file to HeyGen /v3/assets.
+ * Returns { asset_id, url } to use in createPhotoAvatar().
+ */
+export async function uploadAsset(
+  fileBuffer: Buffer,
+  mimeType: string,
+  filename: string,
+  apiKey?: string,
+): Promise<{ asset_id: string; url: string }> {
+  const key = apiKey ?? process.env.HEYGEN_API_KEY;
+  if (!key) throw new Error("HEYGEN_API_KEY is not set");
+
+  // Use native fetch + FormData (Node ≥18)
+  const formData = new FormData();
+  const blob = new Blob([new Uint8Array(fileBuffer)], { type: mimeType });
+  formData.append("file", blob, filename);
+
+  const res = await fetch(`${HEYGEN_BASE_URL}/v3/assets`, {
+    method: "POST",
+    headers: { "x-api-key": key },
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`HeyGen asset upload failed: ${res.status} ${text}`);
+  }
+
+  const json: any = await res.json();
+  const data = json?.data;
+  if (!data?.asset_id) throw new Error("HeyGen did not return asset_id");
+  return { asset_id: data.asset_id, url: data.url ?? "" };
+}
+
+/**
+ * Create a photo avatar from an uploaded asset.
+ * Returns { look_id, group_id } — poll getAvatarLookStatus() until status = "completed".
+ */
+export async function createPhotoAvatar(
+  name: string,
+  assetId: string,
+  apiKey?: string,
+): Promise<{ look_id: string; group_id: string }> {
+  const client = getClient(apiKey);
+  const res = await client.post(
+    "/v3/avatars",
+    { type: "photo", name, file: { type: "asset_id", asset_id: assetId } },
+    { timeout: 30000 },
+  );
+  const data = res.data?.data;
+  const look_id: string = data?.avatar_item?.id ?? data?.look_id;
+  const group_id: string = data?.avatar_group?.id ?? data?.group_id;
+  if (!look_id || !group_id) {
+    logger.error({ data }, "[HeyGen] createPhotoAvatar: unexpected response shape");
+    throw new Error("HeyGen did not return avatar IDs — check HeyGen account permissions");
+  }
+  return { look_id, group_id };
+}
+
+/**
+ * Delete a single avatar look. Only photo_avatar and digital_twin types are supported.
+ * Studio avatar (prompt-created) looks cannot be deleted via API.
+ * Deleting the last look in a group also deletes the parent group automatically.
+ */
+export async function deleteAvatarLook(lookId: string, apiKey?: string): Promise<void> {
+  const rawLookId = lookId.startsWith("tp:") ? lookId.slice(3) : lookId;
+  const client = getClient(apiKey);
+  const res = await client.delete(`/v3/avatars/looks/${rawLookId}`, { timeout: 15000 });
+  if (res.status !== 200 && res.status !== 204) {
+    const msg = res.data?.error?.message ?? `HeyGen returned ${res.status}`;
+    throw new Error(msg);
+  }
+}
+
+/**
+ * Delete an entire avatar group and all its looks.
+ * Cannot delete public or community groups.
+ */
+export async function deleteAvatarGroup(groupId: string, apiKey?: string): Promise<void> {
+  const client = getClient(apiKey);
+  const res = await client.delete(`/v3/avatars/${groupId}`, { timeout: 15000 });
+  if (res.status !== 200 && res.status !== 204) {
+    const msg = res.data?.error?.message ?? `HeyGen returned ${res.status}`;
+    throw new Error(msg);
+  }
+}
+
+/**
+ * Generate a new look for an existing avatar group, conditioned on a reference look.
+ * Uses POST /v3/avatars type:"prompt" with avatar_id (reference) + avatar_group_id (same group).
+ * Returns { look_id, group_id } — poll getAvatarLookStatus() until status = "completed".
+ */
+export async function createAvatarLook(
+  refLookId: string,    // existing look to condition appearance on (raw HeyGen ID, no tp: prefix)
+  groupId: string,
+  name: string,
+  prompt: string,
+  options?: {
+    pose?: "half_body" | "close_up" | "full_body";
+  },
+  apiKey?: string,
+): Promise<{ look_id: string; group_id: string }> {
+  const rawLookId = refLookId.startsWith("tp:") ? refLookId.slice(3) : refLookId;
+  const client = getClient(apiKey);
+  const body: Record<string, unknown> = {
+    type: "prompt",
+    name,
+    prompt,
+    avatar_id: rawLookId,
+    avatar_group_id: groupId,
+    orientation: "vertical",
+  };
+  if (options?.pose) body.pose = options.pose;
+
+  const res = await client.post("/v3/avatars", body, { timeout: 30000 });
+  const data = res.data?.data;
+  const look_id: string = data?.avatar_item?.id ?? data?.look_id;
+  const look_group_id: string = data?.avatar_group?.id ?? data?.group_id;
+  if (!look_id || !look_group_id) {
+    logger.error({ data }, "[HeyGen] createAvatarLook: unexpected response shape");
+    throw new Error("HeyGen did not return look IDs");
+  }
+  return { look_id, group_id: look_group_id };
+}
+
+/**
+ * Create a prompt-based (AI-generated) avatar from a text description.
+ * Uses HeyGen's Tokyo pipeline — no photo or video needed.
+ * Returns { look_id, group_id } — poll getAvatarLookStatus() until status = "completed".
+ */
+export async function createPromptAvatar(
+  name: string,
+  prompt: string,
+  options?: {
+    orientation?: "vertical" | "horizontal" | "square";
+    pose?: "half_body" | "close_up" | "full_body";
+  },
+  apiKey?: string,
+): Promise<{ look_id: string; group_id: string }> {
+  const client = getClient(apiKey);
+  const body: Record<string, unknown> = { type: "prompt", name, prompt };
+  if (options?.orientation) body.orientation = options.orientation;
+  if (options?.pose) body.pose = options.pose;
+
+  const res = await client.post("/v3/avatars", body, { timeout: 30000 });
+  const data = res.data?.data;
+  const look_id: string = data?.avatar_item?.id ?? data?.look_id;
+  const group_id: string = data?.avatar_group?.id ?? data?.group_id;
+  if (!look_id || !group_id) {
+    logger.error({ data }, "[HeyGen] createPromptAvatar: unexpected response shape");
+    throw new Error("HeyGen did not return avatar IDs — check permissions or prompt validity");
+  }
+  return { look_id, group_id };
+}
+
+/** Poll training status for a look via GET /v3/avatars/looks/{look_id}. */
+export async function getAvatarLookStatus(
+  lookId: string,
+  apiKey?: string,
+): Promise<{
+  id: string;
+  name: string;
+  status: "processing" | "pending_consent" | "completed" | "failed" | null;
+  avatar_type: string | null;
+  group_id: string | null;
+  preview_image_url: string | null;
+  preview_video_url: string | null;
+}> {
+  const client = getClient(apiKey);
+  const res = await client.get(`/v3/avatars/looks/${lookId}`, { timeout: 15000 });
+  const d = res.data?.data;
+  return {
+    id: d?.id ?? lookId,
+    name: d?.name ?? "",
+    status: d?.status ?? null,
+    avatar_type: d?.avatar_type ?? null,
+    group_id: d?.group_id ?? null,
+    preview_image_url: d?.preview_image_url ?? null,
+    preview_video_url: d?.preview_video_url ?? null,
+  };
 }

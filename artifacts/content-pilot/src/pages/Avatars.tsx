@@ -1,4 +1,19 @@
-import { useGetHeyGenAvatarGroups, useGetHeyGenGroupLooks, useGetHeyGenVoices, useGetHeyGenAllLooks, useGetAvatarConfig, useUpdateAvatarConfig, getGetAvatarConfigQueryKey, AvatarConfigRotationStrategy, type HeyGenAvatarGroup } from "@workspace/api-client-react"
+import { useGetHeyGenVoices, useGetAvatarConfig, useUpdateAvatarConfig, getGetAvatarConfigQueryKey, AvatarConfigRotationStrategy } from "@workspace/api-client-react"
+import {
+  useMyHeyGenAvatarGroups,
+  usePublicHeyGenAvatarGroups,
+  useGetV3GroupLooks,
+  useUploadHeyGenAsset,
+  useCreatePhotoAvatar,
+  useCreatePromptAvatar,
+  useCreateAvatarLook,
+  useDeleteAvatarLook,
+  useDeleteAvatarGroup,
+  useHeyGenLookStatus,
+  useCloneVoice,
+  useDeleteVoice,
+  useRenameVoice,
+} from "@workspace/api-client-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -6,27 +21,51 @@ import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useQueryClient } from "@tanstack/react-query"
 import { useToast } from "@/hooks/use-toast"
-import { useState, useEffect, useRef, useMemo } from "react"
-import { Users, Save, CheckCircle2, Image as ImageIcon, Play, Square, Eye, EyeOff, X, Plus, ExternalLink, Video, Camera, AlertTriangle, Mic, RefreshCw } from "lucide-react"
+import { useState, useEffect, useRef, useMemo, useCallback } from "react"
+import {
+  Users, Save, CheckCircle2, Image as ImageIcon, Play, Square,
+  Plus, Camera, Mic, RefreshCw, Upload, Loader2, AlertCircle, ChevronDown, Sparkles, Video,
+  Trash2, Lock, ZoomIn, X, Volume2, Search, Pencil,
+} from "lucide-react"
 
-const HIDDEN_KEY = "contentpilot_hidden_avatar_groups"
-function loadHidden(): Set<string> { try { return new Set(JSON.parse(localStorage.getItem(HIDDEN_KEY) ?? "[]")) } catch { return new Set() } }
-function saveHidden(s: Set<string>) { localStorage.setItem(HIDDEN_KEY, JSON.stringify([...s])) }
-
-/** Sentinel value meaning "use HeyGen's own default voice for this look" */
+// ── Rotation strategy sentinel ────────────────────────────────────────────────
 const LOOK_DEFAULT_VOICE_SENTINEL = "avatar_default"
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+type V3Group = {
+  id: string
+  name: string
+  preview_image_url: string | null
+  preview_video_url: string | null
+  looks_count: number
+  status: string | null
+}
+
+type V3Look = {
+  id: string                // already has tp: prefix for photo_avatar
+  name: string
+  preview_image_url: string | null
+  is_talking_photo: boolean
+  avatar_type: string
+}
 
 type VoiceOption = {
   voice_id: string
   name: string
+  language: string
   gender: string | null
   preview_audio_url: string | null
   is_cloned: boolean
+  is_mine?: boolean
 }
 
-/** Inline compact voice selector shown under a selected look card inside the dialog */
+// ── LookVoiceInline ───────────────────────────────────────────────────────────
+
 function LookVoiceInline({
   lookId,
   voiceOverride,
@@ -40,10 +79,7 @@ function LookVoiceInline({
 }) {
   const [isPlaying, setIsPlaying] = useState(false)
   const audioRef = useRef<HTMLAudioElement | null>(null)
-
-  const selectValue = voiceOverride && voiceOverride !== LOOK_DEFAULT_VOICE_SENTINEL
-    ? voiceOverride
-    : LOOK_DEFAULT_VOICE_SENTINEL
+  const selectValue = voiceOverride && voiceOverride !== LOOK_DEFAULT_VOICE_SENTINEL ? voiceOverride : LOOK_DEFAULT_VOICE_SENTINEL
   const selectedVoice = voiceOptions.find((v) => v.voice_id === selectValue)
 
   const togglePreview = (e: React.MouseEvent) => {
@@ -58,10 +94,7 @@ function LookVoiceInline({
   }
 
   return (
-    <div
-      className="flex items-center gap-1 mt-1.5 px-0.5"
-      onClick={(e) => e.stopPropagation()}
-    >
+    <div className="flex items-center gap-1 mt-1.5 px-0.5" onClick={(e) => e.stopPropagation()}>
       <Select
         value={selectValue}
         onValueChange={(v) => {
@@ -74,7 +107,7 @@ function LookVoiceInline({
         </SelectTrigger>
         <SelectContent className="max-h-56">
           <SelectItem value={LOOK_DEFAULT_VOICE_SENTINEL}>
-            <span className="text-[11px] font-medium text-primary">Predeterminada HeyGen</span>
+            <span className="text-[11px] font-medium text-primary">Predeterminada</span>
           </SelectItem>
           {voiceOptions.map((v) => (
             <SelectItem key={v.voice_id} value={v.voice_id}>
@@ -87,192 +120,1631 @@ function LookVoiceInline({
           ))}
         </SelectContent>
       </Select>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        className="h-7 w-7 shrink-0"
-        disabled={!selectedVoice?.preview_audio_url}
-        onClick={togglePreview}
-        title={selectedVoice?.preview_audio_url ? "Escuchar muestra" : "Sin muestra"}
-      >
+      <Button type="button" variant="ghost" size="icon" className="h-7 w-7 shrink-0"
+        disabled={!selectedVoice?.preview_audio_url} onClick={togglePreview}
+        title={selectedVoice?.preview_audio_url ? "Escuchar muestra" : "Sin muestra"}>
         {isPlaying ? <Square className="w-3 h-3" /> : <Play className="w-3 h-3" />}
       </Button>
     </div>
   )
 }
 
-function LooksDialog({
+// ── NewLookDialog ──────────────────────────────────────────────────────────────
+
+type NewLookStep = "configure" | "creating" | "done"
+
+function NewLookDialog({
   group,
+  existingLooks,
+  onClose,
+  onCreated,
+}: {
+  group: V3Group
+  existingLooks: V3Look[]
+  onClose: () => void
+  onCreated: () => void
+}) {
+  const queryClient = useQueryClient()
+  const { toast } = useToast()
+  const [step, setStep] = useState<NewLookStep>("configure")
+  const [name, setName] = useState("")
+  const [promptText, setPromptText] = useState("")
+  const [pose, setPose] = useState("half_body")
+  const [refLookId, setRefLookId] = useState<string>(existingLooks[0]?.id ?? "")
+  const [newLookId, setNewLookId] = useState<string | null>(null)
+
+  const createLook = useCreateAvatarLook()
+  const { data: statusData } = useHeyGenLookStatus(newLookId)
+
+  useEffect(() => {
+    if (step !== "creating" || !statusData) return
+    if (statusData.status === "completed") {
+      queryClient.invalidateQueries({ queryKey: ["heygen", "v3-group-looks", group.id] })
+      queryClient.invalidateQueries({ queryKey: ["heygen", "my-avatar-groups"] })
+      setStep("done")
+    } else if (statusData.status === "failed") {
+      toast({
+        title: "Error al crear el look",
+        description: "El sistema no pudo generar la variante. Intenta ajustar la descripción.",
+        variant: "destructive",
+      })
+      setStep("configure")
+    }
+  }, [statusData?.status]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleCreate = async () => {
+    if (!name.trim() || !promptText.trim() || !refLookId) return
+    try {
+      const result = await createLook.mutateAsync({
+        ref_look_id: refLookId,
+        group_id: group.id,
+        name: name.trim(),
+        prompt: promptText.trim(),
+        pose,
+      })
+      setNewLookId(result.look_id)
+      setStep("creating")
+    } catch (err: any) {
+      toast({
+        title: "Error al crear el look",
+        description: err?.message ?? "Intenta de nuevo en unos momentos.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+
+        {step === "configure" && (
+          <>
+            <DialogHeader>
+              <DialogTitle>Crear nuevo look</DialogTitle>
+              <DialogDescription>
+                Genera una variante del avatar con diferente ropa, fondo o pose. La IA mantiene el mismo personaje.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              {/* Reference look selector — only if more than one look */}
+              {existingLooks.length > 1 && (
+                <div className="space-y-1.5">
+                  <Label>Basar en</Label>
+                  <div className="flex gap-2 flex-wrap">
+                    {existingLooks.map((look) => (
+                      <button
+                        key={look.id}
+                        type="button"
+                        onClick={() => setRefLookId(look.id)}
+                        className={`relative w-14 h-[4.5rem] rounded-lg overflow-hidden border-2 transition-all flex-shrink-0
+                          ${refLookId === look.id ? "border-primary ring-1 ring-primary/40" : "border-border hover:border-primary/40"}`}
+                      >
+                        {look.preview_image_url ? (
+                          <img src={look.preview_image_url} alt={look.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full bg-muted flex items-center justify-center">
+                            <ImageIcon className="w-4 h-4 text-muted-foreground" />
+                          </div>
+                        )}
+                        {refLookId === look.id && (
+                          <div className="absolute inset-0 bg-primary/15 flex items-center justify-center">
+                            <CheckCircle2 className="w-4 h-4 text-primary drop-shadow" />
+                          </div>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground">La IA usará este look como referencia de identidad</p>
+                </div>
+              )}
+
+              {/* Name */}
+              <div className="space-y-1.5">
+                <Label htmlFor="new-look-name">Nombre del look</Label>
+                <Input
+                  id="new-look-name"
+                  placeholder="Ej: Look casual verano"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  disabled={createLook.isPending}
+                />
+              </div>
+
+              {/* Prompt */}
+              <div className="space-y-1.5">
+                <Label htmlFor="new-look-prompt">Descripción del nuevo look</Label>
+                <textarea
+                  id="new-look-prompt"
+                  rows={3}
+                  placeholder="Ej: Camisa casual azul, fondo de cafetería moderna, luz natural cálida"
+                  value={promptText}
+                  onChange={(e) => setPromptText(e.target.value)}
+                  disabled={createLook.isPending}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+                />
+                <p className="text-xs text-muted-foreground">Describe solo lo que cambia: ropa, fondo, iluminación</p>
+              </div>
+
+              {/* Pose */}
+              <div className="space-y-1.5">
+                <Label>Encuadre</Label>
+                <Select value={pose} onValueChange={setPose}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="half_body">Medio cuerpo (recomendado)</SelectItem>
+                    <SelectItem value="close_up">Primer plano</SelectItem>
+                    <SelectItem value="full_body">Cuerpo completo</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <DialogFooter className="flex gap-2">
+              <Button variant="outline" onClick={onClose} disabled={createLook.isPending}>Cancelar</Button>
+              <Button
+                onClick={handleCreate}
+                disabled={!name.trim() || !promptText.trim() || !refLookId || createLook.isPending}
+                className="gap-2"
+              >
+                {createLook.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                {createLook.isPending ? "Enviando..." : "Generar look"}
+              </Button>
+            </DialogFooter>
+          </>
+        )}
+
+        {step === "creating" && (
+          <>
+            <DialogHeader>
+              <DialogTitle>Generando el look…</DialogTitle>
+              <DialogDescription>
+                La IA está creando la nueva variante. Puede tardar unos minutos.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="py-8 text-center space-y-4">
+              <div className="relative mx-auto w-16 h-16">
+                <Loader2 className="w-16 h-16 animate-spin text-primary/30" />
+                <Sparkles className="w-6 h-6 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-primary" />
+              </div>
+              <div>
+                <p className="text-sm font-medium">Generando variante de look…</p>
+                <p className="text-xs text-muted-foreground mt-1">No cierres esta ventana</p>
+              </div>
+            </div>
+          </>
+        )}
+
+        {step === "done" && (
+          <>
+            <DialogHeader>
+              <DialogTitle>¡Look creado!</DialogTitle>
+              <DialogDescription>El nuevo look ya está disponible en este avatar.</DialogDescription>
+            </DialogHeader>
+            <div className="py-6 text-center space-y-3">
+              <div className="w-20 h-[6.5rem] bg-muted rounded-xl mx-auto flex items-center justify-center">
+                <CheckCircle2 className="w-10 h-10 text-emerald-500" />
+              </div>
+              <p className="text-sm text-muted-foreground">El look aparecerá en la lista en unos momentos</p>
+            </div>
+            <DialogFooter>
+              <Button onClick={() => { onCreated(); onClose() }} className="w-full">Ver looks</Button>
+            </DialogFooter>
+          </>
+        )}
+
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ── LooksDialogV3 ─────────────────────────────────────────────────────────────
+
+// Studio avatar looks can't be deleted via HeyGen API
+const isLookDeletable = (look: V3Look) =>
+  look.avatar_type !== "studio_avatar" && look.avatar_type !== "model_index"
+
+function LooksDialogV3({
+  group,
+  isOwned,
   selectedIds,
   voiceOverrides,
   voiceOptions,
   onToggle,
   onChangeVoice,
   onClose,
+  onLooksLoaded,
+  saveStatus = "idle",
 }: {
-  group: HeyGenAvatarGroup
+  group: V3Group
+  isOwned?: boolean
   selectedIds: Set<string>
   voiceOverrides: Record<string, string>
   voiceOptions: VoiceOption[]
   onToggle: (id: string) => void
   onChangeVoice: (lookId: string, voiceId: string) => void
   onClose: () => void
+  onLooksLoaded?: (groupId: string, looks: V3Look[]) => void
+  saveStatus?: "idle" | "saving" | "saved"
 }) {
-  const { data: looks, isLoading } = useGetHeyGenGroupLooks(group.id)
-  const [landscapeIds, setLandscapeIds] = useState<Set<string>>(new Set())
+  const { data, isLoading, refetch } = useGetV3GroupLooks(group.id)
+  const queryClient = useQueryClient()
+  const { toast } = useToast()
 
-  const handleImgLoad = (id: string, e: React.SyntheticEvent<HTMLImageElement>) => {
-    const img = e.currentTarget
-    if (img.naturalWidth > img.naturalHeight) {
-      setLandscapeIds(prev => { const s = new Set(prev); s.add(id); return s })
+  const [newLookOpen, setNewLookOpen] = useState(false)
+  const [selectMode, setSelectMode] = useState(false)
+  const [forDelete, setForDelete] = useState<Set<string>>(new Set())
+  const [confirmDeleteGroup, setConfirmDeleteGroup] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [showOnlySelected, setShowOnlySelected] = useState(false)
+  const [lightboxLook, setLightboxLook] = useState<V3Look | null>(null)
+  const [hoveredLookId, setHoveredLookId] = useState<string | null>(null)
+
+  const deleteLook = useDeleteAvatarLook()
+  const deleteGroup = useDeleteAvatarGroup()
+
+  const looks: V3Look[] = data?.looks ?? []
+  const deletableLooks = looks.filter(isLookDeletable)
+  const allDeletableSelected = deletableLooks.length > 0 && deletableLooks.every(l => forDelete.has(l.id))
+
+  const selectedInGroup = looks.filter(l => selectedIds.has(l.id))
+  const visibleLooks = showOnlySelected ? selectedInGroup : looks
+
+  // Reset filter when dialog opens/closes or when leaving select mode
+  useEffect(() => { if (selectMode) setShowOnlySelected(false) }, [selectMode])
+
+  useEffect(() => {
+    if (looks.length > 0) onLooksLoaded?.(group.id, looks)
+  }, [looks.length]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const toggleForDelete = (id: string) => {
+    setForDelete(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  const toggleSelectAll = () => {
+    if (allDeletableSelected) {
+      setForDelete(new Set())
+    } else {
+      setForDelete(new Set(deletableLooks.map(l => l.id)))
+    }
+  }
+
+  const handleDeleteSelected = async () => {
+    setDeleting(true)
+    let failed = 0
+    for (const id of Array.from(forDelete)) {
+      try {
+        await deleteLook.mutateAsync(id)
+      } catch {
+        failed++
+      }
+    }
+    await refetch()
+    queryClient.invalidateQueries({ queryKey: ["heygen", "my-avatar-groups"] })
+    setForDelete(new Set())
+    setSelectMode(false)
+    setDeleting(false)
+    if (failed > 0) {
+      toast({ title: `${failed} look(s) no se pudieron eliminar`, variant: "destructive" })
+    } else {
+      toast({ title: "Looks eliminados correctamente" })
+    }
+  }
+
+  const handleDeleteGroup = async () => {
+    setDeleting(true)
+    try {
+      await deleteGroup.mutateAsync(group.id)
+      queryClient.invalidateQueries({ queryKey: ["heygen", "my-avatar-groups"] })
+      onClose()
+    } catch (err: any) {
+      toast({ title: "Error al eliminar el avatar", description: err?.message, variant: "destructive" })
+      setConfirmDeleteGroup(false)
+      setDeleting(false)
+    }
+  }
+
+  const exitSelectMode = () => { setSelectMode(false); setForDelete(new Set()) }
+
+  return (
+    <>
+      <Dialog open onOpenChange={(open) => { if (!open && !deleting) onClose() }}>
+        <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
+
+          {/* ── Confirm delete group ── */}
+          {confirmDeleteGroup ? (
+            <>
+              <DialogHeader>
+                <DialogTitle className="text-destructive flex items-center gap-2">
+                  <Trash2 className="w-5 h-5" />
+                  Eliminar avatar completo
+                </DialogTitle>
+                <DialogDescription>
+                  Se eliminarán permanentemente el grupo <strong>{group.name}</strong> y todos sus looks. Esta acción no se puede deshacer.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="py-4 px-1 rounded-lg bg-destructive/10 border border-destructive/20 text-sm text-destructive text-center">
+                ¿Confirmas que quieres eliminar <strong>{group.name}</strong> y sus {group.looks_count} look{group.looks_count !== 1 ? "s" : ""}?
+              </div>
+              <DialogFooter className="gap-2">
+                <Button variant="outline" onClick={() => setConfirmDeleteGroup(false)} disabled={deleting}>Cancelar</Button>
+                <Button variant="destructive" onClick={handleDeleteGroup} disabled={deleting} className="gap-2">
+                  {deleting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  {deleting ? "Eliminando…" : "Sí, eliminar todo"}
+                </Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <>
+              <DialogHeader>
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <DialogTitle>{group.name}</DialogTitle>
+                    <DialogDescription>
+                      {selectMode
+                        ? "Selecciona los looks que quieres eliminar."
+                        : "Elige los looks que quieres usar. Al seleccionar un look puedes asignarle una voz."}
+                    </DialogDescription>
+                  </div>
+                  {isOwned && !selectMode && (
+                    <button
+                      type="button"
+                      title="Eliminar avatar completo"
+                      onClick={() => setConfirmDeleteGroup(true)}
+                      className="mt-0.5 p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors flex-shrink-0"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              </DialogHeader>
+
+              {/* Select-all bar */}
+              {selectMode && deletableLooks.length > 0 && (
+                <div className="flex items-center gap-3 px-1 py-2 border-b">
+                  <button
+                    type="button"
+                    onClick={toggleSelectAll}
+                    className="flex items-center gap-2 text-sm font-medium"
+                  >
+                    <div className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors
+                      ${allDeletableSelected ? "bg-primary border-primary" : "border-muted-foreground"}`}>
+                      {allDeletableSelected && <CheckCircle2 className="w-3 h-3 text-primary-foreground" />}
+                    </div>
+                    Seleccionar todos
+                  </button>
+                  <span className="text-xs text-muted-foreground ml-auto">
+                    {forDelete.size} seleccionado{forDelete.size !== 1 ? "s" : ""}
+                  </span>
+                </div>
+              )}
+
+              {/* Filter bar — only in normal mode with selections */}
+              {!selectMode && selectedInGroup.length > 0 && !isLoading && (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowOnlySelected(v => !v)}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border transition-colors
+                      ${showOnlySelected
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-background text-muted-foreground border-border hover:border-primary/50 hover:text-foreground"
+                      }`}
+                  >
+                    <CheckCircle2 className="w-3 h-3" />
+                    {showOnlySelected ? "Ver todos" : `Ver solo seleccionados (${selectedInGroup.length})`}
+                  </button>
+                </div>
+              )}
+
+              {isLoading ? (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                  {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="aspect-[3/4] rounded-lg" />)}
+                </div>
+              ) : looks.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  <ImageIcon className="w-10 h-10 mx-auto mb-3 opacity-40" />
+                  <p className="text-sm">Este avatar no tiene looks disponibles</p>
+                </div>
+              ) : visibleLooks.length === 0 ? (
+                <div className="text-center py-10 text-muted-foreground">
+                  <CheckCircle2 className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                  <p className="text-sm">Ningún look seleccionado en este avatar</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                  {visibleLooks.map((look) => {
+                    const isSelected = selectedIds.has(look.id)
+                    const markedForDelete = forDelete.has(look.id)
+                    const deletable = isLookDeletable(look)
+
+                    return (
+                      <div key={look.id} className="flex flex-col">
+                        {/*
+                          Card: outer div owns sizing + borders.
+                          Inside: image fills the space.
+                          Selection overlay sits at z-10 (full area, handles clicks).
+                          Badges / name are at z-20 (pointer-events-none).
+                          Zoom button is at z-30 — sibling to the overlay, never bubbles to it.
+                        */}
+                        <div
+                          onMouseEnter={() => setHoveredLookId(look.id)}
+                          onMouseLeave={() => setHoveredLookId(null)}
+                          className={`relative aspect-[3/4] rounded-lg overflow-hidden border-2 transition-all
+                            ${selectMode
+                              ? markedForDelete
+                                ? "border-destructive ring-2 ring-destructive/30"
+                                : deletable
+                                  ? "border-border"
+                                  : "border-border opacity-50"
+                              : isSelected
+                                ? "border-primary ring-2 ring-primary/30"
+                                : "border-transparent"
+                            }`}
+                        >
+                          {/* Image */}
+                          {look.preview_image_url ? (
+                            <img src={look.preview_image_url} alt={look.name} className="absolute inset-0 w-full h-full object-cover" loading="lazy" />
+                          ) : (
+                            <div className="absolute inset-0 bg-muted flex items-center justify-center text-muted-foreground">
+                              <ImageIcon className="w-8 h-8" />
+                            </div>
+                          )}
+
+                          {/* Selection overlay — z-10 */}
+                          <div
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => {
+                              if (selectMode) { if (deletable) toggleForDelete(look.id) }
+                              else onToggle(look.id)
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault()
+                                if (selectMode) { if (deletable) toggleForDelete(look.id) }
+                                else onToggle(look.id)
+                              }
+                            }}
+                            className={`absolute inset-0 z-10 ${selectMode && !deletable ? "cursor-not-allowed" : "cursor-pointer"}`}
+                          />
+
+                          {/* Type badge — z-20, no pointer events */}
+                          <div className={`absolute top-2 left-2 z-20 pointer-events-none flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold shadow-sm
+                            ${look.is_talking_photo ? "bg-orange-500/90 text-white" : "bg-green-600/90 text-white"}`}>
+                            {look.is_talking_photo ? <Camera className="w-2.5 h-2.5" /> : <Video className="w-2.5 h-2.5" />}
+                            {look.is_talking_photo ? "Foto" : "Avatar"}
+                          </div>
+
+                          {/* Selection / delete indicator — z-20, no pointer events */}
+                          <div className={`absolute top-2 right-2 z-20 pointer-events-none w-6 h-6 rounded-full flex items-center justify-center transition-colors
+                            ${selectMode
+                              ? !deletable ? "bg-black/40 text-white/50"
+                                : markedForDelete ? "bg-destructive text-white"
+                                : "bg-black/30 text-white/60 border border-white/30"
+                              : isSelected ? "bg-primary text-primary-foreground"
+                              : "bg-black/30 text-white/60 border border-white/30"
+                            }`}>
+                            {selectMode
+                              ? (!deletable ? <Lock className="w-3 h-3" /> : markedForDelete ? <CheckCircle2 className="w-4 h-4" /> : null)
+                              : (isSelected ? <CheckCircle2 className="w-5 h-5" /> : null)}
+                          </div>
+
+                          {/* Name gradient — z-20, no pointer events */}
+                          <div className="absolute bottom-0 inset-x-0 z-20 pointer-events-none bg-gradient-to-t from-black/70 to-transparent px-2 py-1.5">
+                            <p className="text-white text-xs font-medium truncate">{look.name}</p>
+                          </div>
+
+                          {/* Zoom button — z-30, real sibling to overlay so no event conflict */}
+                          {look.preview_image_url && !selectMode && (
+                            <button
+                              type="button"
+                              onClick={() => setLightboxLook(look)}
+                              className={`absolute bottom-8 right-2 z-30 p-1.5 rounded-md bg-black/60 text-white transition-opacity hover:bg-black/80
+                                ${hoveredLookId === look.id ? "opacity-100" : "opacity-0 pointer-events-none"}`}
+                              title="Ampliar imagen"
+                            >
+                              <ZoomIn className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Non-deletable notice in select mode */}
+                        {selectMode && !deletable && (
+                          <p className="text-[10px] text-muted-foreground text-center mt-1">No eliminable vía API</p>
+                        )}
+
+                        {!selectMode && isSelected && (
+                          <LookVoiceInline
+                            lookId={look.id}
+                            voiceOverride={voiceOverrides[look.id]}
+                            voiceOptions={voiceOptions}
+                            onChangeVoice={onChangeVoice}
+                          />
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
+              <DialogFooter className="flex-col sm:flex-row gap-2">
+                {selectMode ? (
+                  <>
+                    <Button variant="outline" onClick={exitSelectMode} disabled={deleting} className="sm:mr-auto">
+                      Cancelar
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      onClick={handleDeleteSelected}
+                      disabled={forDelete.size === 0 || deleting}
+                      className="gap-2"
+                    >
+                      {deleting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                      {deleting ? "Eliminando…" : `Eliminar${forDelete.size > 0 ? ` (${forDelete.size})` : ""}`}
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    {isOwned && deletableLooks.length > 0 && (
+                      <Button
+                        variant="outline"
+                        onClick={() => setSelectMode(true)}
+                        className="gap-2 sm:mr-auto text-destructive border-destructive/40 hover:bg-destructive/10"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        Eliminar looks
+                      </Button>
+                    )}
+                    {isOwned && looks.length > 0 && (
+                      <Button variant="outline" onClick={() => setNewLookOpen(true)} className="gap-2">
+                        <Plus className="w-4 h-4" />
+                        Nuevo look
+                      </Button>
+                    )}
+                    {/* Auto-save status indicator */}
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground sm:mr-auto">
+                      {saveStatus === "saving" && (
+                        <>
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                          <span>Guardando…</span>
+                        </>
+                      )}
+                      {saveStatus === "saved" && (
+                        <>
+                          <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+                          <span className="text-emerald-600">Guardado</span>
+                        </>
+                      )}
+                    </div>
+                    <Button variant="outline" onClick={onClose}>Cerrar</Button>
+                  </>
+                )}
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {newLookOpen && (
+        <NewLookDialog
+          group={group}
+          existingLooks={looks}
+          onClose={() => setNewLookOpen(false)}
+          onCreated={() => setNewLookOpen(false)}
+        />
+      )}
+
+      {/* ── Lightbox ── */}
+      {lightboxLook && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/85 backdrop-blur-sm"
+          onClick={() => setLightboxLook(null)}
+        >
+          <div
+            className="relative max-w-sm w-full mx-4 flex flex-col items-center gap-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Close */}
+            <button
+              type="button"
+              onClick={() => setLightboxLook(null)}
+              className="absolute -top-3 -right-3 z-10 p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            {/* Image */}
+            <img
+              src={lightboxLook.preview_image_url!}
+              alt={lightboxLook.name}
+              className="w-full max-h-[75vh] object-contain rounded-xl shadow-2xl"
+            />
+
+            {/* Caption */}
+            <div className="text-center">
+              <p className="text-white font-semibold text-sm">{lightboxLook.name}</p>
+              <p className="text-white/50 text-xs mt-0.5">
+                {lightboxLook.is_talking_photo ? "Avatar foto" : "Avatar digital"}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
+// ── CloneVoiceDialog ──────────────────────────────────────────────────────────
+
+function CloneVoiceDialog({ onClose, onCloned }: { onClose: () => void; onCloned: () => void }) {
+  const { toast } = useToast()
+  const cloneVoice = useCloneVoice()
+  const [displayName, setDisplayName] = useState("")
+  const [file, setFile] = useState<File | null>(null)
+  const [dragOver, setDragOver] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const handleFile = (f: File) => {
+    if (!f.type.startsWith("audio/")) {
+      toast({ title: "Formato no válido", description: "Solo se aceptan archivos de audio (MP3, WAV, M4A…)", variant: "destructive" })
+      return
+    }
+    if (f.size > 25 * 1024 * 1024) {
+      toast({ title: "Archivo muy grande", description: "El audio debe pesar menos de 25 MB.", variant: "destructive" })
+      return
+    }
+    setFile(f)
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault(); setDragOver(false)
+    const f = e.dataTransfer.files[0]; if (f) handleFile(f)
+  }
+
+  const handleClone = async () => {
+    if (!file || !displayName.trim()) return
+    const formData = new FormData()
+    formData.append("audio", file)
+    formData.append("name", displayName.trim())
+    try {
+      await cloneVoice.mutateAsync(formData)
+      toast({ title: "¡Voz clonando!", description: "Estamos procesando tu voz. Aparecerá en unos minutos." })
+      onCloned()
+    } catch (err: any) {
+      toast({ title: "Error al clonar", description: err?.message ?? "Intenta de nuevo.", variant: "destructive" })
     }
   }
 
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>{group.name}</DialogTitle>
-          <DialogDescription>
-            Elige los looks que quieres usar. Cuando seleccionas un look puedes asignarle su voz directamente.
-          </DialogDescription>
+          <DialogTitle className="flex items-center gap-2"><Mic className="w-5 h-5 text-primary" /> Clonar mi voz</DialogTitle>
+          <DialogDescription>Sube una grabación de tu voz para crear un clon personalizado.</DialogDescription>
         </DialogHeader>
-
-        {isLoading ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-            {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="aspect-[3/4] rounded-lg" />)}
+        <div className="space-y-4 py-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="voice-name">Nombre de la voz</Label>
+            <Input id="voice-name" value={displayName} onChange={e => setDisplayName(e.target.value)}
+              placeholder="Ej: Mi voz principal" disabled={cloneVoice.isPending} />
           </div>
-        ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-            {looks?.map((look) => {
-              const isSelected = selectedIds.has(look.id)
-              const isLandscape = landscapeIds.has(look.id)
-
-              return (
-                // Once detected as landscape, hide the card entirely — only vertical looks shown
-                <div key={look.id} className={`flex flex-col ${isLandscape ? "hidden" : ""}`}>
-                  <button
-                    type="button"
-                    onClick={() => onToggle(look.id)}
-                    className={`relative rounded-lg overflow-hidden border-2 text-left transition-all
-                      ${isSelected
-                        ? "border-primary ring-2 ring-primary/30"
-                        : "border-transparent hover:border-primary/40"
-                      }`}
-                  >
-                    <div className="aspect-[3/4] bg-muted">
-                      {look.image_url ? (
-                        <img
-                          src={look.image_url}
-                          alt={look.name}
-                          className="w-full h-full object-cover"
-                          loading="lazy"
-                          onLoad={(e) => handleImgLoad(look.id, e)}
-                        />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-muted-foreground">
-                          <ImageIcon className="w-8 h-8" />
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Avatar type badge */}
-                    <div className={`absolute top-2 left-2 flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold shadow-sm ${look.is_talking_photo ? "bg-orange-500/90 text-white" : "bg-green-600/90 text-white"}`}>
-                      {look.is_talking_photo ? <Camera className="w-2.5 h-2.5" /> : <Video className="w-2.5 h-2.5" />}
-                      {look.is_talking_photo ? "Foto" : "Avatar V"}
-                    </div>
-
-                    {/* Selection checkmark */}
-                    <div className={`absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center transition-colors ${isSelected ? "bg-primary text-primary-foreground" : "bg-black/30 text-white/60 border border-white/30"}`}>
-                      {isSelected && <CheckCircle2 className="w-5 h-5" />}
-                    </div>
-
-                    <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/70 to-transparent px-2 py-1.5">
-                      <p className="text-white text-xs font-medium truncate">{look.name}</p>
-                    </div>
-                  </button>
-
-                  {/* Voice selector — only shown when look is selected */}
-                  {isSelected && (
-                    <LookVoiceInline
-                      lookId={look.id}
-                      voiceOverride={voiceOverrides[look.id]}
-                      voiceOptions={voiceOptions}
-                      onChangeVoice={onChangeVoice}
-                    />
-                  )}
+          <div className="space-y-1.5">
+            <Label>Audio de referencia</Label>
+            <div
+              onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={handleDrop}
+              onClick={() => fileInputRef.current?.click()}
+              className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors
+                ${dragOver ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"}`}
+            >
+              {file ? (
+                <div className="space-y-1">
+                  <Volume2 className="w-8 h-8 mx-auto text-primary" />
+                  <p className="text-sm font-medium">{file.name}</p>
+                  <p className="text-xs text-muted-foreground">{(file.size / 1024 / 1024).toFixed(1)} MB</p>
                 </div>
-              )
-            })}
+              ) : (
+                <div className="space-y-1">
+                  <Upload className="w-8 h-8 mx-auto text-muted-foreground" />
+                  <p className="text-sm font-medium">Arrastra tu audio aquí</p>
+                  <p className="text-xs text-muted-foreground">MP3, WAV, M4A · máx 25 MB</p>
+                </div>
+              )}
+              <input ref={fileInputRef} type="file" accept="audio/*" className="hidden"
+                onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f) }} />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Recomendado: 30 segundos o más, voz clara, sin ruido de fondo.
+            </p>
           </div>
-        )}
-
+        </div>
         <DialogFooter>
-          <Button onClick={onClose} className="w-full">Listo</Button>
+          <Button variant="outline" onClick={onClose} disabled={cloneVoice.isPending}>Cancelar</Button>
+          <Button onClick={handleClone} disabled={!file || !displayName.trim() || cloneVoice.isPending} className="gap-2">
+            {cloneVoice.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+            {cloneVoice.isPending ? "Procesando…" : "Clonar voz"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   )
 }
 
+// ── AssignVoiceDialog ─────────────────────────────────────────────────────────
+
+function AssignVoiceDialog({
+  voice, lookGroupMap, allGroups, voiceOverrides, onAssign, onClose,
+}: {
+  voice: VoiceOption
+  lookGroupMap: Record<string, string>
+  allGroups: V3Group[]
+  voiceOverrides: Record<string, string>
+  onAssign: (lookIds: string[]) => void
+  onClose: () => void
+}) {
+  // Invert lookGroupMap → groupId → lookId[]
+  const groupToLooks = useMemo(() => {
+    const m = new Map<string, string[]>()
+    for (const [lid, gid] of Object.entries(lookGroupMap)) {
+      const arr = m.get(gid) ?? []
+      arr.push(lid)
+      m.set(gid, arr)
+    }
+    return m
+  }, [lookGroupMap])
+
+  // Only show groups that have at least one look in lookGroupMap
+  const knownGroups = useMemo(
+    () => allGroups.filter(g => groupToLooks.has(g.id)),
+    [allGroups, groupToLooks]
+  )
+
+  // Pre-check groups where ANY look already uses this voice
+  const [checkedGroups, setCheckedGroups] = useState<Set<string>>(() => {
+    const pre = new Set<string>()
+    for (const g of allGroups) {
+      const looks = groupToLooks.get(g.id) ?? []
+      if (looks.some(lid => voiceOverrides[lid] === voice.voice_id)) pre.add(g.id)
+    }
+    return pre
+  })
+
+  const toggleGroup = (gid: string) => setCheckedGroups(prev => {
+    const next = new Set(prev)
+    next.has(gid) ? next.delete(gid) : next.add(gid)
+    return next
+  })
+
+  const handleApply = () => {
+    const lookIds: string[] = []
+    for (const gid of checkedGroups) {
+      for (const lid of (groupToLooks.get(gid) ?? [])) lookIds.push(lid)
+    }
+    onAssign(lookIds)
+  }
+
+  // Count total looks that will be updated
+  const totalLooks = Array.from(checkedGroups).reduce(
+    (sum, gid) => sum + (groupToLooks.get(gid)?.length ?? 0), 0
+  )
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Volume2 className="w-5 h-5 text-primary" /> Asignar "{voice.name}"
+          </DialogTitle>
+          <DialogDescription>
+            Elige los avatares que usarán esta voz. Se aplicará a todos sus looks.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="py-2 max-h-80 overflow-y-auto space-y-1.5">
+          {knownGroups.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-6">
+              Abre la ficha de un avatar primero para que aparezca aquí.
+            </p>
+          ) : (
+            knownGroups.map(group => {
+              const looks = groupToLooks.get(group.id) ?? []
+              const allHaveVoice = looks.every(lid => voiceOverrides[lid] === voice.voice_id)
+              const someHaveVoice = !allHaveVoice && looks.some(lid => voiceOverrides[lid] === voice.voice_id)
+              const hasOtherVoice = looks.some(
+                lid => voiceOverrides[lid] && voiceOverrides[lid] !== voice.voice_id
+              )
+              return (
+                <label
+                  key={group.id}
+                  className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-muted/50 cursor-pointer transition-colors"
+                >
+                  <input
+                    type="checkbox"
+                    checked={checkedGroups.has(group.id)}
+                    onChange={() => toggleGroup(group.id)}
+                    className="w-4 h-4 rounded border-border accent-primary shrink-0"
+                  />
+                  {/* Thumbnail */}
+                  <div className="w-10 h-10 rounded-lg overflow-hidden bg-muted shrink-0">
+                    {group.preview_image_url ? (
+                      <img src={group.preview_image_url} alt={group.name}
+                        className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <Users className="w-4 h-4 text-muted-foreground" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{group.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {looks.length} look{looks.length !== 1 ? "s" : ""}
+                      {allHaveVoice && " · voz ya asignada"}
+                      {someHaveVoice && " · asignada en algunos"}
+                      {hasOtherVoice && !someHaveVoice && " · reemplazará la voz actual"}
+                    </p>
+                  </div>
+                  {allHaveVoice && (
+                    <CheckCircle2 className="w-4 h-4 text-primary shrink-0" />
+                  )}
+                </label>
+              )
+            })
+          )}
+        </div>
+
+        <DialogFooter className="flex gap-2">
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button
+            onClick={handleApply}
+            disabled={checkedGroups.size === 0}
+            className="gap-1.5"
+          >
+            <CheckCircle2 className="w-4 h-4" />
+            Aplicar a {checkedGroups.size} avatar{checkedGroups.size !== 1 ? "es" : ""}
+            {totalLooks > 0 && ` · ${totalLooks} looks`}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ── AvatarCreationDialog ──────────────────────────────────────────────────────
+
+type CreationMode = "photo" | "prompt"
+type CreationStep = "configure" | "creating" | "done"
+
+function AvatarCreationDialog({
+  onClose,
+  onCreated,
+  voiceOptions = [],
+}: {
+  onClose: () => void
+  onCreated: (groupId: string, lookId: string, voiceId?: string) => void
+  voiceOptions?: VoiceOption[]
+}) {
+  const { toast } = useToast()
+  const [mode, setMode] = useState<CreationMode>("photo")
+  const [step, setStep] = useState<CreationStep>("configure")
+
+  // Shared
+  const [name, setName] = useState("")
+  const [lookId, setLookId] = useState<string | null>(null)
+  const [groupId, setGroupId] = useState<string | null>(null)
+
+  // Photo mode
+  const [file, setFile] = useState<File | null>(null)
+  const [preview, setPreview] = useState<string | null>(null)
+  const [dragOver, setDragOver] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Prompt mode
+  const [promptText, setPromptText] = useState("")
+  const [pose, setPose] = useState("half_body")
+  const [promptVoiceId, setPromptVoiceId] = useState("")
+
+  const uploadAsset = useUploadHeyGenAsset()
+  const createPhoto = useCreatePhotoAvatar()
+  const createPrompt = useCreatePromptAvatar()
+  const { data: statusData } = useHeyGenLookStatus(lookId)
+
+  // Advance when training completes
+  useEffect(() => {
+    if (step !== "creating" || !statusData) return
+    if (statusData.status === "completed") {
+      setStep("done")
+      onCreated(groupId!, lookId!, promptVoiceId || undefined)
+    } else if (statusData.status === "failed") {
+      toast({
+        title: "Error al crear el avatar",
+        description: mode === "photo"
+          ? "No se pudo procesar la imagen. Usa una foto frontal con buena iluminación."
+          : "El sistema no pudo generar el avatar. Intenta ajustar la descripción.",
+        variant: "destructive",
+      })
+      setStep("configure")
+    }
+  }, [statusData?.status]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Photo helpers
+  const handleFile = (f: File) => {
+    if (!f.type.match(/image\/(png|jpeg|jpg)/i)) {
+      toast({ title: "Formato no soportado", description: "Usa una imagen PNG o JPG.", variant: "destructive" })
+      return
+    }
+    if (f.size > 32 * 1024 * 1024) {
+      toast({ title: "Archivo muy grande", description: "La imagen debe pesar menos de 32 MB.", variant: "destructive" })
+      return
+    }
+    setFile(f)
+    const reader = new FileReader()
+    reader.onload = (e) => setPreview(e.target?.result as string)
+    reader.readAsDataURL(f)
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault(); setDragOver(false)
+    const f = e.dataTransfer.files[0]; if (f) handleFile(f)
+  }
+
+  const handleCreate = async () => {
+    if (!name.trim()) return
+    try {
+      if (mode === "photo") {
+        if (!file) return
+        const formData = new FormData()
+        formData.append("file", file)
+        const { asset_id } = await uploadAsset.mutateAsync(formData)
+        const result = await createPhoto.mutateAsync({ name: name.trim(), asset_id })
+        setLookId(result.look_id)
+        setGroupId(result.group_id)
+      } else {
+        if (!promptText.trim()) return
+        const result = await createPrompt.mutateAsync({
+          name: name.trim(),
+          prompt: promptText.trim(),
+          orientation: "vertical",
+          pose,
+        })
+        setLookId(result.look_id)
+        setGroupId(result.group_id)
+      }
+      setStep("creating")
+    } catch (err: any) {
+      toast({
+        title: "Error al crear el avatar",
+        description: err?.message ?? "Intenta de nuevo en unos momentos.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const canSubmit = mode === "photo"
+    ? !!file && !!name.trim()
+    : !!promptText.trim() && !!name.trim()
+
+  const isPending = uploadAsset.isPending || createPhoto.isPending || createPrompt.isPending
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+
+        {/* ── Configure step ── */}
+        {step === "configure" && (
+          <>
+            <DialogHeader>
+              <DialogTitle>Crear mi avatar</DialogTitle>
+              <DialogDescription>
+                Elige cómo quieres crear tu avatar.
+              </DialogDescription>
+            </DialogHeader>
+
+            {/* Mode selector */}
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setMode("photo")}
+                className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 text-left transition-all
+                  ${mode === "photo" ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`}
+              >
+                <Camera className={`w-7 h-7 ${mode === "photo" ? "text-primary" : "text-muted-foreground"}`} />
+                <div>
+                  <p className="text-sm font-semibold">Desde una foto</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Sube tu propia foto y el sistema la anima</p>
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("prompt")}
+                className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 text-left transition-all
+                  ${mode === "prompt" ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`}
+              >
+                <Sparkles className={`w-7 h-7 ${mode === "prompt" ? "text-primary" : "text-muted-foreground"}`} />
+                <div>
+                  <p className="text-sm font-semibold">Desde descripción</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">La IA genera un personaje a partir de texto</p>
+                </div>
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {/* Name — always visible */}
+              <div className="space-y-1.5">
+                <Label htmlFor="avatar-name">Nombre del avatar</Label>
+                <Input
+                  id="avatar-name"
+                  placeholder="Ej: Mi Avatar Principal"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  disabled={isPending}
+                />
+              </div>
+
+              {/* Photo mode */}
+              {mode === "photo" && (
+                <div className="space-y-1.5">
+                  <Label>Foto de retrato</Label>
+                  <div
+                    className={`relative border-2 border-dashed rounded-xl transition-colors cursor-pointer
+                      ${dragOver ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"}
+                      ${file ? "p-3" : "p-8"}`}
+                    onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+                    onDragLeave={() => setDragOver(false)}
+                    onDrop={handleDrop}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    {file && preview ? (
+                      <div className="flex items-center gap-3">
+                        <img src={preview} alt="preview" className="w-16 h-20 object-cover rounded-lg border" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{file.name}</p>
+                          <p className="text-xs text-muted-foreground">{(file.size / 1024).toFixed(0)} KB</p>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setFile(null); setPreview(null) }}
+                            className="text-xs text-destructive hover:underline mt-0.5"
+                          >
+                            Cambiar imagen
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-center">
+                        <Upload className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
+                        <p className="text-sm font-medium">Arrastra o haz clic para subir</p>
+                        <p className="text-xs text-muted-foreground mt-1">PNG o JPG · máx. 32 MB</p>
+                        <p className="text-xs text-muted-foreground">Retrato frontal, buena iluminación, un solo rostro</p>
+                      </div>
+                    )}
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/png,image/jpeg,image/jpg"
+                      className="hidden"
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f) }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Prompt mode */}
+              {mode === "prompt" && (
+                <div className="space-y-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="avatar-prompt">Descripción del avatar</Label>
+                    <textarea
+                      id="avatar-prompt"
+                      rows={4}
+                      placeholder="Ej: Mujer de unos 35 años, cabello oscuro, expresión profesional y cercana, fondo de oficina moderna, estilo realista"
+                      value={promptText}
+                      onChange={(e) => setPromptText(e.target.value)}
+                      disabled={isPending}
+                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Describe la apariencia, el estilo y el fondo. Cuanto más detallado, mejor el resultado.
+                    </p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Encuadre</Label>
+                    <Select value={pose} onValueChange={setPose}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="half_body">Medio cuerpo (recomendado para video)</SelectItem>
+                        <SelectItem value="close_up">Primer plano</SelectItem>
+                        <SelectItem value="full_body">Cuerpo completo</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {voiceOptions.length > 0 && (
+                    <div className="space-y-1.5">
+                      <Label className="flex items-center gap-1.5">
+                        <Mic className="w-3.5 h-3.5 text-primary" /> Voz (opcional)
+                      </Label>
+                      <Select value={promptVoiceId || "__default__"} onValueChange={v => setPromptVoiceId(v === "__default__" ? "" : v)}>
+                        <SelectTrigger className="bg-background">
+                          <SelectValue placeholder="Voz por defecto del sistema" />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-60">
+                          <SelectItem value="__default__">Voz por defecto del sistema</SelectItem>
+                          {voiceOptions.filter(v => v.is_mine).map(v => (
+                            <SelectItem key={v.voice_id} value={v.voice_id}>
+                              🎙 {v.name} · clonada
+                            </SelectItem>
+                          ))}
+                          {voiceOptions.filter(v => !v.is_mine).map(v => (
+                            <SelectItem key={v.voice_id} value={v.voice_id}>
+                              {v.name}{v.gender === "male" ? " · masc." : v.gender === "female" ? " · fem." : ""}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">Puedes cambiarla después desde la pestaña Voces.</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <DialogFooter className="flex gap-2">
+              <Button variant="outline" onClick={onClose} disabled={isPending}>Cancelar</Button>
+              <Button onClick={handleCreate} disabled={!canSubmit || isPending} className="gap-2">
+                {isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                {isPending ? "Procesando..." : "Crear avatar"}
+              </Button>
+            </DialogFooter>
+          </>
+        )}
+
+        {/* ── Creating step ── */}
+        {step === "creating" && (
+          <>
+            <DialogHeader>
+              <DialogTitle>Creando tu avatar…</DialogTitle>
+              <DialogDescription>
+                {mode === "photo"
+                  ? "El sistema está procesando tu foto. Esto puede tardar entre 1 y 5 minutos."
+                  : "La inteligencia artificial está generando tu avatar. Esto puede tardar unos minutos."}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="py-8 text-center space-y-4">
+              <div className="relative mx-auto w-16 h-16">
+                <Loader2 className="w-16 h-16 animate-spin text-primary/30" />
+                {mode === "photo"
+                  ? <Camera className="w-6 h-6 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-primary" />
+                  : <Sparkles className="w-6 h-6 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-primary" />}
+              </div>
+              <div>
+                <p className="text-sm font-medium">
+                  {statusData?.status === "processing" ? "Generando el avatar…" : "Iniciando…"}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">No cierres esta ventana</p>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* ── Done step ── */}
+        {step === "done" && (
+          <>
+            <DialogHeader>
+              <DialogTitle>¡Avatar creado!</DialogTitle>
+              <DialogDescription>
+                Tu avatar ya está disponible en la pestaña "Mi Avatar".
+              </DialogDescription>
+            </DialogHeader>
+            <div className="py-6 text-center space-y-3">
+              {statusData?.preview_image_url ? (
+                <img
+                  src={statusData.preview_image_url}
+                  alt={name}
+                  className="w-24 h-32 object-cover rounded-xl mx-auto border shadow-md"
+                />
+              ) : (
+                <div className="w-24 h-32 bg-muted rounded-xl mx-auto flex items-center justify-center">
+                  <CheckCircle2 className="w-10 h-10 text-emerald-500" />
+                </div>
+              )}
+              <div>
+                <p className="font-semibold">{name}</p>
+                <p className="text-xs text-muted-foreground">
+                  {mode === "photo" ? "Avatar desde foto" : "Avatar generado por IA"} · listo para usar
+                </p>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button onClick={onClose} className="w-full">Ver mi avatar</Button>
+            </DialogFooter>
+          </>
+        )}
+
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ── AvatarGroupCard ───────────────────────────────────────────────────────────
+
+function AvatarGroupCard({
+  group,
+  selectedCount,
+  onClick,
+}: {
+  group: V3Group
+  selectedCount: number
+  onClick: () => void
+}) {
+  return (
+    <Card
+      className="overflow-hidden cursor-pointer transition-all duration-300 hover:border-primary/50 hover:shadow-lg"
+      onClick={onClick}
+    >
+      <div className="aspect-square bg-muted relative">
+        {group.preview_image_url ? (
+          <img src={group.preview_image_url} alt={group.name} className="w-full h-full object-cover" loading="lazy" />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+            <ImageIcon className="w-10 h-10" />
+          </div>
+        )}
+        {selectedCount > 0 && (
+          <Badge className="absolute top-2 left-2 gap-1 bg-primary text-primary-foreground shadow">
+            <CheckCircle2 className="w-3 h-3" />
+            {selectedCount} seleccionado{selectedCount !== 1 ? "s" : ""}
+          </Badge>
+        )}
+        {group.status === "processing" && (
+          <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center gap-2">
+            <Loader2 className="w-6 h-6 text-white animate-spin" />
+            <p className="text-white text-xs font-medium">Procesando…</p>
+          </div>
+        )}
+      </div>
+      <CardContent className="p-4 flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <h4 className="font-bold font-display truncate">{group.name}</h4>
+          <p className="text-xs text-muted-foreground">
+            {group.looks_count} look{group.looks_count !== 1 ? "s" : ""}
+            {selectedCount > 0 && <span className="text-primary font-medium"> · {selectedCount} en rotación</span>}
+          </p>
+        </div>
+        <Badge variant="secondary" className="shrink-0 text-xs">Ver looks</Badge>
+      </CardContent>
+    </Card>
+  )
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
+
 export default function Avatars() {
-  const { data: groups, isLoading: isLoadingGroups } = useGetHeyGenAvatarGroups()
   const { data: config, isLoading: isLoadingConfig } = useGetAvatarConfig()
   const updateConfig = useUpdateAvatarConfig()
   const queryClient = useQueryClient()
   const { toast } = useToast()
+  const { data: voices, isLoading: isLoadingVoices } = useGetHeyGenVoices()
 
+  // ── Shared selection state ────────────────────────────────────────────────
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [strategy, setStrategy] = useState<AvatarConfigRotationStrategy>(AvatarConfigRotationStrategy.sequential)
-  const [openGroup, setOpenGroup] = useState<HeyGenAvatarGroup | null>(null)
-  const [hiddenGroups, setHiddenGroups] = useState<Set<string>>(loadHidden)
-  const [onlyInUse, setOnlyInUse] = useState(false)
   const [voiceOverrides, setVoiceOverrides] = useState<Record<string, string>>({})
-
-  // Track whether we've initialized local state from the server config.
-  // Without this, React Query background refetches (e.g. on window focus) would
-  // overwrite any unsaved changes the user made in the dialog.
   const configInitialized = useRef(false)
 
-  const { data: allLooks } = useGetHeyGenAllLooks()
-  const { data: voices } = useGetHeyGenVoices()
+  // lookGroupMap: lookId → groupId. Persisted to localStorage so the
+  // "Solo en uso" filter works across page refreshes without re-opening dialogs.
+  const LOOK_GROUP_MAP_KEY = "avatar_look_group_map"
+  const [lookGroupMap, setLookGroupMap] = useState<Record<string, string>>(() => {
+    try {
+      const raw = localStorage.getItem(LOOK_GROUP_MAP_KEY)
+      return raw ? JSON.parse(raw) : {}
+    } catch {
+      return {}
+    }
+  })
 
-  const hideGroup = (id: string) => {
-    const next = new Set(hiddenGroups).add(id)
-    setHiddenGroups(next)
-    saveHidden(next)
+  // Persist every time the map changes
+  useEffect(() => {
+    try { localStorage.setItem(LOOK_GROUP_MAP_KEY, JSON.stringify(lookGroupMap)) } catch {}
+  }, [lookGroupMap])
+
+  const handleLooksLoaded = useCallback((groupId: string, looks: V3Look[]) => {
+    setLookGroupMap(prev => {
+      const next = { ...prev }
+      let changed = false
+      for (const l of looks) {
+        if (next[l.id] !== groupId) { next[l.id] = groupId; changed = true }
+      }
+      return changed ? next : prev
+    })
+  }, [])
+
+  // ── Dialog state ──────────────────────────────────────────────────────────
+  const [openGroup, setOpenGroup] = useState<{ group: V3Group; isOwned: boolean } | null>(null)
+  const [dialogSaveStatus, setDialogSaveStatus] = useState<"idle" | "saving" | "saved">("idle")
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const autoSaveReadyRef = useRef(false)
+  const [showCreation, setShowCreation] = useState(false)
+
+  // ── My Avatar tab ─────────────────────────────────────────────────────────
+  const { data: myData, isLoading: isLoadingMy, refetch: refetchMy } = useMyHeyGenAvatarGroups()
+  const myGroups: V3Group[] = myData?.groups ?? []
+
+  // Pre-fetch looks for all private groups so the "Solo en uso" filter works
+  // without requiring the user to open each dialog first.
+  const myGroupIds = myGroups.map(g => g.id).join(",")
+  useEffect(() => {
+    if (!myGroups.length) return
+    myGroups.forEach(group => {
+      queryClient
+        .fetchQuery({
+          queryKey: ["heygen", "v3-group-looks", group.id],
+          queryFn: () =>
+            fetch(`/api/heygen/v3-groups/${encodeURIComponent(group.id)}/looks`, {
+              credentials: "include",
+            }).then(r => r.json()),
+          staleTime: 5 * 60 * 1000,
+        })
+        .then((data: any) => {
+          if (data?.looks?.length) handleLooksLoaded(group.id, data.looks)
+        })
+        .catch(() => {})
+    })
+  }, [myGroupIds]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Reverse-lookup: resolve selected look IDs that are not yet in lookGroupMap.
+  // Handles public-group looks selected in a previous session before localStorage
+  // was in place — calls the server's cached flat-looks index.
+  const selectedIdsKey = Array.from(selectedIds).sort().join(",")
+  useEffect(() => {
+    if (!selectedIds.size) return
+    const unknown = Array.from(selectedIds).filter(id => !(id in lookGroupMap))
+    if (!unknown.length) return
+    fetch(`/api/heygen/looks/reverse-lookup?ids=${unknown.map(encodeURIComponent).join(",")}`, {
+      credentials: "include",
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then((mapping: Record<string, string> | null) => {
+        if (!mapping) return
+        setLookGroupMap(prev => {
+          const next = { ...prev }
+          let changed = false
+          for (const [lookId, groupId] of Object.entries(mapping)) {
+            if (next[lookId] !== groupId) { next[lookId] = groupId; changed = true }
+          }
+          return changed ? next : prev
+        })
+      })
+      .catch(() => {})
+  }, [selectedIdsKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Public tab ────────────────────────────────────────────────────────────
+  const {
+    data: publicPages,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    isLoading: isLoadingPublic,
+  } = usePublicHeyGenAvatarGroups()
+  const publicGroups: V3Group[] = publicPages?.pages.flatMap(p => p.groups) ?? []
+
+  // ── Spanish voices (for look-level picker) ────────────────────────────────
+  const spanishVoices: VoiceOption[] = useMemo(
+    () =>
+      (voices ?? [])
+        .filter((v) => {
+          const lang = (v.language ?? "").toLowerCase()
+          return lang.includes("spanish") || lang.startsWith("es") || lang === "unknown" || v.is_cloned
+        })
+        .map((v) => ({
+          voice_id: v.voice_id,
+          name: v.name,
+          language: v.language ?? "",
+          gender: v.gender ?? null,
+          preview_audio_url: v.preview_audio_url ?? null,
+          is_cloned: v.is_cloned ?? false,
+          is_mine: v.is_mine ?? false,
+        })),
+    [voices]
+  )
+
+  // ── All voices (for Voces tab) — clones first, then Spanish public ─────────
+  const allVoices: VoiceOption[] = useMemo(
+    () =>
+      (voices ?? [])
+        .map((v) => ({
+          voice_id: v.voice_id,
+          name: v.name,
+          language: v.language ?? "",
+          gender: v.gender ?? null,
+          preview_audio_url: v.preview_audio_url ?? null,
+          is_cloned: v.is_cloned ?? false,
+          is_mine: v.is_mine ?? false,
+        }))
+        .sort((a, b) => {
+          if (a.is_mine && !b.is_mine) return -1
+          if (!a.is_mine && b.is_mine) return 1
+          if (a.is_cloned && !b.is_cloned) return -1
+          if (!a.is_cloned && b.is_cloned) return 1
+          return a.name.localeCompare(b.name)
+        }),
+    [voices]
+  )
+
+  // ── Voice tab state ────────────────────────────────────────────────────────
+  const [showCloneDialog, setShowCloneDialog] = useState(false)
+  const [voiceSearch, setVoiceSearch] = useState("")
+  const [voiceLangFilter, setVoiceLangFilter] = useState<string>("all")
+  const [voiceGenderFilter, setVoiceGenderFilter] = useState<string>("all")
+  const [assignVoice, setAssignVoice] = useState<VoiceOption | null>(null)
+
+  // Available language options derived from the public voices list.
+  // HeyGen returns many variants per language ("Spanish", "spanish", "es-US",
+  // "es-ES", "Filipino", "filipino", "fil-PH"…).
+  // Strategy: normalize every raw string to a base key (lowercase, strip locale
+  // suffix, collapse known aliases), then group by that key.
+  const publicVoiceLanguages = useMemo(() => {
+    // Well-known overrides: any raw string whose normalized base matches a key
+    // here gets that canonical key + label instead of the generic one.
+    const ALIASES: Record<string, { key: string; label: string }> = {
+      es: { key: "es", label: "Español" },
+      spanish: { key: "es", label: "Español" },
+      en: { key: "en", label: "Inglés" },
+      english: { key: "en", label: "Inglés" },
+      pt: { key: "pt", label: "Portugués" },
+      portuguese: { key: "pt", label: "Portugués" },
+      fr: { key: "fr", label: "Francés" },
+      french: { key: "fr", label: "Francés" },
+      de: { key: "de", label: "Alemán" },
+      german: { key: "de", label: "Alemán" },
+      it: { key: "it", label: "Italiano" },
+      italian: { key: "it", label: "Italiano" },
+      ja: { key: "ja", label: "Japonés" },
+      japanese: { key: "ja", label: "Japonés" },
+      zh: { key: "zh", label: "Chino" },
+      chinese: { key: "zh", label: "Chino" },
+      ko: { key: "ko", label: "Coreano" },
+      korean: { key: "ko", label: "Coreano" },
+      ar: { key: "ar", label: "Árabe" },
+      arabic: { key: "ar", label: "Árabe" },
+      hi: { key: "hi", label: "Hindi" },
+      hindi: { key: "hi", label: "Hindi" },
+      ru: { key: "ru", label: "Ruso" },
+      russian: { key: "ru", label: "Ruso" },
+      fil: { key: "fil", label: "Filipino" },
+      filipino: { key: "fil", label: "Filipino" },
+      tl: { key: "fil", label: "Filipino" },
+      tagalog: { key: "fil", label: "Filipino" },
+      id: { key: "id", label: "Indonesio" },
+      indonesian: { key: "id", label: "Indonesio" },
+      ms: { key: "ms", label: "Malayo" },
+      malay: { key: "ms", label: "Malayo" },
+      th: { key: "th", label: "Tailandés" },
+      thai: { key: "th", label: "Tailandés" },
+      vi: { key: "vi", label: "Vietnamita" },
+      vietnamese: { key: "vi", label: "Vietnamita" },
+      tr: { key: "tr", label: "Turco" },
+      turkish: { key: "tr", label: "Turco" },
+      nl: { key: "nl", label: "Holandés" },
+      dutch: { key: "nl", label: "Holandés" },
+      pl: { key: "pl", label: "Polaco" },
+      polish: { key: "pl", label: "Polaco" },
+      uk: { key: "uk", label: "Ucraniano" },
+      ukrainian: { key: "uk", label: "Ucraniano" },
+      ro: { key: "ro", label: "Rumano" },
+      romanian: { key: "ro", label: "Rumano" },
+      sv: { key: "sv", label: "Sueco" },
+      swedish: { key: "sv", label: "Sueco" },
+      da: { key: "da", label: "Danés" },
+      danish: { key: "da", label: "Danés" },
+      no: { key: "no", label: "Noruego" },
+      norwegian: { key: "no", label: "Noruego" },
+      fi: { key: "fi", label: "Finlandés" },
+      finnish: { key: "fi", label: "Finlandés" },
+      cs: { key: "cs", label: "Checo" },
+      czech: { key: "cs", label: "Checo" },
+      hu: { key: "hu", label: "Húngaro" },
+      hungarian: { key: "hu", label: "Húngaro" },
+      el: { key: "el", label: "Griego" },
+      greek: { key: "el", label: "Griego" },
+      he: { key: "he", label: "Hebreo" },
+      hebrew: { key: "he", label: "Hebreo" },
+      bn: { key: "bn", label: "Bengalí" },
+      bengali: { key: "bn", label: "Bengalí" },
+      ta: { key: "ta", label: "Tamil" },
+      tamil: { key: "ta", label: "Tamil" },
+      ur: { key: "ur", label: "Urdu" },
+      urdu: { key: "ur", label: "Urdu" },
+      sw: { key: "sw", label: "Suajili" },
+      swahili: { key: "sw", label: "Suajili" },
+      catalan: { key: "ca", label: "Catalán" },
+      ca: { key: "ca", label: "Catalán" },
+    }
+
+    /**
+     * Given a raw language string (e.g. "es-US", "Spanish (US)", "filipino"),
+     * returns a stable canonical key and a display label.
+     */
+    const normalize = (raw: string): { key: string; label: string } | null => {
+      if (!raw || raw.toLowerCase() === "unknown") return null
+      // Strip locale suffix: "es-US" → "es", "fil-PH" → "fil"
+      const base = raw.toLowerCase().split(/[-_(]/)[0].trim()
+      const hit = ALIASES[base]
+      if (hit) return hit
+      // Unknown language: use normalized base as key, capitalize as label
+      const label = base.charAt(0).toUpperCase() + base.slice(1)
+      return { key: base, label }
+    }
+
+    const langs = new Map<string, { label: string; raws: Set<string> }>()
+    for (const v of allVoices) {
+      if (v.is_mine || v.is_cloned) continue
+      const c = normalize(v.language)
+      if (!c) continue
+      const entry = langs.get(c.key)
+      if (entry) {
+        entry.raws.add(v.language)
+      } else {
+        langs.set(c.key, { label: c.label, raws: new Set([v.language]) })
+      }
+    }
+
+    return Array.from(langs.entries())
+      .map(([key, { label, raws }]) => ({ key, label, raws: Array.from(raws) }))
+      .sort((a, b) => a.label.localeCompare(b.label))
+  }, [allVoices])
+  const [renamingVoiceId, setRenamingVoiceId] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState("")
+  const [playingVoiceId, setPlayingVoiceId] = useState<string | null>(null)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+
+  const cloneVoiceMut = useCloneVoice()
+  const deleteVoiceMut = useDeleteVoice()
+  const renameVoiceMut = useRenameVoice()
+
+  const handlePlayPreview = (voiceId: string, url: string) => {
+    if (playingVoiceId === voiceId) {
+      audioRef.current?.pause()
+      setPlayingVoiceId(null)
+      return
+    }
+    if (audioRef.current) audioRef.current.pause()
+    const audio = new Audio(url)
+    audioRef.current = audio
+    audio.onended = () => setPlayingVoiceId(null)
+    audio.play().catch(() => {})
+    setPlayingVoiceId(voiceId)
   }
-  const unhideAll = () => { setHiddenGroups(new Set()); saveHidden(new Set()) }
 
-  const selectedByGroup = new Map<string, number>()
-  const lookCountByGroup = new Map<string, number>()
-  for (const l of allLooks ?? []) {
-    lookCountByGroup.set(l.group_id, (lookCountByGroup.get(l.group_id) ?? 0) + 1)
-    if (selectedIds.has(l.id)) {
-      selectedByGroup.set(l.group_id, (selectedByGroup.get(l.group_id) ?? 0) + 1)
+  const handleDeleteVoice = async (voiceId: string) => {
+    try {
+      await deleteVoiceMut.mutateAsync(voiceId)
+      queryClient.invalidateQueries({ queryKey: ["getHeyGenVoices"] })
+      toast({ title: "Voz eliminada" })
+    } catch {
+      toast({ title: "Error", description: "No se pudo eliminar la voz", variant: "destructive" })
     }
   }
 
-  // Spanish + cloned voices for the selectors
-  const spanishVoices: VoiceOption[] = (voices ?? [])
-    .filter((v) => {
-      const lang = (v.language ?? "").toLowerCase()
-      // Include Spanish voices, voices with unknown language (ElevenLabs imports
-      // and other user-uploaded voices always come back as "unknown"), and any
-      // voice explicitly marked as cloned.
-      return lang.includes("spanish") || lang.startsWith("es") || lang === "unknown" || v.is_cloned
-    })
-    .map((v) => ({
-      voice_id: v.voice_id,
-      name: v.name,
-      gender: v.gender ?? null,
-      preview_audio_url: v.preview_audio_url ?? null,
-      is_cloned: v.is_cloned ?? false,
-    }))
+  const handleRenameVoice = async (voiceId: string) => {
+    if (!renameValue.trim()) return
+    try {
+      await renameVoiceMut.mutateAsync({ voiceId, name: renameValue.trim() })
+      queryClient.invalidateQueries({ queryKey: ["getHeyGenVoices"] })
+      setRenamingVoiceId(null)
+    } catch {
+      toast({ title: "Error", description: "No se pudo renombrar la voz", variant: "destructive" })
+    }
+  }
 
-  // Initialize local state once from the server — never on background refetches.
-  // After a successful save we update state manually (see handleSave onSuccess).
+  // ── Init from server config ────────────────────────────────────────────────
   useEffect(() => {
     if (config && !configInitialized.current) {
       configInitialized.current = true
@@ -282,18 +1754,82 @@ export default function Avatars() {
     }
   }, [config])
 
-  // Once allLooks finishes loading, drop any selectedIds that don't exist in HeyGen
-  // anymore (deleted looks, failed groups, etc.). This keeps all counts consistent.
+  // Enable auto-save 400 ms after config first loads (avoids saving on init)
   useEffect(() => {
-    if (!allLooks || !configInitialized.current) return
-    const knownIds = new Set(allLooks.map((l) => l.id))
-    setSelectedIds((prev) => {
-      const cleaned = new Set([...prev].filter((id) => knownIds.has(id)))
-      if (cleaned.size === prev.size) return prev  // nothing changed — avoid re-render
-      return cleaned
-    })
-  }, [allLooks])
+    if (!configInitialized.current) return
+    const t = setTimeout(() => { autoSaveReadyRef.current = true }, 400)
+    return () => clearTimeout(t)
+  }, [config]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Debounced auto-save: fires 700 ms after last change, only while dialog open
+  useEffect(() => {
+    if (!autoSaveReadyRef.current) return
+    if (!openGroup) return
+    if (selectedIds.size === 0) return
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
+    setDialogSaveStatus("idle")
+    autoSaveTimerRef.current = setTimeout(() => {
+      if (updateConfig.isPending) return
+      const cleanedOverrides: Record<string, string> = {}
+      for (const [lookId, voiceId] of Object.entries(voiceOverrides)) {
+        if (selectedIds.has(lookId) && voiceId && voiceId !== LOOK_DEFAULT_VOICE_SENTINEL) {
+          cleanedOverrides[lookId] = voiceId
+        }
+      }
+      setDialogSaveStatus("saving")
+      updateConfig.mutate(
+        {
+          data: {
+            selected_avatar_ids: Array.from(selectedIds),
+            rotation_strategy: strategy,
+            preferred_voice_id: null,
+            voice_overrides: cleanedOverrides,
+          },
+        },
+        {
+          onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: getGetAvatarConfigQueryKey() })
+            setDialogSaveStatus("saved")
+            setTimeout(() => setDialogSaveStatus("idle"), 2500)
+          },
+          onError: () => {
+            setDialogSaveStatus("idle")
+            toast({ title: "Error al guardar", description: "No se pudo guardar la configuración.", variant: "destructive" })
+          },
+        },
+      )
+    }, 700)
+    return () => { if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current) }
+  }, [selectedIds, voiceOverrides]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Computed ──────────────────────────────────────────────────────────────
+  const selectedByGroup = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const [lookId, groupId] of Object.entries(lookGroupMap)) {
+      if (selectedIds.has(lookId)) {
+        map.set(groupId, (map.get(groupId) ?? 0) + 1)
+      }
+    }
+    return map
+  }, [selectedIds, lookGroupMap])
+
+  const globalVoiceValue = useMemo(() => {
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0) return LOOK_DEFAULT_VOICE_SENTINEL
+    const first = voiceOverrides[ids[0]] ?? LOOK_DEFAULT_VOICE_SENTINEL
+    return ids.every((id) => (voiceOverrides[id] ?? LOOK_DEFAULT_VOICE_SENTINEL) === first) ? first : "mixed"
+  }, [selectedIds, voiceOverrides])
+
+  // ── Filter: show only avatar groups that have selected looks ──────────────
+  const [showOnlySelected, setShowOnlySelected] = useState(false)
+  const filteredMyGroups = showOnlySelected
+    ? myGroups.filter(g => (selectedByGroup.get(g.id) ?? 0) > 0)
+    : myGroups
+  const filteredPublicGroups = showOnlySelected
+    ? publicGroups.filter(g => (selectedByGroup.get(g.id) ?? 0) > 0)
+    : publicGroups
+
+  // ── Handlers ──────────────────────────────────────────────────────────────
   const toggleLook = (id: string) => {
     const newSet = new Set(selectedIds)
     if (newSet.has(id)) newSet.delete(id)
@@ -302,269 +1838,540 @@ export default function Avatars() {
   }
 
   const handleVoiceChange = (lookId: string, voiceId: string) => {
-    setVoiceOverrides((prev) => {
+    setVoiceOverrides(prev => {
       const next = { ...prev }
-      if (voiceId === LOOK_DEFAULT_VOICE_SENTINEL) {
-        delete next[lookId]
-      } else {
-        next[lookId] = voiceId
-      }
+      if (voiceId === LOOK_DEFAULT_VOICE_SENTINEL) delete next[lookId]
+      else next[lookId] = voiceId
       return next
     })
   }
 
-  /** Apply one voice to ALL selected looks at once */
   const handleGlobalVoiceChange = (voiceId: string) => {
-    setVoiceOverrides((prev) => {
+    setVoiceOverrides(prev => {
       const next = { ...prev }
       for (const id of selectedIds) {
-        if (voiceId === LOOK_DEFAULT_VOICE_SENTINEL) {
-          delete next[id]
-        } else {
-          next[id] = voiceId
-        }
+        if (voiceId === LOOK_DEFAULT_VOICE_SENTINEL) delete next[id]
+        else next[id] = voiceId
       }
       return next
     })
-  }
-
-  /** If ALL selected looks share the same voice, return it; otherwise "mixed" */
-  const globalVoiceValue = useMemo(() => {
-    const ids = Array.from(selectedIds)
-    if (ids.length === 0) return LOOK_DEFAULT_VOICE_SENTINEL
-    const first = voiceOverrides[ids[0]] ?? LOOK_DEFAULT_VOICE_SENTINEL
-    return ids.every((id) => (voiceOverrides[id] ?? LOOK_DEFAULT_VOICE_SENTINEL) === first) ? first : "mixed"
-  }, [selectedIds, voiceOverrides])
-
-  /** Force a re-sync from the server (resets the initialized guard) */
-  const handleRefreshConfig = () => {
-    configInitialized.current = false
-    queryClient.invalidateQueries({ queryKey: getGetAvatarConfigQueryKey() })
   }
 
   const handleSave = () => {
     if (selectedIds.size === 0) {
-      toast({ title: "Atención", description: "Debes seleccionar al menos un look.", variant: "destructive" })
+      toast({ title: "Atención", description: "Debés seleccionar al menos un look.", variant: "destructive" })
       return
     }
-
-    // Only persist overrides for currently selected looks
     const cleanedOverrides: Record<string, string> = {}
     for (const [lookId, voiceId] of Object.entries(voiceOverrides)) {
       if (selectedIds.has(lookId) && voiceId && voiceId !== LOOK_DEFAULT_VOICE_SENTINEL) {
         cleanedOverrides[lookId] = voiceId
       }
     }
-
-    const savePayload = {
+    const payload = {
       selected_avatar_ids: Array.from(selectedIds),
       rotation_strategy: strategy,
       preferred_voice_id: null as string | null,
       voice_overrides: cleanedOverrides,
     }
-
-    updateConfig.mutate({ data: savePayload }, {
+    updateConfig.mutate({ data: payload }, {
       onSuccess: () => {
         toast({ title: "Guardado", description: "Configuración de avatares actualizada." })
-        // Update local state directly from what we just saved so the UI stays
-        // consistent without a round-trip refetch that could wipe pending changes.
-        setSelectedIds(new Set(savePayload.selected_avatar_ids))
-        setVoiceOverrides(savePayload.voice_overrides)
-        setStrategy(savePayload.rotation_strategy as AvatarConfigRotationStrategy)
-        // Invalidate so other parts of the app (e.g. scheduler) see fresh data.
+        setSelectedIds(new Set(payload.selected_avatar_ids))
+        setVoiceOverrides(payload.voice_overrides)
+        setStrategy(payload.rotation_strategy as AvatarConfigRotationStrategy)
         queryClient.invalidateQueries({ queryKey: getGetAvatarConfigQueryKey() })
       },
-      onError: () => {
-        toast({ title: "Error", description: "No se pudo guardar la configuración.", variant: "destructive" })
-      }
+      onError: () => toast({ title: "Error", description: "No se pudo guardar.", variant: "destructive" }),
     })
   }
 
-  if (isLoadingGroups || isLoadingConfig) {
+  if (isLoadingConfig) {
     return <div className="p-8"><Skeleton className="h-96 w-full rounded-xl" /></div>
   }
 
-  const selectedLooks = (allLooks ?? []).filter((l) => selectedIds.has(l.id))
-
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
-          <h1 className="text-4xl font-display font-bold tracking-tight">Avatares HeyGen</h1>
+          <h1 className="text-4xl font-display font-bold tracking-tight">Avatares</h1>
           <p className="text-muted-foreground mt-1 text-lg">
-            Haz clic en un avatar para elegir sus looks y asignarles una voz.
+            Selecciona los looks que usará Reelsona en tus videos.
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            className="gap-2"
-            onClick={() => window.open("https://app.heygen.com/avatars", "_blank")}
-          >
-            <Plus className="w-4 h-4" />
-            Crear avatar
-            <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" />
-          </Button>
-          <Button onClick={handleSave} disabled={updateConfig.isPending} className="gap-2 px-8 shadow-lg shadow-primary/20">
-            <Save className="w-4 h-4" />
-            Guardar ({selectedIds.size})
-          </Button>
-        </div>
+        <Button onClick={handleSave} disabled={updateConfig.isPending} className="gap-2 px-8 shadow-lg shadow-primary/20">
+          <Save className="w-4 h-4" />
+          Guardar ({selectedIds.size})
+        </Button>
       </div>
 
-      {/* Rotation strategy + global voice */}
+      {/* Rotation config */}
       <Card className="bg-muted/30 border-dashed">
         <CardContent className="p-6">
-          <div className="flex flex-col sm:flex-row gap-6 items-start">
-            <div className="w-16 h-16 bg-primary/10 text-primary rounded-xl flex items-center justify-center shrink-0">
-              <Users className="w-8 h-8" />
+          <div className="flex flex-col sm:flex-row gap-6 items-center">
+            <div className="w-14 h-14 bg-primary/10 text-primary rounded-xl flex items-center justify-center shrink-0">
+              <Users className="w-7 h-7" />
             </div>
             <div className="flex-1">
-              <h3 className="text-xl font-bold font-display">Rotación y Voz</h3>
-              <p className="text-muted-foreground text-sm max-w-xl mt-1">
-                Elige cómo rotar los looks y qué voz usar en todos los videos.
+              <h3 className="text-lg font-bold font-display">Rotación de avatar</h3>
+              <p className="text-muted-foreground text-sm mt-0.5">
+                Cómo rotar entre los looks seleccionados en cada video.
               </p>
             </div>
-            <div className="flex flex-col sm:flex-row gap-4 shrink-0 w-full sm:w-auto">
-              {/* Global voice selector */}
-              <div className="w-full sm:w-64">
-                <Label className="mb-2 block flex items-center gap-1.5">
-                  <Mic className="w-3.5 h-3.5 text-primary" />
-                  Voz para todos los looks
-                </Label>
-                <Select
-                  value={globalVoiceValue === "mixed" ? "" : globalVoiceValue}
-                  onValueChange={handleGlobalVoiceChange}
-                >
-                  <SelectTrigger className="bg-background">
-                    <SelectValue placeholder={globalVoiceValue === "mixed" ? "Voces distintas por look" : "Voz por defecto"} />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-64">
-                    <SelectItem value={LOOK_DEFAULT_VOICE_SENTINEL}>Voz por defecto (HeyGen)</SelectItem>
-                    {spanishVoices.map((v) => (
-                      <SelectItem key={v.voice_id} value={v.voice_id}>
-                        {v.name}
-                        {v.is_cloned ? " · clonada" : ""}
-                        {v.gender === "male" ? " · masc." : v.gender === "female" ? " · fem." : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-[11px] text-muted-foreground mt-1">
-                  Cambia la voz en todos los looks de una vez. También puedes asignar voces individuales abriendo cada avatar.
-                </p>
-              </div>
-
-              {/* Rotation strategy */}
-              <div className="w-full sm:w-52">
-                <Label className="mb-2 block">Método de rotación</Label>
-                <Select value={strategy} onValueChange={(v) => setStrategy(v as AvatarConfigRotationStrategy)}>
-                  <SelectTrigger className="bg-background">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={AvatarConfigRotationStrategy.sequential}>Secuencial (1, 2, 3…)</SelectItem>
-                    <SelectItem value={AvatarConfigRotationStrategy.random}>Aleatorio</SelectItem>
-                    <SelectItem value={AvatarConfigRotationStrategy.performance}>Por Rendimiento (IA)</SelectItem>
-                  </SelectContent>
-                </Select>
-                <button
-                  type="button"
-                  onClick={handleRefreshConfig}
-                  className="mt-2 flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <RefreshCw className="w-3 h-3" /> Recargar configuración
-                </button>
-              </div>
+            <div className="w-full sm:w-52 shrink-0">
+              <Label className="mb-2 block text-sm">Rotación</Label>
+              <Select value={strategy} onValueChange={(v) => setStrategy(v as AvatarConfigRotationStrategy)}>
+                <SelectTrigger className="bg-background">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={AvatarConfigRotationStrategy.sequential}>Secuencial (1, 2, 3…)</SelectItem>
+                  <SelectItem value={AvatarConfigRotationStrategy.random}>Aleatorio</SelectItem>
+                  <SelectItem value={AvatarConfigRotationStrategy.performance}>Por Rendimiento (IA)</SelectItem>
+                </SelectContent>
+              </Select>
+              <button
+                type="button"
+                onClick={() => { configInitialized.current = false; queryClient.invalidateQueries({ queryKey: getGetAvatarConfigQueryKey() }) }}
+                className="mt-2 flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <RefreshCw className="w-3 h-3" /> Recargar configuración
+              </button>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Filter bar */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <Button
-          variant={onlyInUse ? "default" : "outline"}
-          size="sm"
-          className="gap-1.5"
-          onClick={() => setOnlyInUse(!onlyInUse)}
-        >
-          {onlyInUse ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-          {onlyInUse ? "Mostrando solo en uso" : "Solo los que uso"}
-        </Button>
-        {hiddenGroups.size > 0 && (
-          <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground" onClick={unhideAll}>
-            <Eye className="w-3.5 h-3.5" />
-            Mostrar {hiddenGroups.size} oculto{hiddenGroups.size !== 1 ? "s" : ""}
-          </Button>
-        )}
-      </div>
+      {/* Tabs */}
+      <Tabs defaultValue="my">
+        <TabsList className="mb-4">
+          <TabsTrigger value="my">Mi Avatar</TabsTrigger>
+          <TabsTrigger value="public">Avatares públicos</TabsTrigger>
+          <TabsTrigger value="voices">Voces</TabsTrigger>
+        </TabsList>
 
-      {/* Avatar group grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-        {groups
-          ?.filter((g) => {
-            if (hiddenGroups.has(g.id)) return false
-            if (onlyInUse && (selectedByGroup.get(g.id) ?? 0) === 0) return false
-            return true
-          })
-          .map((group) => {
-            const count = selectedByGroup.get(group.id) ?? 0
-            // Use actual look count from allLooks — group.num_looks from HeyGen can be stale/wrong
-            const totalLooks = lookCountByGroup.get(group.id) ?? group.num_looks
+        {/* ── Mi Avatar tab ── */}
+        <TabsContent value="my" className="space-y-6">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="text-sm text-muted-foreground">
+                Tus avatares personalizados creados desde una foto.
+              </p>
+              {selectedIds.size > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowOnlySelected(v => !v)}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border transition-colors
+                    ${showOnlySelected
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-background text-muted-foreground border-border hover:border-primary/50 hover:text-foreground"
+                    }`}
+                >
+                  <CheckCircle2 className="w-3 h-3" />
+                  {showOnlySelected ? "Ver todos" : `Solo en uso (${selectedIds.size})`}
+                </button>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => refetchMy()} title="Actualizar">
+                <RefreshCw className="w-3.5 h-3.5" />
+              </Button>
+              <Button size="sm" className="gap-1.5" onClick={() => setShowCreation(true)}>
+                <Plus className="w-4 h-4" />
+                Crear avatar
+              </Button>
+            </div>
+          </div>
 
-            return (
-              <Card
-                key={group.id}
-                className="overflow-hidden cursor-pointer transition-all duration-300 hover:border-primary/50 hover:shadow-lg group/card"
-                onClick={() => setOpenGroup(group)}
+          {isLoadingMy ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-6">
+              {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="aspect-square rounded-xl" />)}
+            </div>
+          ) : myGroups.length === 0 ? (
+            /* Empty state — no avatars at all */
+            <div className="border-2 border-dashed rounded-2xl p-12 text-center flex flex-col items-center gap-4">
+              <div className="w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center">
+                <Camera className="w-8 h-8 text-primary" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold font-display">Todavía no tienes un avatar</h3>
+                <p className="text-muted-foreground text-sm mt-1 max-w-xs mx-auto">
+                  Sube una foto de retrato para crear tu avatar y que hable en tus videos.
+                </p>
+              </div>
+              <Button onClick={() => setShowCreation(true)} className="gap-2 mt-2">
+                <Plus className="w-4 h-4" />
+                Crear mi primer avatar
+              </Button>
+              <p className="text-xs text-muted-foreground">PNG o JPG · retrato frontal · buena iluminación</p>
+            </div>
+          ) : filteredMyGroups.length === 0 ? (
+            /* Empty state — filter active but no matches */
+            <div className="text-center py-12 text-muted-foreground">
+              <CheckCircle2 className="w-10 h-10 mx-auto mb-3 opacity-30" />
+              <p className="text-sm font-medium">Ningún avatar propio en uso</p>
+              <button type="button" onClick={() => setShowOnlySelected(false)} className="mt-2 text-xs text-primary hover:underline">
+                Ver todos los avatares
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-6">
+              {filteredMyGroups.map((group) => (
+                <AvatarGroupCard
+                  key={group.id}
+                  group={group}
+                  selectedCount={selectedByGroup.get(group.id) ?? 0}
+                  onClick={() => setOpenGroup({ group, isOwned: true })}
+                />
+              ))}
+            </div>
+          )}
+        </TabsContent>
+
+        {/* ── Avatares públicos tab ── */}
+        <TabsContent value="public" className="space-y-6">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-sm text-muted-foreground">
+              Más de 500 avatares de la librería pública disponibles para usar en tus videos.
+            </p>
+            {selectedIds.size > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowOnlySelected(v => !v)}
+                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border transition-colors
+                  ${showOnlySelected
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-background text-muted-foreground border-border hover:border-primary/50 hover:text-foreground"
+                  }`}
               >
-                <div className="aspect-square bg-muted relative">
-                  {group.preview_image_url ? (
-                    <img src={group.preview_image_url} alt={group.name} className="w-full h-full object-cover" loading="lazy" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-muted-foreground"><ImageIcon className="w-10 h-10" /></div>
-                  )}
-                  {count > 0 && (
-                    <Badge className="absolute top-2 left-2 gap-1 bg-primary text-primary-foreground shadow">
-                      <CheckCircle2 className="w-3 h-3" />
-                      {count} seleccionado{count !== 1 ? "s" : ""}
-                    </Badge>
-                  )}
-                  <button
-                    type="button"
-                    title="Ocultar este avatar"
-                    onClick={(e) => { e.stopPropagation(); hideGroup(group.id) }}
-                    className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/40 text-white flex items-center justify-center opacity-0 group-hover/card:opacity-100 transition-opacity hover:bg-black/70"
+                <CheckCircle2 className="w-3 h-3" />
+                {showOnlySelected ? "Ver todos" : `Solo en uso (${selectedIds.size})`}
+              </button>
+            )}
+          </div>
+
+          {isLoadingPublic ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-6">
+              {Array.from({ length: 12 }).map((_, i) => <Skeleton key={i} className="aspect-square rounded-xl" />)}
+            </div>
+          ) : publicGroups.length === 0 ? (
+            <div className="text-center py-16 text-muted-foreground">
+              <AlertCircle className="w-10 h-10 mx-auto mb-3 opacity-40" />
+              <p className="text-sm">No se pudieron cargar los avatares públicos</p>
+            </div>
+          ) : filteredPublicGroups.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <CheckCircle2 className="w-10 h-10 mx-auto mb-3 opacity-30" />
+              <p className="text-sm font-medium">Ningún avatar público en uso</p>
+              <button type="button" onClick={() => setShowOnlySelected(false)} className="mt-2 text-xs text-primary hover:underline">
+                Ver todos los avatares
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-6">
+                {filteredPublicGroups.map((group) => (
+                  <AvatarGroupCard
+                    key={group.id}
+                    group={group}
+                    selectedCount={selectedByGroup.get(group.id) ?? 0}
+                    onClick={() => setOpenGroup({ group, isOwned: false })}
+                  />
+                ))}
+              </div>
+
+              {!showOnlySelected && hasNextPage && (
+                <div className="text-center pt-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => fetchNextPage()}
+                    disabled={isFetchingNextPage}
+                    className="gap-2"
                   >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
+                    {isFetchingNextPage
+                      ? <><Loader2 className="w-4 h-4 animate-spin" /> Cargando…</>
+                      : <><ChevronDown className="w-4 h-4" /> Cargar más avatares</>}
+                  </Button>
                 </div>
-                <CardContent className="p-4 flex items-center justify-between gap-2">
-                  <div className="min-w-0">
-                    <h4 className="font-bold font-display truncate">{group.name}</h4>
-                    <p className="text-xs text-muted-foreground">
-                      {totalLooks} look{totalLooks !== 1 ? "s" : ""}
-                      {count > 0 && <span className="text-primary font-medium"> · {count} en rotación</span>}
-                    </p>
+              )}
+            </>
+          )}
+        </TabsContent>
+
+        {/* ── Voces tab ── */}
+        <TabsContent value="voices" className="space-y-6">
+          {/* Header */}
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <p className="text-sm text-muted-foreground">
+              Clona tu voz o elige una voz pública para asociarla a tus avatares.
+            </p>
+            <Button size="sm" className="gap-1.5" onClick={() => setShowCloneDialog(true)}>
+              <Mic className="w-4 h-4" />
+              Clonar mi voz
+            </Button>
+          </div>
+
+          {/* Search */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="Buscar voz…"
+              value={voiceSearch}
+              onChange={e => setVoiceSearch(e.target.value)}
+              className="w-full pl-9 pr-3 py-2 rounded-lg border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+          </div>
+
+          {/* My cloned voices */}
+          {allVoices.filter(v => v.is_mine).length > 0 && (
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                <Mic className="w-4 h-4 text-primary" /> Mis voces clonadas
+              </h3>
+              <div className="space-y-2">
+                {allVoices.filter(v => v.is_mine && (!voiceSearch || v.name.toLowerCase().includes(voiceSearch.toLowerCase()))).map(v => (
+                  <div key={v.voice_id} className="flex items-center gap-3 p-3 rounded-xl border bg-card hover:bg-muted/40 transition-colors">
+                    <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                      <Mic className="w-4 h-4 text-primary" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      {renamingVoiceId === v.voice_id ? (
+                        <div className="flex gap-2 items-center">
+                          <input
+                            autoFocus
+                            value={renameValue}
+                            onChange={e => setRenameValue(e.target.value)}
+                            onKeyDown={e => { if (e.key === "Enter") handleRenameVoice(v.voice_id); if (e.key === "Escape") setRenamingVoiceId(null) }}
+                            className="flex-1 text-sm border rounded px-2 py-1 bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+                          />
+                          <Button size="sm" variant="ghost" onClick={() => handleRenameVoice(v.voice_id)} disabled={renameVoiceMut.isPending}>
+                            {renameVoiceMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : "Guardar"}
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => setRenamingVoiceId(null)}>
+                            <X className="w-3 h-3" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <p className="text-sm font-medium truncate">{v.name}</p>
+                      )}
+                      <p className="text-xs text-muted-foreground">Clonada · {v.gender === "male" ? "Masculina" : v.gender === "female" ? "Femenina" : "Voz clonada"}</p>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {v.preview_audio_url && (
+                        <Button size="sm" variant="ghost" className="w-8 h-8 p-0"
+                          onClick={() => handlePlayPreview(v.voice_id, v.preview_audio_url!)}>
+                          {playingVoiceId === v.voice_id
+                            ? <Square className="w-3 h-3 fill-current" />
+                            : <Play className="w-3 h-3 fill-current" />}
+                        </Button>
+                      )}
+                      <Button size="sm" variant="ghost" className="w-8 h-8 p-0" onClick={() => setAssignVoice(v)}>
+                        <Users className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button size="sm" variant="ghost" className="w-8 h-8 p-0"
+                        onClick={() => { setRenamingVoiceId(v.voice_id); setRenameValue(v.name) }}>
+                        <Pencil className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button size="sm" variant="ghost" className="w-8 h-8 p-0 text-destructive hover:text-destructive"
+                        onClick={() => handleDeleteVoice(v.voice_id)} disabled={deleteVoiceMut.isPending}>
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
                   </div>
-                  <Badge variant="secondary" className="shrink-0">Ver looks</Badge>
-                </CardContent>
-              </Card>
-            )
-          })}
-      </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Public voices */}
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+              <Volume2 className="w-4 h-4 text-primary" /> Voces públicas
+            </h3>
+
+            {/* Language + gender filter chips */}
+            {!isLoadingVoices && publicVoiceLanguages.length > 1 && (
+              <div className="space-y-3 rounded-xl border border-border/60 bg-muted/30 p-3">
+                {/* Language row */}
+                <div className="space-y-1.5">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Idioma</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setVoiceLangFilter("all")}
+                      className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+                        voiceLangFilter === "all"
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "bg-background text-muted-foreground border-border hover:border-primary/50 hover:text-foreground"
+                      }`}
+                    >
+                      Todos
+                    </button>
+                    {publicVoiceLanguages.map(({ key, label }) => (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => setVoiceLangFilter(voiceLangFilter === key ? "all" : key)}
+                        className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+                          voiceLangFilter === key
+                            ? "bg-primary text-primary-foreground border-primary"
+                            : "bg-background text-muted-foreground border-border hover:border-primary/50 hover:text-foreground"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="border-t border-border/60" />
+
+                {/* Gender row */}
+                <div className="space-y-1.5">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Sexo</p>
+                  <div className="flex gap-1.5">
+                    {(["all", "female", "male"] as const).map((g) => (
+                      <button
+                        key={g}
+                        type="button"
+                        onClick={() => setVoiceGenderFilter(g)}
+                        className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+                          voiceGenderFilter === g
+                            ? "bg-primary text-primary-foreground border-primary"
+                            : "bg-background text-muted-foreground border-border hover:border-primary/50 hover:text-foreground"
+                        }`}
+                      >
+                        {g === "all" ? "Todos" : g === "female" ? "Femenina" : "Masculina"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {isLoadingVoices ? (
+              <div className="space-y-2">
+                {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-14 rounded-xl" />)}
+              </div>
+            ) : (() => {
+              const langEntry = voiceLangFilter !== "all"
+                ? publicVoiceLanguages.find(l => l.key === voiceLangFilter)
+                : null
+              const filtered = allVoices.filter(v => {
+                if (v.is_mine) return false
+                if (voiceSearch && !v.name.toLowerCase().includes(voiceSearch.toLowerCase())) return false
+                if (langEntry && !langEntry.raws.includes(v.language)) return false
+                if (voiceGenderFilter !== "all" && v.gender !== voiceGenderFilter) return false
+                return true
+              })
+              return (
+                <div className="space-y-2">
+                  {filtered.slice(0, 50).map(v => (
+                    <div key={v.voice_id} className="flex items-center gap-3 p-3 rounded-xl border bg-card hover:bg-muted/40 transition-colors">
+                      <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center shrink-0">
+                        <Volume2 className="w-4 h-4 text-muted-foreground" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{v.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {v.is_cloned ? "Clonada" : "Pública"}
+                          {v.gender === "male" ? " · Masculina" : v.gender === "female" ? " · Femenina" : ""}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        {v.preview_audio_url && (
+                          <Button size="sm" variant="ghost" className="w-8 h-8 p-0"
+                            onClick={() => handlePlayPreview(v.voice_id, v.preview_audio_url!)}>
+                            {playingVoiceId === v.voice_id
+                              ? <Square className="w-3 h-3 fill-current" />
+                              : <Play className="w-3 h-3 fill-current" />}
+                          </Button>
+                        )}
+                        <Button size="sm" variant="outline" className="gap-1 text-xs h-7 px-2" onClick={() => setAssignVoice(v)}>
+                          <Users className="w-3 h-3" /> Asignar
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                  {filtered.length === 0 && (
+                    <p className="text-sm text-muted-foreground text-center py-8">No hay voces que coincidan con los filtros</p>
+                  )}
+                  {filtered.length > 50 && (
+                    <p className="text-xs text-muted-foreground text-center pt-1">
+                      Mostrando 50 de {filtered.length} — refina la búsqueda para ver más
+                    </p>
+                  )}
+                </div>
+              )
+            })()}
+          </div>
+        </TabsContent>
+      </Tabs>
+
+      {/* ── Clone voice dialog ── */}
+      {showCloneDialog && (
+        <CloneVoiceDialog
+          onClose={() => setShowCloneDialog(false)}
+          onCloned={() => {
+            setShowCloneDialog(false)
+            queryClient.invalidateQueries({ queryKey: ["getHeyGenVoices"] })
+          }}
+        />
+      )}
+
+      {/* ── Assign voice to looks dialog ── */}
+      {assignVoice && (
+        <AssignVoiceDialog
+          voice={assignVoice}
+          lookGroupMap={lookGroupMap}
+          allGroups={[...myGroups, ...publicGroups]}
+          voiceOverrides={voiceOverrides}
+          onAssign={(lookIds: string[]) => {
+            const newOverrides = { ...voiceOverrides }
+            for (const id of lookIds) newOverrides[id] = assignVoice.voice_id
+            setVoiceOverrides(newOverrides)
+            setAssignVoice(null)
+            toast({
+              title: "Voz asignada",
+              description: `${lookIds.length} look${lookIds.length !== 1 ? "s" : ""} actualizados. Guarda para aplicar.`,
+            })
+          }}
+          onClose={() => setAssignVoice(null)}
+        />
+      )}
+
+      {/* Dialogs */}
+      {showCreation && (
+        <AvatarCreationDialog
+          onClose={() => setShowCreation(false)}
+          voiceOptions={spanishVoices}
+          onCreated={(gId, lId, voiceId) => {
+            setShowCreation(false)
+            refetchMy()
+            const newLookId = `tp:${lId}`
+            setLookGroupMap(prev => ({ ...prev, [newLookId]: gId }))
+            if (voiceId) {
+              setVoiceOverrides(prev => ({ ...prev, [newLookId]: voiceId }))
+            }
+          }}
+        />
+      )}
 
       {openGroup && (
-        <LooksDialog
-          group={openGroup}
+        <LooksDialogV3
+          group={openGroup.group}
+          isOwned={openGroup.isOwned}
           selectedIds={selectedIds}
           voiceOverrides={voiceOverrides}
           voiceOptions={spanishVoices}
           onToggle={toggleLook}
           onChangeVoice={handleVoiceChange}
-          onClose={() => setOpenGroup(null)}
+          onClose={() => { setOpenGroup(null); setDialogSaveStatus("idle") }}
+          onLooksLoaded={handleLooksLoaded}
+          saveStatus={dialogSaveStatus}
         />
       )}
     </div>

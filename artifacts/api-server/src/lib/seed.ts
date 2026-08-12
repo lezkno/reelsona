@@ -56,6 +56,19 @@ export async function seedAdminUser(): Promise<void> {
     await db.execute(sql.raw(stmt));
   }
 
+  // Migration 012: heygen_cloned_voices — tracks per-user voice clone ownership
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS heygen_cloned_voices (
+      id           SERIAL PRIMARY KEY,
+      user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      voice_id     TEXT    NOT NULL UNIQUE,
+      display_name TEXT    NOT NULL,
+      status       TEXT    NOT NULL DEFAULT 'pending',
+      created_at   TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at   TIMESTAMP NOT NULL DEFAULT NOW()
+    )
+  `);
+
   // Migration 011: user_entitlements table (access/license layer)
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS user_entitlements (

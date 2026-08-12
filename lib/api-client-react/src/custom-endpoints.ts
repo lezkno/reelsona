@@ -2,7 +2,7 @@
  * Custom hooks for endpoints not covered by Orval codegen.
  * These are hand-written and can be imported from @workspace/api-client-react.
  */
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
 import { customFetch } from "./custom-fetch";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -305,8 +305,8 @@ export interface HeyGenAccountStatus {
   remaining_quota: number | null;
   total_quota: number | null;
   details: HeyGenQuotaDetails | null;
-  /** Where the key came from: "db" = user-stored, "env" = server env var, "none" = not set */
-  key_source: "db" | "env" | "none";
+  /** Where the key came from: "user" = own stored key, "platform" = Reelsona's centralized key, "none" = not set */
+  key_source: "user" | "platform" | "none";
   error?: string;
 }
 
@@ -617,5 +617,230 @@ export function useUnmarkLessonComplete() {
         method: "DELETE",
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: COURSE_PROGRESS_KEY }),
+  });
+}
+
+// ── Avatar v3 ─────────────────────────────────────────────────────────────────
+
+export interface V3AvatarGroup {
+  id: string;
+  name: string;
+  gender: string | null;
+  preview_image_url: string | null;
+  preview_video_url: string | null;
+  looks_count: number;
+  status: string | null;
+  created_at: number | null;
+}
+
+export interface V3AvatarGroupsResponse {
+  groups: V3AvatarGroup[];
+  has_more: boolean;
+  next_token: string | null;
+}
+
+export interface V3Look {
+  id: string;
+  name: string;
+  avatar_type: string;
+  group_id: string | null;
+  preview_image_url: string | null;
+  preview_video_url: string | null;
+  status: string | null;
+  supported_api_engines: string[];
+  is_talking_photo: boolean;
+}
+
+export interface V3GroupLooksResponse {
+  looks: V3Look[];
+  has_more: boolean;
+  next_token: string | null;
+}
+
+export interface AvatarLookStatus {
+  id: string;
+  name: string;
+  status: "processing" | "pending_consent" | "completed" | "failed" | null;
+  avatar_type: string | null;
+  group_id: string | null;
+  preview_image_url: string | null;
+  preview_video_url: string | null;
+}
+
+/** User's own private avatar groups (v3). */
+export function useMyHeyGenAvatarGroups(token?: string) {
+  return useQuery<V3AvatarGroupsResponse>({
+    queryKey: ["heygen", "my-avatar-groups", token],
+    queryFn: () =>
+      customFetch<V3AvatarGroupsResponse>(
+        `/api/heygen/my-avatar-groups${token ? `?token=${encodeURIComponent(token)}` : ""}`,
+      ),
+    staleTime: 1000 * 60 * 2,
+  });
+}
+
+/** HeyGen public stock avatar groups (v3, infinite scroll). */
+export function usePublicHeyGenAvatarGroups() {
+  return useInfiniteQuery<V3AvatarGroupsResponse, Error>({
+    queryKey: ["heygen", "public-avatar-groups"],
+    queryFn: ({ pageParam }) =>
+      customFetch<V3AvatarGroupsResponse>(
+        `/api/heygen/public-avatar-groups${pageParam ? `?token=${encodeURIComponent(pageParam as string)}` : ""}`,
+      ),
+    getNextPageParam: (lastPage) => lastPage.next_token ?? undefined,
+    initialPageParam: undefined as string | undefined,
+    staleTime: 1000 * 60 * 5,
+  });
+}
+
+/** Looks for a specific group via v3 API. */
+export function useGetV3GroupLooks(groupId: string | null) {
+  return useQuery<V3GroupLooksResponse>({
+    queryKey: ["heygen", "v3-group-looks", groupId],
+    queryFn: () =>
+      customFetch<V3GroupLooksResponse>(`/api/heygen/v3-groups/${encodeURIComponent(groupId!)}/looks`),
+    enabled: !!groupId,
+    staleTime: 1000 * 60 * 5,
+  });
+}
+
+/** Upload a file to HeyGen /v3/assets. Expects FormData with a "file" field. */
+export function useUploadHeyGenAsset() {
+  return useMutation<{ asset_id: string; url: string }, Error, FormData>({
+    mutationFn: (formData) =>
+      customFetch<{ asset_id: string; url: string }>("/api/heygen/assets", {
+        method: "POST",
+        body: formData,
+        // No Content-Type header — browser sets it with boundary for multipart
+      }),
+  });
+}
+
+/** Create a photo avatar from an uploaded asset. */
+export function useCreatePhotoAvatar() {
+  return useMutation<{ look_id: string; group_id: string }, Error, { name: string; asset_id: string }>({
+    mutationFn: (data) =>
+      customFetch<{ look_id: string; group_id: string }>("/api/heygen/avatars/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+  });
+}
+
+/** Delete a single avatar look (photo_avatar / digital_twin only). */
+export function useDeleteAvatarLook() {
+  return useMutation<{ ok: boolean }, Error, string>({
+    mutationFn: (lookId) =>
+      customFetch<{ ok: boolean }>(`/api/heygen/avatars/looks/${encodeURIComponent(lookId)}`, {
+        method: "DELETE",
+      }),
+  });
+}
+
+/** Permanently delete an avatar group and all its looks. */
+export function useDeleteAvatarGroup() {
+  return useMutation<{ ok: boolean }, Error, string>({
+    mutationFn: (groupId) =>
+      customFetch<{ ok: boolean }>(`/api/heygen/avatars/groups/${encodeURIComponent(groupId)}`, {
+        method: "DELETE",
+      }),
+  });
+}
+
+/**
+ * Create a new look for an existing avatar group, conditioned on a reference look.
+ * Uses HeyGen's prompt pipeline with avatar_id + avatar_group_id.
+ */
+export function useCreateAvatarLook() {
+  return useMutation<
+    { look_id: string; group_id: string },
+    Error,
+    { ref_look_id: string; group_id: string; name: string; prompt: string; pose?: string }
+  >({
+    mutationFn: (data) =>
+      customFetch<{ look_id: string; group_id: string }>(
+        `/api/heygen/avatars/looks/${encodeURIComponent(data.ref_look_id)}/new-look`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: data.name, prompt: data.prompt, group_id: data.group_id, pose: data.pose }),
+        },
+      ),
+  });
+}
+
+/** Create a prompt-based AI-generated avatar from a text description. */
+export function useCreatePromptAvatar() {
+  return useMutation<
+    { look_id: string; group_id: string },
+    Error,
+    { name: string; prompt: string; orientation?: string; pose?: string }
+  >({
+    mutationFn: (data) =>
+      customFetch<{ look_id: string; group_id: string }>("/api/heygen/avatars/create-prompt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+  });
+}
+
+/** Poll avatar look training status. Auto-refetches every 5 s while processing. */
+export function useHeyGenLookStatus(lookId: string | null) {
+  return useQuery<AvatarLookStatus>({
+    queryKey: ["heygen", "look-status", lookId],
+    queryFn: () =>
+      customFetch<AvatarLookStatus>(
+        `/api/heygen/avatars/looks/${encodeURIComponent(lookId!)}/status`,
+      ),
+    enabled: !!lookId,
+    refetchInterval: (query) => {
+      const s = (query.state.data as AvatarLookStatus | undefined)?.status;
+      return s === "processing" || s === "pending_consent" || s == null ? 5000 : false;
+    },
+    staleTime: 0,
+  });
+}
+
+// ── Voice management ──────────────────────────────────────────────────────────
+
+/**
+ * Clone a voice by uploading an audio file.
+ * Accepts FormData with fields: audio (File), name (string).
+ */
+export function useCloneVoice() {
+  return useMutation<{ voice_id: string; display_name: string; status: string }, Error, FormData>({
+    mutationFn: (formData) =>
+      customFetch<{ voice_id: string; display_name: string; status: string }>(
+        "/api/heygen/voices/clone",
+        { method: "POST", body: formData },
+      ),
+  });
+}
+
+/** Delete a cloned voice the current user owns. */
+export function useDeleteVoice() {
+  return useMutation<{ ok: boolean }, Error, string>({
+    mutationFn: (voiceId) =>
+      customFetch<{ ok: boolean }>(
+        `/api/heygen/voices/${encodeURIComponent(voiceId)}`,
+        { method: "DELETE" },
+      ),
+  });
+}
+
+/** Rename a cloned voice the current user owns. */
+export function useRenameVoice() {
+  return useMutation<{ ok: boolean; display_name: string }, Error, { voiceId: string; name: string }>({
+    mutationFn: ({ voiceId, name }) =>
+      customFetch<{ ok: boolean; display_name: string }>(
+        `/api/heygen/voices/${encodeURIComponent(voiceId)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name }),
+        },
+      ),
   });
 }

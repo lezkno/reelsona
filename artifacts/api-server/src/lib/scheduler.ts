@@ -158,22 +158,12 @@ export async function triggerFillEmptySlots(userId: number): Promise<void> {
 }
 
 /**
- * Resolve the HeyGen API key for a specific user's scheduler jobs.
- * Always scoped to the given userId so that videos belonging to user A
- * are never polled with user B's key.
+ * Returns Reelsona's centralized HeyGen API key.
+ * All users share the same platform key — no per-user lookup needed.
  */
-async function resolveHeyGenApiKey(userId: number): Promise<string | undefined> {
-  const [row] = await db
-    .select({ heygenApiKey: settingsTable.heygenApiKey })
-    .from(settingsTable)
-    .where(
-      and(
-        eq(settingsTable.userId, userId),
-        isNotNull(settingsTable.heygenApiKey)
-      )
-    )
-    .limit(1);
-  return row?.heygenApiKey ?? undefined;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function resolveHeyGenApiKey(_userId: number): Promise<string | undefined> {
+  return Promise.resolve(process.env.HEYGEN_API_KEY ?? undefined);
 }
 
 /**
@@ -376,7 +366,7 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
     );
     return { success: false, message: "Niche not configured" };
   }
-  const heygenApiKey = settings.heygenApiKey ?? undefined;
+  const heygenApiKey = process.env.HEYGEN_API_KEY ?? undefined;
 
   // Load avatar config scoped to this user
   let [avatarCfg] = await db.select().from(avatarConfigTable)
@@ -1587,7 +1577,6 @@ async function _publishVideoToInstagramInner(videoId: number, videoUrl?: string)
           brandPrimaryColor: settingsTable.brandPrimaryColor,
           brandAccentColor: settingsTable.brandAccentColor,
           brandLogoUrl: settingsTable.brandLogoUrl,
-          heygenApiKey: settingsTable.heygenApiKey,
         })
         .from(settingsTable)
         .where(eq(settingsTable.userId, video.userId))
@@ -1604,10 +1593,9 @@ async function _publishVideoToInstagramInner(videoId: number, videoUrl?: string)
           coverText = itemForCover?.hook ?? itemForCover?.topic ?? coverText;
         }
         // Resolve avatar preview photo — clean portrait used as gpt-image-1 reference.
-        // Use heygenApiKey from the user's settings (not a global env var).
         let avatarImageUrl: string | null = null;
         if (video.avatarId) {
-          const heygenKey = brandSettings.heygenApiKey ?? undefined;
+          const heygenKey = process.env.HEYGEN_API_KEY ?? undefined;
           avatarImageUrl = await fetchAvatarPreviewImage(video.avatarId, heygenKey);
           logger.info(
             { videoId, avatarId: video.avatarId, found: !!avatarImageUrl },

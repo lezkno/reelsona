@@ -17,6 +17,8 @@
 - [Multi-tenancy audit complete](multi-tenancy.md) — All 6 tables (caption_config, automation_config, avatar_config, instagram_accounts, content_plan_items, videos) have userId; every route and scheduler query is scoped; runAutomationCycle(userId, targetItemId?) signature; cron iterates all enabled automationConfigs by userId.
 - [B-Roll Engine](broll-engine.md) — AI B-roll pipeline (gpt-image-1 1024×1536, yuva420p overlay); runs after zoom, before captions; use router.use() not router.get("/*") for wildcard routes.
 - [Instagram Publish Pipeline](instagram-publish-pipeline.md) — /captioned-objects must be in captioned.ts (before requireAuth); publish must fire-and-forget to avoid 30s proxy timeout.
+- [Avatar creation feature](avatar-creation-feature.md) — two-tab Avatars page (Mi Avatar / Avatares públicos); dual-mode wizard (photo + prompt); v3 API hooks; lookGroupMap pattern for cross-tab selectedByGroup count.
+- [Voice management feature](voice-management.md) — Voces tab, CloneVoiceDialog, AssignVoiceDialog, per-look voice override, wizard voice picker; HeyGenVoice.is_mine added to api.schemas.ts.
 - [Text Cards Engine](text-cards-engine.md) — hook/stat/CTA overlays via GPT-4o-mini + @napi-rs/canvas; use local Ctx interface not CanvasRenderingContext2D; pipeline: zoom→broll→cards→captions.
 - [Text cards FFmpeg overlay](text-cards-ffmpeg.md) — PNG overlays at timestamp need `-loop 1 -t <dur>` + `format=yuva420p`; without loop the stream ends at t=0 and fade never fires (silent success, invisible result).
 - [Multi-card config format](multi-card-config.md) — v2 MultiCardConfig (version:2 + hook/stat/cta slots) replaces single SavedCardTemplate; detect with `"version" in cardConfig`; legacy single-card is auto-migrated on load.

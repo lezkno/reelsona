@@ -1,20 +1,15 @@
 import { Router } from "express";
+import multer from "multer";
 import { db } from "@workspace/db";
-import { avatarConfigTable, settingsTable } from "@workspace/db";
-import { eq, isNotNull } from "drizzle-orm";
+import { avatarConfigTable, settingsTable, heygenClonedVoicesTable } from "@workspace/db";
+import { eq, and } from "drizzle-orm";
 
-/** Resolve the HeyGen API key for the currently logged-in user.
- *  Looks up the user's own settings row; falls back to the env var. */
-async function getUserHeyGenKey(userId: number): Promise<string | undefined> {
-  const [settings] = await db
-    .select({ heygenApiKey: settingsTable.heygenApiKey })
-    .from(settingsTable)
-    .where(eq(settingsTable.userId, userId))
-    .limit(1);
-  // Only use the user's own key — no platform-level fallback here.
-  // The scheduler uses resolveHeyGenApiKey() which may still fall back to the env var.
-  return settings?.heygenApiKey ?? undefined;
+/** Returns Reelsona's centralized HeyGen API key.
+ *  All users share the same platform key — no per-user key required. */
+function getUserHeyGenKey(_userId: number): Promise<string | undefined> {
+  return Promise.resolve(process.env.HEYGEN_API_KEY ?? undefined);
 }
+
 import {
   GetHeyGenAvatarsResponse,
   GetHeyGenVoicesResponse,
@@ -25,7 +20,26 @@ import {
   UpdateAvatarConfigBody,
   UpdateAvatarConfigResponse,
 } from "@workspace/api-zod";
-import { listAvatars, listVoices, listAvatarGroups, listGroupLooks, getHeyGenQuota, validateHeyGenKey } from "../lib/heygen";
+import {
+  listAvatars, listVoices, listAvatarGroups, listGroupLooks,
+  getHeyGenQuota, validateHeyGenKey,
+  listV3AvatarGroups, listV3GroupLooks,
+  uploadAsset, createPhotoAvatar, createPromptAvatar, createAvatarLook,
+  deleteAvatarLook, deleteAvatarGroup, getAvatarLookStatus,
+  cloneVoice, deleteVoice, renameVoice,
+} from "../lib/heygen";
+
+// Multer: store file in memory (max 32 MB — HeyGen limit)
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 32 * 1024 * 1024 } });
+// Multer for voice uploads: audio only, max 25 MB
+const voiceUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype.startsWith("audio/")) cb(null, true);
+    else cb(new Error("Solo se permiten archivos de audio"));
+  },
+});
 
 const router = Router();
 
@@ -45,7 +59,12 @@ router.get("/heygen/avatars", async (req, res): Promise<void> => {
 
 router.get("/heygen/voices", async (req, res): Promise<void> => {
   const apiKey = await getUserHeyGenKey(req.session.user!.userId);
-  const voices = await listVoices(apiKey);
+  const userId = req.session.user!.userId;
+  const [voices, myClones] = await Promise.all([
+    listVoices(apiKey),
+    db.select().from(heygenClonedVoicesTable).where(eq(heygenClonedVoicesTable.userId, userId)),
+  ]);
+  const myCloneIds = new Set(myClones.map(c => c.voiceId));
   const mapped = voices.map((v) => ({
     voice_id: v.voice_id,
     name: v.name,
@@ -53,8 +72,90 @@ router.get("/heygen/voices", async (req, res): Promise<void> => {
     gender: v.gender ?? null,
     preview_audio_url: (v as any).preview_audio ?? v.preview_audio_url ?? null,
     is_cloned: v.is_clone ?? false,
+    is_mine: myCloneIds.has(v.voice_id),
   }));
   res.json(GetHeyGenVoicesResponse.parse(mapped));
+});
+
+/**
+ * POST /heygen/voices/clone
+ * Multipart: audio file (≤25 MB, audio/*) + name (string)
+ * Creates a cloned voice in HeyGen and records ownership in heygen_cloned_voices.
+ */
+router.post("/heygen/voices/clone", voiceUpload.single("audio"), async (req, res): Promise<void> => {
+  try {
+    const userId = req.session.user!.userId;
+    const { name } = req.body ?? {};
+    if (!name || typeof name !== "string" || !name.trim()) {
+      res.status(400).json({ error: "El nombre es requerido" }); return;
+    }
+    if (!req.file) {
+      res.status(400).json({ error: "Se requiere un archivo de audio" }); return;
+    }
+    const apiKey = await getUserHeyGenKey(userId);
+    const voiceId = await cloneVoice(req.file.buffer, req.file.originalname, name.trim(), apiKey);
+    await db.insert(heygenClonedVoicesTable).values({
+      userId,
+      voiceId,
+      displayName: name.trim(),
+      status: "pending",
+    });
+    res.json({ voice_id: voiceId, display_name: name.trim(), status: "pending" });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "Error al clonar la voz" });
+  }
+});
+
+/**
+ * DELETE /heygen/voices/:voiceId
+ * Deletes a cloned voice. Only succeeds if the current user owns it.
+ */
+router.delete("/heygen/voices/:voiceId", async (req, res): Promise<void> => {
+  try {
+    const userId = req.session.user!.userId;
+    const { voiceId } = req.params;
+    const [row] = await db
+      .select()
+      .from(heygenClonedVoicesTable)
+      .where(and(eq(heygenClonedVoicesTable.voiceId, voiceId), eq(heygenClonedVoicesTable.userId, userId)));
+    if (!row) { res.status(403).json({ error: "No tienes permiso para eliminar esta voz" }); return; }
+    const apiKey = await getUserHeyGenKey(userId);
+    await deleteVoice(voiceId, apiKey);
+    await db.delete(heygenClonedVoicesTable)
+      .where(and(eq(heygenClonedVoicesTable.voiceId, voiceId), eq(heygenClonedVoicesTable.userId, userId)));
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "Error al eliminar la voz" });
+  }
+});
+
+/**
+ * PATCH /heygen/voices/:voiceId
+ * Rename a cloned voice. Only succeeds if the current user owns it.
+ * Body: { name: string }
+ */
+router.patch("/heygen/voices/:voiceId", async (req, res): Promise<void> => {
+  try {
+    const userId = req.session.user!.userId;
+    const { voiceId } = req.params;
+    const { name } = req.body ?? {};
+    if (!name || typeof name !== "string" || !name.trim()) {
+      res.status(400).json({ error: "El nombre es requerido" }); return;
+    }
+    const [row] = await db
+      .select()
+      .from(heygenClonedVoicesTable)
+      .where(and(eq(heygenClonedVoicesTable.voiceId, voiceId), eq(heygenClonedVoicesTable.userId, userId)));
+    if (!row) { res.status(403).json({ error: "No tienes permiso para renombrar esta voz" }); return; }
+    const apiKey = await getUserHeyGenKey(userId);
+    await renameVoice(voiceId, name.trim(), apiKey);
+    await db.update(heygenClonedVoicesTable)
+      .set({ displayName: name.trim(), updatedAt: new Date() })
+      .where(and(eq(heygenClonedVoicesTable.voiceId, voiceId), eq(heygenClonedVoicesTable.userId, userId)));
+    res.json({ ok: true, display_name: name.trim() });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "Error al renombrar la voz" });
+  }
 });
 
 router.get("/heygen/avatar-groups", async (req, res): Promise<void> => {
@@ -142,6 +243,39 @@ router.get("/heygen/looks", async (req, res): Promise<void> => {
   res.json(GetHeyGenAllLooksResponse.parse(all));
 });
 
+/**
+ * GET /heygen/looks/reverse-lookup?ids=id1,id2,...
+ * Returns { [lookId]: groupId } for the requested look IDs.
+ * Uses the in-memory looks cache (warmed by the scheduler) so it's fast
+ * when data is already cached, and falls back to a full fetch otherwise.
+ */
+router.get("/heygen/looks/reverse-lookup", async (req, res): Promise<void> => {
+  try {
+    const ids = ((req.query.ids as string) ?? "").split(",").map(s => s.trim()).filter(Boolean);
+    if (!ids.length) { res.json({}); return; }
+
+    const apiKey = await getUserHeyGenKey(req.session.user!.userId);
+    let looks: FlatLook[];
+    if (looksCache && Date.now() - looksCache.at < 5 * 60 * 1000) {
+      looks = looksCache.data;
+    } else {
+      if (!looksFetch) {
+        looksFetch = fetchAllLooks(apiKey).finally(() => { looksFetch = null; });
+      }
+      looks = await looksFetch;
+    }
+
+    const idSet = new Set(ids);
+    const result: Record<string, string> = {};
+    for (const look of looks) {
+      if (idSet.has(look.id)) result[look.id] = look.group_id;
+    }
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: "reverse-lookup failed" });
+  }
+});
+
 router.get("/heygen/avatar-config", async (req, res): Promise<void> => {
   const userId = req.session.user!.userId;
   let [config] = await db.select().from(avatarConfigTable)
@@ -209,7 +343,12 @@ router.put("/heygen/avatar-config", async (req, res): Promise<void> => {
 
 // ── HeyGen account / integration ─────────────────────────────────────────────
 
-/** GET /heygen/account — connection status + remaining quota (scoped to logged-in user) */
+/** GET /heygen/account — connection status + remaining quota.
+ *  key_source:
+ *    "user"     — user has their own API key stored in DB (legacy / advanced)
+ *    "platform" — using Reelsona's centralized HEYGEN_API_KEY (default for all new users)
+ *    "none"     — no key available anywhere (misconfiguration)
+ */
 router.get("/heygen/account", async (req, res): Promise<void> => {
   const userId = req.session.user!.userId;
   const [settings] = await db
@@ -218,22 +357,29 @@ router.get("/heygen/account", async (req, res): Promise<void> => {
     .where(eq(settingsTable.userId, userId))
     .limit(1);
 
-  const apiKey = settings?.heygenApiKey ?? null;
+  const userKey     = settings?.heygenApiKey ?? null;
+  const platformKey = process.env.HEYGEN_API_KEY ?? null;
+  const apiKey      = userKey ?? platformKey;
+  const keySource   = userKey ? "user" : platformKey ? "platform" : "none";
 
   if (!apiKey) {
     res.json({ connected: false, remaining_quota: null, total_quota: null, details: null, key_source: "none" });
     return;
   }
 
+  // For the platform key we trust it is valid (validated at deploy time);
+  // skip the extra validateHeyGenKey() call to avoid unnecessary latency.
   const quota = await getHeyGenQuota(apiKey);
-  const connected = quota.remaining !== null || await validateHeyGenKey(apiKey);
+  const connected = keySource === "platform"
+    ? true
+    : quota.remaining !== null || await validateHeyGenKey(apiKey);
 
   res.json({
     connected,
     remaining_quota: quota.remaining,
     total_quota: null,
     details: quota.details,
-    key_source: "db",
+    key_source: keySource,
   });
 });
 
@@ -275,6 +421,171 @@ router.delete("/heygen/account", async (req, res): Promise<void> => {
     await db.update(settingsTable).set({ heygenApiKey: null }).where(eq(settingsTable.id, existing.id));
   }
   res.json({ ok: true });
+});
+
+// ── v3 Avatar listing ─────────────────────────────────────────────────────────
+
+/** GET /heygen/my-avatar-groups — user's own private avatar groups (v3) */
+router.get("/heygen/my-avatar-groups", async (req, res): Promise<void> => {
+  try {
+    const token = typeof req.query.token === "string" ? req.query.token : undefined;
+    const result = await listV3AvatarGroups("private", token, 50);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "Error fetching avatar groups" });
+  }
+});
+
+/** GET /heygen/public-avatar-groups — HeyGen stock public avatars (v3, paginated) */
+router.get("/heygen/public-avatar-groups", async (req, res): Promise<void> => {
+  try {
+    const token = typeof req.query.token === "string" ? req.query.token : undefined;
+    const result = await listV3AvatarGroups("public", token, 24);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "Error fetching public avatars" });
+  }
+});
+
+/** GET /heygen/v3-groups/:groupId/looks — looks for any group via v3 API */
+router.get("/heygen/v3-groups/:groupId/looks", async (req, res): Promise<void> => {
+  try {
+    const groupId = req.params.groupId;
+    const token = typeof req.query.token === "string" ? req.query.token : undefined;
+    const result = await listV3GroupLooks(groupId, token);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "Error fetching looks" });
+  }
+});
+
+// ── Avatar creation ───────────────────────────────────────────────────────────
+
+/**
+ * POST /heygen/assets — upload a photo to HeyGen and return asset_id.
+ * Expects multipart/form-data with a "file" field (PNG or JPEG, max 32 MB).
+ */
+router.post("/heygen/assets", upload.single("file"), async (req, res): Promise<void> => {
+  if (!req.file) {
+    res.status(400).json({ error: "Se requiere un archivo de imagen (campo: file)" });
+    return;
+  }
+  try {
+    const result = await uploadAsset(req.file.buffer, req.file.mimetype, req.file.originalname);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "Error al subir la imagen" });
+  }
+});
+
+/**
+ * DELETE /heygen/avatars/looks/:lookId — delete a single avatar look.
+ * Only photo_avatar and digital_twin types are supported by HeyGen.
+ */
+router.delete("/heygen/avatars/looks/:lookId", async (req, res): Promise<void> => {
+  const { lookId } = req.params;
+  if (!lookId) { res.status(400).json({ error: "lookId es requerido" }); return; }
+  try {
+    await deleteAvatarLook(lookId);
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "Error al eliminar el look" });
+  }
+});
+
+/**
+ * DELETE /heygen/avatars/groups/:groupId — permanently delete an avatar group and all its looks.
+ */
+router.delete("/heygen/avatars/groups/:groupId", async (req, res): Promise<void> => {
+  const { groupId } = req.params;
+  if (!groupId) { res.status(400).json({ error: "groupId es requerido" }); return; }
+  try {
+    await deleteAvatarGroup(groupId);
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "Error al eliminar el avatar" });
+  }
+});
+
+/**
+ * POST /heygen/avatars/looks/:lookId/new-look — generate a new look for an existing avatar group.
+ * Conditions generation on the reference look; saves to the same group.
+ * Body: { name, prompt, group_id, pose? }
+ */
+router.post("/heygen/avatars/looks/:lookId/new-look", async (req, res): Promise<void> => {
+  const { lookId } = req.params;
+  const { name, prompt, group_id, pose } = req.body ?? {};
+  if (!lookId) { res.status(400).json({ error: "lookId es requerido" }); return; }
+  if (!name || typeof name !== "string" || !name.trim()) { res.status(400).json({ error: "name es requerido" }); return; }
+  if (!prompt || typeof prompt !== "string" || !prompt.trim()) { res.status(400).json({ error: "prompt es requerido" }); return; }
+  if (!group_id || typeof group_id !== "string" || !group_id.trim()) { res.status(400).json({ error: "group_id es requerido" }); return; }
+  try {
+    const result = await createAvatarLook(lookId, group_id.trim(), name.trim(), prompt.trim(), { pose: pose ?? "half_body" });
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "Error al crear el nuevo look" });
+  }
+});
+
+/**
+ * POST /heygen/avatars/create-prompt — create an AI-generated avatar from a text description.
+ * Body: { name: string, prompt: string, orientation?: string, pose?: string }
+ */
+router.post("/heygen/avatars/create-prompt", async (req, res): Promise<void> => {
+  const { name, prompt, orientation, pose } = req.body ?? {};
+  if (!name || typeof name !== "string" || !name.trim()) {
+    res.status(400).json({ error: "name es requerido" });
+    return;
+  }
+  if (!prompt || typeof prompt !== "string" || !prompt.trim()) {
+    res.status(400).json({ error: "prompt es requerido" });
+    return;
+  }
+  try {
+    const result = await createPromptAvatar(name.trim(), prompt.trim(), {
+      orientation: orientation ?? "vertical",
+      pose: pose ?? "half_body",
+    });
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "Error al crear el avatar" });
+  }
+});
+
+/**
+ * POST /heygen/avatars/create — create a photo avatar from an uploaded asset.
+ * Body: { name: string, asset_id: string }
+ * Returns: { look_id: string, group_id: string }
+ */
+router.post("/heygen/avatars/create", async (req, res): Promise<void> => {
+  const { name, asset_id } = req.body ?? {};
+  if (!name || typeof name !== "string" || !name.trim()) {
+    res.status(400).json({ error: "name es requerido" });
+    return;
+  }
+  if (!asset_id || typeof asset_id !== "string" || !asset_id.trim()) {
+    res.status(400).json({ error: "asset_id es requerido" });
+    return;
+  }
+  try {
+    const result = await createPhotoAvatar(name.trim(), asset_id.trim());
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "Error al crear el avatar" });
+  }
+});
+
+/**
+ * GET /heygen/avatars/looks/:lookId/status — poll look training status.
+ * Returns: { id, name, status, avatar_type, group_id, preview_image_url, preview_video_url }
+ */
+router.get("/heygen/avatars/looks/:lookId/status", async (req, res): Promise<void> => {
+  try {
+    const result = await getAvatarLookStatus(req.params.lookId);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "Error al consultar el estado del avatar" });
+  }
 });
 
 export default router;
