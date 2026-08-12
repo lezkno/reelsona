@@ -516,7 +516,12 @@ export async function generateVideo(params: GenerateVideoParams, apiKey?: string
   // Avatar V is available for both video avatars AND eligible digital_twin (photo) looks —
   // the tp: heuristic alone is not enough; we must check supported_api_engines per look.
   const supportedEngines = await getLookSupportedEngines(rawAvatarId, apiKey);
-  const supportsAvatarV = supportedEngines.includes("avatar_v");
+  // avatar_v only supports digital_twin avatars — photo avatars (tp: prefix) are
+  // NOT supported by avatar_v even when getLookSupportedEngines reports them as
+  // supported.  Sending a photo avatar with avatar_v causes HeyGen to accept the
+  // POST but silently fail the video during processing (status: "failed", error: null).
+  // Always force avatar_iv for photo avatars.
+  const supportsAvatarV = !isPhotoAvatar && supportedEngines.includes("avatar_v");
 
   logger.info(
     {
@@ -614,9 +619,15 @@ export async function getVideoStatus(videoId: string, apiKey?: string): Promise<
   const client = getClient(apiKey);
   const res = await client.get(`/v3/videos/${videoId}`);
   const data = res.data?.data;
+  const mapped = mapStatus(data?.status);
+  // Log the full raw HeyGen response whenever a video fails so we can diagnose
+  // future failures even when HeyGen omits the error field.
+  if (mapped === "failed") {
+    logger.error({ videoId, rawHeyGenData: data }, "[HeyGen] Video status: failed — full raw response");
+  }
   return {
     video_id: videoId,
-    status: mapStatus(data?.status),
+    status: mapped,
     video_url: data?.video_url ?? null,
     thumbnail_url: data?.thumbnail_url ?? null,
     duration: data?.duration ?? null,

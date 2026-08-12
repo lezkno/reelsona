@@ -474,6 +474,38 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
       return { success: false, message: "No draft content items available" };
     }
 
+    // ── Avatar reservation (BEFORE AI call) ─────────────────────────────────
+    // Pick the avatar and advance lastUsedAvatarId in the DB immediately so
+    // that a second concurrent cycle (cron + manual trigger) reads the updated
+    // value and does NOT pick the same avatar.  Previously this write happened
+    // after the ~30-60 s AI call, which is the window where duplicates occur.
+    const storedAvatarValid =
+      draft.avatarId && avatarCfg.selectedAvatarIds.includes(draft.avatarId);
+    const avatarId = storedAvatarValid
+      ? draft.avatarId!
+      : pickNextAvatar(
+          avatarCfg.selectedAvatarIds,
+          avatarCfg.lastUsedAvatarId,
+          avatarCfg.rotationStrategy,
+          avatarCfg.avatarUsageCount as Record<string, number>
+        );
+    if (!storedAvatarValid && draft.avatarId) {
+      logger.warn(
+        { removedAvatarId: draft.avatarId, newAvatarId: avatarId },
+        "Stored avatarId is no longer in the active selection — re-picking from current list"
+      );
+    }
+    // Persist the reservation immediately (only needed when rotation picked a
+    // new avatar — pre-assigned drafts keep whatever was last used).
+    if (!storedAvatarValid) {
+      await db
+        .update(avatarConfigTable)
+        .set({ lastUsedAvatarId: avatarId, updatedAt: new Date() })
+        .where(eq(avatarConfigTable.id, avatarCfg.id));
+      avatarCfg.lastUsedAvatarId = avatarId;
+    }
+
+    // ── AI script generation ──────────────────────────────────────────────────
     const auditInsights = await getLatestAuditCache().catch(() => null);
     const scriptResult = await generateScript(
       draft.topic,
@@ -495,29 +527,15 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
       },
     );
 
-    // Use the stored avatarId only if it's still in the current selection.
-    // If the user removed it from their list, re-pick from the active selection.
-    const storedAvatarValid =
-      draft.avatarId && avatarCfg.selectedAvatarIds.includes(draft.avatarId);
-    const avatarId = storedAvatarValid
-      ? draft.avatarId!
-      : pickNextAvatar(
-          avatarCfg.selectedAvatarIds,
-          avatarCfg.lastUsedAvatarId,
-          avatarCfg.rotationStrategy,
-          avatarCfg.avatarUsageCount as Record<string, number>
-        );
-    if (!storedAvatarValid && draft.avatarId) {
-      logger.warn(
-        { removedAvatarId: draft.avatarId, newAvatarId: avatarId },
-        "Stored avatarId is no longer in the active selection — re-picking from current list"
-      );
-    }
-
     // Always re-resolve from current voice_overrides — draft.voiceId may be stale.
     const voiceId = (await resolveVoiceId(avatarId, heygenApiKey)) ?? draft.voiceId;
 
-    await db
+    // ── Conditional write (race-condition guard) ──────────────────────────────
+    // Only commit the script if the item is still in 'draft' status AND has the
+    // same updatedAt we read.  If the user edited the topic while the AI was
+    // running, this write affects 0 rows — we discard the stale script and let
+    // the next cycle pick up the freshly-edited draft instead.
+    const scriptWritten = await db
       .update(contentPlanItemsTable)
       .set({
         hook: scriptResult.hook,
@@ -532,17 +550,20 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
         hookSelectionReason: scriptResult.hook_selection_reason || null,
         updatedAt: new Date(),
       })
-      .where(eq(contentPlanItemsTable.id, draft.id));
+      .where(and(
+        eq(contentPlanItemsTable.id, draft.id),
+        eq(contentPlanItemsTable.status, "draft"),
+        eq(contentPlanItemsTable.updatedAt, draft.updatedAt!),
+      ))
+      .returning({ id: contentPlanItemsTable.id });
 
-    // Advance lastUsedAvatarId immediately so the next scripting cycle picks a
-    // DIFFERENT avatar. Without this update, consecutive scripting cycles all
-    // read the same lastUsedAvatarId (set at video-generation time) and can
-    // assign the same avatar repeatedly regardless of rotation strategy.
-    await db
-      .update(avatarConfigTable)
-      .set({ lastUsedAvatarId: avatarId, updatedAt: new Date() })
-      .where(eq(avatarConfigTable.id, avatarCfg.id));
-    avatarCfg.lastUsedAvatarId = avatarId; // keep in-memory ref consistent
+    if (!scriptWritten[0]) {
+      logger.warn(
+        { itemId: draft.id },
+        "Script generation discarded — item was edited or already scripted during AI generation; will retry on next cycle"
+      );
+      return { success: false, message: "Item was modified during script generation — will retry on next cycle" };
+    }
 
     contentItem = {
       ...draft,
