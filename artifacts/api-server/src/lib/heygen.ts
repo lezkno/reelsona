@@ -516,11 +516,12 @@ export async function generateVideo(params: GenerateVideoParams, apiKey?: string
   // Avatar V is available for both video avatars AND eligible digital_twin (photo) looks —
   // the tp: heuristic alone is not enough; we must check supported_api_engines per look.
   const supportedEngines = await getLookSupportedEngines(rawAvatarId, apiKey);
-  // avatar_v only supports digital_twin avatars — photo avatars (tp: prefix) are
-  // NOT supported by avatar_v even when getLookSupportedEngines reports them as
-  // supported.  Sending a photo avatar with avatar_v causes HeyGen to accept the
-  // POST but silently fail the video during processing (status: "failed", error: null).
-  // Always force avatar_iv for photo avatars.
+  // avatar_v only supports digital_twin / video avatars — photo avatars (tp: prefix)
+  // fail silently: HeyGen accepts the POST (returns a videoId) but then marks the
+  // video as "failed" with error: null within ~60 s.  getLookSupportedEngines
+  // incorrectly reports avatar_v as supported for photo avatar looks, so we must
+  // exclude photo avatars explicitly.  avatar_iv with expressiveness: high is the
+  // correct engine for photo avatars and produces quality results.
   const supportsAvatarV = !isPhotoAvatar && supportedEngines.includes("avatar_v");
 
   logger.info(
