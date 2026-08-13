@@ -3,6 +3,57 @@ import multer from "multer";
 import { db } from "@workspace/db";
 import { avatarConfigTable, settingsTable, heygenClonedVoicesTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
+import { execFile } from "child_process";
+import { promisify } from "util";
+import os from "os";
+import fs from "fs/promises";
+import path from "path";
+import { objectStorageClient } from "../lib/objectStorage";
+
+const execFileAsync = promisify(execFile);
+
+/**
+ * Convert an audio buffer to WAV (16 kHz mono) using FFmpeg.
+ * HeyGen v3 voice clone recommends WAV — rejects WebM from MediaRecorder.
+ */
+async function convertToWav(inputBuffer: Buffer, inputExt: string): Promise<Buffer> {
+  const tmpDir = os.tmpdir();
+  const id = `voice_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const inputPath = path.join(tmpDir, `${id}${inputExt}`);
+  const outputPath = path.join(tmpDir, `${id}.wav`);
+  try {
+    await fs.writeFile(inputPath, inputBuffer);
+    await execFileAsync("ffmpeg", [
+      "-y", "-i", inputPath,
+      "-ar", "16000",   // 16 kHz — HeyGen recommended
+      "-ac", "1",       // mono
+      "-c:a", "pcm_s16le",
+      outputPath,
+    ]);
+    return await fs.readFile(outputPath);
+  } finally {
+    await fs.unlink(inputPath).catch(() => {});
+    await fs.unlink(outputPath).catch(() => {});
+  }
+}
+
+/**
+ * Upload an audio buffer to GCS and return a public URL accessible by HeyGen.
+ * Uses the same captioned-objects route that serves captioned videos.
+ */
+async function uploadAudioForCloning(audioBuffer: Buffer, userId: number): Promise<string> {
+  const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
+  if (!bucketId) throw new Error("DEFAULT_OBJECT_STORAGE_BUCKET_ID not set");
+  const domain = process.env.REPLIT_DEV_DOMAIN;
+  if (!domain) throw new Error("REPLIT_DEV_DOMAIN not set");
+
+  const objectName = `voice-audio/user_${userId}_${Date.now()}.wav`;
+  const bucket = objectStorageClient.bucket(bucketId);
+  const gcsFile = bucket.file(objectName);
+  await gcsFile.save(audioBuffer, { contentType: "audio/wav" });
+
+  return `https://${domain}/api/captioned-objects/${objectName}`;
+}
 
 /** Returns Reelsona's centralized HeyGen API key.
  *  All users share the same platform key — no per-user key required. */
@@ -97,7 +148,20 @@ router.post("/heygen/voices/clone", voiceUpload.single("audio"), async (req, res
     const apiKey = await getUserHeyGenKey(userId);
     const rawSpeed = req.body?.speed;
     const speed = rawSpeed != null ? parseFloat(rawSpeed) : null;
-    const voiceId = await cloneVoice(req.file.buffer, req.file.originalname, name.trim(), apiKey);
+
+    // HeyGen v3 voice_clone requires a public URL (not multipart).
+    // Convert any non-WAV audio to WAV 16 kHz mono first (WebM from MediaRecorder).
+    const originalExt = path.extname(req.file.originalname).toLowerCase() || ".bin";
+    const needsConversion = [".webm", ".ogg", ".opus", ".mp4", ".m4a"].includes(originalExt);
+    let audioBuffer = req.file.buffer;
+    if (needsConversion) {
+      audioBuffer = await convertToWav(req.file.buffer, originalExt);
+    }
+
+    // Upload to GCS so HeyGen can fetch it via public URL
+    const audioUrl = await uploadAudioForCloning(audioBuffer, userId);
+
+    const voiceId = await cloneVoice(audioUrl, name.trim(), apiKey);
     await db.insert(heygenClonedVoicesTable).values({
       userId,
       voiceId,
@@ -107,7 +171,9 @@ router.post("/heygen/voices/clone", voiceUpload.single("audio"), async (req, res
     });
     res.json({ voice_id: voiceId, display_name: name.trim(), status: "pending" });
   } catch (err: any) {
-    res.status(500).json({ error: err?.message ?? "Error al clonar la voz" });
+    const msg = err?.message ?? "Error al clonar la voz";
+    console.error("[VoiceClone] Error:", msg, "| HeyGen body:", JSON.stringify(err?.response?.data ?? null));
+    res.status(500).json({ error: msg });
   }
 });
 

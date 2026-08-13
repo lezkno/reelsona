@@ -227,22 +227,43 @@ export async function listVoices(apiKey?: string): Promise<HeyGenVoice[]> {
  * Returns the new voice_id assigned by HeyGen.
  * Cloning is typically async — poll listVoices until the ID appears.
  */
+/**
+ * Clone a voice using HeyGen v3 API.
+ * @param audioUrl  Publicly accessible URL of the audio file (WAV/MP3/FLAC)
+ * @param voiceName Display name for the cloned voice
+ * @param apiKey    Optional HeyGen API key (falls back to env var)
+ * @returns voice_clone_id — poll GET /v3/voices/{id} until status === "complete"
+ */
 export async function cloneVoice(
-  audioBuffer: Buffer,
-  filename: string,
-  displayName: string,
+  audioUrl: string,
+  voiceName: string,
   apiKey?: string,
 ): Promise<string> {
-  // Use native FormData (Node 18+)
-  const form = new FormData();
-  form.append("audio", new Blob([new Uint8Array(audioBuffer)]), filename);
-  form.append("name", displayName);
-
   const client = getClient(apiKey);
-  const res = await client.post("/v2/voice_clone", form);
-  const voiceId: string = res.data?.data?.voice_id ?? res.data?.voice_id;
-  if (!voiceId) throw new Error("HeyGen did not return a voice_id after cloning");
-  return voiceId;
+  try {
+    const res = await client.post(
+      "/v3/voices/clone",
+      {
+        audio: { type: "url", url: audioUrl },
+        voice_name: voiceName,
+        remove_background_noise: true,
+      },
+      { headers: { "Content-Type": "application/json" } },
+    );
+    const voiceCloneId: string =
+      res.data?.data?.voice_clone_id ?? res.data?.voice_clone_id;
+    if (!voiceCloneId)
+      throw new Error("HeyGen no devolvió un voice_clone_id después de clonar");
+    return voiceCloneId;
+  } catch (err: any) {
+    const heygenMsg =
+      err?.response?.data?.error?.message ??
+      err?.response?.data?.message ??
+      err?.response?.data?.error ??
+      err?.message;
+    const status = err?.response?.status ?? "?";
+    throw new Error(`HeyGen error ${status}: ${heygenMsg}`);
+  }
 }
 
 /**
