@@ -783,15 +783,14 @@ export async function generateVideo(params: GenerateVideoParams, apiKey?: string
   // top-level payload param — "Extra inputs are not permitted").
   const finalScript = wrapWithProsody(normalizedScript, params.voiceSpeed, params.voicePitch);
 
-  // v3 flat payload — resolution is always 1080×1920 (1080p portrait)
+  // v3 flat payload — HeyGen v3 only accepts aspect_ratio for orientation;
+  // width/height are rejected with "Extra inputs are not permitted".
   const payload: Record<string, unknown> = {
     type: "avatar",
     avatar_id: rawAvatarId,
     script: finalScript,
     voice_id: params.voice_id,
     aspect_ratio: "9:16",
-    width: 1080,
-    height: 1920,
     title: params.title ?? "ContentPilot Video",
   };
 
