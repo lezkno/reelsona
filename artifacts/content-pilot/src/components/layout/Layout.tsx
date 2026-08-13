@@ -3,11 +3,42 @@ import { useState } from "react"
 import { Link, useLocation } from "wouter"
 import { Sidebar } from "./Sidebar"
 import { WelcomeModal } from "@/components/WelcomeModal"
-import { Menu, AlertTriangle, Clock, LogOut } from "lucide-react"
+import { Menu, AlertTriangle, Clock, LogOut, Coins } from "lucide-react"
 import { useEntitlement } from "@/hooks/useEntitlement"
-import { useAuthStatus, useLogout } from "@workspace/api-client-react"
+import { useAuthStatus, useLogout, useCreditsBalance } from "@workspace/api-client-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { cn } from "@/lib/utils"
+
+// ── Credits chip ──────────────────────────────────────────────────────────────
+
+function CreditsChip() {
+  const { data } = useCreditsBalance()
+
+  if (!data) return null
+  if (data.isAdmin) return null   // admins have unlimited — no chip needed
+
+  const { videosRemaining } = data
+  if (videosRemaining === null) return null
+
+  const color =
+    videosRemaining === 0 ? "text-destructive bg-destructive/10 border-destructive/20 hover:bg-destructive/20" :
+    videosRemaining <= 3  ? "text-amber-600 bg-amber-50 border-amber-200 dark:bg-amber-950/30 dark:border-amber-800/40 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/40" :
+                            "text-sidebar-foreground/70 bg-sidebar-accent/40 border-sidebar-border hover:bg-sidebar-accent/70"
+
+  return (
+    <Link
+      href="/settings"
+      className={cn(
+        "flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-semibold transition-colors",
+        color
+      )}
+      title="Créditos disponibles — ver en Configuración"
+    >
+      <Coins className="w-3.5 h-3.5 shrink-0" />
+      <span>{videosRemaining}</span>
+    </Link>
+  )
+}
 
 // ── Top bar ───────────────────────────────────────────────────────────────────
 
@@ -52,6 +83,9 @@ function TopBar({ onMenuOpen }: { onMenuOpen: () => void }) {
 
       {/* ── Spacer ── */}
       <div className="flex-1" />
+
+      {/* ── Credits chip ── */}
+      <CreditsChip />
 
       {/* ── User profile + logout (top right) ── */}
       {user && (
