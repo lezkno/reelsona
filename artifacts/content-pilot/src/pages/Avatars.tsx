@@ -1454,6 +1454,8 @@ function AvatarCreationDialog({
   const [videoRecSeconds, setVideoRecSeconds] = useState(0)
   const [videoRecError, setVideoRecError] = useState<string | null>(null)
   const [videoStream, setVideoStream] = useState<MediaStream | null>(null)
+  const [videoDevices, setVideoDevices] = useState<MediaDeviceInfo[]>([])
+  const [videoDeviceId, setVideoDeviceId] = useState<string>("")
   const videoLiveRef = useRef<HTMLVideoElement>(null)
   const videoStreamRef = useRef<MediaStream | null>(null)
   const videoMediaRecRef = useRef<MediaRecorder | null>(null)
@@ -1516,13 +1518,22 @@ function AvatarCreationDialog({
     setVideoStream(null)
   }, [])
 
-  const startVideoRecord = useCallback(async () => {
+  const startVideoRecord = useCallback(async (explicitDeviceId?: string) => {
     setVideoRecError(null)
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: true,
-      })
+      // Use explicit deviceId if provided, else fall back to selected device or facingMode
+      const targetId = explicitDeviceId ?? videoDeviceId
+      const videoConstraint: MediaTrackConstraints = targetId
+        ? { deviceId: { exact: targetId }, width: { ideal: 1280 }, height: { ideal: 720 } }
+        : { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } }
+      const stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraint, audio: true })
+      // Re-enumerate with labels now that we have permission
+      navigator.mediaDevices.enumerateDevices().then(devs => {
+        const cams = devs.filter(d => d.kind === "videoinput")
+        setVideoDevices(cams)
+        const active = stream.getVideoTracks()[0]?.getSettings().deviceId ?? ""
+        setVideoDeviceId(active)
+      }).catch(() => {})
       videoStreamRef.current = stream
       setVideoStream(stream)
       videoChunksRef.current = []
@@ -1544,7 +1555,7 @@ function AvatarCreationDialog({
     } catch {
       setVideoRecError("No se pudo acceder a la cámara. Verifica que la hayas habilitado en el navegador.")
     }
-  }, [stopVideoStream])
+  }, [stopVideoStream, videoDeviceId])
 
   const stopVideoRecord = useCallback(() => {
     if (videoTimerRef.current) { clearInterval(videoTimerRef.current); videoTimerRef.current = null }
@@ -1560,6 +1571,29 @@ function AvatarCreationDialog({
     setVideoRecSeconds(0)
     setVideoRecError(null)
   }, [stopVideoStream])
+
+  /** Cycle to the next available camera. If recording, stops and restarts with the new device. */
+  const switchVideoCamera = useCallback(() => {
+    if (videoDevices.length < 2) return
+    const currentIdx = videoDevices.findIndex(d => d.deviceId === videoDeviceId)
+    const nextIdx = (currentIdx + 1) % videoDevices.length
+    const nextId = videoDevices[nextIdx]!.deviceId
+    setVideoDeviceId(nextId)
+    if (videoRecState === "idle") return // selection saved; will be used on next record start
+    // If recording: stop current clip (discarded), restart with new camera
+    if (videoTimerRef.current) { clearInterval(videoTimerRef.current); videoTimerRef.current = null }
+    videoChunksRef.current = []
+    const mr = videoMediaRecRef.current
+    if (mr?.state === "recording") {
+      mr.onstop = () => {
+        stopVideoStream()
+        setVideoRecState("idle")
+        setVideoRecSeconds(0)
+        void startVideoRecord(nextId)
+      }
+      mr.stop()
+    }
+  }, [videoDevices, videoDeviceId, videoRecState, stopVideoStream, startVideoRecord])
 
   // Photo helpers
   const handleFile = (f: File) => {
@@ -1661,6 +1695,14 @@ function AvatarCreationDialog({
     el.srcObject = videoStream
     el.play().catch(() => {})
   }, [videoStream])
+
+  // Pre-enumerate cameras when user opens the record tab (labels may be empty before permission)
+  useEffect(() => {
+    if (mode !== "video" || videoSource !== "record") return
+    navigator.mediaDevices.enumerateDevices()
+      .then(devs => setVideoDevices(devs.filter(d => d.kind === "videoinput")))
+      .catch(() => {})
+  }, [mode, videoSource])
 
   const handleCreate = async () => {
     if (!name.trim()) return
@@ -1901,18 +1943,30 @@ function AvatarCreationDialog({
                           <div className="flex-1 space-y-2">
                             <p className="text-sm font-medium">Grabando…</p>
                             <p className="text-xs text-muted-foreground">Habla directamente a la cámara</p>
-                            <button
-                              type="button"
-                              onClick={stopVideoRecord}
-                              className="flex items-center gap-1.5 px-3 h-7 rounded-md bg-red-500 text-white text-xs font-medium hover:bg-red-600 transition-colors"
-                            >
-                              <Square className="w-3 h-3 fill-current" /> Detener
-                            </button>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={stopVideoRecord}
+                                className="flex items-center gap-1.5 px-3 h-7 rounded-md bg-red-500 text-white text-xs font-medium hover:bg-red-600 transition-colors"
+                              >
+                                <Square className="w-3 h-3 fill-current" /> Detener
+                              </button>
+                              {videoDevices.length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={switchVideoCamera}
+                                  title="Cambiar cámara"
+                                  className="flex items-center justify-center w-7 h-7 rounded-md border border-border bg-background hover:bg-muted transition-colors"
+                                >
+                                  <RefreshCw className="w-3.5 h-3.5 text-muted-foreground" />
+                                </button>
+                              )}
+                            </div>
                           </div>
                         </div>
                       ) : (
                         /* idle */
-                        <div className="h-[120px] flex flex-col items-center justify-center gap-2.5 p-4">
+                        <div className="flex flex-col items-center justify-center gap-2.5 p-4 py-3">
                           <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center">
                             <Video className="w-5 h-5 text-primary" />
                           </div>
@@ -1920,9 +1974,26 @@ function AvatarCreationDialog({
                             <p className="text-sm font-medium">Graba desde tu cámara</p>
                             <p className="text-xs text-muted-foreground">1–5 min · rostro frontal · buena iluminación</p>
                           </div>
+                          {/* Camera selector — only when multiple cameras detected */}
+                          {videoDevices.length > 1 && (
+                            <div className="flex items-center gap-1.5 w-full max-w-[220px]">
+                              <Camera className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                              <select
+                                value={videoDeviceId}
+                                onChange={e => setVideoDeviceId(e.target.value)}
+                                className="flex-1 text-xs rounded border border-input bg-background px-2 h-7 focus:outline-none focus:ring-1 focus:ring-ring"
+                              >
+                                {videoDevices.map((d, i) => (
+                                  <option key={d.deviceId} value={d.deviceId}>
+                                    {d.label || `Cámara ${i + 1}`}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
                           <button
                             type="button"
-                            onClick={() => void startVideoRecord()}
+                            onClick={() => void startVideoRecord(videoDeviceId || undefined)}
                             className="flex items-center gap-1.5 px-3 h-7 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors"
                           >
                             <div className="w-2 h-2 rounded-full bg-white" />
