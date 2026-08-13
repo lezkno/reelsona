@@ -840,7 +840,16 @@ export async function generateVideo(params: GenerateVideoParams, apiKey?: string
       }
     }
     payload["engine"] = enginePayload;
-    payload["motion_prompt"] = effectiveMotionPrompt;
+    // motion_prompt is only valid when reference_look_id is present — HeyGen v3 rejects it
+    // with "invalid_parameter" when the group has no digital twin / reference look.
+    if ("reference_look_id" in enginePayload) {
+      payload["motion_prompt"] = effectiveMotionPrompt;
+    } else {
+      logger.info(
+        { avatarId: rawAvatarId },
+        "[HeyGen v3] Avatar V: omitting motion_prompt — no reference_look_id available for this group",
+      );
+    }
   } else {
     // Avatar IV (default): broad coverage — digital_twin, Photo Avatar, Studio Avatar.
     // expressiveness: high gives the most natural result for photo-based looks.
