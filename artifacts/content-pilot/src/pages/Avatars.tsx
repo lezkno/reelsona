@@ -2293,6 +2293,49 @@ function AvatarCreationDialog({
   )
 }
 
+// ── PendingDigitalTwinCard ────────────────────────────────────────────────────
+// Shown in the Mi Avatar grid while HeyGen is training a newly submitted Digital Twin.
+
+function PendingDigitalTwinCard({ job, elapsedSeconds }: {
+  job: { name: string }
+  elapsedSeconds: number
+}) {
+  const elapsedMin = Math.floor(elapsedSeconds / 60)
+  const elapsedLabel = elapsedMin < 1
+    ? "Iniciando entrenamiento…"
+    : elapsedMin === 1
+      ? "1 min procesando"
+      : `${elapsedMin} min procesando`
+
+  return (
+    <Card className="overflow-hidden border-primary/30 bg-primary/[0.02]">
+      <div className="aspect-square bg-muted/50 relative flex items-center justify-center">
+        {/* Pulsing gradient background */}
+        <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-transparent to-primary/5 animate-pulse" />
+        {/* Spinner + icon */}
+        <div className="relative flex flex-col items-center gap-3">
+          <div className="relative w-14 h-14 flex items-center justify-center">
+            <div className="absolute inset-0 rounded-full border-[3px] border-primary/20 border-t-primary animate-spin" />
+            <Video className="w-6 h-6 text-primary" />
+          </div>
+          <p className="text-[10px] text-primary font-medium px-3 text-center leading-tight">
+            {elapsedLabel}
+          </p>
+        </div>
+        {/* "Procesando" badge top-left */}
+        <Badge className="absolute top-2 left-2 gap-1 bg-primary/90 text-primary-foreground text-[10px] px-1.5 py-0.5">
+          <Loader2 className="w-2.5 h-2.5 animate-spin" />
+          Procesando
+        </Badge>
+      </div>
+      <CardContent className="p-4">
+        <h4 className="font-bold font-display truncate">{job.name}</h4>
+        <p className="text-xs text-muted-foreground mt-0.5">Digital Twin · 10–20 min</p>
+      </CardContent>
+    </Card>
+  )
+}
+
 // ── AvatarGroupCard ───────────────────────────────────────────────────────────
 
 function AvatarGroupCard({
@@ -2430,7 +2473,8 @@ export default function Avatars() {
   const autoSaveReadyRef = useRef(false)
   const [showCreation, setShowCreation] = useState(false)
   // Tracks a Digital Twin job that was dismissed from the dialog while still processing
-  const [pendingVideoJob, setPendingVideoJob] = useState<{ lookId: string; groupId: string; name: string } | null>(null)
+  const [pendingVideoJob, setPendingVideoJob] = useState<{ lookId: string; groupId: string; name: string; startedAt: number } | null>(null)
+  const [pendingElapsedSeconds, setPendingElapsedSeconds] = useState(0)
 
   // ── My Avatar tab ─────────────────────────────────────────────────────────
   const { data: myData, isLoading: isLoadingMy, refetch: refetchMy } = useMyHeyGenAvatarGroups()
@@ -2450,6 +2494,17 @@ export default function Avatars() {
       setPendingVideoJob(null)
     }
   }, [pendingVideoStatus?.status]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Tick elapsed time while a Digital Twin job is in progress so the card stays live
+  useEffect(() => {
+    if (!pendingVideoJob) { setPendingElapsedSeconds(0); return }
+    setPendingElapsedSeconds(Math.floor((Date.now() - pendingVideoJob.startedAt) / 1000))
+    const iv = setInterval(
+      () => setPendingElapsedSeconds(Math.floor((Date.now() - pendingVideoJob.startedAt) / 1000)),
+      5_000 // update every 5 s — granularity is minutes anyway
+    )
+    return () => clearInterval(iv)
+  }, [pendingVideoJob])
 
   // Pre-fetch looks for all private groups so the "Solo en uso" filter works
   // without requiring the user to open each dialog first.
@@ -3114,8 +3169,8 @@ export default function Avatars() {
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-6">
               {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="aspect-square rounded-xl" />)}
             </div>
-          ) : myGroups.length === 0 ? (
-            /* Empty state — no avatars at all */
+          ) : myGroups.length === 0 && !pendingVideoJob ? (
+            /* Empty state — no avatars and no job in flight */
             <div className="border-2 border-dashed rounded-2xl p-12 text-center flex flex-col items-center gap-4">
               <div className="w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center">
                 <Video className="w-8 h-8 text-primary" />
@@ -3132,7 +3187,7 @@ export default function Avatars() {
               </Button>
               <p className="text-xs text-muted-foreground">También puedes crear tu avatar desde una foto o descripción con IA</p>
             </div>
-          ) : filteredMyGroups.length === 0 ? (
+          ) : filteredMyGroups.length === 0 && !pendingVideoJob ? (
             /* Empty state — filter active but no matches */
             <div className="text-center py-12 text-muted-foreground">
               <CheckCircle2 className="w-10 h-10 mx-auto mb-3 opacity-30" />
@@ -3143,6 +3198,13 @@ export default function Avatars() {
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-6">
+              {/* Pending Digital Twin card — visible until HeyGen finishes training */}
+              {pendingVideoJob && (
+                <PendingDigitalTwinCard
+                  job={pendingVideoJob}
+                  elapsedSeconds={pendingElapsedSeconds}
+                />
+              )}
               {filteredMyGroups.map((group) => (
                 <AvatarGroupCard
                   key={group.id}
@@ -3603,7 +3665,7 @@ export default function Avatars() {
           onClose={() => setShowCreation(false)}
           voiceOptions={spanishVoices}
           onPendingVideoJob={(job) => {
-            setPendingVideoJob(job)
+            setPendingVideoJob({ ...job, startedAt: Date.now() })
             setShowCreation(false)
           }}
           onCreated={(gId, lId, voiceId) => {
