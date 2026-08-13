@@ -266,24 +266,46 @@ export async function cloneVoice(
   }
 }
 
+export interface VoiceCloneStatus {
+  /** HeyGen processing status for the clone job */
+  status: "processing" | "complete" | "failed" | string;
+  /**
+   * The final usable voice_id once status === "complete".
+   * May be identical to the voice_clone_id or a different ID assigned on completion.
+   * Undefined while still processing.
+   */
+  voice_id?: string | null;
+  /** Human-readable failure reason from HeyGen when status === "failed" */
+  error?: string | null;
+}
+
 /**
- * Poll the processing status of a voice clone via GET /v3/voices/{voice_clone_id}.
- * Returns "pending" | "processing" | "completed" | "failed" or null on network error.
+ * Poll the status of a pending voice clone job.
+ * Call with the `voice_clone_id` returned by `cloneVoice()`.
+ * Returns `{ status, voice_id?, error? }`.
+ *
+ * Terminal statuses: "complete" (voice_id is usable) and "failed" (error is set).
  */
 export async function getVoiceCloneStatus(
   voiceCloneId: string,
   apiKey?: string,
-): Promise<{ status: string; failureMessage?: string } | null> {
+): Promise<VoiceCloneStatus> {
+  const client = getClient(apiKey);
   try {
-    const client = getClient(apiKey);
     const res = await client.get(`/v3/voices/${encodeURIComponent(voiceCloneId)}`);
-    const data = res.data?.data ?? {};
+    const data = res.data?.data ?? res.data ?? {};
     return {
-      status: data.status ?? "unknown",
-      failureMessage: data.failure_message ?? undefined,
+      status: data.status ?? "processing",
+      voice_id: data.voice_id ?? null,
+      error: data.error ?? null,
     };
-  } catch {
-    return null;
+  } catch (err: any) {
+    if (err?.response?.status === 404) {
+      // Clone ID not found — treat as still processing (may not be indexed yet)
+      logger.warn({ voiceCloneId, status: 404 }, "[VoiceCloneStatus] 404 from HeyGen — treating as processing");
+      return { status: "processing" };
+    }
+    throw err;
   }
 }
 

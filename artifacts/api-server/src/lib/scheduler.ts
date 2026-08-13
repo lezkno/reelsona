@@ -22,9 +22,9 @@ import { logger } from "./logger";
 import { generateScript, regenerateCaption, generateContentTopics } from "./ai-scripts";
 import { getLatestAuditCache } from "./audit-cache";
 import { getStrategyProfile, toStrategyContext } from "./strategy-profile";
-import { generateVideo, getVideoStatus, listVoices, getAvatarDefaultVoiceId, fetchAvatarPreviewImage, getAllAvailableAvatarIds, invalidateAvatarIdsCache } from "./heygen";
+import { generateVideo, getVideoStatus, listVoices, getAvatarDefaultVoiceId, fetchAvatarPreviewImage, getAllAvailableAvatarIds, invalidateAvatarIdsCache, getVoiceCloneStatus } from "./heygen";
 import { createReelContainer, checkContainerStatus, publishContainer, getPermalink, refreshInstagramToken } from "./instagram-api";
-import { getSignedCaptionedVideoUrl } from "./objectStorage";
+import { getSignedCaptionedVideoUrl, objectStorageClient } from "./objectStorage";
 import { generateBrandCover } from "./brand-cover";
 
 /** Sentinel stored in preferred_voice_id meaning "use the avatar's own HeyGen default voice" (legacy, kept for backwards compat). */
@@ -1789,19 +1789,133 @@ async function _publishVideoToInstagramInner(videoId: number, videoUrl?: string)
   }
 }
 
+/**
+ * Dependencies injected into the voice-poller core loop.
+ * Keeping them injectable makes the core unit-testable without a real DB or HeyGen key.
+ */
+export interface VoicePollerDeps {
+  /** Fetch all rows with status = "pending" */
+  fetchPending: () => Promise<Array<{
+    id: number;
+    userId: number;
+    voiceId: string;
+    displayName: string;
+    createdAt: Date;
+  }>>;
+  /** Call HeyGen's status endpoint for one clone job */
+  getStatus: (cloneId: string) => Promise<{ status: string; voice_id?: string | null; error?: string | null }>;
+  /** Persist a terminal state to the DB */
+  updateVoice: (id: number, patch: { status: string; voiceId?: string }) => Promise<void>;
+  /** "Current" time — injected so tests can control it */
+  now: Date;
+  /** Voices pending longer than this are force-failed (default 60 min) */
+  timeoutMs: number;
+}
+
+/**
+ * Core poller loop — separated from DB/HeyGen side-effects so it can be unit-tested.
+ *
+ * The v3 `/v3/voices/clone` endpoint returns a `voice_clone_id` (job ID), not the
+ * final usable `voice_id`. We poll `GET /v3/voices/{voice_clone_id}` until a
+ * terminal state is reached.
+ *
+ * On completion the `voiceId` column is updated to the final voice_id (may differ
+ * from the initial clone_id) so downstream generation/deletion routes are correct.
+ *
+ * Source audio cleanup: voice recordings are uploaded to GCS with unguessable UUIDs
+ * and are accessible only via short-lived signed URLs. Proactive GCS deletion after
+ * a terminal state requires storing the object name in the DB — tracked as a
+ * follow-up task to add that column when needed.
+ */
+export async function runVoicePollerCycle(deps: VoicePollerDeps): Promise<void> {
+  const { fetchPending, getStatus, updateVoice, now, timeoutMs } = deps;
+
+  const pendingVoices = await fetchPending();
+  if (pendingVoices.length === 0) return;
+
+  logger.debug({ count: pendingVoices.length }, "[VoicePoller] Checking pending cloned voices");
+
+  for (const voice of pendingVoices) {
+    const ageMs = now.getTime() - voice.createdAt.getTime();
+
+    try {
+      const cloneStatus = await getStatus(voice.voiceId);
+
+      if (cloneStatus.status === "complete") {
+        // The final voice_id may differ from the voice_clone_id stored in the DB.
+        // Update it so generation/deletion routes use the correct identifier.
+        const finalVoiceId = cloneStatus.voice_id ?? voice.voiceId;
+        await updateVoice(voice.id, { status: "ready", voiceId: finalVoiceId });
+        logger.info(
+          { cloneId: voice.voiceId, finalVoiceId, userId: voice.userId },
+          "[VoicePoller] Cloned voice is now ready ✓",
+        );
+      } else if (cloneStatus.status === "failed") {
+        await updateVoice(voice.id, { status: "failed" });
+        logger.warn(
+          { voiceId: voice.voiceId, userId: voice.userId, error: cloneStatus.error },
+          "[VoicePoller] HeyGen reported voice clone failed",
+        );
+      } else if (ageMs > timeoutMs) {
+        // Still "processing" but has been pending too long — force-fail
+        await updateVoice(voice.id, { status: "failed" });
+        logger.warn(
+          { voiceId: voice.voiceId, userId: voice.userId, ageMs },
+          "[VoicePoller] Cloned voice timed out — marking failed",
+        );
+      } else {
+        logger.debug(
+          { voiceId: voice.voiceId, status: cloneStatus.status, ageMs },
+          "[VoicePoller] Voice still processing — will check again next cycle",
+        );
+      }
+    } catch (err) {
+      logger.warn({ err, voiceId: voice.voiceId }, "[VoicePoller] Failed to poll voice clone status — will retry next cycle");
+    }
+  }
+}
+
+/**
+ * Production wrapper — wires real DB + HeyGen into `runVoicePollerCycle`.
+ */
+async function pollPendingClonedVoices(): Promise<void> {
+  const apiKey = process.env.HEYGEN_API_KEY ?? undefined;
+  const now = new Date();
+
+  await runVoicePollerCycle({
+    fetchPending: () =>
+      db
+        .select()
+        .from(heygenClonedVoicesTable)
+        .where(eq(heygenClonedVoicesTable.status, "pending")),
+    getStatus: (cloneId) => getVoiceCloneStatus(cloneId, apiKey),
+    updateVoice: (id, patch) =>
+      db
+        .update(heygenClonedVoicesTable)
+        .set({ ...patch, updatedAt: now })
+        .where(eq(heygenClonedVoicesTable.id, id))
+        .then(() => undefined),
+    now,
+    timeoutMs: 60 * 60 * 1000,
+  });
+}
+
 let cronJob: ReturnType<typeof cron.schedule> | null = null;
 let cycleRunning = false;
 
 export function startScheduler(): void {
   if (cronJob) return;
 
-  // Every minute: poll video statuses so finished HeyGen videos are detected quickly
+  // Every minute: poll video statuses + pending cloned voice statuses
   let pollRunning = false;
   cron.schedule("* * * * *", async () => {
     if (pollRunning) return;
     pollRunning = true;
     try {
-      await pollAndPublishVideos();
+      await Promise.all([
+        pollAndPublishVideos(),
+        pollPendingClonedVoices(),
+      ]);
     } catch (err) {
       logger.error({ err }, "Error in video polling cycle");
     } finally {

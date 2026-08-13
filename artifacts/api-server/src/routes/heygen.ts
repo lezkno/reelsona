@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { randomUUID } from "crypto";
 import multer from "multer";
 import { db } from "@workspace/db";
 import { avatarConfigTable, settingsTable, heygenClonedVoicesTable } from "@workspace/db";
@@ -8,13 +9,13 @@ import { promisify } from "util";
 import os from "os";
 import fs from "fs/promises";
 import path from "path";
-import { objectStorageClient, getSignedCaptionedVideoUrl } from "../lib/objectStorage";
+import { objectStorageClient, getSignedObjectUrl } from "../lib/objectStorage";
 
 const execFileAsync = promisify(execFile);
 
 /**
  * Convert an audio buffer to WAV (16 kHz mono) using FFmpeg.
- * HeyGen v3 voice clone recommends WAV — rejects WebM from MediaRecorder.
+ * HeyGen requires WAV/MP3/FLAC — rejects WebM from MediaRecorder.
  */
 async function convertToWav(inputBuffer: Buffer, inputExt: string): Promise<Buffer> {
   const tmpDir = os.tmpdir();
@@ -38,22 +39,28 @@ async function convertToWav(inputBuffer: Buffer, inputExt: string): Promise<Buff
 }
 
 /**
- * Upload an audio buffer to GCS and return a signed URL directly from GCS.
- * HeyGen v3 requires a publicly accessible URL — our Replit dev proxy domain
- * is NOT reachable from HeyGen's servers, so we bypass it with a signed GCS URL.
- * TTL of 2 h is well above the typical HeyGen voice processing time of 2–5 min.
+ * Upload an audio buffer to GCS and return a short-lived signed GET URL
+ * accessible by HeyGen (24 h TTL).
+ *
+ * We use a signed URL because HeyGen fetches the audio server-side and cannot
+ * go through Replit's mTLS proxy — a proxy URL would return 403.
+ * The recording is stored under "voice-audio/u<userId>/<uuid>.wav" with an
+ * unguessable UUID path — it is never served through the unauthenticated
+ * captioned-objects proxy route, only through the time-limited signed GCS URL.
  */
 async function uploadAudioForCloning(audioBuffer: Buffer, userId: number): Promise<string> {
   const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
   if (!bucketId) throw new Error("DEFAULT_OBJECT_STORAGE_BUCKET_ID not set");
 
-  const objectName = `voice-audio/user_${userId}_${Date.now()}.wav`;
+  // Use a UUID so the object name is unguessable and cannot be enumerated.
+  // userId is embedded only in the prefix for per-user housekeeping / cleanup.
+  const objectName = `voice-audio/u${userId}/${randomUUID()}.wav`;
   const bucket = objectStorageClient.bucket(bucketId);
   const gcsFile = bucket.file(objectName);
   await gcsFile.save(audioBuffer, { contentType: "audio/wav" });
 
-  // Return a signed GCS URL (bypasses our Replit proxy which HeyGen cannot reach)
-  return getSignedCaptionedVideoUrl(objectName, 2 * 3600);
+  // Return a signed URL (24 h) so HeyGen can retrieve the audio directly from GCS.
+  return getSignedObjectUrl(objectName, 24 * 3600);
 }
 
 /** Returns Reelsona's centralized HeyGen API key.
@@ -116,11 +123,12 @@ router.get("/heygen/voices", async (req, res): Promise<void> => {
     listVoices(apiKey),
     db.select().from(heygenClonedVoicesTable).where(eq(heygenClonedVoicesTable.userId, userId)),
   ]);
-  const myCloneIds  = new Set(myClones.map(c => c.voiceId));
-  const mySpeedMap  = new Map(myClones.map(c => [c.voiceId, c.speed ?? null]));
-  const heygenIds   = new Set(voices.map(v => v.voice_id));
-
-  // Voices already available in HeyGen
+  const myCloneIds = new Set(myClones.map(c => c.voiceId));
+  const myCloneSpeedMap = new Map(myClones.map(c => [c.voiceId, c.speed ?? null]));
+  const myCloneStatusMap = new Map(myClones.map(c => [c.voiceId, c.status]));
+  // clone_id (stable DB row PK) lets the UI correlate pending/ready states even when
+  // the voice_id changes from voice_clone_id → final usable voice_id on completion.
+  const myCloneIdMap = new Map(myClones.map(c => [c.voiceId, c.id]));
   const mapped = voices.map((v) => ({
     voice_id: v.voice_id,
     name: v.name,
@@ -129,49 +137,33 @@ router.get("/heygen/voices", async (req, res): Promise<void> => {
     preview_audio_url: (v as any).preview_audio ?? v.preview_audio_url ?? null,
     is_cloned: v.is_clone ?? false,
     is_mine: myCloneIds.has(v.voice_id),
-    speed: myCloneIds.has(v.voice_id) ? (mySpeedMap.get(v.voice_id) ?? null) : null,
-    status: myCloneIds.has(v.voice_id) ? "ready" : null,
+    speed: myCloneIds.has(v.voice_id) ? (myCloneSpeedMap.get(v.voice_id) ?? null) : null,
+    status: myCloneIds.has(v.voice_id) ? (myCloneStatusMap.get(v.voice_id) ?? null) : null,
+    clone_id: myCloneIds.has(v.voice_id) ? (myCloneIdMap.get(v.voice_id) ?? undefined) : undefined,
   }));
 
-  // Clones not yet in HeyGen's voice list (pending or failed)
-  const inProgressClones = myClones.filter(
-    c => (c.status === "pending" || c.status === "failed") && !heygenIds.has(c.voiceId)
-  );
-
-  const inProgressEntries = inProgressClones.map(c => ({
-    voice_id: c.voiceId,
-    name: c.displayName,
-    language: "es",
-    gender: null as string | null,
-    preview_audio_url: null as string | null,
-    is_cloned: true,
-    is_mine: true,
-    speed: c.speed ?? null,
-    status: c.status ?? "pending",
-  }));
-
-  // Fire-and-forget: sync HeyGen status for pending voices so the DB stays current.
-  // The next poll (every 8 s from the frontend) will reflect the updated state.
-  const pendingClones = myClones.filter(c => c.status === "pending" && !heygenIds.has(c.voiceId));
-  if (pendingClones.length > 0) {
-    (async () => {
-      const apiKeyForSync = await getUserHeyGenKey(userId);
-      for (const clone of pendingClones) {
-        try {
-          const result = await getVoiceCloneStatus(clone.voiceId, apiKeyForSync);
-          if (!result) continue;
-          if (result.status === "failed") {
-            await db.update(heygenClonedVoicesTable)
-              .set({ status: "failed" })
-              .where(and(eq(heygenClonedVoicesTable.userId, userId), eq(heygenClonedVoicesTable.voiceId, clone.voiceId)));
-          }
-          // "completed" voices will appear in HeyGen's list on the next poll
-        } catch { /* ignore */ }
-      }
-    })();
+  // Inject clones not yet in HeyGen's voice list so the UI shows their status
+  // (pending → spinner, failed → error badge) without requiring a page refresh.
+  // HeyGen omits still-processing voices from listVoices entirely, and failed
+  // clones never appear at all — we inject both so the user can see and delete them.
+  const listedVoiceIds = new Set(voices.map(v => v.voice_id));
+  for (const clone of myClones) {
+    if (!listedVoiceIds.has(clone.voiceId) && (clone.status === "pending" || clone.status === "failed")) {
+      mapped.push({
+        voice_id: clone.voiceId,
+        name: clone.displayName,
+        language: "es",
+        gender: null,
+        preview_audio_url: null,
+        is_cloned: true,
+        is_mine: true,
+        speed: clone.speed ?? null,
+        status: clone.status,
+        clone_id: clone.id,
+      });
+    }
   }
-
-  res.json(GetHeyGenVoicesResponse.parse([...inProgressEntries, ...mapped]));
+  res.json(GetHeyGenVoicesResponse.parse(mapped));
 });
 
 /**

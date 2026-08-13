@@ -173,6 +173,16 @@ export interface HeyGenVoice {
   is_cloned: boolean;
   /** True when the voice was cloned by the current user (platform-level ownership) */
   is_mine?: boolean;
+  /** Voice speed multiplier (0.5–1.5). null = HeyGen default. Only set for owned cloned voices. */
+  speed?: number | null;
+  /** Cloned voice processing status: pending | ready | failed. null for public voices. */
+  status?: string | null;
+  /**
+   * Stable database row ID for the cloned voice (unchanged across voice_id updates).
+   * Only set for owned cloned voices; allows UI to track status transitions even when
+   * the final voice_id differs from the original clone job ID.
+   */
+  clone_id?: number;
 }
 
 /**

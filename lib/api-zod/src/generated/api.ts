@@ -186,6 +186,7 @@ export const GetHeyGenVoicesResponseItem = zod.object({
   "is_mine": zod.boolean().optional(),
   "speed": zod.number().nullish(),
   "status": zod.string().nullish(),
+  "clone_id": zod.number().optional(),
 })
 export const GetHeyGenVoicesResponse = zod.array(GetHeyGenVoicesResponseItem)
 

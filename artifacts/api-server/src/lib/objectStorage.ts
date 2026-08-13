@@ -233,6 +233,23 @@ function parseObjectPath(path: string): {
 }
 
 /**
+ * Generate a short-lived signed GET URL for any object in the default bucket.
+ * Useful when an external service (e.g. HeyGen) needs to fetch a private GCS
+ * object that cannot be exposed via the authenticated app proxy.
+ *
+ * @param objectName  GCS object name, e.g. "voice-audio/user_1_1234.wav"
+ * @param ttlSec      Signed URL validity in seconds (default 24 h)
+ */
+export async function getSignedObjectUrl(
+  objectName: string,
+  ttlSec = 24 * 3600,
+): Promise<string> {
+  const bucketName = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
+  if (!bucketName) throw new Error("DEFAULT_OBJECT_STORAGE_BUCKET_ID not set");
+  return signObjectURL({ bucketName, objectName, method: "GET", ttlSec });
+}
+
+/**
  * Generate a short-lived publicly accessible signed GET URL for a captioned
  * video stored in the Replit Object Storage bucket.
  *
