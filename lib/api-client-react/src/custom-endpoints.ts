@@ -144,15 +144,17 @@ export function useReapplyCaptions() {
 // ── Admin student provisioning ────────────────────────────────────────────────
 
 export interface AdminEntitlement {
-  userId:           number;
-  username:         string;
-  fullName:         string | null;
-  isActive:         boolean;
-  courseAccess:     boolean;
-  toolAccessStatus: string;
-  toolAccessEndsAt: string | null;
-  source:           string | null;
-  createdAt:        string;
+  userId:                   number;
+  username:                 string;
+  fullName:                 string | null;
+  isActive:                 boolean;
+  courseAccess:             boolean;
+  toolAccessStatus:         string;
+  toolAccessEndsAt:         string | null;
+  source:                   string | null;
+  createdAt:                string;
+  /** Expiry date of the pending activation link — present when user hasn't activated yet. */
+  activationTokenExpiresAt: string | null;
 }
 
 export interface ProvisionStudentInput {
@@ -190,6 +192,20 @@ export function useProvisionStudent() {
       customFetch<ProvisionResult>("/api/admin/provision", {
         method:  "POST",
         body:    JSON.stringify(data),
+        headers: { "Content-Type": "application/json" },
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ADMIN_ENTITLEMENTS_KEY }),
+  });
+}
+
+/** Update tool-access days for an existing student entitlement. */
+export function useUpdateEntitlementDays() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ userId, toolAccessDays }: { userId: number; toolAccessDays: number }) =>
+      customFetch<{ ok: boolean }>(`/api/admin/entitlements/${userId}/access-days`, {
+        method:  "PATCH",
+        body:    JSON.stringify({ toolAccessDays }),
         headers: { "Content-Type": "application/json" },
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ADMIN_ENTITLEMENTS_KEY }),

@@ -1,5 +1,5 @@
 import { Route, Switch, Router as WouterRouter, useLocation } from "wouter"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { QueryClient, QueryClientProvider, QueryCache } from "@tanstack/react-query"
 import { Toaster } from "@/components/ui/toaster"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { Loader2 } from "lucide-react"
@@ -32,7 +32,23 @@ import { useEntitlement } from "@/hooks/useEntitlement"
 import ResendActivation from "@/pages/ResendActivation"
 import ResetPassword from "@/pages/ResetPassword"
 
+const BASE_LOGIN = `${import.meta.env.BASE_URL}login`.replace(/\/\//g, "/")
+
 const queryClient = new QueryClient({
+  queryCache: new QueryCache({
+    onError: (error: any) => {
+      // Session expired or unauthenticated — send user to login.
+      // Only redirect if we're not already on a public page to avoid loops.
+      if (error?.status === 401) {
+        const publicPaths = ["/login", "/register", "/activate", "/verify-email", "/reset-password", "/resend-activation", "/privacy", "/terms", "/checkout"]
+        const isPublic = publicPaths.some((p) => window.location.pathname.includes(p))
+        if (!isPublic) {
+          queryClient.clear()
+          window.location.href = BASE_LOGIN
+        }
+      }
+    },
+  }),
   defaultOptions: {
     queries: {
       staleTime: 1000 * 60 * 5,

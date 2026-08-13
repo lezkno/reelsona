@@ -255,7 +255,10 @@ router.get("/auth/activate/check", async (req: Request, res: Response): Promise<
 
     if (!user) { res.status(400).json({ error: "El enlace no es válido o ya fue utilizado." }); return; }
     if (user.activationTokenExpiresAt && user.activationTokenExpiresAt < new Date()) {
-      res.status(400).json({ error: "El enlace expiró. Solicita uno nuevo a tu asesor." }); return;
+      res.status(400).json({
+        error: "El enlace expiró. Solicita uno nuevo a tu asesor.",
+        resend_email: user.email ?? user.username,
+      }); return;
     }
 
     res.json({ email: user.email ?? user.username, fullName: user.fullName ?? "" });
@@ -285,7 +288,10 @@ router.post("/auth/activate", async (req: Request, res: Response): Promise<void>
 
     if (!user) { res.status(400).json({ error: "El enlace no es válido o ya fue utilizado." }); return; }
     if (user.activationTokenExpiresAt && user.activationTokenExpiresAt < new Date()) {
-      res.status(400).json({ error: "El enlace expiró. Solicita uno nuevo a tu asesor." }); return;
+      res.status(400).json({
+        error: "El enlace expiró. Solicita uno nuevo a tu asesor.",
+        resend_email: user.email ?? user.username,
+      }); return;
     }
 
     // Activate: set password, activate, clear both activation and verification tokens

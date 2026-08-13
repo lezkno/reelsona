@@ -175,15 +175,16 @@ router.get("/admin/entitlements", async (req: Request, res: Response): Promise<v
     const { userEntitlements } = await import("@workspace/db/schema");
     const rows = await db
       .select({
-        userId:             userEntitlements.userId,
-        courseAccess:       userEntitlements.courseAccess,
-        toolAccessStatus:   userEntitlements.toolAccessStatus,
-        toolAccessEndsAt:   userEntitlements.toolAccessEndsAt,
-        source:             userEntitlements.source,
-        createdAt:          userEntitlements.createdAt,
-        username:           users.username,
-        fullName:           users.fullName,
-        isActive:           users.isActive,
+        userId:                   userEntitlements.userId,
+        courseAccess:             userEntitlements.courseAccess,
+        toolAccessStatus:         userEntitlements.toolAccessStatus,
+        toolAccessEndsAt:         userEntitlements.toolAccessEndsAt,
+        source:                   userEntitlements.source,
+        createdAt:                userEntitlements.createdAt,
+        username:                 users.username,
+        fullName:                 users.fullName,
+        isActive:                 users.isActive,
+        activationTokenExpiresAt: users.activationTokenExpiresAt,
       })
       .from(userEntitlements)
       .innerJoin(users, eq(users.id, userEntitlements.userId))
@@ -192,6 +193,105 @@ router.get("/admin/entitlements", async (req: Request, res: Response): Promise<v
     res.json({ entitlements: rows });
   } catch (err) {
     console.error("[admin/entitlements]", err);
+    res.status(500).json({ error: "Error interno del servidor" });
+  }
+});
+
+// ── GET /api/admin/entitlements/export.csv ────────────────────────────────────
+/** Download student entitlement list as CSV. */
+router.get("/admin/entitlements/export.csv", async (req: Request, res: Response): Promise<void> => {
+  if (!isAdminRequest(req)) {
+    res.status(403).json({ error: "Acceso denegado" });
+    return;
+  }
+
+  try {
+    const { userEntitlements } = await import("@workspace/db/schema");
+    const rows = await db
+      .select({
+        userId:           userEntitlements.userId,
+        courseAccess:     userEntitlements.courseAccess,
+        toolAccessStatus: userEntitlements.toolAccessStatus,
+        toolAccessEndsAt: userEntitlements.toolAccessEndsAt,
+        source:           userEntitlements.source,
+        createdAt:        userEntitlements.createdAt,
+        username:         users.username,
+        fullName:         users.fullName,
+        isActive:         users.isActive,
+      })
+      .from(userEntitlements)
+      .innerJoin(users, eq(users.id, userEntitlements.userId))
+      .orderBy(userEntitlements.createdAt);
+
+    const fmt = (d: Date | string | null) =>
+      d ? new Date(d).toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit", year: "numeric" }) : "";
+    const esc = (v: string) => `"${v.replace(/"/g, '""')}"`;
+
+    const header = "ID,Nombre,Email,Curso,Herramienta,Vencimiento,Días restantes,Fuente,Alta,Activo\n";
+    const csvRows = rows.map((r) => {
+      const ends = r.toolAccessEndsAt ? new Date(r.toolAccessEndsAt) : null;
+      const daysLeft = ends ? Math.ceil((ends.getTime() - Date.now()) / 86_400_000) : null;
+      return [
+        String(r.userId),
+        esc(r.fullName ?? ""),
+        esc(r.username),
+        r.courseAccess ? "Sí" : "No",
+        esc(r.toolAccessStatus),
+        fmt(r.toolAccessEndsAt),
+        daysLeft !== null ? String(daysLeft) : "",
+        esc(r.source ?? ""),
+        fmt(r.createdAt),
+        r.isActive ? "Sí" : "No",
+      ].join(",");
+    }).join("\n");
+
+    const today = new Date().toISOString().slice(0, 10);
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="alumnos-${today}.csv"`);
+    res.send("\uFEFF" + header + csvRows); // BOM for Excel compatibility
+  } catch (err) {
+    console.error("[admin/entitlements/export.csv]", err);
+    res.status(500).json({ error: "Error interno del servidor" });
+  }
+});
+
+// ── PATCH /api/admin/entitlements/:userId/access-days ─────────────────────────
+/** Update tool access days for an existing student. */
+router.patch("/admin/entitlements/:userId/access-days", async (req: Request, res: Response): Promise<void> => {
+  if (!isAdminRequest(req)) {
+    res.status(403).json({ error: "Acceso denegado" });
+    return;
+  }
+
+  const userId = parseInt(req.params.userId as string, 10);
+  const { toolAccessDays } = req.body as { toolAccessDays?: unknown };
+
+  if (!Number.isFinite(userId) || userId < 1) {
+    res.status(400).json({ error: "userId inválido" }); return;
+  }
+  if (typeof toolAccessDays !== "number" || toolAccessDays < 1 || toolAccessDays > 3650) {
+    res.status(400).json({ error: "toolAccessDays debe ser un número entre 1 y 3650" }); return;
+  }
+
+  try {
+    const { userEntitlements: ue } = await import("@workspace/db/schema");
+
+    const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+    if (!user) { res.status(404).json({ error: "Usuario no encontrado" }); return; }
+
+    const [ent] = await db.select().from(ue).where(eq(ue.userId, userId)).limit(1);
+
+    await provisionUser({
+      email:          user.username,
+      name:           user.fullName ?? user.username,
+      toolAccessDays,
+      courseAccess:   ent?.courseAccess ?? true,
+      source:         ent?.source ?? "manual",
+    });
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[admin/entitlements/:userId/access-days]", err);
     res.status(500).json({ error: "Error interno del servidor" });
   }
 });

@@ -4,6 +4,7 @@ import {
   Pencil, Mail, Phone, StickyNote, KeyRound,
   CheckCircle2, XCircle, Clock, GraduationCap,
   RefreshCw, AlertCircle, Info, BookOpen, Wrench,
+  CalendarDays, Download,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -33,6 +34,7 @@ import {
   useAdminUsers, useCreateAdminUser, useUpdateAdminUser,
   useDeleteAdminUser, useAuthStatus,
   useAdminEntitlements, useProvisionStudent, useResendActivation,
+  useUpdateEntitlementDays,
   type AdminUser, type UpdateAdminUserInput, type AdminEntitlement,
 } from "@workspace/api-client-react"
 import { cn } from "@/lib/utils"
@@ -459,6 +461,84 @@ function ResendActivationButton({ entitlement }: { entitlement: AdminEntitlement
   )
 }
 
+// ── Edit access days button ───────────────────────────────────────────────────
+
+function EditAccessDaysButton({ entitlement }: { entitlement: AdminEntitlement }) {
+  const [open, setOpen] = useState(false)
+  const [days, setDays] = useState("")
+  const update = useUpdateEntitlementDays()
+  const { toast } = useToast()
+
+  const currentDays = entitlement.toolAccessEndsAt
+    ? Math.max(0, Math.ceil((new Date(entitlement.toolAccessEndsAt).getTime() - Date.now()) / 86_400_000))
+    : null
+
+  const handleSave = () => {
+    const d = parseInt(days, 10)
+    if (!Number.isFinite(d) || d < 1) { toast({ title: "Error", description: "Ingresa un número de días válido (mín. 1)", variant: "destructive" }); return }
+    update.mutate(
+      { userId: entitlement.userId, toolAccessDays: d },
+      {
+        onSuccess: () => {
+          toast({ title: "Acceso actualizado", description: `${entitlement.fullName ?? entitlement.username} tiene ahora ${d} días de acceso desde hoy.` })
+          setOpen(false)
+          setDays("")
+        },
+        onError: (err: any) =>
+          toast({ title: "Error", description: err?.data?.error ?? "No se pudo actualizar", variant: "destructive" }),
+      }
+    )
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) setDays("") }}>
+      <DialogTrigger asChild>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary">
+              <CalendarDays className="w-3.5 h-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="left" className="text-xs">Editar días de acceso</TooltipContent>
+        </Tooltip>
+      </DialogTrigger>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Editar acceso</DialogTitle>
+          <DialogDescription>
+            {entitlement.fullName ?? entitlement.username}
+            {currentDays !== null && (
+              <span className="ml-1 text-muted-foreground">— {currentDays}d restantes actualmente</span>
+            )}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2">
+          <Label htmlFor="access-days-input">Nuevos días de acceso (desde hoy)</Label>
+          <Input
+            id="access-days-input"
+            type="number"
+            min={1}
+            max={3650}
+            placeholder="Ej. 30"
+            value={days}
+            onChange={(e) => setDays(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") handleSave() }}
+            autoFocus
+          />
+          <p className="text-xs text-muted-foreground">El vencimiento se calcula desde hoy.</p>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
+          <Button onClick={handleSave} disabled={update.isPending}>
+            {update.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+            Guardar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 // ── Provision student dialog ──────────────────────────────────────────────────
 
 function ProvisionStudentDialog() {
@@ -672,18 +752,36 @@ function EntitlementsSection() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center">
-          <GraduationCap className="w-5 h-5 text-emerald-600" />
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center">
+            <GraduationCap className="w-5 h-5 text-emerald-600" />
+          </div>
+          <div>
+            <h2 className="text-xl font-bold text-foreground">Acceso de alumnos</h2>
+            <p className="text-sm text-muted-foreground">
+              {isLoading
+                ? "Cargando…"
+                : `${entitlements.length} alumno${entitlements.length !== 1 ? "s" : ""} con entitlement`}
+            </p>
+          </div>
         </div>
-        <div>
-          <h2 className="text-xl font-bold text-foreground">Acceso de alumnos</h2>
-          <p className="text-sm text-muted-foreground">
-            {isLoading
-              ? "Cargando…"
-              : `${entitlements.length} alumno${entitlements.length !== 1 ? "s" : ""} con entitlement`}
-          </p>
-        </div>
+        {!isLoading && entitlements.length > 0 && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                onClick={() => { window.location.href = `${BASE}/api/admin/entitlements/export.csv` }}
+              >
+                <Download className="w-4 h-4" />
+                Exportar CSV
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent className="text-xs">Descargar lista de alumnos como archivo CSV</TooltipContent>
+          </Tooltip>
+        )}
       </div>
 
       <div className="rounded-xl border border-border overflow-hidden bg-card">
@@ -723,6 +821,9 @@ function EntitlementsSection() {
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Días</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Fuente</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Alta</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">
+                    <span className="flex items-center gap-1"><RefreshCw className="w-3.5 h-3.5" /> Últ. enlace</span>
+                  </th>
                   <th className="px-3 py-3" />
                 </tr>
               </thead>
@@ -806,9 +907,27 @@ function EntitlementsSection() {
                       <td className="px-4 py-3.5 text-xs text-muted-foreground whitespace-nowrap">
                         {fmtDate(ent.createdAt)}
                       </td>
+                      {/* Último enlace enviado (#101) */}
+                      <td className="px-4 py-3.5 text-xs text-muted-foreground whitespace-nowrap">
+                        {!ent.isActive && ent.activationTokenExpiresAt
+                          ? (() => {
+                              const sentMs = new Date(ent.activationTokenExpiresAt).getTime() - 7 * 86_400_000;
+                              const expired = new Date(ent.activationTokenExpiresAt) < new Date();
+                              return (
+                                <span className={expired ? "text-destructive" : ""}>
+                                  {new Date(sentMs).toLocaleDateString("es-ES", { day: "2-digit", month: "short" })}
+                                  {expired && <span className="ml-1">(vencido)</span>}
+                                </span>
+                              );
+                            })()
+                          : <span className="text-muted-foreground/40">—</span>}
+                      </td>
                       {/* Acciones */}
                       <td className="px-3 py-3.5">
-                        {!ent.isActive && <ResendActivationButton entitlement={ent} />}
+                        <div className="flex items-center gap-1">
+                          <EditAccessDaysButton entitlement={ent} />
+                          {!ent.isActive && <ResendActivationButton entitlement={ent} />}
+                        </div>
                       </td>
                     </tr>
                   )

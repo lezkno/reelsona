@@ -18,6 +18,7 @@ import {
 import { VIDEO_CREDIT_COST, hasEnoughCredits, reserveCredits, consumeVideoCredits, releaseVideoCredits } from "./credits";
 import { provisionUser } from "./provision";
 import { enrichProfileWithApify } from "./apify";
+import { sendEmail } from "./email";
 import { applyCaptions, CAPTION_DIR, type CaptionStyle, CAPTION_PRESETS } from "./caption-engine";
 import { computeUpcomingSlots } from "./schedule";
 import { applyCaptionsBrowser } from "./browser-caption-engine";
@@ -195,8 +196,18 @@ export async function resolveVoiceId(avatarId: string | null, apiKey?: string, u
     const overrides = (avatarCfg?.voiceOverrides ?? {}) as Record<string, string>;
     const override = overrides[avatarId];
     if (override && override !== AVATAR_DEFAULT_VOICE) {
-      logger.debug({ avatarId, voiceId: override }, "Using per-avatar voice override");
-      return override;
+      // Skip if the override points to a cloned voice that has failed — fall through to defaults.
+      const [clonedVoice] = await db
+        .select({ status: heygenClonedVoicesTable.status })
+        .from(heygenClonedVoicesTable)
+        .where(eq(heygenClonedVoicesTable.voiceId, override))
+        .limit(1);
+      if (clonedVoice?.status === "failed") {
+        logger.warn({ avatarId, voiceId: override }, "[resolveVoiceId] Override voice is a failed clone — falling through to HeyGen default");
+      } else {
+        logger.debug({ avatarId, voiceId: override }, "Using per-avatar voice override");
+        return override;
+      }
     }
   }
 
@@ -1955,6 +1966,8 @@ export interface VoicePollerDeps {
   getStatus: (cloneId: string) => Promise<{ status: string; voice_id?: string | null; error?: string | null }>;
   /** Persist a terminal state to the DB */
   updateVoice: (id: number, patch: { status: string; voiceId?: string }) => Promise<void>;
+  /** Called when a voice transitions to "ready" — used for side-effects like email notification */
+  onVoiceReady?: (voice: { id: number; userId: number; finalVoiceId: string }) => Promise<void>;
   /** "Current" time — injected so tests can control it */
   now: Date;
   /** Voices pending longer than this are force-failed (default 60 min) */
@@ -1995,6 +2008,9 @@ export async function runVoicePollerCycle(deps: VoicePollerDeps): Promise<void> 
         // Update it so generation/deletion routes use the correct identifier.
         const finalVoiceId = cloneStatus.voice_id ?? voice.voiceId;
         await updateVoice(voice.id, { status: "ready", voiceId: finalVoiceId });
+        await deps.onVoiceReady?.({ id: voice.id, userId: voice.userId, finalVoiceId }).catch((err) =>
+          logger.warn({ err, voiceId: voice.voiceId }, "[VoicePoller] onVoiceReady callback failed"),
+        );
         logger.info(
           { cloneId: voice.voiceId, finalVoiceId, userId: voice.userId },
           "[VoicePoller] Cloned voice is now ready ✓",
@@ -2044,6 +2060,24 @@ async function pollPendingClonedVoices(): Promise<void> {
         .set({ ...patch, updatedAt: now })
         .where(eq(heygenClonedVoicesTable.id, id))
         .then(() => undefined),
+    onVoiceReady: async ({ userId, finalVoiceId }) => {
+      const [user] = await db
+        .select({ email: users.email, username: users.username, fullName: users.fullName })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+      const to = user?.email ?? user?.username;
+      if (!to) return;
+      await sendEmail({
+        to,
+        subject: "¡Tu voz clonada está lista en Reelsona! 🎤",
+        html: `<p>Hola ${user?.fullName ?? ""},</p>
+<p>Tu voz clonada ya está disponible para usar en todos tus videos de Reelsona.</p>
+<p>Entra a la plataforma, ve a <strong>Avatares → Mis Voces</strong> y asígnala a tus avatares para empezar a generar contenido con tu propia voz.</p>
+<p style="color:#888;font-size:12px">ID de voz: ${finalVoiceId}</p>`,
+        text: `Tu voz clonada está lista. Entra a Reelsona, ve a Avatares → Mis Voces y asígnala a tus avatares.`,
+      });
+    },
     now,
     timeoutMs: 60 * 60 * 1000,
   });

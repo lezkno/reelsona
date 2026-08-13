@@ -19,14 +19,18 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "")
 type CheckState =
   | { status: "loading" }
   | { status: "valid"; email: string; fullName: string }
-  | { status: "invalid"; message: string }
+  | { status: "invalid"; message: string; resendEmail?: string }
 
 async function checkToken(token: string): Promise<{ email: string; fullName: string }> {
   const res  = await fetch(`${BASE}/api/auth/activate/check?token=${encodeURIComponent(token)}`, {
     credentials: "include",
   })
   const data = await res.json()
-  if (!res.ok) throw new Error(data.error ?? "Token inválido")
+  if (!res.ok) {
+    const err: any = new Error(data.error ?? "Token inválido")
+    err.resendEmail = data.resend_email ?? null
+    throw err
+  }
   return data
 }
 
@@ -49,6 +53,29 @@ export default function Activate() {
   const [formError, setFormError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [done, setDone] = useState(false)
+  const [resending, setResending] = useState(false)
+  const [resendDone, setResendDone] = useState(false)
+
+  const handleResend = async (email: string) => {
+    setResending(true)
+    try {
+      const res = await fetch(`${BASE}/api/auth/resend-activation`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ email }),
+      })
+      if (!res.ok) {
+        const d = await res.json()
+        throw new Error(d.error ?? "Error al reenviar")
+      }
+      setResendDone(true)
+    } catch (err: any) {
+      alert(err.message ?? "No se pudo reenviar el enlace. Contacta con soporte.")
+    } finally {
+      setResending(false)
+    }
+  }
 
   const token = new URLSearchParams(window.location.search).get("token") ?? ""
 
@@ -59,7 +86,7 @@ export default function Activate() {
     }
     checkToken(token)
       .then(({ email, fullName }) => setCheck({ status: "valid", email, fullName }))
-      .catch((err: any) => setCheck({ status: "invalid", message: err.message }))
+      .catch((err: any) => setCheck({ status: "invalid", message: err.message, resendEmail: err.resendEmail ?? undefined }))
   }, [token])
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -106,12 +133,29 @@ export default function Activate() {
                 {isExpired ? "Enlace vencido" : "Enlace inválido"}
               </h2>
               <p className="text-muted-foreground text-sm">{check.message}</p>
-              <p className="text-muted-foreground text-sm mt-1">
-                Pide a tu asesor que te reenvíe el enlace de activación.
-              </p>
+              {!isExpired && (
+                <p className="text-muted-foreground text-sm mt-1">
+                  Pide a tu asesor que te reenvíe el enlace de activación.
+                </p>
+              )}
             </div>
+            {isExpired && check.resendEmail && (
+              resendDone ? (
+                <p className="text-sm text-emerald-600 font-medium">✓ Enlace reenviado — revisa tu correo.</p>
+              ) : (
+                <Button
+                  size="sm"
+                  onClick={() => handleResend(check.resendEmail!)}
+                  disabled={resending}
+                  className="mt-1"
+                >
+                  {resending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                  Reenviar enlace de activación
+                </Button>
+              )
+            )}
             <Link href="/login">
-              <Button variant="outline" size="sm" className="mt-2">Ir al inicio de sesión</Button>
+              <Button variant="outline" size="sm">Ir al inicio de sesión</Button>
             </Link>
           </CardContent>
         </Card>

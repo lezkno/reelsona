@@ -30,7 +30,8 @@ export const GetDashboardResponse = zod.object({
   "videos_generating_now": zod.number(),
   "content_items_ready": zod.number(),
   "avatar_count": zod.number(),
-  "last_published_at": zod.string().nullish()
+  "last_published_at": zod.string().nullish(),
+  "active_students_count": zod.number().nullish()
 })
 
 

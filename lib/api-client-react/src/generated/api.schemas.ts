@@ -51,6 +51,8 @@ export interface DashboardSummary {
   avatar_count: number;
   /** @nullable */
   last_published_at?: string | null;
+  /** @nullable — admin only */
+  active_students_count?: number | null;
 }
 
 export interface InstagramAccount {

@@ -1,4 +1,4 @@
-import { useGetDashboard, useGetVideos, usePublishVideo, useScheduleVideo, useGetInstagramAccount, useGetInstagramPosts, getGetDashboardQueryKey, getGetVideosQueryKey, getGetInstagramAccountQueryKey, getGetInstagramPostsQueryKey, useGetContentPlan, useGetStrategyProfile } from "@workspace/api-client-react"
+import { useGetDashboard, useGetVideos, usePublishVideo, useScheduleVideo, useGetInstagramAccount, useGetInstagramPosts, getGetDashboardQueryKey, getGetVideosQueryKey, getGetInstagramAccountQueryKey, getGetInstagramPostsQueryKey, useGetContentPlan, useGetStrategyProfile, useAuthStatus } from "@workspace/api-client-react"
 import type { ContentPlanItem, StrategyProfile } from "@workspace/api-client-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -16,6 +16,8 @@ import { useToast } from "@/hooks/use-toast"
 import { useState, useEffect } from "react"
 
 export default function Dashboard() {
+  const { data: authStatus } = useAuthStatus()
+  const isAdmin = authStatus?.user?.role === "admin"
   const { data: dashboard, isLoading } = useGetDashboard()
   const { data: allVideos } = useGetVideos({ status: 'ready' })
   const { data: planData, isLoading: planLoading } = useGetContentPlan({ limit: 10000, status: "all" })
@@ -208,6 +210,22 @@ export default function Dashboard() {
                 </div>
               </CardContent>
             </Card>
+
+            {isAdmin && dashboard.active_students_count != null && (
+              <Card>
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-600">
+                      <Activity className="w-5 h-5" />
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Alumnos Activos</p>
+                    <h3 className="text-3xl font-display font-bold mt-1">{dashboard.active_students_count}</h3>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             <Card>
               <CardContent className="p-6">
