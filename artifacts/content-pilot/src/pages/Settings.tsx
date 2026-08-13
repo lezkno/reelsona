@@ -370,7 +370,7 @@ export default function Settings() {
 
   if (isLoading || !formData) {
     return (
-      <div className="space-y-6 max-w-3xl">
+      <div className="space-y-6">
         <h1 className="text-2xl sm:text-4xl font-display font-bold">Configuración</h1>
         <Card>
           <CardHeader><Skeleton className="h-8 w-1/3" /></CardHeader>
@@ -385,7 +385,7 @@ export default function Settings() {
   }
 
   return (
-    <div className="space-y-8 max-w-3xl animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
 
       {/* ── Header ── */}
       <div>

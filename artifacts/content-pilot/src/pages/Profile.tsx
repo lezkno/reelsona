@@ -96,7 +96,7 @@ export default function Profile() {
   const avatarSrc   = localAvatarUrl ?? (user?.avatarUrl ? `/api/storage${user.avatarUrl}` : null)
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6 py-2">
+    <div className="space-y-6 py-2">
       <div>
         <h1 className="text-2xl font-display font-bold flex items-center gap-2">
           <User className="w-6 h-6 text-primary" />

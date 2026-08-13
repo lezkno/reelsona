@@ -138,7 +138,7 @@ export default function Connect() {
 
   if (isLoading) {
     return (
-      <div className="space-y-6 max-w-2xl mx-auto mt-10">
+      <div className="space-y-6">
         <h1 className="text-4xl font-display font-bold">Instagram</h1>
         <Card>
           <CardHeader>
@@ -162,7 +162,7 @@ export default function Connect() {
   const tokenExpiringSoon = expiresInDays !== null && expiresInDays <= 7 && !needsReconnection
 
   return (
-    <div className="space-y-8 max-w-3xl mx-auto mt-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div>
         <h1 className="text-4xl font-display font-bold tracking-tight">Instagram</h1>
         <p className="text-muted-foreground mt-1 text-lg">Conecta tu cuenta para publicar automáticamente y analizar tu contenido.</p>

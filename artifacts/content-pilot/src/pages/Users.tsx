@@ -830,7 +830,7 @@ export default function Users() {
   const selfUsername = authData?.user?.username
 
   return (
-    <div className="p-6 max-w-6xl mx-auto space-y-10">
+    <div className="space-y-10">
 
       {/* ── Student access section ─────────────────────────────────────────── */}
       <div className="space-y-4">
