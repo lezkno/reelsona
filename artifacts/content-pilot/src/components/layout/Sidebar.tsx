@@ -123,18 +123,6 @@ export function Sidebar({ onClose }: SidebarProps) {
         )}
       </nav>
       
-      {/* Legal links footer */}
-      <div className="p-4 border-t border-sidebar-border">
-        <div className="flex items-center justify-center gap-3">
-          <Link href="/privacy" onClick={onClose} className="text-[10px] text-sidebar-foreground/40 hover:text-sidebar-foreground/70 transition-colors">
-            Privacidad
-          </Link>
-          <span className="text-sidebar-foreground/20 text-[10px]">·</span>
-          <Link href="/terms" onClick={onClose} className="text-[10px] text-sidebar-foreground/40 hover:text-sidebar-foreground/70 transition-colors">
-            Términos
-          </Link>
-        </div>
-      </div>
     </aside>
   )
 }
