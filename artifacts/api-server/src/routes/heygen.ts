@@ -9,6 +9,7 @@ import { promisify } from "util";
 import os from "os";
 import fs from "fs/promises";
 import path from "path";
+import axios from "axios";
 import { objectStorageClient, getSignedObjectUrl } from "../lib/objectStorage";
 
 const execFileAsync = promisify(execFile);
@@ -694,6 +695,34 @@ router.post("/heygen/avatars/create", async (req, res): Promise<void> => {
     res.json(result);
   } catch (err: any) {
     res.status(500).json({ error: err?.message ?? "Error al crear el avatar" });
+  }
+});
+
+/**
+ * GET /heygen/audio-proxy?url=<encoded>
+ * Proxies a HeyGen preview audio URL through the server so the browser can
+ * fetch it without CORS restrictions and decode it with Web Audio API.
+ * Only HeyGen CDN URLs are allowed.
+ */
+router.get("/heygen/audio-proxy", async (req, res): Promise<void> => {
+  try {
+    const rawUrl = req.query.url as string;
+    if (!rawUrl) { res.status(400).end(); return; }
+    let decodedUrl: string;
+    try { decodedUrl = decodeURIComponent(rawUrl); } catch { res.status(400).end(); return; }
+    const parsed = new URL(decodedUrl);
+    // Only allow known HeyGen / resource CDN domains
+    const allowed = ["heygen.com", "files.heygen.ai", "resource.heygen.ai", "cdn.heygen.ai", "storage.googleapis.com"];
+    if (!allowed.some(d => parsed.hostname === d || parsed.hostname.endsWith("." + d))) {
+      res.status(403).end(); return;
+    }
+    const upstream = await axios.get(decodedUrl, { responseType: "arraybuffer", timeout: 15000 });
+    const ct = (upstream.headers["content-type"] as string) ?? "audio/mpeg";
+    res.set("Content-Type", ct);
+    res.set("Cache-Control", "public, max-age=3600");
+    res.send(Buffer.from(upstream.data));
+  } catch {
+    res.status(502).end();
   }
 });
 

@@ -2299,7 +2299,10 @@ export default function Avatars() {
   const [speedEditValue, setSpeedEditValue] = useState(1.0)
   const [pitchEditValue, setPitchEditValue] = useState(0)
   const [playingVoiceId, setPlayingVoiceId] = useState<string | null>(null)
+  const [tuningPreviewVoiceId, setTuningPreviewVoiceId] = useState<string | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  const tuningSourceRef = useRef<AudioBufferSourceNode | null>(null)
+  const tuningCtxRef = useRef<AudioContext | null>(null)
 
   const cloneVoiceMut = useCloneVoice()
   const deleteVoiceMut = useDeleteVoice()
@@ -2342,6 +2345,8 @@ export default function Avatars() {
   }
 
   const handleSaveVoiceSpeed = async (voiceId: string) => {
+    // Stop any running tuning preview before saving
+    stopTuningPreview()
     try {
       await updateVoiceMut.mutateAsync({ voiceId, speed: speedEditValue, pitch: pitchEditValue })
       queryClient.invalidateQueries({ queryKey: getGetHeyGenVoicesQueryKey() })
@@ -2355,6 +2360,66 @@ export default function Avatars() {
       toast({ title: "Error", description: "No se pudo guardar los ajustes", variant: "destructive" })
     }
   }
+
+  const stopTuningPreview = () => {
+    try { tuningSourceRef.current?.stop() } catch { /* already stopped */ }
+    tuningSourceRef.current = null
+    tuningCtxRef.current?.close().catch(() => {})
+    tuningCtxRef.current = null
+    setTuningPreviewVoiceId(null)
+  }
+
+  /**
+   * Play the voice sample with the current speed+pitch sliders applied via Web Audio API.
+   * Uses SSML-equivalent math: speed and pitch are applied independently.
+   * Speed: playbackRate is compensated so pitch's detune doesn't change duration.
+   * Pitch: SSML +X% → detune = 1200 * log2(1 + X/100) cents.
+   */
+  const handlePreviewTuning = async (voiceId: string, previewUrl: string | null) => {
+    if (tuningPreviewVoiceId === voiceId) {
+      stopTuningPreview()
+      return
+    }
+    stopTuningPreview()
+    if (!previewUrl) {
+      toast({ title: "Sin audio de muestra", description: "Esta voz no tiene audio de preview disponible", variant: "destructive" })
+      return
+    }
+    setTuningPreviewVoiceId(voiceId)
+    try {
+      const encodedUrl = encodeURIComponent(previewUrl)
+      const response = await fetch(`/api/heygen/audio-proxy?url=${encodedUrl}`)
+      if (!response.ok) throw new Error("proxy error")
+      const arrayBuffer = await response.arrayBuffer()
+      const ctx = new AudioContext()
+      tuningCtxRef.current = ctx
+      const decoded = await ctx.decodeAudioData(arrayBuffer)
+      const source = ctx.createBufferSource()
+      source.buffer = decoded
+
+      // Apply speed and pitch independently (mirrors the SSML prosody formula):
+      // detune shifts pitch; playbackRate is compensated so speed stays as requested.
+      const detuneCents = pitchEditValue !== 0
+        ? Math.round(1200 * Math.log2(1 + pitchEditValue / 100))
+        : 0
+      const compensatedRate = speedEditValue / Math.pow(2, detuneCents / 1200)
+      source.playbackRate.value = compensatedRate
+      source.detune.value = detuneCents
+
+      source.connect(ctx.destination)
+      source.onended = () => setTuningPreviewVoiceId(null)
+      source.start()
+      tuningSourceRef.current = source
+    } catch {
+      setTuningPreviewVoiceId(null)
+      toast({ title: "Error al reproducir", description: "No se pudo cargar el audio de muestra", variant: "destructive" })
+    }
+  }
+
+  // Stop tuning preview when the editor closes or the voice changes
+  useEffect(() => {
+    if (!editingSpeedVoiceId) stopTuningPreview()
+  }, [editingSpeedVoiceId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Init from server config ────────────────────────────────────────────────
   useEffect(() => {
@@ -2902,6 +2967,26 @@ export default function Avatars() {
                             <span className="text-foreground font-medium">0% normal</span>
                             <span>+50% agudo</span>
                           </div>
+                        </div>
+                        {/* Preview with tuning applied */}
+                        <div className="rounded-lg border border-border/40 bg-background/60 p-2.5 flex items-center gap-3">
+                          <Button
+                            size="sm"
+                            variant={tuningPreviewVoiceId === v.voice_id ? "default" : "outline"}
+                            className="gap-1.5 shrink-0"
+                            disabled={!v.preview_audio_url}
+                            onClick={() => handlePreviewTuning(v.voice_id, v.preview_audio_url ?? null)}
+                          >
+                            {tuningPreviewVoiceId === v.voice_id
+                              ? <><Square className="w-3 h-3 fill-current" /> Detener</>
+                              : <><Play className="w-3 h-3 fill-current" /> Escuchar preview</>
+                            }
+                          </Button>
+                          <p className="text-[10px] text-muted-foreground leading-tight">
+                            {v.preview_audio_url
+                              ? "Muestra con velocidad y tono aplicados. Approximación — el video final puede sonar distinto."
+                              : "No hay audio de muestra para esta voz."}
+                          </p>
                         </div>
                         <div className="flex gap-2 justify-end">
                           <Button size="sm" variant="ghost" onClick={() => setEditingSpeedVoiceId(null)}>Cancelar</Button>
