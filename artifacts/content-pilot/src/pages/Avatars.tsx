@@ -1443,10 +1443,22 @@ function AvatarCreationDialog({
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const cameraStreamRef = useRef<MediaStream | null>(null)
 
-  // Video (Digital Twin) mode
+  // Video (Digital Twin) mode — upload
   const [videoFile, setVideoFile] = useState<File | null>(null)
   const [dragOverVideo, setDragOverVideo] = useState(false)
   const videoFileInputRef = useRef<HTMLInputElement>(null)
+
+  // Video (Digital Twin) mode — camera recording
+  const [videoSource, setVideoSource] = useState<"upload" | "record">("upload")
+  const [videoRecState, setVideoRecState] = useState<"idle" | "recording" | "preview">("idle")
+  const [videoRecSeconds, setVideoRecSeconds] = useState(0)
+  const [videoRecError, setVideoRecError] = useState<string | null>(null)
+  const [videoStream, setVideoStream] = useState<MediaStream | null>(null)
+  const videoLiveRef = useRef<HTMLVideoElement>(null)
+  const videoStreamRef = useRef<MediaStream | null>(null)
+  const videoMediaRecRef = useRef<MediaRecorder | null>(null)
+  const videoChunksRef = useRef<BlobPart[]>([])
+  const videoTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Prompt mode
   const [promptText, setPromptText] = useState("")
@@ -1496,6 +1508,58 @@ function AvatarCreationDialog({
     e.preventDefault(); setDragOverVideo(false)
     const f = e.dataTransfer.files[0]; if (f) handleVideoFile(f)
   }
+
+  // ── Video camera recording helpers ──────────────────────────────────────────
+  const stopVideoStream = useCallback(() => {
+    videoStreamRef.current?.getTracks().forEach(t => t.stop())
+    videoStreamRef.current = null
+    setVideoStream(null)
+  }, [])
+
+  const startVideoRecord = useCallback(async () => {
+    setVideoRecError(null)
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: true,
+      })
+      videoStreamRef.current = stream
+      setVideoStream(stream)
+      videoChunksRef.current = []
+      const mr = new MediaRecorder(stream)
+      mr.ondataavailable = e => { if (e.data.size > 0) videoChunksRef.current.push(e.data) }
+      mr.onstop = () => {
+        stopVideoStream()
+        const blob = new Blob(videoChunksRef.current, { type: mr.mimeType || "video/webm" })
+        const recFile = new File([blob], "grabacion-digital-twin.webm", { type: blob.type })
+        setVideoFile(recFile)
+        setVideoRecState("preview")
+        if (videoTimerRef.current) { clearInterval(videoTimerRef.current); videoTimerRef.current = null }
+      }
+      mr.start()
+      videoMediaRecRef.current = mr
+      setVideoRecState("recording")
+      setVideoRecSeconds(0)
+      videoTimerRef.current = setInterval(() => setVideoRecSeconds(s => s + 1), 1000)
+    } catch {
+      setVideoRecError("No se pudo acceder a la cámara. Verifica que la hayas habilitado en el navegador.")
+    }
+  }, [stopVideoStream])
+
+  const stopVideoRecord = useCallback(() => {
+    if (videoTimerRef.current) { clearInterval(videoTimerRef.current); videoTimerRef.current = null }
+    videoMediaRecRef.current?.stop()
+  }, [])
+
+  const resetVideoRecord = useCallback(() => {
+    if (videoTimerRef.current) { clearInterval(videoTimerRef.current); videoTimerRef.current = null }
+    if (videoMediaRecRef.current?.state === "recording") videoMediaRecRef.current.stop()
+    stopVideoStream()
+    setVideoFile(null)
+    setVideoRecState("idle")
+    setVideoRecSeconds(0)
+    setVideoRecError(null)
+  }, [stopVideoStream])
 
   // Photo helpers
   const handleFile = (f: File) => {
@@ -1572,13 +1636,31 @@ function AvatarCreationDialog({
     return () => stopCamera()
   }, [mode, photoSource]) // eslint-disable-line
 
-  // Attach stream to <video> element once both are available
+  // Attach photo camera stream to <video> element once both are available
   useEffect(() => {
     const el = videoRef.current
     if (!el || !cameraStream) return
     el.srcObject = cameraStream
     el.play().catch(() => {})
   }, [cameraStream])
+
+  // Stop video recording stream when mode or source changes away from record
+  useEffect(() => {
+    if (mode === "video" && videoSource === "record") return
+    if (videoRecState !== "idle") resetVideoRecord()
+    return () => {
+      stopVideoStream()
+      if (videoTimerRef.current) clearInterval(videoTimerRef.current)
+    }
+  }, [mode, videoSource]) // eslint-disable-line
+
+  // Attach live recording stream to the preview video element
+  useEffect(() => {
+    const el = videoLiveRef.current
+    if (!el || !videoStream) return
+    el.srcObject = videoStream
+    el.play().catch(() => {})
+  }, [videoStream])
 
   const handleCreate = async () => {
     if (!name.trim()) return
@@ -1715,49 +1797,143 @@ function AvatarCreationDialog({
               {/* Video (Digital Twin) mode */}
               {mode === "video" && (
                 <div className="space-y-2">
-                  <div
-                    className={`relative h-[120px] border-2 border-dashed rounded-xl transition-colors cursor-pointer flex items-center justify-center
-                      ${dragOverVideo ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"}
-                      ${videoFile ? "p-3 justify-start" : "p-3"}`}
-                    onDragOver={(e) => { e.preventDefault(); setDragOverVideo(true) }}
-                    onDragLeave={() => setDragOverVideo(false)}
-                    onDrop={handleVideoDrop}
-                    onClick={() => videoFileInputRef.current?.click()}
-                  >
-                    {videoFile ? (
-                      <div className="flex items-center gap-3 w-full">
-                        <div className="w-12 h-16 bg-muted rounded-lg border flex items-center justify-center shrink-0">
-                          <Video className="w-5 h-5 text-muted-foreground" />
+                  {/* Source toggle */}
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm font-medium">Video de entrenamiento</span>
+                    <div className="flex gap-0.5 p-0.5 bg-muted rounded-md">
+                      <button
+                        type="button"
+                        onClick={() => { setVideoSource("upload"); resetVideoRecord() }}
+                        className={`flex items-center gap-1.5 px-2.5 h-7 rounded text-xs font-medium transition-all
+                          ${videoSource === "upload" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                      >
+                        <Upload className="w-3.5 h-3.5" /> Subir
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setVideoFile(null); setVideoSource("record") }}
+                        className={`flex items-center gap-1.5 px-2.5 h-7 rounded text-xs font-medium transition-all
+                          ${videoSource === "record" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                      >
+                        <Camera className="w-3.5 h-3.5" /> Grabar
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Upload panel */}
+                  {videoSource === "upload" && (
+                    <div
+                      className={`relative h-[120px] border-2 border-dashed rounded-xl transition-colors cursor-pointer flex items-center justify-center
+                        ${dragOverVideo ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"}
+                        ${videoFile ? "p-3 justify-start" : "p-3"}`}
+                      onDragOver={(e) => { e.preventDefault(); setDragOverVideo(true) }}
+                      onDragLeave={() => setDragOverVideo(false)}
+                      onDrop={handleVideoDrop}
+                      onClick={() => videoFileInputRef.current?.click()}
+                    >
+                      {videoFile ? (
+                        <div className="flex items-center gap-3 w-full">
+                          <div className="w-12 h-16 bg-muted rounded-lg border flex items-center justify-center shrink-0">
+                            <Video className="w-5 h-5 text-muted-foreground" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate">{videoFile.name}</p>
+                            <p className="text-xs text-muted-foreground">{(videoFile.size / 1024 / 1024).toFixed(1)} MB</p>
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); setVideoFile(null) }}
+                              className="text-xs text-destructive hover:underline mt-0.5"
+                            >
+                              Cambiar video
+                            </button>
+                          </div>
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate">{videoFile.name}</p>
-                          <p className="text-xs text-muted-foreground">{(videoFile.size / 1024 / 1024).toFixed(1)} MB</p>
+                      ) : (
+                        <div className="text-center">
+                          <Video className="w-6 h-6 mx-auto text-muted-foreground mb-1" />
+                          <p className="text-sm font-medium">Arrastra o haz clic para subir</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">MP4, MOV o WebM · máx. 500 MB</p>
+                        </div>
+                      )}
+                      <input
+                        ref={videoFileInputRef}
+                        type="file"
+                        accept="video/mp4,video/quicktime,video/webm"
+                        className="hidden"
+                        onChange={(e) => { const f = e.target.files?.[0]; if (f) handleVideoFile(f) }}
+                      />
+                    </div>
+                  )}
+
+                  {/* Record panel */}
+                  {videoSource === "record" && (
+                    <div className="rounded-xl border bg-muted/30 overflow-hidden">
+                      {videoRecError ? (
+                        <div className="h-[120px] flex flex-col items-center justify-center gap-2 p-4 text-center">
+                          <CameraOff className="w-6 h-6 text-muted-foreground/50" />
+                          <p className="text-xs text-destructive leading-relaxed">{videoRecError}</p>
+                          <button type="button" className="text-xs text-primary underline" onClick={() => void startVideoRecord()}>Reintentar</button>
+                        </div>
+                      ) : videoRecState === "preview" ? (
+                        <div className="h-[120px] flex items-center gap-3 p-3">
+                          <div className="w-[54px] h-[96px] shrink-0 bg-muted rounded-lg border flex items-center justify-center">
+                            <Video className="w-5 h-5 text-muted-foreground" />
+                          </div>
+                          <div className="flex-1 space-y-1">
+                            <p className="text-sm font-medium">Video grabado ✓</p>
+                            <p className="text-xs text-muted-foreground">
+                              {Math.floor(videoRecSeconds / 60)}:{String(videoRecSeconds % 60).padStart(2, "0")} min · listo para subir
+                            </p>
+                            <button type="button" onClick={resetVideoRecord} className="text-xs text-primary hover:underline">
+                              Grabar de nuevo
+                            </button>
+                          </div>
+                        </div>
+                      ) : videoRecState === "recording" ? (
+                        <div className="h-[120px] flex items-center gap-3 p-2">
+                          <div className="relative h-[104px] w-[59px] shrink-0 overflow-hidden rounded-lg bg-black">
+                            <video ref={videoLiveRef} autoPlay playsInline muted className="w-full h-full object-cover" style={{ transform: "scaleX(-1)" }} />
+                            <div className="absolute top-1 left-1 flex items-center gap-1 bg-black/60 rounded px-1 py-0.5">
+                              <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+                              <span className="text-white text-[9px] font-mono">{Math.floor(videoRecSeconds / 60)}:{String(videoRecSeconds % 60).padStart(2, "0")}</span>
+                            </div>
+                          </div>
+                          <div className="flex-1 space-y-2">
+                            <p className="text-sm font-medium">Grabando…</p>
+                            <p className="text-xs text-muted-foreground">Habla directamente a la cámara</p>
+                            <button
+                              type="button"
+                              onClick={stopVideoRecord}
+                              className="flex items-center gap-1.5 px-3 h-7 rounded-md bg-red-500 text-white text-xs font-medium hover:bg-red-600 transition-colors"
+                            >
+                              <Square className="w-3 h-3 fill-current" /> Detener
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        /* idle */
+                        <div className="h-[120px] flex flex-col items-center justify-center gap-2.5 p-4">
+                          <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center">
+                            <Video className="w-5 h-5 text-primary" />
+                          </div>
+                          <div className="text-center">
+                            <p className="text-sm font-medium">Graba desde tu cámara</p>
+                            <p className="text-xs text-muted-foreground">1–5 min · rostro frontal · buena iluminación</p>
+                          </div>
                           <button
                             type="button"
-                            onClick={(e) => { e.stopPropagation(); setVideoFile(null) }}
-                            className="text-xs text-destructive hover:underline mt-0.5"
+                            onClick={() => void startVideoRecord()}
+                            className="flex items-center gap-1.5 px-3 h-7 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors"
                           >
-                            Cambiar video
+                            <div className="w-2 h-2 rounded-full bg-white" />
+                            Empezar a grabar
                           </button>
                         </div>
-                      </div>
-                    ) : (
-                      <div className="text-center">
-                        <Video className="w-6 h-6 mx-auto text-muted-foreground mb-1" />
-                        <p className="text-sm font-medium">Arrastra o haz clic para subir</p>
-                        <p className="text-xs text-muted-foreground mt-0.5">MP4, MOV o WebM · máx. 500 MB</p>
-                      </div>
-                    )}
-                    <input
-                      ref={videoFileInputRef}
-                      type="file"
-                      accept="video/mp4,video/quicktime,video/webm"
-                      className="hidden"
-                      onChange={(e) => { const f = e.target.files?.[0]; if (f) handleVideoFile(f) }}
-                    />
-                  </div>
+                      )}
+                    </div>
+                  )}
+
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    Graba 1–5 minutos hablando a cámara, buena iluminación, rostro frontal.
                     HeyGen tardará 10–20 min en crear tu Digital Twin.
                   </p>
                 </div>
