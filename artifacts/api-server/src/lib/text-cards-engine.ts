@@ -142,7 +142,7 @@ async function analyzeScriptForCards(
       { role: "user",    content: `Script:\n\n${script}` },
     ],
     temperature: 0.3,
-    max_tokens:  300,
+    max_completion_tokens: 300,
     response_format: { type: "json_object" },
   });
 

@@ -13,10 +13,11 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import { randomBytes } from "crypto";
 import { db } from "@workspace/db";
-import { users, userEntitlements } from "@workspace/db/schema";
+import { users, userEntitlements, videosTable, settingsTable, captionConfigTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { sendEmail, activationEmail, getAppUrl } from "../lib/email";
 import { provisionUser } from "../lib/provision";
+import { runCaptionProcessing } from "../lib/scheduler";
 
 const router = Router();
 
@@ -193,6 +194,48 @@ router.get("/admin/entitlements", async (req: Request, res: Response): Promise<v
     console.error("[admin/entitlements]", err);
     res.status(500).json({ error: "Error interno del servidor" });
   }
+});
+
+// ── POST /api/admin/reprocess-video ──────────────────────────────────────────
+/**
+ * Re-run the full effects pipeline (zoom, b-roll, captions) on any video by ID.
+ * Body: { videoId: number, effects?: { zoom, ai_broll, text_cards } }
+ */
+router.post("/admin/reprocess-video", async (req: Request, res: Response): Promise<void> => {
+  if (!isAdminRequest(req)) {
+    res.status(403).json({ error: "Forbidden" }); return;
+  }
+  const { videoId, effects } = req.body ?? {};
+  if (!videoId || typeof videoId !== "number") {
+    res.status(400).json({ error: "videoId (number) requerido" }); return;
+  }
+
+  const [video] = await db.select().from(videosTable).where(eq(videosTable.id, videoId)).limit(1);
+  if (!video) { res.status(404).json({ error: "Video no encontrado" }); return; }
+  if (!video.videoUrl) { res.status(400).json({ error: "El video no tiene URL fuente" }); return; }
+
+  // Check caption config exists for this user
+  const [captionCfg] = await db.select().from(captionConfigTable)
+    .where(eq(captionConfigTable.userId, video.userId)).limit(1);
+  if (!captionCfg) { res.status(400).json({ error: "No hay Caption Config para este usuario" }); return; }
+
+  // Determine which effects to apply
+  const videoEffects = effects ?? {
+    zoom: true,
+    ai_broll: true,
+    text_cards: false,
+  };
+
+  // Reset caption state so runCaptionProcessing picks it up fresh
+  await db.update(videosTable)
+    .set({ captionStatus: null, captionedVideoUrl: null, videoEffects, updatedAt: new Date() })
+    .where(eq(videosTable.id, videoId));
+
+  // Fire and forget — logs appear in the server console
+  runCaptionProcessing(video.id, video.videoUrl, video.contentPlanId ?? null, null, video.durationSeconds ?? null)
+    .catch(err => console.error("[admin/reprocess-video] Error:", err));
+
+  res.json({ ok: true, message: `Reprocesando video ${videoId} con efectos ${JSON.stringify(videoEffects)}` });
 });
 
 export default router;

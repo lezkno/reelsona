@@ -183,7 +183,8 @@ export const GetHeyGenVoicesResponseItem = zod.object({
   "gender": zod.string().nullish(),
   "preview_audio_url": zod.string().nullish(),
   "is_cloned": zod.boolean(),
-  "is_mine": zod.boolean().optional()
+  "is_mine": zod.boolean().optional(),
+  "speed": zod.number().nullish()
 })
 export const GetHeyGenVoicesResponse = zod.array(GetHeyGenVoicesResponseItem)
 

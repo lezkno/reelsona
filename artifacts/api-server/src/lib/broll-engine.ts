@@ -107,7 +107,7 @@ async function generateVisualDirection(
     const { choices } = await client.chat.completions.create({
       model: "gpt-5.4-mini",
       temperature: 0.8,
-      max_tokens: 120,
+      max_completion_tokens: 120,
       messages: [
         {
           role: "system",
@@ -167,7 +167,7 @@ async function analyzeScriptForBRoll(
   const { choices } = await client.chat.completions.create({
     model: "gpt-5.4-mini",
     temperature: 0.7,
-    max_tokens: 500,
+    max_completion_tokens: 500,
     messages: [
       {
         role: "system",

@@ -844,3 +844,18 @@ export function useRenameVoice() {
       ),
   });
 }
+
+/** Update a cloned voice (name and/or speed). At least one field must be provided. */
+export function useUpdateVoice() {
+  return useMutation<{ ok: boolean }, Error, { voiceId: string; name?: string; speed?: number | null }>({
+    mutationFn: ({ voiceId, name, speed }) =>
+      customFetch<{ ok: boolean }>(
+        `/api/heygen/voices/${encodeURIComponent(voiceId)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, speed }),
+        },
+      ),
+  });
+}

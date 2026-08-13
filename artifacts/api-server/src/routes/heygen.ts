@@ -65,6 +65,7 @@ router.get("/heygen/voices", async (req, res): Promise<void> => {
     db.select().from(heygenClonedVoicesTable).where(eq(heygenClonedVoicesTable.userId, userId)),
   ]);
   const myCloneIds = new Set(myClones.map(c => c.voiceId));
+  const myCloneSpeedMap = new Map(myClones.map(c => [c.voiceId, c.speed ?? null]));
   const mapped = voices.map((v) => ({
     voice_id: v.voice_id,
     name: v.name,
@@ -73,6 +74,7 @@ router.get("/heygen/voices", async (req, res): Promise<void> => {
     preview_audio_url: (v as any).preview_audio ?? v.preview_audio_url ?? null,
     is_cloned: v.is_clone ?? false,
     is_mine: myCloneIds.has(v.voice_id),
+    speed: myCloneIds.has(v.voice_id) ? (myCloneSpeedMap.get(v.voice_id) ?? null) : null,
   }));
   res.json(GetHeyGenVoicesResponse.parse(mapped));
 });
@@ -93,12 +95,15 @@ router.post("/heygen/voices/clone", voiceUpload.single("audio"), async (req, res
       res.status(400).json({ error: "Se requiere un archivo de audio" }); return;
     }
     const apiKey = await getUserHeyGenKey(userId);
+    const rawSpeed = req.body?.speed;
+    const speed = rawSpeed != null ? parseFloat(rawSpeed) : null;
     const voiceId = await cloneVoice(req.file.buffer, req.file.originalname, name.trim(), apiKey);
     await db.insert(heygenClonedVoicesTable).values({
       userId,
       voiceId,
       displayName: name.trim(),
       status: "pending",
+      speed: speed != null && !isNaN(speed) ? speed : null,
     });
     res.json({ voice_id: voiceId, display_name: name.trim(), status: "pending" });
   } catch (err: any) {
@@ -131,30 +136,42 @@ router.delete("/heygen/voices/:voiceId", async (req, res): Promise<void> => {
 
 /**
  * PATCH /heygen/voices/:voiceId
- * Rename a cloned voice. Only succeeds if the current user owns it.
- * Body: { name: string }
+ * Update a cloned voice (name and/or speed). Only succeeds if the current user owns it.
+ * Body: { name?: string, speed?: number | null }
  */
 router.patch("/heygen/voices/:voiceId", async (req, res): Promise<void> => {
   try {
     const userId = req.session.user!.userId;
     const { voiceId } = req.params;
-    const { name } = req.body ?? {};
-    if (!name || typeof name !== "string" || !name.trim()) {
-      res.status(400).json({ error: "El nombre es requerido" }); return;
+    const { name, speed } = req.body ?? {};
+    if (!name && speed === undefined) {
+      res.status(400).json({ error: "Se requiere nombre o velocidad" }); return;
+    }
+    if (name !== undefined && (typeof name !== "string" || !name.trim())) {
+      res.status(400).json({ error: "El nombre no puede estar vacío" }); return;
+    }
+    if (speed !== undefined && speed !== null && (typeof speed !== "number" || speed < 0.5 || speed > 1.5)) {
+      res.status(400).json({ error: "La velocidad debe estar entre 0.5 y 1.5" }); return;
     }
     const [row] = await db
       .select()
       .from(heygenClonedVoicesTable)
       .where(and(eq(heygenClonedVoicesTable.voiceId, voiceId), eq(heygenClonedVoicesTable.userId, userId)));
-    if (!row) { res.status(403).json({ error: "No tienes permiso para renombrar esta voz" }); return; }
+    if (!row) { res.status(403).json({ error: "No tienes permiso para editar esta voz" }); return; }
     const apiKey = await getUserHeyGenKey(userId);
-    await renameVoice(voiceId, name.trim(), apiKey);
+    // Only call HeyGen rename API if name is changing
+    if (name && name.trim() !== row.displayName) {
+      await renameVoice(voiceId, name.trim(), apiKey);
+    }
+    const dbUpdates: Record<string, unknown> = { updatedAt: new Date() };
+    if (name) dbUpdates.displayName = name.trim();
+    if (speed !== undefined) dbUpdates.speed = speed;
     await db.update(heygenClonedVoicesTable)
-      .set({ displayName: name.trim(), updatedAt: new Date() })
+      .set(dbUpdates as any)
       .where(and(eq(heygenClonedVoicesTable.voiceId, voiceId), eq(heygenClonedVoicesTable.userId, userId)));
-    res.json({ ok: true, display_name: name.trim() });
+    res.json({ ok: true });
   } catch (err: any) {
-    res.status(500).json({ error: err?.message ?? "Error al renombrar la voz" });
+    res.status(500).json({ error: err?.message ?? "Error al actualizar la voz" });
   }
 });
 

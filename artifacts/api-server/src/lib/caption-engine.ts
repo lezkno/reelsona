@@ -651,7 +651,7 @@ async function analyzeScriptForZooms(
   const { choices } = await client.chat.completions.create({
     model:       "gpt-5.4-mini",
     temperature: 0,
-    max_tokens:  80,
+    max_completion_tokens: 80,
     messages: [
       {
         role:    "system",

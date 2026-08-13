@@ -562,28 +562,6 @@ export default function Settings() {
             <p className="text-xs text-muted-foreground">La IA ajustará el largo del guion para que se lea en este tiempo aprox.</p>
           </div>
 
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <Label>Velocidad de Voz</Label>
-                <p className="text-xs text-muted-foreground mt-0.5">Ajusta la velocidad del avatar. Valores menores a 1.0 pueden reducir pausas bruscas entre frases.</p>
-              </div>
-              <span className="font-bold text-primary text-sm tabular-nums">{(formData.heygen_voice_speed ?? 1.0).toFixed(2)}×</span>
-            </div>
-            <Slider
-              value={[formData.heygen_voice_speed ?? 1.0]}
-              min={0.7}
-              max={1.3}
-              step={0.05}
-              onValueChange={([v]) => handleChange('heygen_voice_speed', v)}
-            />
-            <div className="flex justify-between text-[10px] text-muted-foreground">
-              <span>0.70× (más lento)</span>
-              <span className="font-medium text-foreground">1.00× (defecto)</span>
-              <span>1.30× (más rápido)</span>
-            </div>
-          </div>
-
           <div className="space-y-2">
             <Label>Texto de Marca de Agua (Opcional)</Label>
             <Input

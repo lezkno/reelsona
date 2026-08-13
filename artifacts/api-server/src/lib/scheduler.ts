@@ -11,6 +11,7 @@ import {
   instagramAccountsTable,
   captionConfigTable,
   nicheRadarAccountsTable,
+  heygenClonedVoicesTable,
 } from "@workspace/db";
 import { enrichProfileWithApify } from "./apify";
 import { applyCaptions, CAPTION_DIR, type CaptionStyle, CAPTION_PRESETS } from "./caption-engine";
@@ -680,6 +681,16 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
     })
     .returning();
 
+  // Look up per-voice speed from cloned voices table (null → use HeyGen default)
+  let resolvedVoiceSpeed: number | undefined;
+  if (contentItem.voiceId) {
+    const [clonedVoiceRow] = await db
+      .select({ speed: heygenClonedVoicesTable.speed })
+      .from(heygenClonedVoicesTable)
+      .where(eq(heygenClonedVoicesTable.voiceId, contentItem.voiceId));
+    resolvedVoiceSpeed = clonedVoiceRow?.speed ?? undefined;
+  }
+
   try {
     const heygenVideoId = await generateVideo({
       script: contentItem.script,
@@ -687,7 +698,7 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
       voice_id: contentItem.voiceId,
       title: contentItem.topic,
       captionsEnabled: automation.captionsEnabled ?? false,
-      voiceSpeed: settings.heygenVoiceSpeed ?? undefined,
+      voiceSpeed: resolvedVoiceSpeed,
       language: settings.language ?? "es",
     }, heygenApiKey);
 

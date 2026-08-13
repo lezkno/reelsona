@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, text, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, text, timestamp, real } from "drizzle-orm/pg-core";
 import { users } from "./users";
 
 /**
@@ -15,6 +15,8 @@ export const heygenClonedVoicesTable = pgTable("heygen_cloned_voices", {
   displayName: text("display_name").notNull(),
   /** pending | ready | failed */
   status: text("status").notNull().default("pending"),
+  /** Voice speed multiplier sent to HeyGen at generation time. null = HeyGen default (1.0). Range: 0.5–1.5 */
+  speed: real("speed"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

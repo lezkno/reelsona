@@ -13,6 +13,7 @@ import {
   useCloneVoice,
   useDeleteVoice,
   useRenameVoice,
+  useUpdateVoice,
 } from "@workspace/api-client-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -23,13 +24,14 @@ import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Slider } from "@/components/ui/slider"
 import { useQueryClient } from "@tanstack/react-query"
 import { useToast } from "@/hooks/use-toast"
 import { useState, useEffect, useRef, useMemo, useCallback } from "react"
 import {
   Users, Save, CheckCircle2, Image as ImageIcon, Play, Square,
   Plus, Camera, CameraOff, Mic, RefreshCw, Upload, Loader2, AlertCircle, ChevronDown, Sparkles, Video,
-  Trash2, Lock, ZoomIn, X, Volume2, Search, Pencil,
+  Trash2, Lock, ZoomIn, X, Volume2, Search, Pencil, SlidersHorizontal,
 } from "lucide-react"
 
 // ── Rotation strategy sentinel ────────────────────────────────────────────────
@@ -62,6 +64,7 @@ type VoiceOption = {
   preview_audio_url: string | null
   is_cloned: boolean
   is_mine?: boolean
+  speed?: number | null
 }
 
 // ── LookVoiceInline ───────────────────────────────────────────────────────────
@@ -947,6 +950,7 @@ function CloneVoiceDialog({ onClose, onCloned }: { onClose: () => void; onCloned
   const { toast } = useToast()
   const cloneVoice = useCloneVoice()
   const [displayName, setDisplayName] = useState("")
+  const [voiceSpeed, setVoiceSpeed] = useState(1.0)
   const [file, setFile] = useState<File | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const [mode, setMode] = useState<"upload" | "record">("upload")
@@ -1064,6 +1068,7 @@ function CloneVoiceDialog({ onClose, onCloned }: { onClose: () => void; onCloned
     const formData = new FormData()
     formData.append("audio", src, mode === "record" ? "recording.webm" : (file as File).name)
     formData.append("name", displayName.trim())
+    formData.append("speed", String(voiceSpeed))
     try {
       await cloneVoice.mutateAsync(formData)
       toast({ title: "¡Voz clonando!", description: "Estamos procesando tu voz. Aparecerá en unos minutos." })
@@ -1232,6 +1237,30 @@ function CloneVoiceDialog({ onClose, onCloned }: { onClose: () => void; onCloned
               )}
             </TabsContent>
           </Tabs>
+        </div>
+
+        {/* Speed slider — always visible above footer */}
+        <div className="shrink-0 px-6 pt-3 pb-2 border-t border-border/50 space-y-2 bg-muted/20">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs font-semibold">Velocidad de voz</p>
+              <p className="text-[10px] text-muted-foreground">Puedes cambiarlo después. Rango HeyGen: 0.5–1.5</p>
+            </div>
+            <span className="text-sm font-bold text-primary tabular-nums">{voiceSpeed.toFixed(2)}×</span>
+          </div>
+          <Slider
+            value={[voiceSpeed]}
+            min={0.5}
+            max={1.5}
+            step={0.05}
+            onValueChange={([v]) => setVoiceSpeed(v)}
+            disabled={cloneVoice.isPending}
+          />
+          <div className="flex justify-between text-[10px] text-muted-foreground">
+            <span>0.5× (lento)</span>
+            <span className="text-foreground font-medium">1.0× (defecto)</span>
+            <span>1.5× (rápido)</span>
+          </div>
         </div>
 
         <DialogFooter className="shrink-0 px-6 pb-5 pt-3 border-t border-border/50">
@@ -2076,6 +2105,7 @@ export default function Avatars() {
           preview_audio_url: v.preview_audio_url ?? null,
           is_cloned: v.is_cloned ?? false,
           is_mine: v.is_mine ?? false,
+          speed: (v as any).speed ?? null,
         })),
     [voices]
   )
@@ -2092,6 +2122,7 @@ export default function Avatars() {
           preview_audio_url: v.preview_audio_url ?? null,
           is_cloned: v.is_cloned ?? false,
           is_mine: v.is_mine ?? false,
+          speed: (v as any).speed ?? null,
         }))
         .sort((a, b) => {
           if (a.is_mine && !b.is_mine) return -1
@@ -2227,12 +2258,15 @@ export default function Avatars() {
   }, [allVoices])
   const [renamingVoiceId, setRenamingVoiceId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState("")
+  const [editingSpeedVoiceId, setEditingSpeedVoiceId] = useState<string | null>(null)
+  const [speedEditValue, setSpeedEditValue] = useState(1.0)
   const [playingVoiceId, setPlayingVoiceId] = useState<string | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
 
   const cloneVoiceMut = useCloneVoice()
   const deleteVoiceMut = useDeleteVoice()
   const renameVoiceMut = useRenameVoice()
+  const updateVoiceMut = useUpdateVoice()
 
   const handlePlayPreview = (voiceId: string, url: string) => {
     if (playingVoiceId === voiceId) {
@@ -2266,6 +2300,17 @@ export default function Avatars() {
       setRenamingVoiceId(null)
     } catch {
       toast({ title: "Error", description: "No se pudo renombrar la voz", variant: "destructive" })
+    }
+  }
+
+  const handleSaveVoiceSpeed = async (voiceId: string) => {
+    try {
+      await updateVoiceMut.mutateAsync({ voiceId, speed: speedEditValue })
+      queryClient.invalidateQueries({ queryKey: ["getHeyGenVoices"] })
+      setEditingSpeedVoiceId(null)
+      toast({ title: "Velocidad guardada", description: `${speedEditValue.toFixed(2)}× aplicado a esta voz` })
+    } catch {
+      toast({ title: "Error", description: "No se pudo guardar la velocidad", variant: "destructive" })
     }
   }
 
@@ -2670,53 +2715,104 @@ export default function Avatars() {
               </h3>
               <div className="space-y-2">
                 {allVoices.filter(v => v.is_mine && (!voiceSearch || v.name.toLowerCase().includes(voiceSearch.toLowerCase()))).map(v => (
-                  <div key={v.voice_id} className="flex items-center gap-3 p-3 rounded-xl border bg-card hover:bg-muted/40 transition-colors">
-                    <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                      <Mic className="w-4 h-4 text-primary" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      {renamingVoiceId === v.voice_id ? (
-                        <div className="flex gap-2 items-center">
-                          <input
-                            autoFocus
-                            value={renameValue}
-                            onChange={e => setRenameValue(e.target.value)}
-                            onKeyDown={e => { if (e.key === "Enter") handleRenameVoice(v.voice_id); if (e.key === "Escape") setRenamingVoiceId(null) }}
-                            className="flex-1 text-sm border rounded px-2 py-1 bg-background focus:outline-none focus:ring-1 focus:ring-ring"
-                          />
-                          <Button size="sm" variant="ghost" onClick={() => handleRenameVoice(v.voice_id)} disabled={renameVoiceMut.isPending}>
-                            {renameVoiceMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : "Guardar"}
+                  <div key={v.voice_id} className="rounded-xl border bg-card overflow-hidden">
+                    <div className="flex items-center gap-3 p-3 hover:bg-muted/40 transition-colors">
+                      <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                        <Mic className="w-4 h-4 text-primary" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        {renamingVoiceId === v.voice_id ? (
+                          <div className="flex gap-2 items-center">
+                            <input
+                              autoFocus
+                              value={renameValue}
+                              onChange={e => setRenameValue(e.target.value)}
+                              onKeyDown={e => { if (e.key === "Enter") handleRenameVoice(v.voice_id); if (e.key === "Escape") setRenamingVoiceId(null) }}
+                              className="flex-1 text-sm border rounded px-2 py-1 bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+                            />
+                            <Button size="sm" variant="ghost" onClick={() => handleRenameVoice(v.voice_id)} disabled={renameVoiceMut.isPending}>
+                              {renameVoiceMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : "Guardar"}
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={() => setRenamingVoiceId(null)}>
+                              <X className="w-3 h-3" />
+                            </Button>
+                          </div>
+                        ) : (
+                          <p className="text-sm font-medium truncate">{v.name}</p>
+                        )}
+                        <p className="text-xs text-muted-foreground">
+                          Clonada · {v.gender === "male" ? "Masculina" : v.gender === "female" ? "Femenina" : "Voz clonada"}
+                          {v.speed != null && <span className="text-primary font-medium"> · {v.speed.toFixed(2)}×</span>}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        {v.preview_audio_url && (
+                          <Button size="sm" variant="ghost" className="w-8 h-8 p-0"
+                            onClick={() => handlePlayPreview(v.voice_id, v.preview_audio_url!)}>
+                            {playingVoiceId === v.voice_id
+                              ? <Square className="w-3 h-3 fill-current" />
+                              : <Play className="w-3 h-3 fill-current" />}
                           </Button>
-                          <Button size="sm" variant="ghost" onClick={() => setRenamingVoiceId(null)}>
-                            <X className="w-3 h-3" />
+                        )}
+                        <Button size="sm" variant="ghost" className="w-8 h-8 p-0" onClick={() => setAssignVoice(v)}>
+                          <Users className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button size="sm" variant="ghost" className="w-8 h-8 p-0"
+                          onClick={() => { setRenamingVoiceId(v.voice_id); setRenameValue(v.name) }}>
+                          <Pencil className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button
+                          size="sm" variant="ghost"
+                          className={`w-8 h-8 p-0 ${editingSpeedVoiceId === v.voice_id ? "text-primary bg-primary/10" : ""}`}
+                          title="Ajustar velocidad"
+                          onClick={() => {
+                            if (editingSpeedVoiceId === v.voice_id) {
+                              setEditingSpeedVoiceId(null)
+                            } else {
+                              setSpeedEditValue(v.speed ?? 1.0)
+                              setEditingSpeedVoiceId(v.voice_id)
+                            }
+                          }}>
+                          <SlidersHorizontal className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button size="sm" variant="ghost" className="w-8 h-8 p-0 text-destructive hover:text-destructive"
+                          onClick={() => handleDeleteVoice(v.voice_id)} disabled={deleteVoiceMut.isPending}>
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+
+                    {/* Inline speed editor */}
+                    {editingSpeedVoiceId === v.voice_id && (
+                      <div className="px-4 pb-3 pt-1 border-t border-border/50 bg-muted/20 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-xs font-semibold">Velocidad de voz</p>
+                            <p className="text-[10px] text-muted-foreground">Valores menores a 1.0 reducen pausas entre frases. Rango HeyGen: 0.5–1.5</p>
+                          </div>
+                          <span className="text-sm font-bold text-primary tabular-nums">{speedEditValue.toFixed(2)}×</span>
+                        </div>
+                        <Slider
+                          value={[speedEditValue]}
+                          min={0.5}
+                          max={1.5}
+                          step={0.05}
+                          onValueChange={([val]) => setSpeedEditValue(val)}
+                        />
+                        <div className="flex justify-between text-[10px] text-muted-foreground mb-1">
+                          <span>0.5× (lento)</span>
+                          <span className="text-foreground font-medium">1.0× (defecto)</span>
+                          <span>1.5× (rápido)</span>
+                        </div>
+                        <div className="flex gap-2 justify-end">
+                          <Button size="sm" variant="ghost" onClick={() => setEditingSpeedVoiceId(null)}>Cancelar</Button>
+                          <Button size="sm" onClick={() => handleSaveVoiceSpeed(v.voice_id)} disabled={updateVoiceMut.isPending} className="gap-1.5">
+                            {updateVoiceMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                            Guardar
                           </Button>
                         </div>
-                      ) : (
-                        <p className="text-sm font-medium truncate">{v.name}</p>
-                      )}
-                      <p className="text-xs text-muted-foreground">Clonada · {v.gender === "male" ? "Masculina" : v.gender === "female" ? "Femenina" : "Voz clonada"}</p>
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      {v.preview_audio_url && (
-                        <Button size="sm" variant="ghost" className="w-8 h-8 p-0"
-                          onClick={() => handlePlayPreview(v.voice_id, v.preview_audio_url!)}>
-                          {playingVoiceId === v.voice_id
-                            ? <Square className="w-3 h-3 fill-current" />
-                            : <Play className="w-3 h-3 fill-current" />}
-                        </Button>
-                      )}
-                      <Button size="sm" variant="ghost" className="w-8 h-8 p-0" onClick={() => setAssignVoice(v)}>
-                        <Users className="w-3.5 h-3.5" />
-                      </Button>
-                      <Button size="sm" variant="ghost" className="w-8 h-8 p-0"
-                        onClick={() => { setRenamingVoiceId(v.voice_id); setRenameValue(v.name) }}>
-                        <Pencil className="w-3.5 h-3.5" />
-                      </Button>
-                      <Button size="sm" variant="ghost" className="w-8 h-8 p-0 text-destructive hover:text-destructive"
-                        onClick={() => handleDeleteVoice(v.voice_id)} disabled={deleteVoiceMut.isPending}>
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
-                    </div>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
