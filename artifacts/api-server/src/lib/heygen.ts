@@ -1052,6 +1052,32 @@ export async function createPhotoAvatar(
 }
 
 /**
+ * Create a Digital Twin avatar from an uploaded video asset.
+ * Returns { look_id, group_id } — poll getAvatarLookStatus() until status = "completed".
+ * Processing typically takes 10–20 minutes for a Digital Twin vs 1–5 min for photo.
+ */
+export async function createDigitalTwinFromVideo(
+  name: string,
+  assetId: string,
+  apiKey?: string,
+): Promise<{ look_id: string; group_id: string }> {
+  const client = getClient(apiKey);
+  const res = await client.post(
+    "/v3/avatars",
+    { type: "video", name, file: { type: "asset_id", asset_id: assetId } },
+    { timeout: 30000 },
+  );
+  const data = res.data?.data;
+  const look_id: string = data?.avatar_item?.id ?? data?.look_id;
+  const group_id: string = data?.avatar_group?.id ?? data?.group_id;
+  if (!look_id || !group_id) {
+    logger.error({ data }, "[HeyGen] createDigitalTwinFromVideo: unexpected response shape");
+    throw new Error("HeyGen did not return avatar IDs — check HeyGen account permissions");
+  }
+  return { look_id, group_id };
+}
+
+/**
  * Delete a single avatar look. Only photo_avatar and digital_twin types are supported.
  * Studio avatar (prompt-created) looks cannot be deleted via API.
  * Deleting the last look in a group also deletes the parent group automatically.

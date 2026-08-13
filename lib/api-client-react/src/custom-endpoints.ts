@@ -811,6 +811,23 @@ export function useCreatePhotoAvatar() {
   });
 }
 
+/**
+ * Create a Digital Twin avatar from a video file in one request.
+ * Send FormData with fields: file (video MP4/MOV/WebM), name (string).
+ * Returns { look_id, group_id } — poll useHeyGenLookStatus() until completed.
+ * HeyGen typically takes 10–20 min to process a Digital Twin.
+ */
+export function useCreateDigitalTwinAvatar() {
+  return useMutation<{ look_id: string; group_id: string }, Error, FormData>({
+    mutationFn: (formData) =>
+      customFetch<{ look_id: string; group_id: string }>("/api/heygen/avatars/create-digital-twin", {
+        method: "POST",
+        body: formData,
+        // No Content-Type — browser sets multipart/form-data with boundary automatically
+      }),
+  });
+}
+
 /** Delete a single avatar look (photo_avatar / digital_twin only). */
 export function useDeleteAvatarLook() {
   return useMutation<{ ok: boolean }, Error, string>({

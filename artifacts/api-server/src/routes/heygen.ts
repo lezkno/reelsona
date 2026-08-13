@@ -86,6 +86,7 @@ import {
   getHeyGenQuota, validateHeyGenKey,
   listV3AvatarGroups, listV3GroupLooks,
   uploadAsset, createPhotoAvatar, createPromptAvatar, createAvatarLook,
+  createDigitalTwinFromVideo,
   deleteAvatarLook, deleteAvatarGroup, getAvatarLookStatus,
   cloneVoice, deleteVoice, renameVoice, getVoiceCloneStatus,
   invalidateLookCaches, invalidateDefaultVoiceCache, invalidateAvatarIdsCache,
@@ -144,8 +145,17 @@ function extractHeyGenError(err: any): { status: number; message: string; heygen
   return { status: heygenStatus >= 400 && heygenStatus < 600 ? heygenStatus : 500, message: heygenDetail, heygenStatus, heygenDetail };
 }
 
-// Multer: store file in memory (max 32 MB — HeyGen limit)
+// Multer: store file in memory (max 32 MB — HeyGen image limit)
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 32 * 1024 * 1024 } });
+// Multer for video uploads: MP4/MOV/WebM, max 512 MB for Digital Twin creation
+const videoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 512 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype.startsWith("video/")) cb(null, true);
+    else cb(new Error("Solo se permiten archivos de video (MP4, MOV o WebM)"));
+  },
+});
 // Multer for voice uploads: audio only, max 25 MB
 const voiceUpload = multer({
   storage: multer.memoryStorage(),
@@ -820,6 +830,37 @@ router.post("/heygen/avatars/create", async (req, res): Promise<void> => {
   } catch (err: any) {
     const { status, message, heygenStatus, heygenDetail } = extractHeyGenError(err);
     if (heygenStatus === 402) notifyHeyGenError("crear avatar (foto)", heygenStatus, heygenDetail);
+    res.status(status).json({ error: message });
+  }
+});
+
+/**
+ * POST /heygen/avatars/create-digital-twin — create a Digital Twin from a video recording.
+ * Accepts multipart/form-data with fields: file (video MP4/MOV/WebM) and name (string).
+ * Uploads the video to HeyGen /v3/assets, then submits a Digital Twin creation job.
+ * Returns { look_id, group_id } immediately — poll look status until "completed".
+ */
+router.post("/heygen/avatars/create-digital-twin", videoUpload.single("file"), async (req, res): Promise<void> => {
+  if (!req.file) {
+    res.status(400).json({ error: "Se requiere un archivo de video (campo: file)" });
+    return;
+  }
+  const name = req.body?.name;
+  if (!name || typeof name !== "string" || !name.trim()) {
+    res.status(400).json({ error: "name es requerido" });
+    return;
+  }
+  try {
+    const apiKey = await getUserHeyGenKey(req.session.user!.userId);
+    const { asset_id } = await uploadAsset(req.file.buffer, req.file.mimetype, req.file.originalname, apiKey);
+    const result = await createDigitalTwinFromVideo(name.trim(), asset_id, apiKey);
+    // Invalidate caches so the new avatar appears in the next listing
+    invalidateAvatarIdsCache(apiKey);
+    looksCache = null;
+    res.json(result);
+  } catch (err: any) {
+    const { status, message, heygenStatus, heygenDetail } = extractHeyGenError(err);
+    if (heygenStatus === 402) notifyHeyGenError("crear Digital Twin (video)", heygenStatus, heygenDetail);
     res.status(status).json({ error: message });
   }
 });

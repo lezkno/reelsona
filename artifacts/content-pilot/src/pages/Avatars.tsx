@@ -7,6 +7,7 @@ import {
   useCreatePhotoAvatar,
   useCreatePromptAvatar,
   useCreateAvatarLook,
+  useCreateDigitalTwinAvatar,
   useDeleteAvatarLook,
   useDeleteAvatarGroup,
   useHeyGenLookStatus,
@@ -1403,20 +1404,23 @@ function AssignVoiceDialog({
 
 // ── AvatarCreationDialog ──────────────────────────────────────────────────────
 
-type CreationMode = "photo" | "prompt"
+type CreationMode = "video" | "photo" | "prompt"
 type CreationStep = "configure" | "creating" | "done"
 
 function AvatarCreationDialog({
   onClose,
   onCreated,
+  onPendingVideoJob,
   voiceOptions = [],
 }: {
   onClose: () => void
   onCreated: (groupId: string, lookId: string, voiceId?: string) => void
+  /** Called when user dismisses the dialog while a Digital Twin is still processing. */
+  onPendingVideoJob?: (job: { lookId: string; groupId: string; name: string }) => void
   voiceOptions?: VoiceOption[]
 }) {
   const { toast } = useToast()
-  const [mode, setMode] = useState<CreationMode>("photo")
+  const [mode, setMode] = useState<CreationMode>("video")
   const [step, setStep] = useState<CreationStep>("configure")
 
   // Shared
@@ -1439,6 +1443,11 @@ function AvatarCreationDialog({
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const cameraStreamRef = useRef<MediaStream | null>(null)
 
+  // Video (Digital Twin) mode
+  const [videoFile, setVideoFile] = useState<File | null>(null)
+  const [dragOverVideo, setDragOverVideo] = useState(false)
+  const videoFileInputRef = useRef<HTMLInputElement>(null)
+
   // Prompt mode
   const [promptText, setPromptText] = useState("")
   const [pose, setPose] = useState("half_body")
@@ -1447,6 +1456,7 @@ function AvatarCreationDialog({
   const uploadAsset = useUploadHeyGenAsset()
   const createPhoto = useCreatePhotoAvatar()
   const createPrompt = useCreatePromptAvatar()
+  const createDigitalTwin = useCreateDigitalTwinAvatar()
   const { data: statusData } = useHeyGenLookStatus(lookId)
 
   // Advance when training completes
@@ -1458,14 +1468,34 @@ function AvatarCreationDialog({
     } else if (statusData.status === "failed") {
       toast({
         title: "Error al crear el avatar",
-        description: mode === "photo"
-          ? "No se pudo procesar la imagen. Usa una foto frontal con buena iluminación."
-          : "El sistema no pudo generar el avatar. Intenta ajustar la descripción.",
+        description: mode === "video"
+          ? "No se pudo procesar el video. Asegúrate de que muestre un rostro frontal con buena iluminación."
+          : mode === "photo"
+            ? "No se pudo procesar la imagen. Usa una foto frontal con buena iluminación."
+            : "El sistema no pudo generar el avatar. Intenta ajustar la descripción.",
         variant: "destructive",
       })
       setStep("configure")
     }
   }, [statusData?.status]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Video (Digital Twin) helpers
+  const handleVideoFile = (f: File) => {
+    if (!f.type.startsWith("video/")) {
+      toast({ title: "Formato no soportado", description: "Usa un video MP4, MOV o WebM.", variant: "destructive" })
+      return
+    }
+    if (f.size > 512 * 1024 * 1024) {
+      toast({ title: "Archivo muy grande", description: "El video debe pesar menos de 500 MB.", variant: "destructive" })
+      return
+    }
+    setVideoFile(f)
+  }
+
+  const handleVideoDrop = (e: React.DragEvent) => {
+    e.preventDefault(); setDragOverVideo(false)
+    const f = e.dataTransfer.files[0]; if (f) handleVideoFile(f)
+  }
 
   // Photo helpers
   const handleFile = (f: File) => {
@@ -1553,7 +1583,15 @@ function AvatarCreationDialog({
   const handleCreate = async () => {
     if (!name.trim()) return
     try {
-      if (mode === "photo") {
+      if (mode === "video") {
+        if (!videoFile) return
+        const formData = new FormData()
+        formData.append("file", videoFile)
+        formData.append("name", name.trim())
+        const result = await createDigitalTwin.mutateAsync(formData)
+        setLookId(result.look_id)
+        setGroupId(result.group_id)
+      } else if (mode === "photo") {
         if (!file) return
         const formData = new FormData()
         formData.append("file", file)
@@ -1582,15 +1620,27 @@ function AvatarCreationDialog({
     }
   }
 
-  const canSubmit = mode === "photo"
-    ? !!file && !!name.trim()
-    : !!promptText.trim() && !!name.trim()
+  const canSubmit =
+    mode === "video" ? !!videoFile && !!name.trim() :
+    mode === "photo" ? !!file && !!name.trim() :
+    !!promptText.trim() && !!name.trim()
 
-  const isPending = uploadAsset.isPending || createPhoto.isPending || createPrompt.isPending
+  const isPending = createDigitalTwin.isPending || uploadAsset.isPending || createPhoto.isPending || createPrompt.isPending
 
   return (
-    <Dialog open onOpenChange={(open) => { if (!open && step !== "creating") onClose() }}>
-      <DialogContent className={`sm:max-w-lg max-h-[calc(100dvh-2rem)] overflow-hidden p-5 gap-3 ${step === "creating" ? "[&>button]:hidden" : ""}`}>
+    <Dialog open onOpenChange={(open) => {
+      if (!open) {
+        if (mode === "video" && step === "creating" && lookId && groupId) {
+          // Digital Twin takes 10-20 min — allow dismissal and track job in background
+          onPendingVideoJob?.({ lookId, groupId, name })
+          onClose()
+        } else if (step !== "creating") {
+          onClose()
+        }
+        // photo/prompt creating steps still block dismissal (1-5 min, must wait)
+      }
+    }}>
+      <DialogContent className={`sm:max-w-lg max-h-[calc(100dvh-2rem)] overflow-hidden p-5 gap-3 ${step === "creating" && mode !== "video" ? "[&>button]:hidden" : ""}`}>
 
         {/* ── Configure step ── */}
         {step === "configure" && (
@@ -1602,25 +1652,49 @@ function AvatarCreationDialog({
               </DialogDescription>
             </DialogHeader>
 
-            {/* Mode selector — compact horizontal pills */}
-            <div className="grid grid-cols-2 gap-2">
+            {/* Mode selector — 3 vertical options, Digital Twin first */}
+            <div className="flex flex-col gap-2">
+              {/* Video — Recommended */}
+              <button
+                type="button"
+                onClick={() => setMode("video")}
+                className={`flex items-center gap-3 px-4 py-2.5 rounded-xl border text-left transition-all
+                  ${mode === "video" ? "border-primary bg-primary/5 shadow-sm" : "border-border hover:border-primary/40"}`}
+              >
+                <Video className={`w-5 h-5 shrink-0 ${mode === "video" ? "text-primary" : "text-muted-foreground"}`} />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-semibold">Digital Twin desde video</p>
+                    <span className="inline-flex items-center rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary leading-none">Recomendado</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5">Mejor naturalidad, Avatar V, identidad consistente</p>
+                </div>
+              </button>
+              {/* Photo */}
               <button
                 type="button"
                 onClick={() => setMode("photo")}
-                className={`h-14 flex flex-row items-center justify-start gap-2.5 px-3 py-2 rounded-lg border text-left transition-all
+                className={`flex items-center gap-3 px-4 py-2.5 rounded-xl border text-left transition-all
                   ${mode === "photo" ? "border-primary bg-primary/5 shadow-sm" : "border-border hover:border-primary/40"}`}
               >
-                <Camera className={`w-4 h-4 shrink-0 ${mode === "photo" ? "text-primary" : "text-muted-foreground"}`} />
-                <p className="text-sm font-semibold leading-tight">Desde una foto</p>
+                <Camera className={`w-5 h-5 shrink-0 ${mode === "photo" ? "text-primary" : "text-muted-foreground"}`} />
+                <div>
+                  <p className="text-sm font-semibold">Desde una foto</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Retrato PNG o JPG · compatibilidad</p>
+                </div>
               </button>
+              {/* Prompt */}
               <button
                 type="button"
                 onClick={() => setMode("prompt")}
-                className={`h-14 flex flex-row items-center justify-start gap-2.5 px-3 py-2 rounded-lg border text-left transition-all
+                className={`flex items-center gap-3 px-4 py-2.5 rounded-xl border text-left transition-all
                   ${mode === "prompt" ? "border-primary bg-primary/5 shadow-sm" : "border-border hover:border-primary/40"}`}
               >
-                <Sparkles className={`w-4 h-4 shrink-0 ${mode === "prompt" ? "text-primary" : "text-muted-foreground"}`} />
-                <p className="text-sm font-semibold leading-tight">Desde descripción</p>
+                <Sparkles className={`w-5 h-5 shrink-0 ${mode === "prompt" ? "text-primary" : "text-muted-foreground"}`} />
+                <div>
+                  <p className="text-sm font-semibold">Desde descripción con IA</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Genera un avatar desde texto · avanzado</p>
+                </div>
               </button>
             </div>
 
@@ -1637,6 +1711,57 @@ function AvatarCreationDialog({
                   disabled={isPending}
                 />
               </div>
+
+              {/* Video (Digital Twin) mode */}
+              {mode === "video" && (
+                <div className="space-y-2">
+                  <div
+                    className={`relative h-[120px] border-2 border-dashed rounded-xl transition-colors cursor-pointer flex items-center justify-center
+                      ${dragOverVideo ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"}
+                      ${videoFile ? "p-3 justify-start" : "p-3"}`}
+                    onDragOver={(e) => { e.preventDefault(); setDragOverVideo(true) }}
+                    onDragLeave={() => setDragOverVideo(false)}
+                    onDrop={handleVideoDrop}
+                    onClick={() => videoFileInputRef.current?.click()}
+                  >
+                    {videoFile ? (
+                      <div className="flex items-center gap-3 w-full">
+                        <div className="w-12 h-16 bg-muted rounded-lg border flex items-center justify-center shrink-0">
+                          <Video className="w-5 h-5 text-muted-foreground" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{videoFile.name}</p>
+                          <p className="text-xs text-muted-foreground">{(videoFile.size / 1024 / 1024).toFixed(1)} MB</p>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setVideoFile(null) }}
+                            className="text-xs text-destructive hover:underline mt-0.5"
+                          >
+                            Cambiar video
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-center">
+                        <Video className="w-6 h-6 mx-auto text-muted-foreground mb-1" />
+                        <p className="text-sm font-medium">Arrastra o haz clic para subir</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">MP4, MOV o WebM · máx. 500 MB</p>
+                      </div>
+                    )}
+                    <input
+                      ref={videoFileInputRef}
+                      type="file"
+                      accept="video/mp4,video/quicktime,video/webm"
+                      className="hidden"
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) handleVideoFile(f) }}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Graba 1–5 minutos hablando a cámara, buena iluminación, rostro frontal.
+                    HeyGen tardará 10–20 min en crear tu Digital Twin.
+                  </p>
+                </div>
+              )}
 
               {/* Photo mode */}
               {mode === "photo" && (
@@ -1838,25 +1963,47 @@ function AvatarCreationDialog({
             <DialogHeader>
               <DialogTitle>Creando tu avatar…</DialogTitle>
               <DialogDescription>
-                {mode === "photo"
-                  ? "El sistema está procesando tu foto. Esto puede tardar entre 1 y 5 minutos."
-                  : "La inteligencia artificial está generando tu avatar. Esto puede tardar unos minutos."}
+                {mode === "video"
+                  ? "HeyGen está entrenando tu Digital Twin. Esto puede tardar entre 10 y 20 minutos."
+                  : mode === "photo"
+                    ? "El sistema está procesando tu foto. Esto puede tardar entre 1 y 5 minutos."
+                    : "La inteligencia artificial está generando tu avatar. Esto puede tardar unos minutos."}
               </DialogDescription>
             </DialogHeader>
             <div className="py-8 text-center space-y-4">
               <div className="relative mx-auto w-16 h-16">
                 <Loader2 className="w-16 h-16 animate-spin text-primary/30" />
-                {mode === "photo"
-                  ? <Camera className="w-6 h-6 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-primary" />
-                  : <Sparkles className="w-6 h-6 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-primary" />}
+                {mode === "video"
+                  ? <Video className="w-6 h-6 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-primary" />
+                  : mode === "photo"
+                    ? <Camera className="w-6 h-6 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-primary" />
+                    : <Sparkles className="w-6 h-6 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-primary" />}
               </div>
               <div>
                 <p className="text-sm font-medium">
-                  {statusData?.status === "processing" ? "Generando el avatar…" : "Iniciando…"}
+                  {statusData?.status === "processing" ? "Procesando…" : "Iniciando…"}
                 </p>
-                <p className="text-xs text-muted-foreground mt-1">No cierres esta ventana</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {mode === "video"
+                    ? "Puedes cerrar esta ventana — recibirás una notificación al terminar"
+                    : "No cierres esta ventana"}
+                </p>
               </div>
             </div>
+            {mode === "video" && (
+              <DialogFooter className="pt-1">
+                <Button
+                  variant="outline"
+                  className="h-9 w-full"
+                  onClick={() => {
+                    if (lookId && groupId) onPendingVideoJob?.({ lookId, groupId, name })
+                    onClose()
+                  }}
+                >
+                  Cerrar — continuar en segundo plano
+                </Button>
+              </DialogFooter>
+            )}
           </>
         )}
 
@@ -1884,7 +2031,7 @@ function AvatarCreationDialog({
               <div>
                 <p className="font-semibold">{name}</p>
                 <p className="text-xs text-muted-foreground">
-                  {mode === "photo" ? "Avatar desde foto" : "Avatar generado por IA"} · listo para usar
+                  {mode === "video" ? "Digital Twin" : mode === "photo" ? "Avatar desde foto" : "Avatar generado por IA"} · listo para usar
                 </p>
               </div>
             </div>
@@ -2035,10 +2182,27 @@ export default function Avatars() {
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const autoSaveReadyRef = useRef(false)
   const [showCreation, setShowCreation] = useState(false)
+  // Tracks a Digital Twin job that was dismissed from the dialog while still processing
+  const [pendingVideoJob, setPendingVideoJob] = useState<{ lookId: string; groupId: string; name: string } | null>(null)
 
   // ── My Avatar tab ─────────────────────────────────────────────────────────
   const { data: myData, isLoading: isLoadingMy, refetch: refetchMy } = useMyHeyGenAvatarGroups()
   const myGroups: V3Group[] = myData?.groups ?? []
+
+  // ── Background Digital Twin poller ────────────────────────────────────────
+  // Polls the status of a Digital Twin job after the user dismisses the creation dialog.
+  const { data: pendingVideoStatus } = useHeyGenLookStatus(pendingVideoJob?.lookId ?? null)
+  useEffect(() => {
+    if (!pendingVideoJob || !pendingVideoStatus) return
+    if (pendingVideoStatus.status === "completed") {
+      toast({ title: "¡Digital Twin listo!", description: `"${pendingVideoJob.name}" ya está disponible en tu pestaña Mi Avatar.` })
+      void refetchMy()
+      setPendingVideoJob(null)
+    } else if (pendingVideoStatus.status === "failed") {
+      toast({ title: "Error al crear el Digital Twin", description: `"${pendingVideoJob.name}" no pudo procesarse. Intenta subir un video diferente.`, variant: "destructive" })
+      setPendingVideoJob(null)
+    }
+  }, [pendingVideoStatus?.status]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Pre-fetch looks for all private groups so the "Solo en uso" filter works
   // without requiring the user to open each dialog first.
@@ -2707,19 +2871,19 @@ export default function Avatars() {
             /* Empty state — no avatars at all */
             <div className="border-2 border-dashed rounded-2xl p-12 text-center flex flex-col items-center gap-4">
               <div className="w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center">
-                <Camera className="w-8 h-8 text-primary" />
+                <Video className="w-8 h-8 text-primary" />
               </div>
               <div>
-                <h3 className="text-lg font-bold font-display">Todavía no tienes un avatar</h3>
-                <p className="text-muted-foreground text-sm mt-1 max-w-xs mx-auto">
-                  Sube una foto de retrato para crear tu avatar y que hable en tus videos.
+                <h3 className="text-lg font-bold font-display">Crea tu Digital Twin</h3>
+                <p className="text-muted-foreground text-sm mt-1 max-w-sm mx-auto">
+                  Graba un video corto hablando a cámara y HeyGen creará un avatar con tu voz, gestos e identidad visual — listo para Avatar V.
                 </p>
               </div>
               <Button onClick={() => setShowCreation(true)} className="gap-2 mt-2">
                 <Plus className="w-4 h-4" />
-                Crear mi primer avatar
+                Crear mi Digital Twin
               </Button>
-              <p className="text-xs text-muted-foreground">PNG o JPG · retrato frontal · buena iluminación</p>
+              <p className="text-xs text-muted-foreground">También puedes crear tu avatar desde una foto o descripción con IA</p>
             </div>
           ) : filteredMyGroups.length === 0 ? (
             /* Empty state — filter active but no matches */
@@ -3191,9 +3355,13 @@ export default function Avatars() {
         <AvatarCreationDialog
           onClose={() => setShowCreation(false)}
           voiceOptions={spanishVoices}
+          onPendingVideoJob={(job) => {
+            setPendingVideoJob(job)
+            setShowCreation(false)
+          }}
           onCreated={(gId, lId, voiceId) => {
             setShowCreation(false)
-            refetchMy()
+            void refetchMy()
             const newLookId = `tp:${lId}`
             setLookGroupMap(prev => ({ ...prev, [newLookId]: gId }))
             if (voiceId) {
