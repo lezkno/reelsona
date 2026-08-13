@@ -238,6 +238,7 @@ export type ContentPlanItemStatus = typeof ContentPlanItemStatus[keyof typeof Co
 
 export const ContentPlanItemStatus = {
   draft: 'draft',
+  scripting: 'scripting',
   scripted: 'scripted',
   generating: 'generating',
   ready: 'ready',

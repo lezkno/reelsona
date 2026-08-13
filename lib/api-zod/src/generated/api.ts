@@ -273,7 +273,7 @@ export const getContentPlanQueryStatusDefault = `all`;
 export const getContentPlanQueryLimitDefault = 30;
 
 export const GetContentPlanQueryParams = zod.object({
-  "status": zod.enum(['draft', 'scripted', 'generating', 'ready', 'published', 'failed', 'all']).default(getContentPlanQueryStatusDefault),
+  "status": zod.enum(['draft', 'scripting', 'scripted', 'generating', 'ready', 'published', 'failed', 'all']).default(getContentPlanQueryStatusDefault),
   "limit": zod.coerce.number().default(getContentPlanQueryLimitDefault)
 })
 
@@ -288,7 +288,7 @@ export const GetContentPlanResponseItem = zod.object({
   "caption": zod.string().nullish(),
   "hashtags": zod.string().nullish(),
   "scheduled_at": zod.string().nullish(),
-  "status": zod.enum(['draft', 'scripted', 'generating', 'ready', 'published', 'failed']),
+  "status": zod.enum(['draft', 'scripting', 'scripted', 'generating', 'ready', 'published', 'failed']),
   "video_id": zod.number().nullish(),
   "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish().describe('Caption Studio processing state for the associated video'),
   "copy_status": zod.union([zod.literal('pending'),zod.literal('processing'),zod.literal('generating'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish().describe('IG copy generation state'),
@@ -343,7 +343,7 @@ export const GenerateContentPlanResponseItem = zod.object({
   "caption": zod.string().nullish(),
   "hashtags": zod.string().nullish(),
   "scheduled_at": zod.string().nullish(),
-  "status": zod.enum(['draft', 'scripted', 'generating', 'ready', 'published', 'failed']),
+  "status": zod.enum(['draft', 'scripting', 'scripted', 'generating', 'ready', 'published', 'failed']),
   "video_id": zod.number().nullish(),
   "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish().describe('Caption Studio processing state for the associated video'),
   "copy_status": zod.union([zod.literal('pending'),zod.literal('processing'),zod.literal('generating'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish().describe('IG copy generation state'),
@@ -397,7 +397,7 @@ export const CreateContentItemResponse = zod.object({
   "caption": zod.string().nullish(),
   "hashtags": zod.string().nullish(),
   "scheduled_at": zod.string().nullish(),
-  "status": zod.enum(['draft', 'scripted', 'generating', 'ready', 'published', 'failed']),
+  "status": zod.enum(['draft', 'scripting', 'scripted', 'generating', 'ready', 'published', 'failed']),
   "video_id": zod.number().nullish(),
   "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish().describe('Caption Studio processing state for the associated video'),
   "copy_status": zod.union([zod.literal('pending'),zod.literal('processing'),zod.literal('generating'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish().describe('IG copy generation state'),
@@ -480,7 +480,7 @@ export const GetContentItemResponse = zod.object({
   "caption": zod.string().nullish(),
   "hashtags": zod.string().nullish(),
   "scheduled_at": zod.string().nullish(),
-  "status": zod.enum(['draft', 'scripted', 'generating', 'ready', 'published', 'failed']),
+  "status": zod.enum(['draft', 'scripting', 'scripted', 'generating', 'ready', 'published', 'failed']),
   "video_id": zod.number().nullish(),
   "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish().describe('Caption Studio processing state for the associated video'),
   "copy_status": zod.union([zod.literal('pending'),zod.literal('processing'),zod.literal('generating'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish().describe('IG copy generation state'),
@@ -544,7 +544,7 @@ export const UpdateContentItemResponse = zod.object({
   "caption": zod.string().nullish(),
   "hashtags": zod.string().nullish(),
   "scheduled_at": zod.string().nullish(),
-  "status": zod.enum(['draft', 'scripted', 'generating', 'ready', 'published', 'failed']),
+  "status": zod.enum(['draft', 'scripting', 'scripted', 'generating', 'ready', 'published', 'failed']),
   "video_id": zod.number().nullish(),
   "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish().describe('Caption Studio processing state for the associated video'),
   "copy_status": zod.union([zod.literal('pending'),zod.literal('processing'),zod.literal('generating'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish().describe('IG copy generation state'),

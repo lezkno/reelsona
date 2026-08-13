@@ -1,4 +1,4 @@
-import { useGetHeyGenVoices, useGetAvatarConfig, useUpdateAvatarConfig, getGetAvatarConfigQueryKey, getGetHeyGenVoicesQueryKey, AvatarConfigRotationStrategy } from "@workspace/api-client-react"
+import { useGetHeyGenVoices, useGetAvatarConfig, useUpdateAvatarConfig, getGetAvatarConfigQueryKey, getGetHeyGenVoicesQueryKey, getGetHeyGenAllLooksQueryKey, AvatarConfigRotationStrategy } from "@workspace/api-client-react"
 import {
   useMyHeyGenAvatarGroups,
   usePublicHeyGenAvatarGroups,
@@ -186,6 +186,8 @@ function NewLookDialog({
     if (statusData.status === "completed") {
       queryClient.invalidateQueries({ queryKey: ["heygen", "v3-group-looks", group.id] })
       queryClient.invalidateQueries({ queryKey: ["heygen", "my-avatar-groups"] })
+      // Bust the flat all-looks cache so ContentPlan's avatar picker shows the new look immediately
+      queryClient.invalidateQueries({ queryKey: getGetHeyGenAllLooksQueryKey() })
       setStep("done")
     } else if (statusData.status === "failed") {
       toast({

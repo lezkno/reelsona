@@ -697,6 +697,7 @@ router.post("/heygen/avatars/looks/:lookId/new-look", async (req, res): Promise<
   if (!group_id || typeof group_id !== "string" || !group_id.trim()) { res.status(400).json({ error: "group_id es requerido" }); return; }
   try {
     const result = await createAvatarLook(lookId, group_id.trim(), name.trim(), prompt.trim(), { pose: pose ?? "half_body" });
+    looksCache = null; // invalidate flat-looks cache so the new look appears immediately
     res.json(result);
   } catch (err: any) {
     const { status, message, heygenStatus, heygenDetail } = extractHeyGenError(err);
@@ -724,6 +725,7 @@ router.post("/heygen/avatars/create-prompt", async (req, res): Promise<void> => 
       orientation: orientation ?? "vertical",
       pose: pose ?? "half_body",
     });
+    looksCache = null; // invalidate flat-looks cache so the new avatar appears immediately
     res.json(result);
   } catch (err: any) {
     const { status, message, heygenStatus, heygenDetail } = extractHeyGenError(err);
@@ -749,6 +751,7 @@ router.post("/heygen/avatars/create", async (req, res): Promise<void> => {
   }
   try {
     const result = await createPhotoAvatar(name.trim(), asset_id.trim());
+    looksCache = null; // invalidate flat-looks cache so the new avatar appears immediately
     res.json(result);
   } catch (err: any) {
     const { status, message, heygenStatus, heygenDetail } = extractHeyGenError(err);
