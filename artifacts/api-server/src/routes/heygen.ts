@@ -88,16 +88,31 @@ import {
   deleteAvatarLook, deleteAvatarGroup, getAvatarLookStatus,
   cloneVoice, deleteVoice, renameVoice, getVoiceCloneStatus,
 } from "../lib/heygen";
+import { sendEmail } from "../lib/email";
+
+const ALERT_EMAIL = "foto.lezkno@gmail.com";
+
+/** Fire-and-forget alert email to the ops address. Never throws. */
+function notifyHeyGenError(action: string, heygenStatus: number, detail: string): void {
+  sendEmail({
+    to: ALERT_EMAIL,
+    subject: `⚠️ Reelsona — Error HeyGen ${heygenStatus} en "${action}"`,
+    html: `<p>Se produjo un error <strong>${heygenStatus}</strong> al llamar a HeyGen en la acción <strong>${action}</strong>.</p>
+<p><strong>Detalle:</strong> ${detail}</p>
+<p><em>Este email se genera automáticamente desde el servidor de Reelsona.</em></p>`,
+    text: `Error HeyGen ${heygenStatus} en "${action}". Detalle: ${detail}`,
+  }).catch(() => { /* no bloquear el flujo principal */ });
+}
 
 /**
  * Extract a human-readable error from a HeyGen axios error.
  * Returns { status, message } where status is the HTTP status code HeyGen returned
  * and message is the most specific text available (prefers HeyGen's own body content).
  */
-function extractHeyGenError(err: any): { status: number; message: string } {
-  const status: number = err?.response?.status ?? 500;
+function extractHeyGenError(err: any): { status: number; message: string; heygenStatus: number; heygenDetail: string } {
+  const heygenStatus: number = err?.response?.status ?? 500;
   const body = err?.response?.data as any;
-  const heygenMsg: string =
+  const heygenDetail: string =
     body?.message ??
     body?.error?.message ??
     body?.error ??
@@ -105,26 +120,26 @@ function extractHeyGenError(err: any): { status: number; message: string } {
     err?.message ??
     "Error desconocido";
 
-  // Translate common HeyGen HTTP codes into user-friendly Spanish messages.
-  if (status === 402) {
+  if (heygenStatus === 402) {
     return {
-      status: 402,
+      status: 502,
       message:
-        "Tu cuenta de HeyGen no tiene créditos suficientes para realizar esta acción. " +
-        "Visita heygen.com para recargar tu plan. " +
-        `(Detalle: ${heygenMsg})`,
+        "En este momento no podemos completar su solicitud. Reintenta de nuevo más tarde. " +
+        "Si el problema persiste contacte con soporte.",
+      heygenStatus,
+      heygenDetail,
     };
   }
-  if (status === 401) {
-    return { status: 401, message: "La API Key de HeyGen es inválida o expiró." };
+  if (heygenStatus === 401) {
+    return { status: 401, message: "La API Key de HeyGen es inválida o expiró.", heygenStatus, heygenDetail };
   }
-  if (status === 403) {
-    return { status: 403, message: "Tu cuenta de HeyGen no tiene permiso para realizar esta acción." };
+  if (heygenStatus === 403) {
+    return { status: 403, message: "Tu cuenta de HeyGen no tiene permiso para realizar esta acción.", heygenStatus, heygenDetail };
   }
-  if (status === 429) {
-    return { status: 429, message: "Demasiadas solicitudes a HeyGen. Espera un momento e intenta de nuevo." };
+  if (heygenStatus === 429) {
+    return { status: 429, message: "Demasiadas solicitudes a HeyGen. Espera un momento e intenta de nuevo.", heygenStatus, heygenDetail };
   }
-  return { status: status >= 400 && status < 600 ? status : 500, message: heygenMsg };
+  return { status: heygenStatus >= 400 && heygenStatus < 600 ? heygenStatus : 500, message: heygenDetail, heygenStatus, heygenDetail };
 }
 
 // Multer: store file in memory (max 32 MB — HeyGen limit)
@@ -684,7 +699,8 @@ router.post("/heygen/avatars/looks/:lookId/new-look", async (req, res): Promise<
     const result = await createAvatarLook(lookId, group_id.trim(), name.trim(), prompt.trim(), { pose: pose ?? "half_body" });
     res.json(result);
   } catch (err: any) {
-    const { status, message } = extractHeyGenError(err);
+    const { status, message, heygenStatus, heygenDetail } = extractHeyGenError(err);
+    if (heygenStatus === 402) notifyHeyGenError("crear look", heygenStatus, heygenDetail);
     res.status(status).json({ error: message });
   }
 });
@@ -710,7 +726,8 @@ router.post("/heygen/avatars/create-prompt", async (req, res): Promise<void> => 
     });
     res.json(result);
   } catch (err: any) {
-    const { status, message } = extractHeyGenError(err);
+    const { status, message, heygenStatus, heygenDetail } = extractHeyGenError(err);
+    if (heygenStatus === 402) notifyHeyGenError("crear avatar (prompt)", heygenStatus, heygenDetail);
     res.status(status).json({ error: message });
   }
 });
@@ -734,7 +751,8 @@ router.post("/heygen/avatars/create", async (req, res): Promise<void> => {
     const result = await createPhotoAvatar(name.trim(), asset_id.trim());
     res.json(result);
   } catch (err: any) {
-    const { status, message } = extractHeyGenError(err);
+    const { status, message, heygenStatus, heygenDetail } = extractHeyGenError(err);
+    if (heygenStatus === 402) notifyHeyGenError("crear avatar (foto)", heygenStatus, heygenDetail);
     res.status(status).json({ error: message });
   }
 });
