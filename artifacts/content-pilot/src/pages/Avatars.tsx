@@ -1537,7 +1537,9 @@ function AvatarCreationDialog({
       videoStreamRef.current = stream
       setVideoStream(stream)
       videoChunksRef.current = []
-      const mr = new MediaRecorder(stream)
+      // Cap bitrate to keep recordings under 20 MB — HeyGen's asset upload has a size limit.
+      // At 1 Mbps video + 96 kbps audio a 2.5-min clip is ≈ 17 MB.
+      const mr = new MediaRecorder(stream, { videoBitsPerSecond: 1_000_000, audioBitsPerSecond: 96_000 })
       mr.ondataavailable = e => { if (e.data.size > 0) videoChunksRef.current.push(e.data) }
       mr.onstop = () => {
         stopVideoStream()
