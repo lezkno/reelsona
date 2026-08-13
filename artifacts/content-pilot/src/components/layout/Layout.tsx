@@ -8,30 +8,11 @@ import { useEntitlement } from "@/hooks/useEntitlement"
 import { useAuthStatus } from "@workspace/api-client-react"
 import { cn } from "@/lib/utils"
 
-// ── Page title map (kept in sync with NAV_ITEMS) ─────────────────────────────
-
-const PAGE_TITLES: Record<string, string> = {
-  "/":           "Dashboard",
-  "/course":     "Academia",
-  "/connect":    "Instagram",
-  "/audit":      "Auditoría",
-  "/content":    "Plan de Contenido",
-  "/avatars":    "Avatares",
-  "/videos":     "Videos",
-  "/captions":   "Studio de Efectos",
-  "/automation": "Automatización",
-  "/settings":   "Configuración",
-  "/profile":    "Mi Perfil",
-  "/users":      "Usuarios",
-}
-
 // ── Top bar ───────────────────────────────────────────────────────────────────
 
 function TopBar({ onMenuOpen }: { onMenuOpen: () => void }) {
-  const [location] = useLocation()
   const { data: authData } = useAuthStatus()
 
-  const pageTitle = PAGE_TITLES[location] ?? ""
   const user = authData?.user
   const displayName = user ? (user.fullName || user.username) : ""
   const initials = displayName
@@ -57,13 +38,6 @@ function TopBar({ onMenuOpen }: { onMenuOpen: () => void }) {
         <img src="/logo.png" alt="Reelsona" className="w-7 h-7 object-contain" />
         <span className="font-display font-bold text-sidebar-foreground tracking-tight">Reelsona</span>
       </div>
-
-      {/* ── Desktop: current page title ── */}
-      {pageTitle && (
-        <h1 className="hidden md:block text-sm font-semibold text-sidebar-foreground/70 tracking-wide">
-          {pageTitle}
-        </h1>
-      )}
 
       {/* ── Spacer ── */}
       <div className="flex-1" />
