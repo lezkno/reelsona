@@ -929,13 +929,19 @@ router.post("/heygen/avatars/create-digital-twin", videoUpload.single("file"), a
     res.status(400).json({ error: "Se requiere un archivo de video (campo: file)" });
     return;
   }
-  // Validate MIME type here (not in fileFilter) so we can return JSON instead of HTML 500.
-  // Browser-recorded WebM blobs often arrive as "application/octet-stream" — also accepted.
+  // Log the actual MIME type for diagnostics. Browser-recorded WebM blobs can arrive
+  // as "video/webm", "video/webm;codecs=vp8,opus", "application/octet-stream", or even
+  // empty string depending on the browser. This is a dedicated endpoint — accept any
+  // MIME type and let HeyGen validate the actual video content.
   const mime = req.file.mimetype;
-  if (!mime.startsWith("video/") && mime !== "application/octet-stream") {
+  logger.info({ mime, size: req.file.size, originalname: req.file.originalname }, "[DigitalTwin] Incoming video upload");
+  if (mime && !mime.startsWith("video/") && !mime.startsWith("application/") && mime !== "") {
+    // Reject clearly non-video content (e.g. images) but allow octet-stream and unknowns
     res.status(400).json({ error: "Solo se permiten archivos de video (MP4, MOV o WebM)" });
     return;
   }
+  // When MIME is missing or generic, force video/webm so HeyGen asset upload has a valid type
+  const effectiveMime = (mime && mime.startsWith("video/")) ? mime : "video/webm";
   const name = req.body?.name;
   if (!name || typeof name !== "string" || !name.trim()) {
     res.status(400).json({ error: "name es requerido" });
@@ -943,7 +949,7 @@ router.post("/heygen/avatars/create-digital-twin", videoUpload.single("file"), a
   }
   try {
     const apiKey = await getUserHeyGenKey(req.session.user!.userId);
-    const { asset_id } = await uploadAsset(req.file.buffer, req.file.mimetype, req.file.originalname, apiKey);
+    const { asset_id } = await uploadAsset(req.file.buffer, effectiveMime, req.file.originalname, apiKey);
     const result = await createDigitalTwinFromVideo(name.trim(), asset_id, apiKey);
     // Invalidate caches so the new avatar appears in the next listing
     invalidateAvatarIdsCache(apiKey);
