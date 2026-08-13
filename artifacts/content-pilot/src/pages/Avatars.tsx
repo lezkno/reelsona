@@ -1541,8 +1541,12 @@ function AvatarCreationDialog({
       mr.ondataavailable = e => { if (e.data.size > 0) videoChunksRef.current.push(e.data) }
       mr.onstop = () => {
         stopVideoStream()
-        const blob = new Blob(videoChunksRef.current, { type: mr.mimeType || "video/webm" })
-        const recFile = new File([blob], "grabacion-digital-twin.webm", { type: blob.type })
+        const mimeType = mr.mimeType || "video/webm"
+        const blob = new Blob(videoChunksRef.current, { type: mimeType })
+        // Ensure the File always carries a video/* MIME type — some browsers clear
+        // mr.mimeType before onstop fires, which would leave blob.type empty and
+        // cause the server's MIME type check to reject the upload.
+        const recFile = new File([blob], "grabacion-digital-twin.webm", { type: blob.type || "video/webm" })
         setVideoFile(recFile)
         setVideoRecState("preview")
         if (videoTimerRef.current) { clearInterval(videoTimerRef.current); videoTimerRef.current = null }

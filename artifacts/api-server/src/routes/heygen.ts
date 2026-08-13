@@ -155,14 +155,13 @@ function extractHeyGenError(err: any): { status: number; message: string; heygen
 
 // Multer: store file in memory (max 32 MB — HeyGen image limit)
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 32 * 1024 * 1024 } });
-// Multer for video uploads: MP4/MOV/WebM, max 512 MB for Digital Twin creation
+// Multer for video uploads: MP4/MOV/WebM, max 512 MB for Digital Twin creation.
+// No fileFilter here — MIME type is validated inside the route handler so we can
+// return a proper JSON error instead of an HTML 500. Browser-recorded WebM blobs
+// sometimes arrive as "application/octet-stream", which is also accepted.
 const videoUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 512 * 1024 * 1024 },
-  fileFilter: (_req, file, cb) => {
-    if (file.mimetype.startsWith("video/")) cb(null, true);
-    else cb(new Error("Solo se permiten archivos de video (MP4, MOV o WebM)"));
-  },
 });
 // Multer for voice uploads: audio only, max 25 MB
 const voiceUpload = multer({
@@ -928,6 +927,13 @@ router.post("/heygen/avatars/create", async (req, res): Promise<void> => {
 router.post("/heygen/avatars/create-digital-twin", videoUpload.single("file"), async (req, res): Promise<void> => {
   if (!req.file) {
     res.status(400).json({ error: "Se requiere un archivo de video (campo: file)" });
+    return;
+  }
+  // Validate MIME type here (not in fileFilter) so we can return JSON instead of HTML 500.
+  // Browser-recorded WebM blobs often arrive as "application/octet-stream" — also accepted.
+  const mime = req.file.mimetype;
+  if (!mime.startsWith("video/") && mime !== "application/octet-stream") {
+    res.status(400).json({ error: "Solo se permiten archivos de video (MP4, MOV o WebM)" });
     return;
   }
   const name = req.body?.name;
