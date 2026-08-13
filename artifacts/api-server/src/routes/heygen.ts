@@ -8,7 +8,7 @@ import { promisify } from "util";
 import os from "os";
 import fs from "fs/promises";
 import path from "path";
-import { objectStorageClient } from "../lib/objectStorage";
+import { objectStorageClient, getSignedCaptionedVideoUrl } from "../lib/objectStorage";
 
 const execFileAsync = promisify(execFile);
 
@@ -38,21 +38,22 @@ async function convertToWav(inputBuffer: Buffer, inputExt: string): Promise<Buff
 }
 
 /**
- * Upload an audio buffer to GCS and return a public URL accessible by HeyGen.
- * Uses the same captioned-objects route that serves captioned videos.
+ * Upload an audio buffer to GCS and return a signed URL directly from GCS.
+ * HeyGen v3 requires a publicly accessible URL — our Replit dev proxy domain
+ * is NOT reachable from HeyGen's servers, so we bypass it with a signed GCS URL.
+ * TTL of 2 h is well above the typical HeyGen voice processing time of 2–5 min.
  */
 async function uploadAudioForCloning(audioBuffer: Buffer, userId: number): Promise<string> {
   const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
   if (!bucketId) throw new Error("DEFAULT_OBJECT_STORAGE_BUCKET_ID not set");
-  const domain = process.env.REPLIT_DEV_DOMAIN;
-  if (!domain) throw new Error("REPLIT_DEV_DOMAIN not set");
 
   const objectName = `voice-audio/user_${userId}_${Date.now()}.wav`;
   const bucket = objectStorageClient.bucket(bucketId);
   const gcsFile = bucket.file(objectName);
   await gcsFile.save(audioBuffer, { contentType: "audio/wav" });
 
-  return `https://${domain}/api/captioned-objects/${objectName}`;
+  // Return a signed GCS URL (bypasses our Replit proxy which HeyGen cannot reach)
+  return getSignedCaptionedVideoUrl(objectName, 2 * 3600);
 }
 
 /** Returns Reelsona's centralized HeyGen API key.
@@ -77,7 +78,7 @@ import {
   listV3AvatarGroups, listV3GroupLooks,
   uploadAsset, createPhotoAvatar, createPromptAvatar, createAvatarLook,
   deleteAvatarLook, deleteAvatarGroup, getAvatarLookStatus,
-  cloneVoice, deleteVoice, renameVoice,
+  cloneVoice, deleteVoice, renameVoice, getVoiceCloneStatus,
 } from "../lib/heygen";
 
 // Multer: store file in memory (max 32 MB — HeyGen limit)
@@ -132,22 +133,45 @@ router.get("/heygen/voices", async (req, res): Promise<void> => {
     status: myCloneIds.has(v.voice_id) ? "ready" : null,
   }));
 
-  // Pending clones: in our DB but not yet available in HeyGen's list
-  const pendingEntries = myClones
-    .filter(c => c.status === "pending" && !heygenIds.has(c.voiceId))
-    .map(c => ({
-      voice_id: c.voiceId,
-      name: c.displayName,
-      language: "es",
-      gender: null as string | null,
-      preview_audio_url: null as string | null,
-      is_cloned: true,
-      is_mine: true,
-      speed: c.speed ?? null,
-      status: "pending",
-    }));
+  // Clones not yet in HeyGen's voice list (pending or failed)
+  const inProgressClones = myClones.filter(
+    c => (c.status === "pending" || c.status === "failed") && !heygenIds.has(c.voiceId)
+  );
 
-  res.json(GetHeyGenVoicesResponse.parse([...pendingEntries, ...mapped]));
+  const inProgressEntries = inProgressClones.map(c => ({
+    voice_id: c.voiceId,
+    name: c.displayName,
+    language: "es",
+    gender: null as string | null,
+    preview_audio_url: null as string | null,
+    is_cloned: true,
+    is_mine: true,
+    speed: c.speed ?? null,
+    status: c.status ?? "pending",
+  }));
+
+  // Fire-and-forget: sync HeyGen status for pending voices so the DB stays current.
+  // The next poll (every 8 s from the frontend) will reflect the updated state.
+  const pendingClones = myClones.filter(c => c.status === "pending" && !heygenIds.has(c.voiceId));
+  if (pendingClones.length > 0) {
+    (async () => {
+      const apiKeyForSync = await getUserHeyGenKey(userId);
+      for (const clone of pendingClones) {
+        try {
+          const result = await getVoiceCloneStatus(clone.voiceId, apiKeyForSync);
+          if (!result) continue;
+          if (result.status === "failed") {
+            await db.update(heygenClonedVoicesTable)
+              .set({ status: "failed" })
+              .where(and(eq(heygenClonedVoicesTable.userId, userId), eq(heygenClonedVoicesTable.voiceId, clone.voiceId)));
+          }
+          // "completed" voices will appear in HeyGen's list on the next poll
+        } catch { /* ignore */ }
+      }
+    })();
+  }
+
+  res.json(GetHeyGenVoicesResponse.parse([...inProgressEntries, ...mapped]));
 });
 
 /**

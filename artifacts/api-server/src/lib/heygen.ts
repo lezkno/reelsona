@@ -267,6 +267,27 @@ export async function cloneVoice(
 }
 
 /**
+ * Poll the processing status of a voice clone via GET /v3/voices/{voice_clone_id}.
+ * Returns "pending" | "processing" | "completed" | "failed" or null on network error.
+ */
+export async function getVoiceCloneStatus(
+  voiceCloneId: string,
+  apiKey?: string,
+): Promise<{ status: string; failureMessage?: string } | null> {
+  try {
+    const client = getClient(apiKey);
+    const res = await client.get(`/v3/voices/${encodeURIComponent(voiceCloneId)}`);
+    const data = res.data?.data ?? {};
+    return {
+      status: data.status ?? "unknown",
+      failureMessage: data.failure_message ?? undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Delete a cloned voice by its voice_id.
  * Only works for voices created via clone — HeyGen rejects deletion of built-in voices.
  */

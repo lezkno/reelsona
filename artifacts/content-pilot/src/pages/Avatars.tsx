@@ -2701,17 +2701,21 @@ export default function Avatars() {
               <div className="space-y-2">
                 {allVoices.filter(v => v.is_mine && (!voiceSearch || v.name.toLowerCase().includes(voiceSearch.toLowerCase()))).map(v => {
                   const isPending = v.status === "pending"
+                  const isFailed  = v.status === "failed"
+                  const isLocked  = isPending || isFailed
                   return (
-                  <div key={v.voice_id} className="rounded-xl border bg-card overflow-hidden">
-                    <div className={`flex items-center gap-3 p-3 transition-colors ${isPending ? "opacity-80" : "hover:bg-muted/40"}`}>
-                      {/* Icon — spinner while pending */}
-                      <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                  <div key={v.voice_id} className={`rounded-xl border bg-card overflow-hidden ${isFailed ? "border-destructive/40" : ""}`}>
+                    <div className={`flex items-center gap-3 p-3 transition-colors ${isLocked ? "opacity-80" : "hover:bg-muted/40"}`}>
+                      {/* Icon */}
+                      <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${isFailed ? "bg-destructive/10" : "bg-primary/10"}`}>
                         {isPending
                           ? <Loader2 className="w-4 h-4 text-primary animate-spin" />
-                          : <Mic className="w-4 h-4 text-primary" />}
+                          : isFailed
+                            ? <Mic className="w-4 h-4 text-destructive" />
+                            : <Mic className="w-4 h-4 text-primary" />}
                       </div>
                       <div className="flex-1 min-w-0">
-                        {!isPending && renamingVoiceId === v.voice_id ? (
+                        {!isLocked && renamingVoiceId === v.voice_id ? (
                           <div className="flex gap-2 items-center">
                             <input
                               autoFocus
@@ -2731,8 +2735,12 @@ export default function Avatars() {
                           <p className="text-sm font-medium truncate">{v.name}</p>
                         )}
                         {isPending ? (
-                          <p className="text-xs text-amber-500 font-medium flex items-center gap-1">
+                          <p className="text-xs text-amber-500 font-medium">
                             Procesando tu voz · aprox. 2–5 min
+                          </p>
+                        ) : isFailed ? (
+                          <p className="text-xs text-destructive font-medium">
+                            Falló el procesamiento · elimínala e intenta de nuevo
                           </p>
                         ) : (
                           <p className="text-xs text-muted-foreground">
@@ -2742,7 +2750,7 @@ export default function Avatars() {
                         )}
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
-                        {!isPending && v.preview_audio_url && (
+                        {!isLocked && v.preview_audio_url && (
                           <Button size="sm" variant="ghost" className="w-8 h-8 p-0"
                             onClick={() => handlePlayPreview(v.voice_id, v.preview_audio_url!)}>
                             {playingVoiceId === v.voice_id
@@ -2750,10 +2758,10 @@ export default function Avatars() {
                               : <Play className="w-3 h-3 fill-current" />}
                           </Button>
                         )}
-                        <Button size="sm" variant="ghost" className="w-8 h-8 p-0" onClick={() => setAssignVoice(v)} disabled={isPending}>
+                        <Button size="sm" variant="ghost" className="w-8 h-8 p-0" onClick={() => setAssignVoice(v)} disabled={isLocked}>
                           <Users className="w-3.5 h-3.5" />
                         </Button>
-                        <Button size="sm" variant="ghost" className="w-8 h-8 p-0" disabled={isPending}
+                        <Button size="sm" variant="ghost" className="w-8 h-8 p-0" disabled={isLocked}
                           onClick={() => { setRenamingVoiceId(v.voice_id); setRenameValue(v.name) }}>
                           <Pencil className="w-3.5 h-3.5" />
                         </Button>
@@ -2761,7 +2769,7 @@ export default function Avatars() {
                           size="sm" variant="ghost"
                           className={`w-8 h-8 p-0 ${editingSpeedVoiceId === v.voice_id ? "text-primary bg-primary/10" : ""}`}
                           title="Ajustar velocidad"
-                          disabled={isPending}
+                          disabled={isLocked}
                           onClick={() => {
                             if (editingSpeedVoiceId === v.voice_id) {
                               setEditingSpeedVoiceId(null)
