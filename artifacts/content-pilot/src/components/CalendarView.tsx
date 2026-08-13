@@ -8,6 +8,7 @@ import type { ContentPlanItem } from "@workspace/api-client-react"
 
 const STATUS_COLOR: Record<string, string> = {
   draft: "bg-muted-foreground/40",
+  scripting: "bg-blue-400",
   scripted: "bg-blue-500",
   generating: "bg-amber-500",
   ready: "bg-emerald-500",
@@ -15,11 +16,11 @@ const STATUS_COLOR: Record<string, string> = {
   failed: "bg-destructive",
 }
 const STATUS_LABEL: Record<string, string> = {
-  draft: "Borrador", scripted: "Guion", generating: "Generando",
-  ready: "Listo para publicar", published: "Publicado", failed: "Error",
+  draft: "Borrador", scripting: "Generando guion…", scripted: "Guion listo",
+  generating: "Generando video", ready: "Listo para publicar", published: "Publicado", failed: "Error",
 }
 const STATUS_ICON: Record<string, any> = {
-  draft: Edit3, scripted: CheckCircle2, generating: Clock,
+  draft: Edit3, scripting: Loader2, scripted: CheckCircle2, generating: Clock,
   ready: Video, published: CheckCircle2, failed: AlertTriangle,
 }
 

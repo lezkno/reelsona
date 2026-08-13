@@ -38,6 +38,7 @@ function getProgress(item: ContentPlanItem): { step: number; percent: number } {
   const copyDone = item.copy_status === "done" || item.copy_status === "failed"
   switch (item.status) {
     case "draft":      return { step: 0, percent: 8  }
+    case "scripting":  return { step: 0, percent: 20 }
     case "scripted":   return { step: 1, percent: 30 }
     case "generating": return { step: 1, percent: 50 }
     case "ready": {
@@ -99,13 +100,17 @@ function pickActiveItem(items: ContentPlanItem[]): { item: ContentPlanItem; mode
   )
   if (awaitingPublish) return { item: awaitingPublish, mode: "awaiting_publish" }
 
-  // Priority 5 — scripted (script done, video not yet started)
+  // Priority 5 — script actively being generated
+  const scripting = mostRecent(items.filter((i) => i.status === "scripting"))
+  if (scripting) return { item: scripting, mode: "scripted_waiting" }
+
+  // Priority 6 — scripted (script done, video not yet started)
   const scripted = mostRecent(items.filter((i) => i.status === "scripted"))
   if (scripted) return { item: scripted, mode: "scripted_waiting" }
 
-  // Priority 6 — next upcoming draft
+  // Priority 7 — next upcoming draft
   const upcoming = items
-    .filter((i) => i.status === "draft" && i.scheduled_at)
+    .filter((i) => (i.status === "draft" || i.status === "scripting") && i.scheduled_at)
     .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime())
   if (upcoming[0]) return { item: upcoming[0], mode: "next" }
 

@@ -463,6 +463,27 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
       return { success: false, message: "No draft content items available" };
     }
 
+    // ── Atomic claim: draft → scripting ──────────────────────────────────────
+    // Reserve the item before any async work so a second concurrent cycle
+    // (scheduled cron overlapping with a manual trigger, or two overlapping
+    // cron ticks when AI generation takes longer than the cron interval) cannot
+    // pick the same draft.  Without this, both cycles call generateScript in
+    // parallel; the slower one always fails the updatedAt optimistic-lock check
+    // and emits "Item was modified during script generation".
+    const claimedDraft = await db
+      .update(contentPlanItemsTable)
+      .set({ status: "scripting", updatedAt: new Date() })
+      .where(and(
+        eq(contentPlanItemsTable.id, draft.id),
+        eq(contentPlanItemsTable.status, "draft"),
+      ))
+      .returning({ id: contentPlanItemsTable.id });
+
+    if (!claimedDraft[0]) {
+      logger.info({ itemId: draft.id }, "Draft already claimed by another cycle — skipping");
+      return { success: false, message: "Draft item already being processed by another cycle" };
+    }
+
     // ── Avatar reservation (BEFORE AI call) ─────────────────────────────────
     // Pick the avatar and advance lastUsedAvatarId in the DB immediately so
     // that a second concurrent cycle (cron + manual trigger) reads the updated
@@ -495,34 +516,49 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
     }
 
     // ── AI script generation ──────────────────────────────────────────────────
-    const auditInsights = await getLatestAuditCache().catch(() => null);
-    const scriptResult = await generateScript(
-      draft.topic,
-      settings.niche,
-      settings.tone,
-      settings.language,
-      settings.videoDurationSeconds,
-      {
-        auditInsights: auditInsights ?? undefined,
-        nicheDescription: settings.nicheDescription,
-        topicKeywords: (settings.topicKeywords as string[] | null) ?? undefined,
-        offer: settings.offer,
-        idealAudience: settings.idealAudience,
-        uniqueValueProp: settings.uniqueValueProp,
-        voiceStyle: settings.voiceStyle,
-        commonObjections: settings.commonObjections,
-        customCta: settings.customCta,
-      },
-    );
+    // Wrapped in try/catch: if the AI call throws, reset the item back to
+    // "draft" so it isn't left stranded in "scripting" forever.
+    let scriptResult: Awaited<ReturnType<typeof generateScript>>;
+    let voiceId: string | null | undefined;
+    try {
+      const auditInsights = await getLatestAuditCache().catch(() => null);
+      scriptResult = await generateScript(
+        draft.topic,
+        settings.niche,
+        settings.tone,
+        settings.language,
+        settings.videoDurationSeconds,
+        {
+          auditInsights: auditInsights ?? undefined,
+          nicheDescription: settings.nicheDescription,
+          topicKeywords: (settings.topicKeywords as string[] | null) ?? undefined,
+          offer: settings.offer,
+          idealAudience: settings.idealAudience,
+          uniqueValueProp: settings.uniqueValueProp,
+          voiceStyle: settings.voiceStyle,
+          commonObjections: settings.commonObjections,
+          customCta: settings.customCta,
+        },
+      );
+      // Always re-resolve from current voice_overrides — draft.voiceId may be stale.
+      voiceId = (await resolveVoiceId(avatarId, heygenApiKey)) ?? draft.voiceId;
+    } catch (err) {
+      // Reset to draft so the next cycle can retry.
+      await db
+        .update(contentPlanItemsTable)
+        .set({ status: "draft", updatedAt: new Date() })
+        .where(and(
+          eq(contentPlanItemsTable.id, draft.id),
+          eq(contentPlanItemsTable.status, "scripting"),
+        ))
+        .catch((resetErr) => logger.error({ itemId: draft.id, resetErr }, "Failed to reset scripting item to draft"));
+      throw err;
+    }
 
-    // Always re-resolve from current voice_overrides — draft.voiceId may be stale.
-    const voiceId = (await resolveVoiceId(avatarId, heygenApiKey)) ?? draft.voiceId;
-
-    // ── Conditional write (race-condition guard) ──────────────────────────────
-    // Only commit the script if the item is still in 'draft' status AND has the
-    // same updatedAt we read.  If the user edited the topic while the AI was
-    // running, this write affects 0 rows — we discard the stale script and let
-    // the next cycle pick up the freshly-edited draft instead.
+    // ── Write script (no updatedAt race check needed) ─────────────────────────
+    // The atomic claim above moved the item to "scripting", so no other cycle
+    // can touch it.  We only guard against the item having been manually reset
+    // or deleted while the AI was running (extremely rare).
     const scriptWritten = await db
       .update(contentPlanItemsTable)
       .set({
@@ -540,17 +576,13 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
       })
       .where(and(
         eq(contentPlanItemsTable.id, draft.id),
-        eq(contentPlanItemsTable.status, "draft"),
-        eq(contentPlanItemsTable.updatedAt, draft.updatedAt!),
+        eq(contentPlanItemsTable.status, "scripting"),
       ))
       .returning({ id: contentPlanItemsTable.id });
 
     if (!scriptWritten[0]) {
-      logger.warn(
-        { itemId: draft.id },
-        "Script generation discarded — item was edited or already scripted during AI generation; will retry on next cycle"
-      );
-      return { success: false, message: "Item was modified during script generation — will retry on next cycle" };
+      logger.warn({ itemId: draft.id }, "Script write skipped — item was manually modified while AI was running");
+      return { success: false, message: "Item was manually modified while script was being generated" };
     }
 
     contentItem = {
@@ -1080,6 +1112,30 @@ export async function pollAndPublishVideos(): Promise<void> {
     runCopyGeneration(itemId).catch((err) =>
       logger.error({ itemId, err }, "[CopyEngine] Recovery: failed to generate copy")
     );
+  }
+
+  // ── Recovery: content items stuck in "scripting" ─────────────────────────
+  // If the server restarted (or the AI call timed out) while a script was
+  // being generated, the item is left in "scripting" and no cycle will pick
+  // it up again.  Reset any such items back to "draft" after 10 minutes.
+  const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000);
+  const stuckScripting = await db
+    .select({ id: contentPlanItemsTable.id })
+    .from(contentPlanItemsTable)
+    .where(and(
+      eq(contentPlanItemsTable.status, "scripting"),
+      lte(contentPlanItemsTable.updatedAt, tenMinAgo),
+    ));
+  for (const { id } of stuckScripting) {
+    logger.warn({ itemId: id }, "[Recovery] Resetting stuck 'scripting' item back to 'draft'");
+    await db
+      .update(contentPlanItemsTable)
+      .set({ status: "draft", updatedAt: new Date() })
+      .where(and(
+        eq(contentPlanItemsTable.id, id),
+        eq(contentPlanItemsTable.status, "scripting"),
+      ))
+      .catch((err) => logger.error({ itemId: id, err }, "[Recovery] Failed to reset stuck scripting item"));
   }
 
   // ── Recovery: videos stuck in "ready" with captionStatus=null OR processing ─
