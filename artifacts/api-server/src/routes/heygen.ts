@@ -929,19 +929,13 @@ router.post("/heygen/avatars/create-digital-twin", videoUpload.single("file"), a
     res.status(400).json({ error: "Se requiere un archivo de video (campo: file)" });
     return;
   }
-  // Log the actual MIME type for diagnostics. Browser-recorded WebM blobs can arrive
-  // as "video/webm", "video/webm;codecs=vp8,opus", "application/octet-stream", or even
-  // empty string depending on the browser. This is a dedicated endpoint — accept any
-  // MIME type and let HeyGen validate the actual video content.
-  const mime = req.file.mimetype;
+  // This is a dedicated Digital Twin video endpoint. The browser's reported MIME type
+  // is unreliable (can be "text/plain", "application/octet-stream", or empty in some
+  // Chromium environments). Accept any MIME type here and let HeyGen validate the actual
+  // video content. Always send a valid video/* type to HeyGen's asset API.
+  const mime = req.file.mimetype ?? "";
   logger.info({ mime, size: req.file.size, originalname: req.file.originalname }, "[DigitalTwin] Incoming video upload");
-  if (mime && !mime.startsWith("video/") && !mime.startsWith("application/") && mime !== "") {
-    // Reject clearly non-video content (e.g. images) but allow octet-stream and unknowns
-    res.status(400).json({ error: "Solo se permiten archivos de video (MP4, MOV o WebM)" });
-    return;
-  }
-  // When MIME is missing or generic, force video/webm so HeyGen asset upload has a valid type
-  const effectiveMime = (mime && mime.startsWith("video/")) ? mime : "video/webm";
+  const effectiveMime = mime.startsWith("video/") ? mime : "video/webm";
   const name = req.body?.name;
   if (!name || typeof name !== "string" || !name.trim()) {
     res.status(400).json({ error: "name es requerido" });
