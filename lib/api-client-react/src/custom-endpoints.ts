@@ -217,6 +217,11 @@ export interface AdminEntitlement {
   createdAt:                string;
   /** Expiry date of the pending activation link — present when user hasn't activated yet. */
   activationTokenExpiresAt: string | null;
+  /** Credit wallet fields — null if the user has no wallet yet. */
+  availableCredits:         number | null;
+  reservedCredits:          number | null;
+  totalConsumed:            number | null;
+  videosRemaining:          number | null;
 }
 
 export interface ProvisionStudentInput {

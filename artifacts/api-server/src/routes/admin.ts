@@ -186,12 +186,24 @@ router.get("/admin/entitlements", async (req: Request, res: Response): Promise<v
         fullName:                 users.fullName,
         isActive:                 users.isActive,
         activationTokenExpiresAt: users.activationTokenExpiresAt,
+        // Credit wallet (LEFT JOIN — null if no wallet exists yet)
+        availableCredits:         userCreditsTable.availableCredits,
+        reservedCredits:          userCreditsTable.reservedCredits,
+        totalConsumed:            userCreditsTable.totalConsumed,
       })
       .from(userEntitlements)
       .innerJoin(users, eq(users.id, userEntitlements.userId))
+      .leftJoin(userCreditsTable, eq(userCreditsTable.userId, userEntitlements.userId))
       .orderBy(userEntitlements.createdAt);
 
-    res.json({ entitlements: rows });
+    const entitlements = rows.map((r) => ({
+      ...r,
+      videosRemaining: r.availableCredits != null
+        ? Math.floor(r.availableCredits / VIDEO_CREDIT_COST)
+        : null,
+    }));
+
+    res.json({ entitlements });
   } catch (err) {
     console.error("[admin/entitlements]", err);
     res.status(500).json({ error: "Error interno del servidor" });
