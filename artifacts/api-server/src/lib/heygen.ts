@@ -477,7 +477,15 @@ const lookEngineCache = new Map<string, { engines: string[]; at: number }>();
 
 /**
  * Fetch the engines a specific look supports.
- * Returns ["avatar_iv"] as a safe fallback on error.
+ *
+ * Error handling:
+ *   - 404: throws — the look was deleted; sending it to /v3/videos would produce a misleading error.
+ *   - 429: throws — HeyGen is rate-limiting us; generating at Avatar IV would waste a credit on a
+ *           lower-quality video when a retry will succeed. Let the scheduler mark the item as failed
+ *           so it retries next cycle.
+ *   - 5xx / network: logs a warning with full context (status, body) and falls back to ["avatar_iv"].
+ *           A transient HeyGen server error shouldn't block generation entirely, but the degradation
+ *           is logged explicitly so operators can spot systematic issues.
  */
 export async function getLookSupportedEngines(lookId: string, apiKey?: string): Promise<string[]> {
   const ck = `${apiKeyPrefix(apiKey)}:${lookId}`;
@@ -491,15 +499,32 @@ export async function getLookSupportedEngines(lookId: string, apiKey?: string): 
     lookEngineCache.set(ck, { engines, at: Date.now() });
     return engines;
   } catch (err: unknown) {
-    const axiosErr = err as { response?: { status?: number; data?: unknown } };
+    const axiosErr = err as { response?: { status?: number; data?: unknown }; message?: string };
     const status = axiosErr.response?.status;
-    // 404 means the look/avatar was deleted from the HeyGen account — fail fast
-    // instead of silently falling back and sending an invalid avatar to /v3/videos.
+    const body   = axiosErr.response?.data;
+
+    // 404 — look deleted; throw so the caller surfaces a clear error instead of
+    // sending an invalid avatar_id to /v3/videos.
     if (status === 404) {
       logger.error({ lookId, status }, "[HeyGen] Look not found (404) — avatar may have been deleted from HeyGen account");
       throw new Error(`HeyGen avatar not found (${lookId}) — it may have been deleted from your HeyGen account`);
     }
-    logger.warn({ err, lookId }, "[HeyGen] Could not fetch look engines — defaulting to avatar_iv");
+
+    // 429 — rate limit; throw so the scheduler retries next cycle rather than spending
+    // a credit on a lower-quality Avatar IV video.
+    if (status === 429) {
+      logger.warn({ lookId, status, body }, "[HeyGen] Rate limited while fetching look engines (429) — aborting generation to preserve credit quality; will retry next cycle");
+      throw new Error(`HeyGen rate limit hit while checking engine support for look ${lookId} — generation deferred to next cycle`);
+    }
+
+    // 5xx or network error — transient; fall back to Avatar IV but log enough context
+    // for operators to detect systematic problems.
+    const isNetworkError = !status; // no response object = network-level failure
+    logger.warn(
+      { lookId, status: status ?? "no-response", body, message: axiosErr.message, isNetworkError },
+      "[HeyGen] ⚠️  Could not fetch look engines — video will be generated with Avatar IV instead of Avatar V. " +
+      "If this happens repeatedly, check HeyGen API availability or the API key quota."
+    );
     return ["avatar_iv"];
   }
 }

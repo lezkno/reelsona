@@ -941,7 +941,7 @@ router.post("/heygen/avatars/create-digital-twin", videoUpload.single("file"), a
     const result = await createDigitalTwinFromVideo(name.trim(), asset_id, apiKey);
     // Invalidate caches so the new avatar appears in the next listing
     invalidateAvatarIdsCache(apiKey);
-    looksCache = null;
+    looksCacheByKey.clear(); // invalidate flat-looks cache so the new Digital Twin appears immediately
     res.json(result);
   } catch (err: any) {
     const { status, message, heygenStatus, heygenDetail } = extractHeyGenError(err);
