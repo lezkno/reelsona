@@ -2442,6 +2442,10 @@ export default function Avatars() {
   // Populated when looks are loaded for a group. Used to build look_metadata on save.
   const [lookAvatarTypeMap, setLookAvatarTypeMap] = useState<Record<string, string>>({})
 
+  // lookDataMap: lookId → { name, preview_image_url }
+  // Populated when looks are loaded so we can show them by name/thumbnail in warnings.
+  const [lookDataMap, setLookDataMap] = useState<Record<string, { name: string; preview_image_url: string | null }>>({})
+
   // Persist every time the map changes
   useEffect(() => {
     try { localStorage.setItem(LOOK_GROUP_MAP_KEY, JSON.stringify(lookGroupMap)) } catch {}
@@ -2461,6 +2465,17 @@ export default function Avatars() {
       let changed = false
       for (const l of looks) {
         if (next[l.id] !== l.avatar_type) { next[l.id] = l.avatar_type; changed = true }
+      }
+      return changed ? next : prev
+    })
+    setLookDataMap(prev => {
+      const next = { ...prev }
+      let changed = false
+      for (const l of looks) {
+        if (!next[l.id] || next[l.id].name !== l.name || next[l.id].preview_image_url !== l.preview_image_url) {
+          next[l.id] = { name: l.name, preview_image_url: l.preview_image_url }
+          changed = true
+        }
       }
       return changed ? next : prev
     })
@@ -3007,6 +3022,25 @@ export default function Avatars() {
     [voicelessByGroup],
   )
 
+  // Flat list of selected looks without voice — used in the warning banner
+  const voicelessLooks = useMemo(() => {
+    const result: Array<{ id: string; name: string; preview_image_url: string | null }> = []
+    for (const [lookId] of Object.entries(lookGroupMap)) {
+      if (selectedIds.has(lookId)) {
+        const override = voiceOverrides[lookId]
+        if (!override || override === LOOK_DEFAULT_VOICE_SENTINEL) {
+          const data = lookDataMap[lookId]
+          result.push({
+            id: lookId,
+            name: data?.name ?? lookId,
+            preview_image_url: data?.preview_image_url ?? null,
+          })
+        }
+      }
+    }
+    return result
+  }, [selectedIds, voiceOverrides, lookGroupMap, lookDataMap])
+
   // ── Filter: show only avatar groups that have selected looks ──────────────
   const [showOnlySelected, setShowOnlySelected] = useState(false)
   const filteredMyGroups = showOnlySelected
@@ -3115,12 +3149,45 @@ export default function Avatars() {
 
       {/* Voice warning */}
       {voicelessTotal > 0 && (
-        <div className="flex items-start gap-3 rounded-lg border border-amber-400/40 bg-amber-50 dark:bg-amber-950/30 px-4 py-3 text-amber-800 dark:text-amber-300">
-          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-          <p className="text-sm leading-snug">
-            <span className="font-semibold">{voicelessTotal} {voicelessTotal === 1 ? "look seleccionado no tiene" : "looks seleccionados no tienen"} voz asignada.</span>
-            {" "}Los videos generados usarán la voz por defecto del sistema. Asigna una voz desde la pestaña de cada avatar.
-          </p>
+        <div className="rounded-lg border border-amber-400/40 bg-amber-50 dark:bg-amber-950/30 px-4 py-3 text-amber-800 dark:text-amber-300">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm leading-snug">
+                <span className="font-semibold">
+                  {voicelessTotal} {voicelessTotal === 1 ? "look seleccionado no tiene" : "looks seleccionados no tienen"} voz asignada.
+                </span>
+                {" "}Los videos generados usarán la voz por defecto del sistema. Asigna una voz desde la pestaña de cada avatar.
+              </p>
+              {voicelessLooks.length > 0 && (
+                <div className="mt-2.5 flex flex-wrap gap-2">
+                  {voicelessLooks.map(look => (
+                    <div
+                      key={look.id}
+                      className="flex items-center gap-1.5 rounded-md border border-amber-400/50 bg-amber-100/60 dark:bg-amber-900/30 px-2 py-1"
+                    >
+                      <div className="w-6 h-6 rounded overflow-hidden shrink-0 bg-amber-200/60 dark:bg-amber-800/40 flex items-center justify-center">
+                        {look.preview_image_url ? (
+                          <img
+                            src={look.preview_image_url}
+                            alt={look.name}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <span className="text-[8px] font-bold text-amber-600 dark:text-amber-400 uppercase">
+                            {look.name.slice(0, 2)}
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[11px] font-medium leading-none max-w-[120px] truncate">
+                        {look.name}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
