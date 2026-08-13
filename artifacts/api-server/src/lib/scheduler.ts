@@ -761,15 +761,19 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
   // Reserve now (before HeyGen call) so a crash between submission and
   // completion doesn't leak credits. Released on any failure path;
   // consumed when HeyGen reports the video as completed.
+  // If the reserve itself fails we abort immediately — sending a generation
+  // request to HeyGen without an outstanding reservation would produce a video
+  // whose credit cost can never be settled correctly.
   if (!isAdmin) {
     await reserveCredits(
       userId,
       VIDEO_CREDIT_COST,
       videoRow.id,
       `Generación de video ${videoRow.id}: ${contentItem.topic ?? "sin tema"}`,
-    ).catch((creditErr) =>
-      logger.error({ creditErr, videoId: videoRow.id }, "[Credits] Reserve falló — se procede sin reserva (saldo verificado arriba)")
-    );
+    ).catch((creditErr) => {
+      logger.error({ creditErr, videoId: videoRow.id }, "[Credits] Reserve falló — abortando generación (no se enviará a HeyGen)");
+      throw creditErr;
+    });
   }
 
   // Look up per-voice speed and pitch for SSML prosody wrapping
@@ -820,6 +824,11 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
 
+    // HeyGen 429 rate-limit: transient — release credits and put the content item
+    // back to 'scripted' so the scheduler picks it up again next cycle automatically.
+    // The video row is marked failed (record of the attempt) but the item stays retryable.
+    const isRateLimit = error.includes("generation deferred to next cycle") || error.includes("rate limit");
+
     // If HeyGen rejected because the avatar was deleted, auto-remove it from the
     // selection so the next cycle picks a valid avatar instead of looping forever.
     const isAvatarGone =
@@ -846,7 +855,19 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
     }
 
     await db.update(videosTable).set({ status: "failed", errorMessage: error, updatedAt: new Date() }).where(eq(videosTable.id, videoRow.id));
-    await db.update(contentPlanItemsTable).set({ status: "failed", updatedAt: new Date() }).where(eq(contentPlanItemsTable.id, contentItem.id));
+
+    // Rate-limit: item goes back to 'scripted' so the next automation cycle retries it.
+    // All other errors: item goes to 'failed' and requires manual intervention.
+    const nextItemStatus = isRateLimit ? "scripted" : "failed";
+    await db.update(contentPlanItemsTable).set({ status: nextItemStatus, updatedAt: new Date() }).where(eq(contentPlanItemsTable.id, contentItem.id));
+
+    if (isRateLimit) {
+      logger.warn(
+        { userId, itemId: contentItem.id, videoId: videoRow.id },
+        "[Credits/429] Item restablecido a 'scripted' — créditos liberados, se reintentará en el próximo ciclo del scheduler",
+      );
+    }
+
     return { success: false, message: `Video generation failed: ${error}` };
   }
 }
