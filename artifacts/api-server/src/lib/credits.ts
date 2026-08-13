@@ -286,6 +286,71 @@ export async function releaseVideoCredits(videoId: number, reason: string): Prom
   logger.info({ videoId, reason }, "[Credits] Released");
 }
 
+/**
+ * Adjust a user's available credits by a signed amount.
+ *
+ *   amount > 0  → add credits   (admin top-up)
+ *   amount < 0  → deduct credits (admin correction)
+ *
+ * Validation:
+ *   - amount must be non-zero (caller should already enforce this, but we guard too)
+ *   - a deduction that would drive availableCredits below 0 is rejected with a
+ *     descriptive error so the caller can return a 422 to the client
+ *
+ * Records a ledger entry with type = "adjustment" (distinct from "provision",
+ * which comes from purchases).
+ */
+export async function adjustCredits(
+  userId:      number,
+  amount:      number,
+  description: string,
+): Promise<void> {
+  if (amount === 0) throw new Error("El monto debe ser distinto de 0");
+
+  await db.transaction(async (tx) => {
+    const [wallet] = await tx
+      .select()
+      .from(userCreditsTable)
+      .where(eq(userCreditsTable.userId, userId))
+      .limit(1);
+
+    const currentAvailable = wallet?.availableCredits ?? 0;
+    const newAvailable      = currentAvailable + amount;
+
+    if (newAvailable < 0) {
+      throw new Error(
+        `No se puede descontar ${Math.abs(amount)} créditos: el alumno solo tiene ${currentAvailable} disponibles.`,
+      );
+    }
+
+    if (wallet) {
+      await tx
+        .update(userCreditsTable)
+        .set({ availableCredits: newAvailable, updatedAt: new Date() })
+        .where(eq(userCreditsTable.userId, userId));
+    } else {
+      // User has no wallet yet — only reachable when amount > 0 (negative would have thrown above)
+      await tx.insert(userCreditsTable).values({
+        userId,
+        availableCredits: newAvailable,
+        reservedCredits:  0,
+        totalConsumed:    0,
+      });
+    }
+
+    await tx.insert(creditLedgerTable).values({
+      userId,
+      type:          "adjustment",
+      amount,                          // positive = added, negative = deducted
+      balanceBefore: currentAvailable,
+      balanceAfter:  newAvailable,
+      description,
+    });
+  });
+
+  logger.info({ userId, amount, description }, "[Credits] Adjusted");
+}
+
 // ── Recovery ──────────────────────────────────────────────────────────────────
 
 /**

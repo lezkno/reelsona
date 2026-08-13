@@ -15,7 +15,7 @@ import { randomBytes } from "crypto";
 import { db } from "@workspace/db";
 import { users, userEntitlements, videosTable, settingsTable, captionConfigTable, userCreditsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
-import { provisionCredits, VIDEO_CREDIT_COST } from "../lib/credits";
+import { adjustCredits, VIDEO_CREDIT_COST } from "../lib/credits";
 import { sendEmail, activationEmail, getAppUrl } from "../lib/email";
 import { provisionUser } from "../lib/provision";
 import { runCaptionProcessing } from "../lib/scheduler";
@@ -409,14 +409,19 @@ router.post("/admin/credits/:userId/adjust", async (req: Request, res: Response)
     const [user] = await db.select({ id: users.id }).from(users).where(eq(users.id, userId)).limit(1);
     if (!user) { res.status(404).json({ error: "Usuario no encontrado" }); return; }
 
-    await provisionCredits(
-      userId,
-      amount,
-      (typeof reason === "string" && reason.trim()) ? reason.trim() : `Ajuste manual por admin (${amount > 0 ? "+" : ""}${amount})`,
-    );
+    const label = (typeof reason === "string" && reason.trim())
+      ? reason.trim()
+      : `Ajuste manual por admin (${amount > 0 ? "+" : ""}${amount})`;
+
+    await adjustCredits(userId, amount, label);
 
     res.json({ ok: true });
-  } catch (err) {
+  } catch (err: any) {
+    // Validation error: deduction would drive balance below zero
+    if (err?.message?.startsWith("No se puede descontar")) {
+      res.status(422).json({ error: err.message });
+      return;
+    }
     console.error("[admin/credits/:userId/adjust]", err);
     res.status(500).json({ error: "Error interno del servidor" });
   }

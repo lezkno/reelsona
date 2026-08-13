@@ -11,7 +11,7 @@
 
 import { randomBytes } from "crypto";
 import { db } from "@workspace/db";
-import { users } from "@workspace/db/schema";
+import { users, userEntitlements } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
 import { hashPassword } from "./password";
 import { sendEmail, activationEmail, getAppUrl } from "./email";
@@ -90,8 +90,23 @@ export async function provisionUser(params: ProvisionParams): Promise<ProvisionR
   }
 
   // ── Upsert entitlement ────────────────────────────────────────────────────
-  const now             = new Date();
-  const toolAccessEndsAt = new Date(now.getTime() + toolAccessDays * 24 * 60 * 60 * 1000);
+  // When re-provisioning an existing user, preserve their remaining days:
+  // add the new days on top of the later of (current end, today).
+  // This ensures renewals extend access instead of truncating it.
+  const now = new Date();
+
+  const [existingEnt] = await db
+    .select({ toolAccessEndsAt: userEntitlements.toolAccessEndsAt })
+    .from(userEntitlements)
+    .where(eq(userEntitlements.userId, userId))
+    .limit(1);
+
+  // Base date = existing end (if still in the future) OR now (if expired / no record)
+  const base = existingEnt?.toolAccessEndsAt && existingEnt.toolAccessEndsAt > now
+    ? existingEnt.toolAccessEndsAt
+    : now;
+
+  const toolAccessEndsAt = new Date(base.getTime() + toolAccessDays * 24 * 60 * 60 * 1000);
 
   await upsertEntitlement({
     userId,
