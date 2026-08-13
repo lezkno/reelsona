@@ -8,6 +8,13 @@
  * Handles:
  *   - checkout.session.completed  (legacy hosted/embedded checkout)
  *   - payment_intent.succeeded    (custom PaymentElement form)
+ *
+ * Hardening guarantees:
+ *   - Duplicate webhooks are idempotent (providerSessionId UNIQUE check).
+ *   - If provisionUser() fails the purchase row still exists; the scheduler's
+ *     provision-recovery sweep retries it every minute until it succeeds.
+ *   - provisionedAt is stamped only after a successful provision so recovery
+ *     can reliably identify un-provisioned payments.
  */
 
 import express, { Router } from "express";
@@ -76,14 +83,23 @@ router.post(
 async function handleCheckoutCompleted(session: Stripe.Checkout.Session): Promise<void> {
   const sessionId = session.id;
 
+  // Idempotency: if a purchase row already exists for this session it means
+  // either (a) a duplicate webhook fired, or (b) we already processed it.
+  // In both cases, skip insertion but still attempt provision if it didn't complete.
   const [existing] = await db
-    .select({ id: purchases.id })
+    .select({ id: purchases.id, provisionedAt: purchases.provisionedAt, email: purchases.email, fullName: purchases.fullName, toolAccessDays: purchases.toolAccessDays })
     .from(purchases)
     .where(eq(purchases.providerSessionId, sessionId))
     .limit(1);
 
   if (existing) {
-    console.log(`[webhook/stripe] Session ${sessionId} already processed — skipping`);
+    if (existing.provisionedAt) {
+      console.log(`[webhook/stripe] Session ${sessionId} already fully processed — skipping`);
+      return;
+    }
+    // Purchase exists but provision never completed — retry it now.
+    console.log(`[webhook/stripe] Session ${sessionId} purchase exists but not provisioned — retrying provision`);
+    await retryProvision(existing.id, existing.email, existing.fullName ?? existing.email, existing.toolAccessDays);
     return;
   }
 
@@ -99,37 +115,46 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session): Promis
     return;
   }
 
+  // Insert purchase row first — this is the durable record of the payment.
+  // provisionedAt stays null until provision succeeds.
   const [purchase] = await db
     .insert(purchases)
-    .values({ provider: "stripe", providerSessionId: sessionId, providerCustomerId: customerId, email, fullName, amountTotal, currency, status: "completed", toolAccessDays })
+    .values({
+      provider: "stripe",
+      providerSessionId: sessionId,
+      providerCustomerId: customerId,
+      email,
+      fullName,
+      amountTotal,
+      currency,
+      status: "completed",
+      toolAccessDays,
+      // provisionedAt intentionally null — set by retryProvision on success
+    })
     .returning({ id: purchases.id });
 
-  try {
-    const result = await provisionUser({ email, name: fullName || email, toolAccessDays, courseAccess: true, source: "stripe" });
-    await db.update(purchases).set({ userId: result.userId, updatedAt: new Date() }).where(eq(purchases.id, purchase.id));
-    console.log(`[webhook/stripe] Provisioned userId=${result.userId} email=${email}`, `created=${result.created} emailSent=${result.emailSent}`);
-    if (result.warning) console.warn("[webhook/stripe] Provision warning:", result.warning);
-  } catch (err: any) {
-    console.error(`[webhook/stripe] Provision failed for ${email}:`, err?.message);
-  }
+  await retryProvision(purchase.id, email, fullName || email, toolAccessDays);
 }
 
 // ── payment_intent.succeeded ───────────────────────────────────────────────────
 // Triggered by the custom PaymentElement form (not a Checkout Session).
-// NOTE: Register this event in the Stripe Dashboard webhook settings.
 
 async function handlePaymentIntentSucceeded(intent: Stripe.PaymentIntent): Promise<void> {
   const intentId = intent.id;
 
-  // Idempotency — use PaymentIntent ID as providerSessionId
   const [existing] = await db
-    .select({ id: purchases.id })
+    .select({ id: purchases.id, provisionedAt: purchases.provisionedAt, email: purchases.email, fullName: purchases.fullName, toolAccessDays: purchases.toolAccessDays })
     .from(purchases)
     .where(eq(purchases.providerSessionId, intentId))
     .limit(1);
 
   if (existing) {
-    console.log(`[webhook/stripe] PaymentIntent ${intentId} already processed — skipping`);
+    if (existing.provisionedAt) {
+      console.log(`[webhook/stripe] PaymentIntent ${intentId} already fully processed — skipping`);
+      return;
+    }
+    console.log(`[webhook/stripe] PaymentIntent ${intentId} purchase exists but not provisioned — retrying`);
+    await retryProvision(existing.id, existing.email, existing.fullName ?? existing.email, existing.toolAccessDays);
     return;
   }
 
@@ -164,16 +189,60 @@ async function handlePaymentIntentSucceeded(intent: Stripe.PaymentIntent): Promi
 
   const [purchase] = await db
     .insert(purchases)
-    .values({ provider: "stripe", providerSessionId: intentId, providerCustomerId: customerId, email, fullName, amountTotal, currency, status: "completed", toolAccessDays })
+    .values({
+      provider: "stripe",
+      providerSessionId: intentId,
+      providerCustomerId: customerId,
+      email,
+      fullName,
+      amountTotal,
+      currency,
+      status: "completed",
+      toolAccessDays,
+    })
     .returning({ id: purchases.id });
 
+  await retryProvision(purchase.id, email, fullName || email, toolAccessDays);
+}
+
+// ── Shared provision helper ────────────────────────────────────────────────────
+
+/**
+ * Run provisionUser and stamp provisionedAt on success.
+ * On failure: logs the error and leaves provisionedAt=null so the scheduler
+ * recovery sweep retries it on the next polling cycle.
+ */
+async function retryProvision(
+  purchaseId:    number,
+  email:         string,
+  name:          string,
+  toolAccessDays: number,
+): Promise<void> {
   try {
-    const result = await provisionUser({ email, name: fullName || email, toolAccessDays, courseAccess: true, source: "stripe" });
-    await db.update(purchases).set({ userId: result.userId, updatedAt: new Date() }).where(eq(purchases.id, purchase.id));
-    console.log(`[webhook/stripe] Provisioned userId=${result.userId} email=${email}`, `created=${result.created} emailSent=${result.emailSent}`);
+    const result = await provisionUser({
+      email,
+      name,
+      toolAccessDays,
+      courseAccess: true,
+      source: "stripe",
+    });
+    // Stamp provisionedAt only after confirmed success
+    await db
+      .update(purchases)
+      .set({ userId: result.userId, provisionedAt: new Date(), updatedAt: new Date() })
+      .where(eq(purchases.id, purchaseId));
+    console.log(
+      `[webhook/stripe] Provisioned userId=${result.userId} email=${email}`,
+      `created=${result.created} emailSent=${result.emailSent}`,
+    );
     if (result.warning) console.warn("[webhook/stripe] Provision warning:", result.warning);
   } catch (err: any) {
-    console.error(`[webhook/stripe] Provision failed for ${email}:`, err?.message);
+    // Leave provisionedAt=null — the scheduler recovery sweep will retry.
+    console.error(
+      `[webhook/stripe] Provision failed for ${email} (purchaseId=${purchaseId}):`,
+      err?.message,
+      "— scheduler will retry automatically",
+    );
   }
 }
 

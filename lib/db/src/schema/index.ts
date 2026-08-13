@@ -13,3 +13,4 @@ export * from "./course-progress";
 export * from "./user-entitlements";
 export * from "./purchases";
 export * from "./heygen-cloned-voices";
+export * from "./credits";

@@ -12,7 +12,11 @@ import {
   captionConfigTable,
   nicheRadarAccountsTable,
   heygenClonedVoicesTable,
+  users,
+  purchases,
 } from "@workspace/db";
+import { VIDEO_CREDIT_COST, hasEnoughCredits, reserveCredits, consumeVideoCredits, releaseVideoCredits } from "./credits";
+import { provisionUser } from "./provision";
 import { enrichProfileWithApify } from "./apify";
 import { applyCaptions, CAPTION_DIR, type CaptionStyle, CAPTION_PRESETS } from "./caption-engine";
 import { computeUpcomingSlots } from "./schedule";
@@ -663,6 +667,34 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
     return { success: false, message: "Content item is already being processed" };
   }
 
+  // ── Credit check ──────────────────────────────────────────────────────────
+  // Admin users bypass the credit check. Regular users must have enough credits
+  // before we create the video row. If insufficient: reset item to 'scripted'
+  // (not 'failed') so the automation retries it when credits are available.
+  const [userForCredits] = await db
+    .select({ role: users.role })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  const isAdmin = userForCredits?.role === "admin";
+  if (!isAdmin) {
+    const enough = await hasEnoughCredits(userId, VIDEO_CREDIT_COST);
+    if (!enough) {
+      await db
+        .update(contentPlanItemsTable)
+        .set({ status: "scripted", updatedAt: new Date() })
+        .where(eq(contentPlanItemsTable.id, contentItem.id));
+      logger.warn(
+        { userId, itemId: contentItem.id, required: VIDEO_CREDIT_COST },
+        "[Credits] Saldo insuficiente — item restablecido a 'scripted'",
+      );
+      return {
+        success: false,
+        message: `Saldo de créditos insuficiente (se requieren ${VIDEO_CREDIT_COST} créditos). El item se reintentará cuando haya saldo.`,
+      };
+    }
+  }
+
   const [videoRow] = await db
     .insert(videosTable)
     .values({
@@ -680,6 +712,21 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
       generatingStartedAt: new Date(),
     })
     .returning();
+
+  // ── Reserve credits ───────────────────────────────────────────────────────
+  // Reserve now (before HeyGen call) so a crash between submission and
+  // completion doesn't leak credits. Released on any failure path;
+  // consumed when HeyGen reports the video as completed.
+  if (!isAdmin) {
+    await reserveCredits(
+      userId,
+      VIDEO_CREDIT_COST,
+      videoRow.id,
+      `Generación de video ${videoRow.id}: ${contentItem.topic ?? "sin tema"}`,
+    ).catch((creditErr) =>
+      logger.error({ creditErr, videoId: videoRow.id }, "[Credits] Reserve falló — se procede sin reserva (saldo verificado arriba)")
+    );
+  }
 
   // Look up per-voice speed and pitch for SSML prosody wrapping
   let resolvedVoiceSpeed: number | undefined;
@@ -743,6 +790,13 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
       logger.warn(
         { removedId: contentItem.avatarId, remaining: pruned },
         "[AvatarSync] Auto-removed deleted avatar from selection after generation failure",
+      );
+    }
+
+    // Release reserved credits so the user can retry without losing their balance.
+    if (!isAdmin) {
+      await releaseVideoCredits(videoRow.id, `Generación fallida al enviar a HeyGen: ${error}`).catch((creditErr) =>
+        logger.error({ creditErr, videoId: videoRow.id }, "[Credits] Release falló después de error en generación")
       );
     }
 
@@ -1106,6 +1160,55 @@ async function refreshExpiringTokens(): Promise<void> {
 }
 
 export async function pollAndPublishVideos(): Promise<void> {
+  // ── Recovery: provision payments that failed after the purchase was recorded ──
+  // Finds purchases paid > 30 min ago where provisionedAt is still null.
+  // Retries provision and stamps provisionedAt on success to prevent re-runs.
+  try {
+    const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000);
+    const unprovisionedPurchases = await db
+      .select()
+      .from(purchases)
+      .where(
+        and(
+          eq(purchases.status, "completed"),
+          isNull(purchases.provisionedAt),
+          lt(purchases.createdAt, thirtyMinAgo),
+        ),
+      )
+      .limit(5);
+
+    for (const purchase of unprovisionedPurchases) {
+      logger.warn(
+        { purchaseId: purchase.id, email: purchase.email },
+        "[ProvisionRecovery] Re-intentando provision fallida para pago exitoso",
+      );
+      try {
+        const result = await provisionUser({
+          email:          purchase.email,
+          name:           purchase.fullName ?? purchase.email,
+          toolAccessDays: purchase.toolAccessDays,
+          courseAccess:   true,
+          source:         "stripe_recovery",
+        });
+        await db
+          .update(purchases)
+          .set({ userId: result.userId, provisionedAt: new Date(), updatedAt: new Date() })
+          .where(eq(purchases.id, purchase.id));
+        logger.info(
+          { purchaseId: purchase.id, userId: result.userId },
+          "[ProvisionRecovery] Provision recuperada exitosamente",
+        );
+      } catch (provErr: any) {
+        logger.error(
+          { purchaseId: purchase.id, err: provErr?.message },
+          "[ProvisionRecovery] Reintento fallido — se reintentará en el próximo ciclo",
+        );
+      }
+    }
+  } catch (recoveryErr) {
+    logger.warn({ recoveryErr }, "[ProvisionRecovery] Error en el barrido de provision recovery");
+  }
+
   // ── Recovery: content items in "ready" state with null copy_status ────────
   // Handles server restarts or items created before copy generation was added.
   // Finds content items whose video has a terminal caption_status but whose
@@ -1328,7 +1431,35 @@ export async function pollAndPublishVideos(): Promise<void> {
   const pollTimeoutMs = Number(process.env.HEYGEN_POLL_TIMEOUT_MINUTES ?? 60) * 60 * 1000;
 
   for (const video of generatingVideos) {
-    if (!video.heygenVideoId) continue;
+    if (!video.heygenVideoId) {
+      // Orphan: generateVideo() returned an ID but the DB update crashed before
+      // persisting it. We have no way to look up the HeyGen job by ID, so we
+      // wait 5 minutes then mark the video as failed and reset the content item
+      // to 'scripted' (not 'failed') so the automation retries it cleanly.
+      const orphanAgeMs = Date.now() - (video.generatingStartedAt ?? new Date()).getTime();
+      if (orphanAgeMs > 5 * 60 * 1000) {
+        const orphanMsg = "ID de HeyGen no persistido (posible caída del servidor). El item fue restablecido para reintento automático.";
+        logger.warn({ videoId: video.id, orphanAgeMs }, "[Recovery] Video huérfano (sin heygenVideoId) — marcando fallido, restableciendo item a 'scripted'");
+        await db
+          .update(videosTable)
+          .set({ status: "failed", errorMessage: orphanMsg, updatedAt: new Date() })
+          .where(eq(videosTable.id, video.id));
+        if (video.contentPlanId) {
+          // Reset to 'scripted' so the scheduler retries automatically on the next cycle.
+          await db
+            .update(contentPlanItemsTable)
+            .set({ status: "scripted", updatedAt: new Date() })
+            .where(and(
+              eq(contentPlanItemsTable.id, video.contentPlanId),
+              eq(contentPlanItemsTable.status, "generating"),
+            ));
+        }
+        await releaseVideoCredits(video.id, "Video huérfano — ID de HeyGen no persistido").catch((err) =>
+          logger.error({ videoId: video.id, err }, "[Credits] Release falló para video huérfano")
+        );
+      }
+      continue;
+    }
 
     // ── Track polling attempts and generation start time ──────────────────
     const now = new Date();
@@ -1357,6 +1488,9 @@ export async function pollAndPublishVideos(): Promise<void> {
         await db.update(contentPlanItemsTable).set({ status: "failed", updatedAt: now }).where(eq(contentPlanItemsTable.id, video.contentPlanId));
       }
       logger.warn({ videoId: video.id, ageMs, attempts: newAttempts }, timeoutMsg);
+      await releaseVideoCredits(video.id, `Video timeout: ${timeoutMsg}`).catch((err) =>
+        logger.error({ videoId: video.id, err }, "[Credits] Release falló en timeout")
+      );
       continue;
     }
 
@@ -1376,6 +1510,11 @@ export async function pollAndPublishVideos(): Promise<void> {
             updatedAt: new Date(),
           })
           .where(eq(videosTable.id, video.id));
+
+        // Consume the credit reservation — video completed successfully.
+        await consumeVideoCredits(video.id).catch((err) =>
+          logger.error({ videoId: video.id, err }, "[Credits] Consume falló al completar video")
+        );
 
         if (video.contentPlanId) {
           await db
@@ -1437,6 +1576,10 @@ export async function pollAndPublishVideos(): Promise<void> {
           .set({ status: "failed", errorMessage: heygenError, updatedAt: new Date() })
           .where(eq(videosTable.id, video.id));
 
+        await releaseVideoCredits(video.id, `HeyGen reportó fallo: ${heygenError}`).catch((err) =>
+          logger.error({ videoId: video.id, err }, "[Credits] Release falló tras fallo en HeyGen")
+        );
+
         if (video.contentPlanId) {
           await db.update(contentPlanItemsTable).set({ status: "failed", updatedAt: new Date() }).where(eq(contentPlanItemsTable.id, video.contentPlanId));
         }
@@ -1469,6 +1612,9 @@ export async function pollAndPublishVideos(): Promise<void> {
           .update(videosTable)
           .set({ status: "failed", errorMessage: userMsg, updatedAt: new Date() })
           .where(eq(videosTable.id, video.id));
+        await releaseVideoCredits(video.id, `Error HTTP ${httpStatus}: ${userMsg}`).catch((err) =>
+          logger.error({ videoId: video.id, err }, "[Credits] Release falló tras error HTTP permanente")
+        );
         if (video.contentPlanId) {
           await db.update(contentPlanItemsTable).set({ status: "failed", updatedAt: new Date() }).where(eq(contentPlanItemsTable.id, video.contentPlanId));
         }

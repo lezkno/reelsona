@@ -5,8 +5,8 @@
  *   - POST /api/admin/provision   (manual/admin)
  *   - POST /api/webhooks/stripe   (automated, post-payment)
  *
- * Creates or updates a user account, upserts the entitlement, and sends the
- * activation email. Does NOT touch purchases — callers manage that table.
+ * Creates or updates a user account, upserts the entitlement, grants credits,
+ * and sends the activation email. Does NOT touch purchases — callers manage that table.
  */
 
 import { randomBytes } from "crypto";
@@ -17,6 +17,7 @@ import { hashPassword } from "./password";
 import { sendEmail, activationEmail, getAppUrl } from "./email";
 import { upsertEntitlement } from "./access";
 import { invalidateAccessCache } from "../middleware/requireToolAccess";
+import { provisionCredits, CREDITS_PER_DAY } from "./credits";
 
 export interface ProvisionParams {
   email:          string;
@@ -104,6 +105,20 @@ export async function provisionUser(params: ProvisionParams): Promise<ProvisionR
   // Clear the access cache so the user gets access on their next request
   // without waiting for the 90-second TTL to expire.
   invalidateAccessCache(userId);
+
+  // ── Grant credits ─────────────────────────────────────────────────────────
+  // Credits accumulate on re-provision so re-purchasing extends the balance.
+  const creditsToGrant = toolAccessDays * CREDITS_PER_DAY;
+  try {
+    await provisionCredits(
+      userId,
+      creditsToGrant,
+      `${source}: ${toolAccessDays} días de acceso`,
+    );
+  } catch (creditErr: any) {
+    console.error(`[provision] Credit grant failed for userId=${userId}:`, creditErr?.message);
+    // Non-fatal: user still gets access. Credits can be granted manually if needed.
+  }
 
   // ── Send activation email ─────────────────────────────────────────────────
   const activateUrl = `${getAppUrl()}/activate?token=${activationToken}`;

@@ -13,6 +13,12 @@ export const purchases = pgTable("purchases", {
   status:              varchar("status", { length: 32 }).notNull().default("pending"),
   toolAccessDays:      integer("tool_access_days").notNull().default(30),
   userId:              integer("user_id").references(() => users.id, { onDelete: "set null" }),
+  /**
+   * Set to NOW() when provisionUser() completes successfully.
+   * NULL means provision is pending or failed — the scheduler recovery sweep
+   * will retry it automatically until it succeeds.
+   */
+  provisionedAt:       timestamp("provisioned_at"),
   createdAt:           timestamp("created_at").notNull().defaultNow(),
   updatedAt:           timestamp("updated_at").notNull().defaultNow(),
 });
