@@ -184,7 +184,8 @@ export const GetHeyGenVoicesResponseItem = zod.object({
   "preview_audio_url": zod.string().nullish(),
   "is_cloned": zod.boolean(),
   "is_mine": zod.boolean().optional(),
-  "speed": zod.number().nullish()
+  "speed": zod.number().nullish(),
+  "status": zod.string().nullish(),
 })
 export const GetHeyGenVoicesResponse = zod.array(GetHeyGenVoicesResponseItem)
 

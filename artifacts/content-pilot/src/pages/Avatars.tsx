@@ -58,6 +58,7 @@ type V3Look = {
 
 type VoiceOption = {
   voice_id: string
+  status?: string | null
   name: string
   language: string
   gender: string | null
@@ -950,7 +951,6 @@ function CloneVoiceDialog({ onClose, onCloned }: { onClose: () => void; onCloned
   const { toast } = useToast()
   const cloneVoice = useCloneVoice()
   const [displayName, setDisplayName] = useState("")
-  const [voiceSpeed, setVoiceSpeed] = useState(1.0)
   const [file, setFile] = useState<File | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const [mode, setMode] = useState<"upload" | "record">("upload")
@@ -1068,7 +1068,6 @@ function CloneVoiceDialog({ onClose, onCloned }: { onClose: () => void; onCloned
     const formData = new FormData()
     formData.append("audio", src, mode === "record" ? "recording.webm" : (file as File).name)
     formData.append("name", displayName.trim())
-    formData.append("speed", String(voiceSpeed))
     try {
       await cloneVoice.mutateAsync(formData)
       toast({ title: "¡Voz clonando!", description: "Estamos procesando tu voz. Aparecerá en unos minutos." })
@@ -1237,30 +1236,6 @@ function CloneVoiceDialog({ onClose, onCloned }: { onClose: () => void; onCloned
               )}
             </TabsContent>
           </Tabs>
-        </div>
-
-        {/* Speed slider — always visible above footer */}
-        <div className="shrink-0 px-6 pt-3 pb-2 border-t border-border/50 space-y-2 bg-muted/20">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs font-semibold">Velocidad de voz</p>
-              <p className="text-[10px] text-muted-foreground">Puedes cambiarlo después. Rango HeyGen: 0.5–1.5</p>
-            </div>
-            <span className="text-sm font-bold text-primary tabular-nums">{voiceSpeed.toFixed(2)}×</span>
-          </div>
-          <Slider
-            value={[voiceSpeed]}
-            min={0.5}
-            max={1.5}
-            step={0.05}
-            onValueChange={([v]) => setVoiceSpeed(v)}
-            disabled={cloneVoice.isPending}
-          />
-          <div className="flex justify-between text-[10px] text-muted-foreground">
-            <span>0.5× (lento)</span>
-            <span className="text-foreground font-medium">1.0× (defecto)</span>
-            <span>1.5× (rápido)</span>
-          </div>
         </div>
 
         <DialogFooter className="shrink-0 px-6 pb-5 pt-3 border-t border-border/50">
@@ -1984,7 +1959,15 @@ export default function Avatars() {
   const updateConfig = useUpdateAvatarConfig()
   const queryClient = useQueryClient()
   const { toast } = useToast()
-  const { data: voices, isLoading: isLoadingVoices } = useGetHeyGenVoices()
+  const { data: voices, isLoading: isLoadingVoices } = useGetHeyGenVoices({
+    query: {
+      // Poll every 8 s while any cloned voice is still processing
+      refetchInterval: (query) => {
+        const data = query.state.data
+        return Array.isArray(data) && data.some((v: any) => v.status === "pending") ? 8000 : false
+      },
+    },
+  })
 
   // ── Shared selection state ────────────────────────────────────────────────
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -2106,6 +2089,7 @@ export default function Avatars() {
           is_cloned: v.is_cloned ?? false,
           is_mine: v.is_mine ?? false,
           speed: (v as any).speed ?? null,
+          status: (v as any).status ?? null,
         })),
     [voices]
   )
@@ -2123,6 +2107,7 @@ export default function Avatars() {
           is_cloned: v.is_cloned ?? false,
           is_mine: v.is_mine ?? false,
           speed: (v as any).speed ?? null,
+          status: (v as any).status ?? null,
         }))
         .sort((a, b) => {
           if (a.is_mine && !b.is_mine) return -1
@@ -2714,14 +2699,19 @@ export default function Avatars() {
                 <Mic className="w-4 h-4 text-primary" /> Mis voces clonadas
               </h3>
               <div className="space-y-2">
-                {allVoices.filter(v => v.is_mine && (!voiceSearch || v.name.toLowerCase().includes(voiceSearch.toLowerCase()))).map(v => (
+                {allVoices.filter(v => v.is_mine && (!voiceSearch || v.name.toLowerCase().includes(voiceSearch.toLowerCase()))).map(v => {
+                  const isPending = v.status === "pending"
+                  return (
                   <div key={v.voice_id} className="rounded-xl border bg-card overflow-hidden">
-                    <div className="flex items-center gap-3 p-3 hover:bg-muted/40 transition-colors">
+                    <div className={`flex items-center gap-3 p-3 transition-colors ${isPending ? "opacity-80" : "hover:bg-muted/40"}`}>
+                      {/* Icon — spinner while pending */}
                       <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                        <Mic className="w-4 h-4 text-primary" />
+                        {isPending
+                          ? <Loader2 className="w-4 h-4 text-primary animate-spin" />
+                          : <Mic className="w-4 h-4 text-primary" />}
                       </div>
                       <div className="flex-1 min-w-0">
-                        {renamingVoiceId === v.voice_id ? (
+                        {!isPending && renamingVoiceId === v.voice_id ? (
                           <div className="flex gap-2 items-center">
                             <input
                               autoFocus
@@ -2740,13 +2730,19 @@ export default function Avatars() {
                         ) : (
                           <p className="text-sm font-medium truncate">{v.name}</p>
                         )}
-                        <p className="text-xs text-muted-foreground">
-                          Clonada · {v.gender === "male" ? "Masculina" : v.gender === "female" ? "Femenina" : "Voz clonada"}
-                          {v.speed != null && <span className="text-primary font-medium"> · {v.speed.toFixed(2)}×</span>}
-                        </p>
+                        {isPending ? (
+                          <p className="text-xs text-amber-500 font-medium flex items-center gap-1">
+                            Procesando tu voz · aprox. 2–5 min
+                          </p>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">
+                            Clonada · {v.gender === "male" ? "Masculina" : v.gender === "female" ? "Femenina" : "Voz clonada"}
+                            {v.speed != null && <span className="text-primary font-medium"> · {v.speed.toFixed(2)}×</span>}
+                          </p>
+                        )}
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
-                        {v.preview_audio_url && (
+                        {!isPending && v.preview_audio_url && (
                           <Button size="sm" variant="ghost" className="w-8 h-8 p-0"
                             onClick={() => handlePlayPreview(v.voice_id, v.preview_audio_url!)}>
                             {playingVoiceId === v.voice_id
@@ -2754,10 +2750,10 @@ export default function Avatars() {
                               : <Play className="w-3 h-3 fill-current" />}
                           </Button>
                         )}
-                        <Button size="sm" variant="ghost" className="w-8 h-8 p-0" onClick={() => setAssignVoice(v)}>
+                        <Button size="sm" variant="ghost" className="w-8 h-8 p-0" onClick={() => setAssignVoice(v)} disabled={isPending}>
                           <Users className="w-3.5 h-3.5" />
                         </Button>
-                        <Button size="sm" variant="ghost" className="w-8 h-8 p-0"
+                        <Button size="sm" variant="ghost" className="w-8 h-8 p-0" disabled={isPending}
                           onClick={() => { setRenamingVoiceId(v.voice_id); setRenameValue(v.name) }}>
                           <Pencil className="w-3.5 h-3.5" />
                         </Button>
@@ -2765,6 +2761,7 @@ export default function Avatars() {
                           size="sm" variant="ghost"
                           className={`w-8 h-8 p-0 ${editingSpeedVoiceId === v.voice_id ? "text-primary bg-primary/10" : ""}`}
                           title="Ajustar velocidad"
+                          disabled={isPending}
                           onClick={() => {
                             if (editingSpeedVoiceId === v.voice_id) {
                               setEditingSpeedVoiceId(null)
@@ -2776,7 +2773,7 @@ export default function Avatars() {
                           <SlidersHorizontal className="w-3.5 h-3.5" />
                         </Button>
                         <Button size="sm" variant="ghost" className="w-8 h-8 p-0 text-destructive hover:text-destructive"
-                          onClick={() => handleDeleteVoice(v.voice_id)} disabled={deleteVoiceMut.isPending}>
+                          onClick={() => handleDeleteVoice(v.voice_id)} disabled={deleteVoiceMut.isPending || isPending}>
                           <Trash2 className="w-3.5 h-3.5" />
                         </Button>
                       </div>
@@ -2814,7 +2811,8 @@ export default function Avatars() {
                       </div>
                     )}
                   </div>
-                ))}
+                )
+                })}
               </div>
             </div>
           )}

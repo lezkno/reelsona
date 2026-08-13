@@ -115,8 +115,11 @@ router.get("/heygen/voices", async (req, res): Promise<void> => {
     listVoices(apiKey),
     db.select().from(heygenClonedVoicesTable).where(eq(heygenClonedVoicesTable.userId, userId)),
   ]);
-  const myCloneIds = new Set(myClones.map(c => c.voiceId));
-  const myCloneSpeedMap = new Map(myClones.map(c => [c.voiceId, c.speed ?? null]));
+  const myCloneIds  = new Set(myClones.map(c => c.voiceId));
+  const mySpeedMap  = new Map(myClones.map(c => [c.voiceId, c.speed ?? null]));
+  const heygenIds   = new Set(voices.map(v => v.voice_id));
+
+  // Voices already available in HeyGen
   const mapped = voices.map((v) => ({
     voice_id: v.voice_id,
     name: v.name,
@@ -125,9 +128,26 @@ router.get("/heygen/voices", async (req, res): Promise<void> => {
     preview_audio_url: (v as any).preview_audio ?? v.preview_audio_url ?? null,
     is_cloned: v.is_clone ?? false,
     is_mine: myCloneIds.has(v.voice_id),
-    speed: myCloneIds.has(v.voice_id) ? (myCloneSpeedMap.get(v.voice_id) ?? null) : null,
+    speed: myCloneIds.has(v.voice_id) ? (mySpeedMap.get(v.voice_id) ?? null) : null,
+    status: myCloneIds.has(v.voice_id) ? "ready" : null,
   }));
-  res.json(GetHeyGenVoicesResponse.parse(mapped));
+
+  // Pending clones: in our DB but not yet available in HeyGen's list
+  const pendingEntries = myClones
+    .filter(c => c.status === "pending" && !heygenIds.has(c.voiceId))
+    .map(c => ({
+      voice_id: c.voiceId,
+      name: c.displayName,
+      language: "es",
+      gender: null as string | null,
+      preview_audio_url: null as string | null,
+      is_cloned: true,
+      is_mine: true,
+      speed: c.speed ?? null,
+      status: "pending",
+    }));
+
+  res.json(GetHeyGenVoicesResponse.parse([...pendingEntries, ...mapped]));
 });
 
 /**

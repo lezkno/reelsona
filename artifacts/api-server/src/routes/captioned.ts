@@ -26,7 +26,7 @@ router.use("/captioned-objects", async (req, res, next): Promise<void> => {
   // Security: only serve objects in explicitly allowed namespaces.
   // captioned-videos/ — browser caption engine output videos
   // brand-covers/     — branded Reel cover images (fetched by Instagram)
-  const ALLOWED_NAMESPACES = ["captioned-videos/", "brand-covers/"];
+  const ALLOWED_NAMESPACES = ["captioned-videos/", "brand-covers/", "voice-audio/"];
   if (
     !objectName ||
     objectName.includes("..") ||
