@@ -235,7 +235,9 @@ router.delete("/heygen/voices/:voiceId", async (req, res): Promise<void> => {
       .where(and(eq(heygenClonedVoicesTable.voiceId, voiceId), eq(heygenClonedVoicesTable.userId, userId)));
     if (!row) { res.status(403).json({ error: "No tienes permiso para eliminar esta voz" }); return; }
     const apiKey = await getUserHeyGenKey(userId);
-    await deleteVoice(voiceId, apiKey);
+    // Best-effort: if HeyGen returns an error (voice not found, already deleted,
+    // failed clone, etc.) we still remove it from our DB so the user can clean up.
+    await deleteVoice(voiceId, apiKey).catch(() => {});
     await db.delete(heygenClonedVoicesTable)
       .where(and(eq(heygenClonedVoicesTable.voiceId, voiceId), eq(heygenClonedVoicesTable.userId, userId)));
     res.json({ ok: true });
