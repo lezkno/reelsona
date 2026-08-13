@@ -241,7 +241,7 @@ export default function Automation() {
         {config?.last_run_at && (
           <div className="bg-background border-t px-5 py-3 text-sm flex flex-wrap items-center justify-between gap-2">
             <span className="text-muted-foreground">Última ejecución: {new Date(config.last_run_at).toLocaleString()}</span>
-            {config.last_run_status && (
+            {config.last_run_status && !config.last_run_status.includes('will retry') && (
               <span className={`font-medium ${config.last_run_status === 'success' ? 'text-green-600' : 'text-destructive'}`}>
                 {config.last_run_status}
               </span>

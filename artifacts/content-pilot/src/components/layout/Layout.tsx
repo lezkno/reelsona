@@ -3,15 +3,18 @@ import { useState } from "react"
 import { Link, useLocation } from "wouter"
 import { Sidebar } from "./Sidebar"
 import { WelcomeModal } from "@/components/WelcomeModal"
-import { Menu, AlertTriangle, Clock } from "lucide-react"
+import { Menu, AlertTriangle, Clock, LogOut } from "lucide-react"
 import { useEntitlement } from "@/hooks/useEntitlement"
-import { useAuthStatus } from "@workspace/api-client-react"
+import { useAuthStatus, useLogout } from "@workspace/api-client-react"
+import { useQueryClient } from "@tanstack/react-query"
 import { cn } from "@/lib/utils"
 
 // ── Top bar ───────────────────────────────────────────────────────────────────
 
 function TopBar({ onMenuOpen }: { onMenuOpen: () => void }) {
   const { data: authData } = useAuthStatus()
+  const logout = useLogout()
+  const queryClient = useQueryClient()
 
   const user = authData?.user
   const displayName = user ? (user.fullName || user.username) : ""
@@ -21,6 +24,14 @@ function TopBar({ onMenuOpen }: { onMenuOpen: () => void }) {
     .join("")
     .toUpperCase()
     .slice(0, 2)
+
+  const handleLogout = () => {
+    logout.mutate(undefined, {
+      onSuccess: () => {
+        queryClient.setQueryData(["auth", "me"], { authenticated: false })
+      },
+    })
+  }
 
   return (
     <header className="h-14 md:h-16 shrink-0 flex items-center gap-3 px-4 md:px-6 bg-sidebar text-sidebar-foreground border-b border-sidebar-border">
@@ -42,32 +53,45 @@ function TopBar({ onMenuOpen }: { onMenuOpen: () => void }) {
       {/* ── Spacer ── */}
       <div className="flex-1" />
 
-      {/* ── User profile (top right) ── */}
+      {/* ── User profile + logout (top right) ── */}
       {user && (
-        <Link
-          href="/profile"
-          className="flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-sidebar-accent/50 transition-colors group"
-        >
-          {/* Name + email — desktop only */}
-          <div className="hidden md:flex flex-col items-end">
-            <span className="text-xs font-semibold text-sidebar-foreground leading-tight truncate max-w-[160px]">
-              {displayName}
-            </span>
-            {user.email && (
-              <span className="text-[10px] text-sidebar-foreground/50 truncate max-w-[160px]">
-                {user.email}
+        <div className="flex items-center gap-1">
+          <Link
+            href="/profile"
+            className="flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-sidebar-accent/50 transition-colors group"
+          >
+            {/* Name + email — desktop only */}
+            <div className="hidden md:flex flex-col items-end">
+              <span className="text-xs font-semibold text-sidebar-foreground leading-tight truncate max-w-[160px]">
+                {displayName}
               </span>
-            )}
-          </div>
+              {user.email && (
+                <span className="text-[10px] text-sidebar-foreground/50 truncate max-w-[160px]">
+                  {user.email}
+                </span>
+              )}
+            </div>
 
-          {/* Avatar */}
-          <div className="w-8 h-8 rounded-full overflow-hidden bg-primary/20 flex items-center justify-center shrink-0 text-primary text-xs font-bold ring-1 ring-sidebar-border group-hover:ring-primary/40 transition-all">
-            {user.avatarUrl
-              ? <img src={`/api/storage${user.avatarUrl}`} alt={displayName} className="w-full h-full object-cover" />
-              : <span>{initials}</span>
-            }
-          </div>
-        </Link>
+            {/* Avatar */}
+            <div className="w-8 h-8 rounded-full overflow-hidden bg-primary/20 flex items-center justify-center shrink-0 text-primary text-xs font-bold ring-1 ring-sidebar-border group-hover:ring-primary/40 transition-all">
+              {user.avatarUrl
+                ? <img src={`/api/storage${user.avatarUrl}`} alt={displayName} className="w-full h-full object-cover" />
+                : <span>{initials}</span>
+              }
+            </div>
+          </Link>
+
+          {/* Logout button */}
+          <button
+            type="button"
+            onClick={handleLogout}
+            disabled={logout.isPending}
+            title="Cerrar sesión"
+            className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg text-sidebar-foreground/40 hover:text-sidebar-foreground hover:bg-sidebar-accent/50 transition-colors"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
+        </div>
       )}
     </header>
   )

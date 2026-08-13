@@ -1835,14 +1835,28 @@ export function startScheduler(): void {
         logger.info({ userId: config.userId, itemId: dueItems[0].id }, "Scheduled automation cycle triggered");
         const result = await runAutomationCycle(config.userId);
 
-        await db
-          .update(automationConfigTable)
-          .set({
-            lastRunAt: now,
-            lastRunStatus: result.success ? "success" : `failed: ${result.message}`,
-            updatedAt: now,
-          })
-          .where(eq(automationConfigTable.id, config.id));
+        // Transient / self-healing results (concurrent cycle, no items ready, etc.)
+        // should not overwrite a meaningful last_run_status — they are expected and
+        // the system retries automatically on the next tick.
+        const isTransient =
+          !result.success &&
+          (result.message?.includes("will retry") ||
+            result.message?.includes("already being processed") ||
+            result.message?.includes("No draft") ||
+            result.message?.includes("No content item") ||
+            result.message?.includes("Script ready") ||
+            result.message?.includes("disabled"));
+
+        if (!isTransient) {
+          await db
+            .update(automationConfigTable)
+            .set({
+              lastRunAt: now,
+              lastRunStatus: result.success ? "success" : `failed: ${result.message}`,
+              updatedAt: now,
+            })
+            .where(eq(automationConfigTable.id, config.id));
+        }
       }
     } catch (err) {
       logger.error({ err }, "Error in scheduled automation cycle");
