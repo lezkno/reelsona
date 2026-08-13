@@ -711,11 +711,10 @@ router.get("/heygen/audio-proxy", async (req, res): Promise<void> => {
     let decodedUrl: string;
     try { decodedUrl = decodeURIComponent(rawUrl); } catch { res.status(400).end(); return; }
     const parsed = new URL(decodedUrl);
-    // Only allow known HeyGen / resource CDN domains
-    const allowed = ["heygen.com", "files.heygen.ai", "resource.heygen.ai", "cdn.heygen.ai", "storage.googleapis.com"];
-    if (!allowed.some(d => parsed.hostname === d || parsed.hostname.endsWith("." + d))) {
-      res.status(403).end(); return;
-    }
+    // Must be HTTPS and not point to private/internal addresses (SSRF protection)
+    if (parsed.protocol !== "https:") { res.status(403).end(); return; }
+    const blocked = /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|0\.0\.0\.0)/;
+    if (blocked.test(parsed.hostname)) { res.status(403).end(); return; }
     const upstream = await axios.get(decodedUrl, { responseType: "arraybuffer", timeout: 15000 });
     const ct = (upstream.headers["content-type"] as string) ?? "audio/mpeg";
     res.set("Content-Type", ct);
