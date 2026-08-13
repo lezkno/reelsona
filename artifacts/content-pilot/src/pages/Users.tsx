@@ -4,7 +4,7 @@ import {
   Pencil, Mail, Phone, StickyNote, KeyRound,
   CheckCircle2, XCircle, Clock, GraduationCap,
   RefreshCw, AlertCircle, Info, BookOpen, Wrench,
-  CalendarDays, Download,
+  CalendarDays, Download, Coins, PlusCircle, MinusCircle,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -34,8 +34,8 @@ import {
   useAdminUsers, useCreateAdminUser, useUpdateAdminUser,
   useDeleteAdminUser, useAuthStatus,
   useAdminEntitlements, useProvisionStudent, useResendActivation,
-  useUpdateEntitlementDays,
-  type AdminUser, type UpdateAdminUserInput, type AdminEntitlement,
+  useUpdateEntitlementDays, useAdminCredits, useAdjustUserCredits,
+  type AdminUser, type UpdateAdminUserInput, type AdminEntitlement, type AdminCreditsWallet,
 } from "@workspace/api-client-react"
 import { cn } from "@/lib/utils"
 
@@ -458,6 +458,169 @@ function ResendActivationButton({ entitlement }: { entitlement: AdminEntitlement
       </TooltipTrigger>
       <TooltipContent side="left" className="text-xs">Reenviar link de activación</TooltipContent>
     </Tooltip>
+  )
+}
+
+// ── Adjust credits button (admin) ─────────────────────────────────────────────
+
+function AdjustCreditsButton({ wallet }: { wallet: AdminCreditsWallet }) {
+  const [open, setOpen] = useState(false)
+  const [amount, setAmount] = useState("")
+  const [reason, setReason] = useState("")
+  const adjust = useAdjustUserCredits()
+  const { toast } = useToast()
+
+  const handleSave = () => {
+    const n = parseInt(amount, 10)
+    if (!Number.isFinite(n) || n === 0) {
+      toast({ title: "Error", description: "Ingresa un número distinto de 0", variant: "destructive" }); return
+    }
+    adjust.mutate(
+      { userId: wallet.userId, amount: n, reason: reason.trim() || undefined },
+      {
+        onSuccess: () => {
+          toast({ title: "Créditos ajustados", description: `${n > 0 ? "+" : ""}${n} créditos para ${wallet.fullName ?? wallet.username}` })
+          setOpen(false); setAmount(""); setReason("")
+        },
+        onError: (err: any) =>
+          toast({ title: "Error", description: err?.data?.error ?? "No se pudo ajustar", variant: "destructive" }),
+      }
+    )
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setAmount(""); setReason("") } }}>
+      <DialogTrigger asChild>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary">
+              <Coins className="w-3.5 h-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="left" className="text-xs">Ajustar créditos</TooltipContent>
+        </Tooltip>
+      </DialogTrigger>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Ajustar créditos</DialogTitle>
+          <DialogDescription>
+            {wallet.fullName ?? wallet.username} — saldo actual: <strong>{wallet.availableCredits}</strong> créditos
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label>Cantidad (positivo = añadir, negativo = descontar)</Label>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" className="gap-1" onClick={() => setAmount(a => a.startsWith("-") ? a.slice(1) : "-" + a)}>
+                <MinusCircle className="w-3.5 h-3.5" />
+              </Button>
+              <Input
+                type="number"
+                placeholder="Ej. 100"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") handleSave() }}
+                autoFocus
+              />
+              <Button variant="outline" size="sm" className="gap-1" onClick={() => setAmount(a => a.startsWith("-") ? a.slice(1) : a)}>
+                <PlusCircle className="w-3.5 h-3.5" />
+              </Button>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Motivo (opcional)</Label>
+            <Input placeholder="Ej. Compensación, bono, corrección" value={reason} onChange={(e) => setReason(e.target.value)} />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
+          <Button onClick={handleSave} disabled={adjust.isPending}>
+            {adjust.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+            Confirmar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ── Admin credits section ──────────────────────────────────────────────────────
+
+function AdminCreditsSection() {
+  const { data, isLoading, error } = useAdminCredits()
+  const wallets = data?.wallets ?? []
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+          <Coins className="w-5 h-5 text-primary" />
+        </div>
+        <div>
+          <h2 className="text-xl font-bold text-foreground">Créditos por alumno</h2>
+          <p className="text-sm text-muted-foreground">
+            {isLoading ? "Cargando…" : `${wallets.length} wallet${wallets.length !== 1 ? "s" : ""} activo${wallets.length !== 1 ? "s" : ""}`}
+          </p>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-border overflow-hidden bg-card">
+        {isLoading && (
+          <div className="p-6 space-y-3">
+            {[1, 2, 3].map(i => <Skeleton key={i} className="h-8 w-full" />)}
+          </div>
+        )}
+        {error && <div className="py-10 text-center text-destructive text-sm">Error al cargar créditos</div>}
+        {!isLoading && !error && wallets.length === 0 && (
+          <div className="py-10 text-center text-muted-foreground text-sm">Aún no hay wallets registradas.</div>
+        )}
+        {!isLoading && !error && wallets.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-muted/40">
+                  <th className="text-left px-5 py-3 font-medium text-muted-foreground">Alumno</th>
+                  <th className="text-right px-4 py-3 font-medium text-muted-foreground">Videos restantes</th>
+                  <th className="text-right px-4 py-3 font-medium text-muted-foreground">Disponibles</th>
+                  <th className="text-right px-4 py-3 font-medium text-muted-foreground">En proceso</th>
+                  <th className="text-right px-4 py-3 font-medium text-muted-foreground">Usados</th>
+                  <th className="px-3 py-3" />
+                </tr>
+              </thead>
+              <tbody>
+                {wallets.map((w) => (
+                  <tr key={w.userId} className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors">
+                    <td className="px-5 py-3.5">
+                      <div>
+                        <p className="font-medium text-foreground leading-tight">{w.fullName ?? "—"}</p>
+                        <p className="text-xs text-muted-foreground">{w.username}</p>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3.5 text-right">
+                      <span className={cn(
+                        "text-lg font-bold",
+                        w.videosRemaining === 0 ? "text-destructive" :
+                        w.videosRemaining <= 3   ? "text-amber-500" : "text-emerald-600"
+                      )}>
+                        {w.videosRemaining}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3.5 text-right text-sm font-medium">{w.availableCredits}</td>
+                    <td className="px-4 py-3.5 text-right text-sm text-amber-500">
+                      {w.reservedCredits > 0 ? w.reservedCredits : <span className="text-muted-foreground/30">—</span>}
+                    </td>
+                    <td className="px-4 py-3.5 text-right text-sm text-muted-foreground">{w.totalConsumed}</td>
+                    <td className="px-3 py-3.5">
+                      <AdjustCreditsButton wallet={w} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
   )
 }
 
@@ -958,6 +1121,10 @@ export default function Users() {
         </div>
         <EntitlementsSection />
       </div>
+
+      {/* ── Credits section ────────────────────────────────────────────────── */}
+      <div className="border-t border-border" />
+      <AdminCreditsSection />
 
       {/* ── Divider ────────────────────────────────────────────────────────── */}
       <div className="border-t border-border" />

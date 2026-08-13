@@ -13,8 +13,9 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import { randomBytes } from "crypto";
 import { db } from "@workspace/db";
-import { users, userEntitlements, videosTable, settingsTable, captionConfigTable } from "@workspace/db";
+import { users, userEntitlements, videosTable, settingsTable, captionConfigTable, userCreditsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import { provisionCredits, VIDEO_CREDIT_COST } from "../lib/credits";
 import { sendEmail, activationEmail, getAppUrl } from "../lib/email";
 import { provisionUser } from "../lib/provision";
 import { runCaptionProcessing } from "../lib/scheduler";
@@ -336,6 +337,77 @@ router.post("/admin/reprocess-video", async (req: Request, res: Response): Promi
     .catch(err => console.error("[admin/reprocess-video] Error:", err));
 
   res.json({ ok: true, message: `Reprocesando video ${videoId} con efectos ${JSON.stringify(videoEffects)}` });
+});
+
+// ── GET /api/admin/credits ────────────────────────────────────────────────────
+/** All user wallet states — for the admin credits panel. */
+router.get("/admin/credits", async (req: Request, res: Response): Promise<void> => {
+  if (!isAdminRequest(req)) {
+    res.status(403).json({ error: "Acceso denegado" }); return;
+  }
+
+  try {
+    const rows = await db
+      .select({
+        userId:           userCreditsTable.userId,
+        availableCredits: userCreditsTable.availableCredits,
+        reservedCredits:  userCreditsTable.reservedCredits,
+        totalConsumed:    userCreditsTable.totalConsumed,
+        updatedAt:        userCreditsTable.updatedAt,
+        username:         users.username,
+        fullName:         users.fullName,
+      })
+      .from(userCreditsTable)
+      .innerJoin(users, eq(users.id, userCreditsTable.userId))
+      .orderBy(userCreditsTable.availableCredits);  // lowest first — easiest to spot who's running out
+
+    const wallets = rows.map((r) => ({
+      ...r,
+      videosRemaining: Math.floor(r.availableCredits / VIDEO_CREDIT_COST),
+    }));
+
+    res.json({ wallets });
+  } catch (err) {
+    console.error("[admin/credits]", err);
+    res.status(500).json({ error: "Error interno del servidor" });
+  }
+});
+
+// ── POST /api/admin/credits/:userId/adjust ────────────────────────────────────
+/** Manually add (positive) or deduct (negative) credits for a user. */
+router.post("/admin/credits/:userId/adjust", async (req: Request, res: Response): Promise<void> => {
+  if (!isAdminRequest(req)) {
+    res.status(403).json({ error: "Acceso denegado" }); return;
+  }
+
+  const userId = parseInt(req.params.userId as string, 10);
+  const { amount, reason } = req.body as { amount?: unknown; reason?: unknown };
+
+  if (!Number.isFinite(userId) || userId < 1) {
+    res.status(400).json({ error: "userId inválido" }); return;
+  }
+  if (typeof amount !== "number" || !Number.isFinite(amount) || amount === 0) {
+    res.status(400).json({ error: "amount debe ser un número distinto de 0" }); return;
+  }
+  if (Math.abs(amount) > 10_000) {
+    res.status(400).json({ error: "amount no puede superar ±10 000 créditos" }); return;
+  }
+
+  try {
+    const [user] = await db.select({ id: users.id }).from(users).where(eq(users.id, userId)).limit(1);
+    if (!user) { res.status(404).json({ error: "Usuario no encontrado" }); return; }
+
+    await provisionCredits(
+      userId,
+      amount,
+      (typeof reason === "string" && reason.trim()) ? reason.trim() : `Ajuste manual por admin (${amount > 0 ? "+" : ""}${amount})`,
+    );
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[admin/credits/:userId/adjust]", err);
+    res.status(500).json({ error: "Error interno del servidor" });
+  }
 });
 
 export default router;

@@ -61,3 +61,15 @@ If a user runs out of credits mid-schedule, their scripted items must not become
 `lib/db/migrations/021_wallet_credits.sql` — applied 2026-08-13.
 Bootstraps existing active users with `remaining_days * 10` credits (min 10).
 Marks existing completed purchases as provisioned.
+
+## Phase 2 additions (2026-08-13)
+
+**GET /api/credits/balance** — mounted after requireAuth, BEFORE requireToolAccess so expired users can still see their balance. Returns `{ availableCredits, reservedCredits, totalConsumed, videosRemaining, creditCost, isAdmin }`. Admin users get `availableCredits: null, isAdmin: true`.
+
+**CreditsCard** in `Settings.tsx` — shows videos remaining, progress bar (consumed vs available), stat breakdown. Rendered at the top of Settings before BrandIdentityCard.
+
+**Low-credit alert email** (#207) — fires fire-and-forget when `generateVideo()` fails the credit check. Rate-limited to once per 24h per userId via module-level `lowCreditAlertsSent: Map<userId, timestamp>`. The map resets on process restart (acceptable).
+
+**Admin credits panel** (#208) — `GET /api/admin/credits` + `POST /api/admin/credits/:userId/adjust`. UI in `Users.tsx` as `AdminCreditsSection` with `AdjustCreditsButton` dialog. Calls `provisionCredits()` for positive amounts; negative amounts also work (provisionCredits accepts negative via the same ledger path).
+
+**Hooks**: `useCreditsBalance`, `useAdminCredits`, `useAdjustUserCredits` in `lib/api-client-react/src/custom-endpoints.ts`.

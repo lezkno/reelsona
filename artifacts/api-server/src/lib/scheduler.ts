@@ -32,6 +32,12 @@ import { createReelContainer, checkContainerStatus, publishContainer, getPermali
 import { getSignedCaptionedVideoUrl, objectStorageClient } from "./objectStorage";
 import { generateBrandCover } from "./brand-cover";
 
+// ── Low-credit alert rate-limiter ─────────────────────────────────────────────
+// Tracks the last time a low-credit alert was sent per userId so we never
+// spam users. Reset on process restart (acceptable — alerts are advisory).
+const lowCreditAlertsSent = new Map<number, number>(); // userId → timestamp ms
+const LOW_CREDIT_ALERT_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24 h
+
 /** Sentinel stored in preferred_voice_id meaning "use the avatar's own HeyGen default voice" (legacy, kept for backwards compat). */
 export const AVATAR_DEFAULT_VOICE = "avatar_default";
 
@@ -699,6 +705,29 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
         { userId, itemId: contentItem.id, required: VIDEO_CREDIT_COST },
         "[Credits] Saldo insuficiente — item restablecido a 'scripted'",
       );
+
+      // Fire-and-forget low-credit alert email (rate-limited to once per 24h per user)
+      const lastAlert = lowCreditAlertsSent.get(userId) ?? 0;
+      if (Date.now() - lastAlert > LOW_CREDIT_ALERT_COOLDOWN_MS) {
+        lowCreditAlertsSent.set(userId, Date.now());
+        db.select({ email: users.email, username: users.username, fullName: users.fullName })
+          .from(users).where(eq(users.id, userId)).limit(1)
+          .then(([user]) => {
+            const to = user?.email ?? user?.username;
+            if (!to) return;
+            return sendEmail({
+              to,
+              subject: "⚠️ Tu saldo de créditos en Reelsona está por agotarse",
+              html: `<p>Hola ${user?.fullName ?? ""},</p>
+<p>Tu saldo de créditos en Reelsona es insuficiente para generar nuevos videos. La automatización está pausada hasta que tengas créditos disponibles.</p>
+<p>Entra a la plataforma para ver tu saldo actual en <strong>Configuración</strong>.</p>
+<p style="color:#888;font-size:12px">Este aviso se envía como máximo una vez cada 24 horas.</p>`,
+              text: "Tu saldo de créditos en Reelsona está por agotarse. La automatización está pausada. Entra a la plataforma para ver tu saldo.",
+            });
+          })
+          .catch((err) => logger.warn({ err, userId }, "[Credits] No se pudo enviar alerta de saldo bajo"));
+      }
+
       return {
         success: false,
         message: `Saldo de créditos insuficiente (se requieren ${VIDEO_CREDIT_COST} créditos). El item se reintentará cuando haya saldo.`,

@@ -141,6 +141,68 @@ export function useReapplyCaptions() {
   });
 }
 
+// ── Credit wallet ─────────────────────────────────────────────────────────────
+
+export interface CreditsBalance {
+  availableCredits: number | null;  // null for admin (unlimited)
+  reservedCredits:  number;
+  totalConsumed:    number;
+  videosRemaining:  number | null;  // null for admin
+  creditCost:       number;
+  isAdmin:          boolean;
+}
+
+export const CREDITS_BALANCE_KEY = ["credits", "balance"] as const;
+
+/** Authenticated user's credit wallet. Accessible even when tool access is expired. */
+export function useCreditsBalance() {
+  return useQuery<CreditsBalance>({
+    queryKey: CREDITS_BALANCE_KEY,
+    queryFn:  () => customFetch<CreditsBalance>("/api/credits/balance"),
+    staleTime: 1000 * 30,
+  });
+}
+
+export interface AdminCreditsWallet {
+  userId:           number;
+  username:         string;
+  fullName:         string | null;
+  availableCredits: number;
+  reservedCredits:  number;
+  totalConsumed:    number;
+  videosRemaining:  number;
+  updatedAt:        string | null;
+}
+
+export const ADMIN_CREDITS_KEY = ["admin", "credits"] as const;
+
+/** All user wallet states — for the admin credits panel. */
+export function useAdminCredits() {
+  return useQuery<{ wallets: AdminCreditsWallet[] }>({
+    queryKey: ADMIN_CREDITS_KEY,
+    queryFn:  () => customFetch<{ wallets: AdminCreditsWallet[] }>("/api/admin/credits"),
+    staleTime: 1000 * 30,
+  });
+}
+
+/** Manually adjust a user's credit balance (admin only). */
+export function useAdjustUserCredits() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ userId, amount, reason }: { userId: number; amount: number; reason?: string }) =>
+      customFetch<{ ok: boolean }>(`/api/admin/credits/${userId}/adjust`, {
+        method:  "POST",
+        body:    JSON.stringify({ amount, reason }),
+        headers: { "Content-Type": "application/json" },
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ADMIN_CREDITS_KEY });
+      qc.invalidateQueries({ queryKey: CREDITS_BALANCE_KEY });
+      qc.invalidateQueries({ queryKey: ADMIN_ENTITLEMENTS_KEY });
+    },
+  });
+}
+
 // ── Admin student provisioning ────────────────────────────────────────────────
 
 export interface AdminEntitlement {
