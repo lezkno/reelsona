@@ -1145,7 +1145,8 @@ async function runCopyGeneration(contentItemId: number): Promise<void> {
   // processGeneratingVideos skips direct auto-publish for plan-linked items so
   // copy can generate first. Fire it here once copy is terminal (done or failed).
   if (item?.videoId) {
-    const [automation] = await db.select().from(automationConfigTable).limit(1);
+    const [automation] = await db.select().from(automationConfigTable)
+      .where(eq(automationConfigTable.userId, item.userId)).limit(1);
     if (automation?.enabled && automation?.autoPublish) {
       const [video] = await db.select().from(videosTable).where(eq(videosTable.id, item.videoId));
       const captionTerminal =
