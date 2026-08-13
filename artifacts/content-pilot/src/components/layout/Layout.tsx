@@ -1,18 +1,109 @@
 import * as React from "react"
 import { useState } from "react"
-import { Link } from "wouter"
+import { Link, useLocation } from "wouter"
 import { Sidebar } from "./Sidebar"
 import { WelcomeModal } from "@/components/WelcomeModal"
 import { Menu, AlertTriangle, Clock } from "lucide-react"
 import { useEntitlement } from "@/hooks/useEntitlement"
+import { useAuthStatus } from "@workspace/api-client-react"
 import { cn } from "@/lib/utils"
+
+// ── Page title map (kept in sync with NAV_ITEMS) ─────────────────────────────
+
+const PAGE_TITLES: Record<string, string> = {
+  "/":           "Dashboard",
+  "/course":     "Academia",
+  "/connect":    "Instagram",
+  "/audit":      "Auditoría",
+  "/content":    "Plan de Contenido",
+  "/avatars":    "Avatares",
+  "/videos":     "Videos",
+  "/captions":   "Studio de Efectos",
+  "/automation": "Automatización",
+  "/settings":   "Configuración",
+  "/profile":    "Mi Perfil",
+  "/users":      "Usuarios",
+}
+
+// ── Top bar ───────────────────────────────────────────────────────────────────
+
+function TopBar({ onMenuOpen }: { onMenuOpen: () => void }) {
+  const [location] = useLocation()
+  const { data: authData } = useAuthStatus()
+
+  const pageTitle = PAGE_TITLES[location] ?? ""
+  const user = authData?.user
+  const displayName = user ? (user.fullName || user.username) : ""
+  const initials = displayName
+    .split(" ")
+    .map((w: string) => w[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2)
+
+  return (
+    <header className="h-14 md:h-16 shrink-0 flex items-center gap-3 px-4 md:px-6 bg-sidebar text-sidebar-foreground border-b border-sidebar-border">
+      {/* ── Mobile: hamburger + logo ── */}
+      <button
+        type="button"
+        onClick={onMenuOpen}
+        aria-label="Abrir menú"
+        className="md:hidden min-h-[44px] min-w-[44px] flex items-center justify-center rounded-md text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground transition-colors"
+      >
+        <Menu className="w-5 h-5" />
+      </button>
+
+      <div className="md:hidden flex items-center gap-2">
+        <img src="/logo.png" alt="Reelsona" className="w-7 h-7 object-contain" />
+        <span className="font-display font-bold text-sidebar-foreground tracking-tight">Reelsona</span>
+      </div>
+
+      {/* ── Desktop: current page title ── */}
+      {pageTitle && (
+        <h1 className="hidden md:block text-sm font-semibold text-sidebar-foreground/70 tracking-wide">
+          {pageTitle}
+        </h1>
+      )}
+
+      {/* ── Spacer ── */}
+      <div className="flex-1" />
+
+      {/* ── User profile (top right) ── */}
+      {user && (
+        <Link
+          href="/profile"
+          className="flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-sidebar-accent/50 transition-colors group"
+        >
+          {/* Name + email — desktop only */}
+          <div className="hidden md:flex flex-col items-end">
+            <span className="text-xs font-semibold text-sidebar-foreground leading-tight truncate max-w-[160px]">
+              {displayName}
+            </span>
+            {user.email && (
+              <span className="text-[10px] text-sidebar-foreground/50 truncate max-w-[160px]">
+                {user.email}
+              </span>
+            )}
+          </div>
+
+          {/* Avatar */}
+          <div className="w-8 h-8 rounded-full overflow-hidden bg-primary/20 flex items-center justify-center shrink-0 text-primary text-xs font-bold ring-1 ring-sidebar-border group-hover:ring-primary/40 transition-all">
+            {user.avatarUrl
+              ? <img src={`/api/storage${user.avatarUrl}`} alt={displayName} className="w-full h-full object-cover" />
+              : <span>{initials}</span>
+            }
+          </div>
+        </Link>
+      )}
+    </header>
+  )
+}
 
 // ── Access alert banner ───────────────────────────────────────────────────────
 
 function AccessBanner() {
   const { data } = useEntitlement()
 
-  // Nothing to show for admins, loading state, or users with active access > 7 days
   if (!data || data.isAdmin) return null
   if (data.toolAccessActive && (data.daysRemaining === null || data.daysRemaining > 7)) return null
 
@@ -81,28 +172,19 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <Sidebar onClose={() => setSidebarOpen(false)} />
       </div>
 
-      {/* Main content */}
-      <main className="flex-1 flex flex-col h-full overflow-y-auto min-w-0">
-        {/* Mobile top bar */}
-        <div className="md:hidden flex items-center gap-3 px-4 h-14 border-b bg-sidebar shrink-0">
-          <button
-            type="button"
-            onClick={() => setSidebarOpen(true)}
-            className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-md text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground transition-colors"
-          >
-            <Menu className="w-5 h-5" />
-          </button>
-          <div className="flex items-center gap-2">
-            <img src="/logo.png" alt="Reelsona" className="w-7 h-7 object-contain" />
-            <span className="font-display font-bold text-sidebar-foreground tracking-tight">Reelsona</span>
-          </div>
-        </div>
+      {/* Main content column */}
+      <main className="flex-1 flex flex-col h-full overflow-hidden min-w-0">
+        {/* Top bar — all sizes */}
+        <TopBar onMenuOpen={() => setSidebarOpen(true)} />
 
-        {/* Access alert banner — only visible when expiring soon or expired */}
+        {/* Access alert banner */}
         <AccessBanner />
 
-        <div className="flex-1 w-full max-w-6xl mx-auto p-4 md:p-8 relative">
-          {children}
+        {/* Scrollable content */}
+        <div className="flex-1 overflow-y-auto">
+          <div className="w-full max-w-6xl mx-auto p-4 md:p-8 relative">
+            {children}
+          </div>
         </div>
       </main>
 
