@@ -255,7 +255,13 @@ export const UpdateAvatarConfigBody = zod.object({
   "selected_avatar_ids": zod.array(zod.string()),
   "preferred_voice_id": zod.string().nullish(),
   "voice_overrides": zod.record(zod.string(), zod.string()).nullish().describe('Per-avatar voice overrides — avatarId → voiceId. Missing key means use HeyGen default voice.'),
-  "rotation_strategy": zod.enum(['sequential', 'random', 'performance'])
+  "rotation_strategy": zod.enum(['sequential', 'random', 'performance']),
+  "look_metadata": zod.record(zod.string(), zod.object({
+    group_id: zod.string().nullish(),
+    avatar_type: zod.string().nullish(),
+    supported_api_engines: zod.array(zod.string()).optional(),
+    preferred_orientation: zod.string().nullish(),
+  })).nullish().describe('Per-look metadata for engine selection and reference look resolution. Key = lookId.'),
 })
 
 export const UpdateAvatarConfigResponse = zod.object({

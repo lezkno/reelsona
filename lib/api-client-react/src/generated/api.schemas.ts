@@ -226,6 +226,15 @@ export const AvatarConfigInputRotationStrategy = {
   performance: 'performance',
 } as const;
 
+export type AvatarConfigInputLookMetadata = {
+  [key: string]: {
+    group_id?: string | null;
+    avatar_type?: string | null;
+    supported_api_engines?: string[];
+    preferred_orientation?: string | null;
+  };
+} | null;
+
 export interface AvatarConfigInput {
   selected_avatar_ids: string[];
   /** @nullable */
@@ -233,6 +242,8 @@ export interface AvatarConfigInput {
   /** Per-avatar voice overrides — avatarId → voiceId. Missing key means use HeyGen default voice. */
   voice_overrides?: AvatarConfigInputVoiceOverrides;
   rotation_strategy: AvatarConfigInputRotationStrategy;
+  /** Per-look metadata for engine selection and reference look resolution. Key = lookId. */
+  look_metadata?: AvatarConfigInputLookMetadata;
 }
 
 export type ContentPlanItemStatus = typeof ContentPlanItemStatus[keyof typeof ContentPlanItemStatus];

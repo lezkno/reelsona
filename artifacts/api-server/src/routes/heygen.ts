@@ -2,7 +2,7 @@ import { Router } from "express";
 import { randomUUID } from "crypto";
 import multer from "multer";
 import { db } from "@workspace/db";
-import { avatarConfigTable, settingsTable, heygenClonedVoicesTable } from "@workspace/db";
+import { avatarConfigTable, settingsTable, heygenClonedVoicesTable, avatarLookMetadataTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { execFile } from "child_process";
 import { promisify } from "util";
@@ -11,6 +11,7 @@ import fs from "fs/promises";
 import path from "path";
 import axios from "axios";
 import { objectStorageClient, getSignedObjectUrl } from "../lib/objectStorage";
+import { logger } from "../lib/logger";
 
 const execFileAsync = promisify(execFile);
 
@@ -87,6 +88,7 @@ import {
   uploadAsset, createPhotoAvatar, createPromptAvatar, createAvatarLook,
   deleteAvatarLook, deleteAvatarGroup, getAvatarLookStatus,
   cloneVoice, deleteVoice, renameVoice, getVoiceCloneStatus,
+  invalidateLookCaches, invalidateDefaultVoiceCache, invalidateAvatarIdsCache,
 } from "../lib/heygen";
 import { sendEmail } from "../lib/email";
 
@@ -506,6 +508,55 @@ router.put("/heygen/avatar-config", async (req, res): Promise<void> => {
       .returning();
   }
 
+  // Upsert per-look metadata for engine resolution and reference_look_id support
+  const lookMetadata = parsed.data.look_metadata;
+  if (lookMetadata && Object.keys(lookMetadata).length > 0) {
+    // Track which groups already have a master look in the DB so we don't add two
+    const existingMasters = await db
+      .select({ groupId: avatarLookMetadataTable.groupId })
+      .from(avatarLookMetadataTable)
+      .where(and(
+        eq(avatarLookMetadataTable.userId, userId),
+        eq(avatarLookMetadataTable.isMasterLook, true),
+      ));
+    const mastersSet = new Set(existingMasters.map(m => m.groupId).filter(Boolean) as string[]);
+
+    for (const [lookId, meta] of Object.entries(lookMetadata)) {
+      const groupId = meta.group_id ?? null;
+      // Auto-assign is_master_look to the first digital_twin look added per group
+      let isMasterLook = false;
+      if (meta.avatar_type === "digital_twin" && groupId && !mastersSet.has(groupId)) {
+        isMasterLook = true;
+        mastersSet.add(groupId);
+      }
+
+      await db
+        .insert(avatarLookMetadataTable)
+        .values({
+          userId,
+          lookId,
+          groupId,
+          avatarType:           meta.avatar_type ?? null,
+          supportedApiEngines:  meta.supported_api_engines ?? [],
+          preferredOrientation: meta.preferred_orientation ?? null,
+          isMasterLook,
+        })
+        .onConflictDoUpdate({
+          target: [avatarLookMetadataTable.userId, avatarLookMetadataTable.lookId],
+          set: {
+            groupId,
+            avatarType:           meta.avatar_type ?? null,
+            supportedApiEngines:  meta.supported_api_engines ?? [],
+            preferredOrientation: meta.preferred_orientation ?? null,
+            // Only promote — never demote an already-assigned master look
+            ...(isMasterLook ? { isMasterLook: true } : {}),
+            updatedAt: new Date(),
+          },
+        });
+    }
+    logger.info({ userId, count: Object.keys(lookMetadata).length }, "[AvatarConfig] Look metadata upserted");
+  }
+
   res.json(
     UpdateAvatarConfigResponse.parse({
       selected_avatar_ids: config.selectedAvatarIds ?? [],
@@ -662,7 +713,14 @@ router.delete("/heygen/avatars/looks/:lookId", async (req, res): Promise<void> =
   const { lookId } = req.params;
   if (!lookId) { res.status(400).json({ error: "lookId es requerido" }); return; }
   try {
-    await deleteAvatarLook(lookId);
+    const apiKey = await getUserHeyGenKey(req.session.user!.userId);
+    await deleteAvatarLook(lookId, apiKey);
+    // Invalidate per-look caches so the next generation doesn't use stale engine data or images
+    invalidateLookCaches(lookId, apiKey);
+    // Also invalidate the full avatar IDs list (look no longer exists)
+    invalidateAvatarIdsCache(apiKey);
+    // Reset the looks cache so the picker reflects the deletion
+    looksCache = null;
     res.json({ ok: true });
   } catch (err: any) {
     res.status(500).json({ error: err?.message ?? "Error al eliminar el look" });
@@ -676,7 +734,13 @@ router.delete("/heygen/avatars/groups/:groupId", async (req, res): Promise<void>
   const { groupId } = req.params;
   if (!groupId) { res.status(400).json({ error: "groupId es requerido" }); return; }
   try {
-    await deleteAvatarGroup(groupId);
+    const apiKey = await getUserHeyGenKey(req.session.user!.userId);
+    await deleteAvatarGroup(groupId, apiKey);
+    // Invalidate all per-look caches — we don't know which lookIds belonged to this group
+    // so invalidate the full avatar IDs list; per-look entries will expire naturally
+    invalidateAvatarIdsCache(apiKey);
+    invalidateDefaultVoiceCache(apiKey);
+    looksCache = null;
     res.json({ ok: true });
   } catch (err: any) {
     res.status(500).json({ error: err?.message ?? "Error al eliminar el avatar" });

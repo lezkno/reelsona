@@ -387,7 +387,9 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
     );
     return { success: false, message: "Niche not configured" };
   }
-  const heygenApiKey = process.env.HEYGEN_API_KEY ?? undefined;
+  // Use the user's own HeyGen API key from their settings (same key used by the manual route).
+  // Falls back to the platform env var so existing users without a stored key are not broken.
+  const heygenApiKey = settings.heygenApiKey ?? process.env.HEYGEN_API_KEY ?? undefined;
 
   // Load avatar config scoped to this user
   let [avatarCfg] = await db.select().from(avatarConfigTable)
@@ -563,7 +565,7 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
         },
       );
       // Always re-resolve from current voice_overrides — draft.voiceId may be stale.
-      voiceId = (await resolveVoiceId(avatarId, heygenApiKey)) ?? draft.voiceId;
+      voiceId = (await resolveVoiceId(avatarId, heygenApiKey, userId)) ?? draft.voiceId;
     } catch (err) {
       // Reset to draft so the next cycle can retry.
       await db
@@ -659,7 +661,7 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
   // Always re-resolve voice from current overrides at generation time.
   // The voiceId stored on the item may be stale (set before the user configured
   // per-avatar overrides). The override map always wins over the cached value.
-  const freshVoiceId = await resolveVoiceId(contentItem.avatarId, heygenApiKey);
+  const freshVoiceId = await resolveVoiceId(contentItem.avatarId, heygenApiKey, userId);
   contentItem.voiceId = freshVoiceId ?? contentItem.voiceId;
   if (contentItem.avatarId && contentItem.voiceId) {
     await db
@@ -782,14 +784,15 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
 
   try {
     const heygenVideoId = await generateVideo({
-      script: contentItem.script,
-      avatar_id: contentItem.avatarId,
-      voice_id: contentItem.voiceId,
-      title: contentItem.topic,
+      script:          contentItem.script,
+      avatar_id:       contentItem.avatarId,
+      voice_id:        contentItem.voiceId,
+      title:           contentItem.topic,
       captionsEnabled: automation.captionsEnabled ?? false,
-      voiceSpeed: resolvedVoiceSpeed,
-      voicePitch: resolvedVoicePitch,
-      language: settings.language ?? "es",
+      voiceSpeed:      resolvedVoiceSpeed,
+      voicePitch:      resolvedVoicePitch,
+      language:        settings.language ?? "es",
+      userId,
     }, heygenApiKey);
 
     await db

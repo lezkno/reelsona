@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { videosTable, contentPlanItemsTable, avatarConfigTable, automationConfigTable, captionConfigTable, settingsTable } from "@workspace/db";
+import { videosTable, contentPlanItemsTable, avatarConfigTable, automationConfigTable, captionConfigTable, settingsTable, heygenClonedVoicesTable } from "@workspace/db";
 import { eq, desc, and } from "drizzle-orm";
 import {
   GetVideosQueryParams,
@@ -125,7 +125,7 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
 
   // Resolve the user's HeyGen API key and video effects from their settings row
   const [userSettings] = await db
-    .select({ heygenApiKey: settingsTable.heygenApiKey, videoEffects: settingsTable.videoEffects })
+    .select({ heygenApiKey: settingsTable.heygenApiKey, videoEffects: settingsTable.videoEffects, language: settingsTable.language })
     .from(settingsTable)
     .where(eq(settingsTable.userId, userId))
     .limit(1);
@@ -164,7 +164,7 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
     // Always re-resolve from current voice_overrides at generation time.
     // The voiceId stored on the item may be stale (set before the user configured
     // per-avatar overrides, or before they changed them). The override always wins.
-    const freshVoiceId = await resolveVoiceId(item.avatarId!, heygenApiKey);
+    const freshVoiceId = await resolveVoiceId(item.avatarId!, heygenApiKey, userId);
     if (!freshVoiceId && !item.voiceId) {
       res.status(400).json({ error: "No se encontró ninguna voz disponible en HeyGen. Verifica tu cuenta de HeyGen." });
       return;
@@ -226,13 +226,29 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
     .set({ videoId: videoRow.id, updatedAt: new Date() })
     .where(and(eq(contentPlanItemsTable.id, item.id), eq(contentPlanItemsTable.userId, userId)));
 
+  // Resolve voice speed/pitch so the manual route matches the scheduler's audio params
+  let manualVoiceSpeed: number | undefined;
+  let manualVoicePitch: number | undefined;
+  if (item.voiceId) {
+    const [clonedVoiceRow] = await db
+      .select({ speed: heygenClonedVoicesTable.speed, pitch: heygenClonedVoicesTable.pitch })
+      .from(heygenClonedVoicesTable)
+      .where(eq(heygenClonedVoicesTable.voiceId, item.voiceId));
+    manualVoiceSpeed = clonedVoiceRow?.speed ?? undefined;
+    manualVoicePitch = clonedVoiceRow?.pitch ?? undefined;
+  }
+
   // Fire and forget video generation — pass the user's own HeyGen key
   generateVideo({
-    script: item.script,
-    avatar_id: item.avatarId!,
-    voice_id: item.voiceId!,
-    title: item.topic,
+    script:          item.script,
+    avatar_id:       item.avatarId!,
+    voice_id:        item.voiceId!,
+    title:           item.topic,
     captionsEnabled: automationCfg?.captionsEnabled ?? false,
+    voiceSpeed:      manualVoiceSpeed,
+    voicePitch:      manualVoicePitch,
+    language:        userSettings?.language ?? "es",
+    userId,
   }, heygenApiKey)
     .then(async (heygenVideoId) => {
       await db.update(videosTable).set({ heygenVideoId, updatedAt: new Date() })

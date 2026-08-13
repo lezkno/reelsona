@@ -1,7 +1,20 @@
 import axios from "axios";
+import { createHash } from "crypto";
 import { logger } from "./logger";
+import { db } from "@workspace/db";
+import { avatarLookMetadataTable } from "@workspace/db";
+import { eq, and } from "drizzle-orm";
 
 const HEYGEN_BASE_URL = "https://api.heygen.com";
+
+/**
+ * Stable 8-char hex prefix of sha256(apiKey).
+ * Used as a per-account namespace in all module-level caches to prevent
+ * cross-account contamination when the same process handles multiple users.
+ */
+function apiKeyHash(apiKey?: string): string {
+  return createHash("sha256").update(apiKey ?? "platform").digest("hex").slice(0, 8);
+}
 
 function getClient(apiKey?: string) {
   const key = apiKey ?? process.env.HEYGEN_API_KEY;
@@ -141,8 +154,9 @@ export async function fetchAvatarPreviewImage(
   avatarId: string,
   apiKey?: string,
 ): Promise<string | null> {
-  // 1. Cache hit
-  const cached = avatarImageCache.get(avatarId);
+  // 1. Cache hit — keyed by apiKey + avatarId to isolate per-account data
+  const cacheKey = `${apiKeyHash(apiKey)}:${avatarId}`;
+  const cached = avatarImageCache.get(cacheKey);
   if (cached && Date.now() - cached.at < AVATAR_IMAGE_TTL) return cached.url;
 
   try {
@@ -153,7 +167,7 @@ export async function fetchAvatarPreviewImage(
     const avatars: HeyGenAvatar[] = avatarsRes.data?.data?.avatars ?? [];
     const match = avatars.find((a) => a.avatar_id === avatarId);
     if (match?.preview_image_url) {
-      avatarImageCache.set(avatarId, { url: match.preview_image_url, at: Date.now() });
+      avatarImageCache.set(cacheKey, { url: match.preview_image_url, at: Date.now() });
       return match.preview_image_url;
     }
 
@@ -173,13 +187,13 @@ export async function fetchAvatarPreviewImage(
         // Talking photo looks: image_url
         const url: string | null =
           lookMatch.preview_image_url ?? lookMatch.preview_image ?? lookMatch.image_url ?? null;
-        avatarImageCache.set(avatarId, { url, at: Date.now() });
+        avatarImageCache.set(cacheKey, { url, at: Date.now() });
         return url;
       }
     }
 
     // Not found anywhere
-    avatarImageCache.set(avatarId, { url: null, at: Date.now() });
+    avatarImageCache.set(cacheKey, { url: null, at: Date.now() });
     return null;
   } catch (err) {
     logger.warn({ avatarId, err }, "[HeyGen] fetchAvatarPreviewImage failed");
@@ -187,11 +201,14 @@ export async function fetchAvatarPreviewImage(
   }
 }
 
-// Map of look/avatar id (including tp: prefix) -> its group's default voice in HeyGen
-let defaultVoiceMap: { map: Map<string, string>; at: number } | null = null;
+// Per-API-key cache: avatarId → its group's default voice in HeyGen
+// Keyed by apiKeyHash so different accounts never share cached voice data.
+const defaultVoiceMaps = new Map<string, { map: Map<string, string>; at: number }>();
 
 export async function getAvatarDefaultVoiceId(avatarId: string, apiKey?: string): Promise<string | null> {
-  if (!defaultVoiceMap || Date.now() - defaultVoiceMap.at > 10 * 60 * 1000) {
+  const mapKey = apiKeyHash(apiKey);
+  const cached = defaultVoiceMaps.get(mapKey);
+  if (!cached || Date.now() - cached.at > 10 * 60 * 1000) {
     const client = getClient(apiKey);
     const res = await client.get("/v2/avatar_group.list", { params: { include_public: false } });
     const groups: any[] = res.data?.data?.avatar_group_list ?? [];
@@ -206,13 +223,18 @@ export async function getAvatarDefaultVoiceId(avatarId: string, apiKey?: string)
         }
       })
     );
-    if (results.some((r) => r.status === "rejected") && defaultVoiceMap) {
-      // Partial refresh: keep the previous complete map
+    if (results.some((r) => r.status === "rejected") && cached) {
+      // Partial refresh: keep the previous complete map for this API key
     } else {
-      defaultVoiceMap = { map, at: Date.now() };
+      defaultVoiceMaps.set(mapKey, { map, at: Date.now() });
     }
   }
-  return defaultVoiceMap?.map.get(avatarId) ?? null;
+  return defaultVoiceMaps.get(mapKey)?.map.get(avatarId) ?? null;
+}
+
+/** Invalidate the per-account default-voice cache (e.g. after deleting a group). */
+export function invalidateDefaultVoiceCache(apiKey?: string): void {
+  defaultVoiceMaps.delete(apiKeyHash(apiKey));
 }
 
 export async function listVoices(apiKey?: string): Promise<HeyGenVoice[]> {
@@ -301,9 +323,10 @@ export async function getVoiceCloneStatus(
     };
   } catch (err: any) {
     if (err?.response?.status === 404) {
-      // Clone ID not found — treat as still processing (may not be indexed yet)
-      logger.warn({ voiceCloneId, status: 404 }, "[VoiceCloneStatus] 404 from HeyGen — treating as processing");
-      return { status: "processing" };
+      // Clone not found — mark as failed so the pipeline doesn't wait for it forever.
+      // A 404 after cloning means HeyGen deleted or never persisted the job.
+      logger.warn({ voiceCloneId }, "[VoiceCloneStatus] 404 from HeyGen — voice clone not found, marking as failed");
+      return { status: "failed", error: "Voice clone not found in HeyGen account (404) — it may have been deleted" };
     }
     throw err;
   }
@@ -331,8 +354,9 @@ export async function renameVoice(
   try {
     const client = getClient(apiKey);
     await client.patch(`/v2/voice/${encodeURIComponent(voiceId)}`, { name: newName });
-  } catch {
-    // HeyGen may not support rename — silently ignore; caller persists name in DB
+  } catch (err) {
+    // HeyGen may not support server-side rename — log as warn so we can track drift.
+    logger.warn({ err, voiceId, newName }, "[HeyGen] renameVoice failed — DB display_name and HeyGen name may diverge");
   }
 }
 
@@ -450,14 +474,15 @@ const lookEngineCache = new Map<string, { engines: string[]; at: number }>();
  * Returns ["avatar_iv"] as a safe fallback on error.
  */
 export async function getLookSupportedEngines(lookId: string, apiKey?: string): Promise<string[]> {
-  const cached = lookEngineCache.get(lookId);
+  const lookCacheKey = `${apiKeyHash(apiKey)}:${lookId}`;
+  const cached = lookEngineCache.get(lookCacheKey);
   if (cached && Date.now() - cached.at < 30 * 60 * 1000) return cached.engines;
 
   try {
     const client = getClient(apiKey);
     const res = await client.get(`/v3/avatars/looks/${lookId}`);
     const engines: string[] = res.data?.data?.supported_api_engines ?? ["avatar_iv"];
-    lookEngineCache.set(lookId, { engines, at: Date.now() });
+    lookEngineCache.set(lookCacheKey, { engines, at: Date.now() });
     return engines;
   } catch (err: unknown) {
     const axiosErr = err as { response?: { status?: number; data?: unknown } };
@@ -471,6 +496,19 @@ export async function getLookSupportedEngines(lookId: string, apiKey?: string): 
     logger.warn({ err, lookId }, "[HeyGen] Could not fetch look engines — defaulting to avatar_iv");
     return ["avatar_iv"];
   }
+}
+
+/**
+ * Invalidate engine + image caches for a specific look (call after delete or forced refresh).
+ * Clears hashed keys (current format) and un-hashed keys (legacy, pre-migration safety).
+ */
+export function invalidateLookCaches(lookId: string, apiKey?: string): void {
+  const h = apiKeyHash(apiKey);
+  lookEngineCache.delete(`${h}:${lookId}`);
+  avatarImageCache.delete(`${h}:${lookId}`);
+  // Legacy un-hashed keys (populated before this migration) — safe to always remove
+  lookEngineCache.delete(lookId);
+  avatarImageCache.delete(lookId);
 }
 
 /**
@@ -597,6 +635,11 @@ export interface GenerateVideoParams {
    * Used by normalizeScriptForTTS to expand abbreviations correctly.
    */
   language?: string;
+  /**
+   * DB user ID — used to query avatar_look_metadata for reference_look_id resolution.
+   * Optional: omit when the caller has no userId context (e.g. test scripts).
+   */
+  userId?: number;
 }
 
 /**
@@ -636,6 +679,16 @@ export interface VideoStatus {
   /** SRT subtitle file URL returned by HeyGen when caption was requested. */
   subtitle_url?: string | null;
 }
+
+/**
+ * Default motion prompt injected for all Avatar V videos when the caller
+ * does not supply one. Promotes conversational body language with no extra
+ * configuration required from the user.
+ */
+export const DEFAULT_AVATAR_V_MOTION_PROMPT =
+  "Gestos de manos moderados y naturales al hablar, postura relajada y segura, " +
+  "contacto visual directo con la cámara, movimientos de cabeza sutiles y naturales, " +
+  "evitar gestos repetitivos o exagerados, expresión facial animada y cálida";
 
 /**
  * Generate a video via HeyGen API v3.
@@ -700,16 +753,68 @@ export async function generateVideo(params: GenerateVideoParams, apiKey?: string
     title: params.title ?? "ContentPilot Video",
   };
 
+  // Always request 1080×1920 vertical full-HD. HeyGen v3 accepts width/height and
+  // overrides any default from the aspect_ratio hint. Fixes low-res output on
+  // accounts whose default encoding is 720×1280.
+  payload["width"]  = 1080;
+  payload["height"] = 1920;
+
   if (supportsAvatarV) {
     // Avatar V: highest-fidelity lipsync + cross-reference animation.
-    // Supported avatar types: digital_twin only (NOT Photo Avatar).
-    // Supports motion_prompt; does NOT support expressiveness.
-    payload["engine"] = { type: "avatar_v" };
-    if (params.motionPrompt) payload["motion_prompt"] = params.motionPrompt;
+    // Motion prompt: use the caller's value if set, otherwise inject the platform default.
+    const effectiveMotionPrompt = params.motionPrompt ?? DEFAULT_AVATAR_V_MOTION_PROMPT;
+
+    // Build engine payload — may include reference_look_id for motion consistency
+    const enginePayload: Record<string, unknown> = { type: "avatar_v" };
+
+    // Resolve reference_look_id: the master look in the same group provides a stable
+    // identity anchor that improves motion consistency across sibling looks.
+    if (params.userId) {
+      try {
+        const [lookMeta] = await db
+          .select({ groupId: avatarLookMetadataTable.groupId })
+          .from(avatarLookMetadataTable)
+          .where(and(
+            eq(avatarLookMetadataTable.userId, params.userId),
+            // Use the original avatarId (with tp: prefix) as stored in avatar_look_metadata
+            eq(avatarLookMetadataTable.lookId, params.avatar_id),
+          ))
+          .limit(1);
+
+        if (lookMeta?.groupId) {
+          const [masterLook] = await db
+            .select({ lookId: avatarLookMetadataTable.lookId })
+            .from(avatarLookMetadataTable)
+            .where(and(
+              eq(avatarLookMetadataTable.userId, params.userId),
+              eq(avatarLookMetadataTable.groupId, lookMeta.groupId),
+              eq(avatarLookMetadataTable.isMasterLook, true),
+            ))
+            .limit(1);
+
+          if (masterLook?.lookId && masterLook.lookId !== params.avatar_id) {
+            // Strip our "tp:" prefix for the HeyGen API — it only wants the raw look ID
+            const masterRawId = masterLook.lookId.startsWith("tp:")
+              ? masterLook.lookId.slice(3)
+              : masterLook.lookId;
+            enginePayload["reference_look_id"] = masterRawId;
+            logger.info(
+              { currentLookId: rawAvatarId, masterLookId: masterRawId, groupId: lookMeta.groupId },
+              "[HeyGen v3] Avatar V: using reference_look_id for motion consistency"
+            );
+          }
+        }
+      } catch (err) {
+        // Non-fatal: missing metadata shouldn't block video generation
+        logger.warn({ err, lookId: rawAvatarId }, "[HeyGen v3] Could not resolve reference look — continuing without reference_look_id");
+      }
+    }
+
+    payload["engine"]        = enginePayload;
+    payload["motion_prompt"] = effectiveMotionPrompt;
   } else {
     // Avatar IV (default): broad coverage — digital_twin, Photo Avatar, Studio Avatar.
     // expressiveness: high gives the most natural result for photo-based looks.
-    // Also supports motion_prompt (natural-language body/gesture control).
     payload["expressiveness"] = "high";
     if (params.motionPrompt) payload["motion_prompt"] = params.motionPrompt;
   }

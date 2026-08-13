@@ -2001,6 +2001,10 @@ export default function Avatars() {
     }
   })
 
+  // lookAvatarTypeMap: lookId → avatar_type ("digital_twin" | "photo_avatar" | "studio_avatar")
+  // Populated when looks are loaded for a group. Used to build look_metadata on save.
+  const [lookAvatarTypeMap, setLookAvatarTypeMap] = useState<Record<string, string>>({})
+
   // Persist every time the map changes
   useEffect(() => {
     try { localStorage.setItem(LOOK_GROUP_MAP_KEY, JSON.stringify(lookGroupMap)) } catch {}
@@ -2012,6 +2016,14 @@ export default function Avatars() {
       let changed = false
       for (const l of looks) {
         if (next[l.id] !== groupId) { next[l.id] = groupId; changed = true }
+      }
+      return changed ? next : prev
+    })
+    setLookAvatarTypeMap(prev => {
+      const next = { ...prev }
+      let changed = false
+      for (const l of looks) {
+        if (next[l.id] !== l.avatar_type) { next[l.id] = l.avatar_type; changed = true }
       }
       return changed ? next : prev
     })
@@ -2455,6 +2467,17 @@ export default function Avatars() {
         }
       }
       setDialogSaveStatus("saving")
+      // Build per-look metadata for all looks we have data for.
+      // The backend upserts this into avatar_look_metadata so generateVideo()
+      // can resolve reference_look_id for Avatar V without extra HeyGen API calls.
+      const lookMetadata: Record<string, { group_id: string; avatar_type: string }> = {}
+      for (const [lookId, groupId] of Object.entries(lookGroupMap)) {
+        const avatarType = lookAvatarTypeMap[lookId]
+        if (avatarType) {
+          lookMetadata[lookId] = { group_id: groupId, avatar_type: avatarType }
+        }
+      }
+
       updateConfig.mutate(
         {
           data: {
@@ -2462,6 +2485,7 @@ export default function Avatars() {
             rotation_strategy: strategy,
             preferred_voice_id: null,
             voice_overrides: cleanedOverrides,
+            look_metadata: Object.keys(lookMetadata).length > 0 ? lookMetadata : undefined,
           },
         },
         {

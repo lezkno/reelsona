@@ -14,3 +14,4 @@ export * from "./user-entitlements";
 export * from "./purchases";
 export * from "./heygen-cloned-voices";
 export * from "./credits";
+export * from "./avatar-look-metadata";
