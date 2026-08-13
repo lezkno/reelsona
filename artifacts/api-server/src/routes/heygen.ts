@@ -1,9 +1,9 @@
 import { Router } from "express";
-import { randomUUID } from "crypto";
+import { randomUUID, createHash } from "crypto";
 import multer from "multer";
 import { db } from "@workspace/db";
 import { avatarConfigTable, settingsTable, heygenClonedVoicesTable, avatarLookMetadataTable } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import os from "os";
@@ -65,10 +65,18 @@ async function uploadAudioForCloning(audioBuffer: Buffer, userId: number): Promi
   return getSignedObjectUrl(objectName, 24 * 3600);
 }
 
-/** Returns Reelsona's centralized HeyGen API key.
- *  All users share the same platform key — no per-user key required. */
-function getUserHeyGenKey(_userId: number): Promise<string | undefined> {
-  return Promise.resolve(process.env.HEYGEN_API_KEY ?? undefined);
+/**
+ * Resolve the HeyGen API key for a user.
+ * Prefers the user's own stored key; falls back to the platform env-var key.
+ * Consistent with how scheduler.ts and routes/videos.ts resolve the key.
+ */
+async function getUserHeyGenKey(userId: number): Promise<string | undefined> {
+  const [settings] = await db
+    .select({ heygenApiKey: settingsTable.heygenApiKey })
+    .from(settingsTable)
+    .where(eq(settingsTable.userId, userId))
+    .limit(1);
+  return settings?.heygenApiKey ?? process.env.HEYGEN_API_KEY ?? undefined;
 }
 
 import {
@@ -89,7 +97,7 @@ import {
   createDigitalTwinFromVideo,
   deleteAvatarLook, deleteAvatarGroup, getAvatarLookStatus,
   cloneVoice, deleteVoice, renameVoice, getVoiceCloneStatus,
-  invalidateLookCaches, invalidateDefaultVoiceCache, invalidateAvatarIdsCache,
+  invalidateLookCacheEntries, invalidateAllLookCachesForKey, invalidateAvatarIdsCache, getLookSupportedEngines,
 } from "../lib/heygen";
 import { sendEmail } from "../lib/email";
 
@@ -386,12 +394,22 @@ router.get("/heygen/avatar-groups/:id/looks", async (req, res): Promise<void> =>
   res.json(GetHeyGenGroupLooksResponse.parse(mapped));
 });
 
-// Flat list of all looks, cached in memory (fetching all groups takes ~20 HeyGen calls)
+// Flat list of all looks, cached in memory (fetching all groups takes ~20 HeyGen calls).
+// Keyed by an 8-char SHA-256 prefix of the API key so different HeyGen accounts never
+// share cached look lists — a tenant data-isolation requirement.
 type FlatLook = { id: string; name: string; image_url: string | null; group_name: string; group_id: string; is_talking_photo: boolean };
-let looksCache: { data: FlatLook[]; at: number } | null = null;
-let looksFetch: Promise<FlatLook[]> | null = null;
+const looksCacheByKey = new Map<string, { data: FlatLook[]; at: number }>();
+const looksFetchByKey = new Map<string, Promise<FlatLook[]>>();
+const LOOKS_CACHE_TTL = 5 * 60 * 1000;
+
+/** Derive a non-secret, non-enumerable prefix for namespacing per-account caches. */
+function looksKeyPrefix(apiKey?: string): string {
+  if (!apiKey) return "__default__";
+  return createHash("sha256").update(apiKey).digest("hex").slice(0, 8);
+}
 
 async function fetchAllLooks(apiKey?: string): Promise<FlatLook[]> {
+  const prefix = looksKeyPrefix(apiKey);
   const groups = await listAvatarGroups(apiKey);
   const all: FlatLook[] = [];
   const results = await Promise.allSettled(
@@ -410,24 +428,29 @@ async function fetchAllLooks(apiKey?: string): Promise<FlatLook[]> {
   }
   if (anyFailed) {
     // Partial result: prefer the last complete cache (even if stale), and don't cache the partial one
-    if (looksCache) return looksCache.data;
+    const cached = looksCacheByKey.get(prefix);
+    if (cached) return cached.data;
     return all;
   }
-  looksCache = { data: all, at: Date.now() };
+  looksCacheByKey.set(prefix, { data: all, at: Date.now() });
   return all;
 }
 
 router.get("/heygen/looks", async (req, res): Promise<void> => {
   const apiKey = await getUserHeyGenKey(req.session.user!.userId);
-  if (looksCache && Date.now() - looksCache.at < 5 * 60 * 1000) {
-    res.json(GetHeyGenAllLooksResponse.parse(looksCache.data));
+  const prefix = looksKeyPrefix(apiKey);
+  const cached = looksCacheByKey.get(prefix);
+  if (cached && Date.now() - cached.at < LOOKS_CACHE_TTL) {
+    res.json(GetHeyGenAllLooksResponse.parse(cached.data));
     return;
   }
-  // Single-flight: coalesce concurrent refreshes (each one is ~20 HeyGen calls)
-  if (!looksFetch) {
-    looksFetch = fetchAllLooks(apiKey).finally(() => { looksFetch = null; });
+  // Single-flight per API key: coalesce concurrent refreshes (~20 HeyGen calls each)
+  let fetch = looksFetchByKey.get(prefix);
+  if (!fetch) {
+    fetch = fetchAllLooks(apiKey).finally(() => { looksFetchByKey.delete(prefix); });
+    looksFetchByKey.set(prefix, fetch);
   }
-  const all = await looksFetch;
+  const all = await fetch;
   res.json(GetHeyGenAllLooksResponse.parse(all));
 });
 
@@ -443,14 +466,18 @@ router.get("/heygen/looks/reverse-lookup", async (req, res): Promise<void> => {
     if (!ids.length) { res.json({}); return; }
 
     const apiKey = await getUserHeyGenKey(req.session.user!.userId);
+    const prefix = looksKeyPrefix(apiKey);
     let looks: FlatLook[];
-    if (looksCache && Date.now() - looksCache.at < 5 * 60 * 1000) {
-      looks = looksCache.data;
+    const cached = looksCacheByKey.get(prefix);
+    if (cached && Date.now() - cached.at < LOOKS_CACHE_TTL) {
+      looks = cached.data;
     } else {
-      if (!looksFetch) {
-        looksFetch = fetchAllLooks(apiKey).finally(() => { looksFetch = null; });
+      let fetch = looksFetchByKey.get(prefix);
+      if (!fetch) {
+        fetch = fetchAllLooks(apiKey).finally(() => { looksFetchByKey.delete(prefix); });
+        looksFetchByKey.set(prefix, fetch);
       }
-      looks = await looksFetch;
+      looks = await fetch;
     }
 
     const idSet = new Set(ids);
@@ -531,7 +558,8 @@ router.put("/heygen/avatar-config", async (req, res): Promise<void> => {
       ));
     const mastersSet = new Set(existingMasters.map(m => m.groupId).filter(Boolean) as string[]);
 
-    for (const [lookId, meta] of Object.entries(lookMetadata)) {
+    for (const [lookId, rawMeta] of Object.entries(lookMetadata)) {
+      const meta = rawMeta as { group_id?: string | null; avatar_type?: string | null; supported_api_engines?: string[]; preferred_orientation?: string | null };
       const groupId = meta.group_id ?? null;
       // Auto-assign is_master_look to the first digital_twin look added per group
       let isMasterLook = false;
@@ -566,6 +594,66 @@ router.put("/heygen/avatar-config", async (req, res): Promise<void> => {
     }
     logger.info({ userId, count: Object.keys(lookMetadata).length }, "[AvatarConfig] Look metadata upserted");
   }
+
+  // ── Background: populate avatar_look_metadata for selected looks missing from DB ───────────
+  // Fire-and-forget: call HeyGen for any selected looks not yet in the table so
+  // generateVideo can use reference_look_id for Avatar V without the frontend needing
+  // to send lookMetadata explicitly. Errors are non-fatal.
+  const selectedIds: string[] = parsed.data.selected_avatar_ids;
+  const rawSelectedIds = selectedIds.map(id => id.startsWith("tp:") ? id.slice(3) : id);
+  const bgUserId = userId;
+
+  Promise.resolve()
+    .then(async () => {
+      const apiKey = await getUserHeyGenKey(bgUserId);
+      if (rawSelectedIds.length === 0 || !apiKey) return;
+
+      const existingRows = await db
+        .select({ lookId: avatarLookMetadataTable.lookId })
+        .from(avatarLookMetadataTable)
+        .where(and(
+          eq(avatarLookMetadataTable.userId, bgUserId),
+          inArray(avatarLookMetadataTable.lookId, rawSelectedIds),
+        ));
+      const existingSet = new Set(existingRows.map(r => r.lookId));
+      const missingRawIds = rawSelectedIds.filter(id => !existingSet.has(id));
+      if (missingRawIds.length === 0) return;
+
+      const existingMasters = await db
+        .select({ groupId: avatarLookMetadataTable.groupId })
+        .from(avatarLookMetadataTable)
+        .where(and(
+          eq(avatarLookMetadataTable.userId, bgUserId),
+          eq(avatarLookMetadataTable.isMasterLook, true),
+        ));
+      const masterGroups = new Set(existingMasters.map(r => r.groupId).filter((g): g is string => g != null));
+
+      await Promise.allSettled(
+        missingRawIds.map(async (rawId) => {
+          const [lookStatus, engines] = await Promise.all([
+            getAvatarLookStatus(rawId, apiKey).catch(() => null),
+            getLookSupportedEngines(rawId, apiKey).catch(() => [] as string[]),
+          ]);
+          if (!lookStatus) return;
+
+          const groupId = lookStatus.group_id;
+          const avatarType = lookStatus.avatar_type;
+          const isDigitalTwin = avatarType === "digital_twin";
+          const shouldBeMaster = isDigitalTwin && groupId != null && !masterGroups.has(groupId);
+          if (shouldBeMaster && groupId) masterGroups.add(groupId);
+
+          await db
+            .insert(avatarLookMetadataTable)
+            .values({ userId: bgUserId, lookId: rawId, groupId, avatarType, supportedApiEngines: engines, isMasterLook: shouldBeMaster })
+            .onConflictDoUpdate({
+              target: [avatarLookMetadataTable.userId, avatarLookMetadataTable.lookId],
+              set: { groupId, avatarType, supportedApiEngines: engines, ...(shouldBeMaster ? { isMasterLook: true } : {}), updatedAt: new Date() },
+            });
+          logger.info({ rawId, groupId, avatarType, shouldBeMaster, bgUserId }, "[avatar-config] Populated look metadata from HeyGen");
+        })
+      );
+    })
+    .catch((err) => logger.warn({ err, bgUserId }, "[avatar-config] Background look metadata population failed"));
 
   res.json(
     UpdateAvatarConfigResponse.parse({
@@ -725,12 +813,10 @@ router.delete("/heygen/avatars/looks/:lookId", async (req, res): Promise<void> =
   try {
     const apiKey = await getUserHeyGenKey(req.session.user!.userId);
     await deleteAvatarLook(lookId, apiKey);
-    // Invalidate per-look caches so the next generation doesn't use stale engine data or images
-    invalidateLookCaches(lookId, apiKey);
-    // Also invalidate the full avatar IDs list (look no longer exists)
+    // Invalidate all relevant in-memory caches so stale metadata is never served
+    looksCacheByKey.clear();
+    invalidateLookCacheEntries(lookId, apiKey);
     invalidateAvatarIdsCache(apiKey);
-    // Reset the looks cache so the picker reflects the deletion
-    looksCache = null;
     res.json({ ok: true });
   } catch (err: any) {
     res.status(500).json({ error: err?.message ?? "Error al eliminar el look" });
@@ -746,11 +832,10 @@ router.delete("/heygen/avatars/groups/:groupId", async (req, res): Promise<void>
   try {
     const apiKey = await getUserHeyGenKey(req.session.user!.userId);
     await deleteAvatarGroup(groupId, apiKey);
-    // Invalidate all per-look caches — we don't know which lookIds belonged to this group
-    // so invalidate the full avatar IDs list; per-look entries will expire naturally
+    // Invalidate all in-memory caches for this API key (group deletion removes all its looks)
+    looksCacheByKey.clear();
+    invalidateAllLookCachesForKey(apiKey);
     invalidateAvatarIdsCache(apiKey);
-    invalidateDefaultVoiceCache(apiKey);
-    looksCache = null;
     res.json({ ok: true });
   } catch (err: any) {
     res.status(500).json({ error: err?.message ?? "Error al eliminar el avatar" });
@@ -771,7 +856,7 @@ router.post("/heygen/avatars/looks/:lookId/new-look", async (req, res): Promise<
   if (!group_id || typeof group_id !== "string" || !group_id.trim()) { res.status(400).json({ error: "group_id es requerido" }); return; }
   try {
     const result = await createAvatarLook(lookId, group_id.trim(), name.trim(), prompt.trim(), { pose: pose ?? "half_body" });
-    looksCache = null; // invalidate flat-looks cache so the new look appears immediately
+    looksCacheByKey.clear(); // invalidate flat-looks cache so the new look appears immediately
     res.json(result);
   } catch (err: any) {
     const { status, message, heygenStatus, heygenDetail } = extractHeyGenError(err);
@@ -799,7 +884,7 @@ router.post("/heygen/avatars/create-prompt", async (req, res): Promise<void> => 
       orientation: orientation ?? "vertical",
       pose: pose ?? "half_body",
     });
-    looksCache = null; // invalidate flat-looks cache so the new avatar appears immediately
+    looksCacheByKey.clear(); // invalidate flat-looks cache so the new avatar appears immediately
     res.json(result);
   } catch (err: any) {
     const { status, message, heygenStatus, heygenDetail } = extractHeyGenError(err);
@@ -825,7 +910,7 @@ router.post("/heygen/avatars/create", async (req, res): Promise<void> => {
   }
   try {
     const result = await createPhotoAvatar(name.trim(), asset_id.trim());
-    looksCache = null; // invalidate flat-looks cache so the new avatar appears immediately
+    looksCacheByKey.clear(); // invalidate flat-looks cache so the new avatar appears immediately
     res.json(result);
   } catch (err: any) {
     const { status, message, heygenStatus, heygenDetail } = extractHeyGenError(err);

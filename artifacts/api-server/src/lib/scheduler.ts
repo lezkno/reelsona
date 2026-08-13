@@ -193,9 +193,11 @@ const activePublishes = new Set<number>();
  * 3. null — caller must handle missing voice explicitly; no auto-pick
  */
 export async function resolveVoiceId(avatarId: string | null, apiKey?: string, userId?: number): Promise<string | null> {
-  const [avatarCfg] = userId
-    ? await db.select().from(avatarConfigTable).where(eq(avatarConfigTable.userId, userId)).limit(1)
-    : await db.select().from(avatarConfigTable).limit(1);
+  if (!userId) {
+    logger.error({ avatarId }, "[resolveVoiceId] called without userId — voice resolution will be skipped to prevent cross-user contamination");
+    return null;
+  }
+  const [avatarCfg] = await db.select().from(avatarConfigTable).where(eq(avatarConfigTable.userId, userId)).limit(1);
 
   // 1. Check per-avatar override first
   if (avatarId) {
@@ -2076,43 +2078,69 @@ export async function runVoicePollerCycle(deps: VoicePollerDeps): Promise<void> 
  * Production wrapper — wires real DB + HeyGen into `runVoicePollerCycle`.
  */
 async function pollPendingClonedVoices(): Promise<void> {
-  const apiKey = process.env.HEYGEN_API_KEY ?? undefined;
   const now = new Date();
 
-  await runVoicePollerCycle({
-    fetchPending: () =>
-      db
-        .select()
-        .from(heygenClonedVoicesTable)
-        .where(eq(heygenClonedVoicesTable.status, "pending")),
-    getStatus: (cloneId) => getVoiceCloneStatus(cloneId, apiKey),
-    updateVoice: (id, patch) =>
-      db
-        .update(heygenClonedVoicesTable)
-        .set({ ...patch, updatedAt: now })
-        .where(eq(heygenClonedVoicesTable.id, id))
-        .then(() => undefined),
-    onVoiceReady: async ({ userId, finalVoiceId }) => {
-      const [user] = await db
-        .select({ email: users.email, username: users.username, fullName: users.fullName })
-        .from(users)
-        .where(eq(users.id, userId))
-        .limit(1);
-      const to = user?.email ?? user?.username;
-      if (!to) return;
-      await sendEmail({
-        to,
-        subject: "¡Tu voz clonada está lista en Reelsona! 🎤",
-        html: `<p>Hola ${user?.fullName ?? ""},</p>
+  // Fetch ALL pending voices upfront
+  const allPending = await db
+    .select()
+    .from(heygenClonedVoicesTable)
+    .where(eq(heygenClonedVoicesTable.status, "pending"));
+
+  if (allPending.length === 0) return;
+
+  // Group by userId so we resolve each user's API key exactly once
+  const byUser = new Map<number, typeof allPending>();
+  for (const voice of allPending) {
+    const list = byUser.get(voice.userId) ?? [];
+    list.push(voice);
+    byUser.set(voice.userId, list);
+  }
+
+  // Load HeyGen API keys for all distinct users in one query
+  const userIds = [...byUser.keys()];
+  const settingsRows = await db
+    .select({ userId: settingsTable.userId, heygenApiKey: settingsTable.heygenApiKey })
+    .from(settingsTable)
+    .where(inArray(settingsTable.userId, userIds));
+  const keyByUser = new Map(settingsRows.map(r => [r.userId, r.heygenApiKey ?? null]));
+
+  // Run the poller once per user group, using that user's own API key
+  await Promise.allSettled(
+    [...byUser.entries()].map(async ([voiceUserId, voices]) => {
+      const apiKey = keyByUser.get(voiceUserId) ?? process.env.HEYGEN_API_KEY ?? undefined;
+
+      await runVoicePollerCycle({
+        fetchPending: async () => voices,
+        getStatus: (cloneId) => getVoiceCloneStatus(cloneId, apiKey),
+        updateVoice: (id, patch) =>
+          db
+            .update(heygenClonedVoicesTable)
+            .set({ ...patch, updatedAt: now })
+            .where(eq(heygenClonedVoicesTable.id, id))
+            .then(() => undefined),
+        onVoiceReady: async ({ userId, finalVoiceId }) => {
+          const [user] = await db
+            .select({ email: users.email, username: users.username, fullName: users.fullName })
+            .from(users)
+            .where(eq(users.id, userId))
+            .limit(1);
+          const to = user?.email ?? user?.username;
+          if (!to) return;
+          await sendEmail({
+            to,
+            subject: "¡Tu voz clonada está lista en Reelsona! 🎤",
+            html: `<p>Hola ${user?.fullName ?? ""},</p>
 <p>Tu voz clonada ya está disponible para usar en todos tus videos de Reelsona.</p>
 <p>Entra a la plataforma, ve a <strong>Avatares → Mis Voces</strong> y asígnala a tus avatares para empezar a generar contenido con tu propia voz.</p>
 <p style="color:#888;font-size:12px">ID de voz: ${finalVoiceId}</p>`,
-        text: `Tu voz clonada está lista. Entra a Reelsona, ve a Avatares → Mis Voces y asígnala a tus avatares.`,
+            text: `Tu voz clonada está lista. Entra a Reelsona, ve a Avatares → Mis Voces y asígnala a tus avatares.`,
+          });
+        },
+        now,
+        timeoutMs: 60 * 60 * 1000,
       });
-    },
-    now,
-    timeoutMs: 60 * 60 * 1000,
-  });
+    })
+  );
 }
 
 let cronJob: ReturnType<typeof cron.schedule> | null = null;

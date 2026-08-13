@@ -8,13 +8,14 @@ import { eq, and } from "drizzle-orm";
 const HEYGEN_BASE_URL = "https://api.heygen.com";
 
 /**
- * Stable 8-char hex prefix of sha256(apiKey).
- * Used as a per-account namespace in all module-level caches to prevent
- * cross-account contamination when the same process handles multiple users.
+ * Return an 8-char SHA-256 prefix of the API key so we can namespace per-account
+ * in-memory caches without exposing the raw key anywhere in memory beyond getClient.
  */
-function apiKeyHash(apiKey?: string): string {
-  return createHash("sha256").update(apiKey ?? "platform").digest("hex").slice(0, 8);
+function apiKeyPrefix(apiKey?: string): string {
+  if (!apiKey) return "__default__";
+  return createHash("sha256").update(apiKey).digest("hex").slice(0, 8);
 }
+
 
 function getClient(apiKey?: string) {
   const key = apiKey ?? process.env.HEYGEN_API_KEY;
@@ -135,7 +136,8 @@ export async function listGroupLooks(groupId: string, apiKey?: string): Promise<
 }
 
 // ── Avatar preview image lookup ───────────────────────────────────────────────
-// Cache: avatarId → { url | null, fetched at }. TTL 10 min.
+// Cache: "${apiKeyPrefix}:${avatarId}" → { url | null, fetched at }. TTL 10 min.
+// Keyed by API-key prefix so different HeyGen accounts never share cached metadata.
 const avatarImageCache = new Map<string, { url: string | null; at: number }>();
 const AVATAR_IMAGE_TTL = 10 * 60 * 1000;
 
@@ -154,9 +156,9 @@ export async function fetchAvatarPreviewImage(
   avatarId: string,
   apiKey?: string,
 ): Promise<string | null> {
-  // 1. Cache hit — keyed by apiKey + avatarId to isolate per-account data
-  const cacheKey = `${apiKeyHash(apiKey)}:${avatarId}`;
-  const cached = avatarImageCache.get(cacheKey);
+  const ck = `${apiKeyPrefix(apiKey)}:${avatarId}`;
+  // 1. Cache hit
+  const cached = avatarImageCache.get(ck);
   if (cached && Date.now() - cached.at < AVATAR_IMAGE_TTL) return cached.url;
 
   try {
@@ -167,7 +169,7 @@ export async function fetchAvatarPreviewImage(
     const avatars: HeyGenAvatar[] = avatarsRes.data?.data?.avatars ?? [];
     const match = avatars.find((a) => a.avatar_id === avatarId);
     if (match?.preview_image_url) {
-      avatarImageCache.set(cacheKey, { url: match.preview_image_url, at: Date.now() });
+      avatarImageCache.set(ck, { url: match.preview_image_url, at: Date.now() });
       return match.preview_image_url;
     }
 
@@ -187,13 +189,13 @@ export async function fetchAvatarPreviewImage(
         // Talking photo looks: image_url
         const url: string | null =
           lookMatch.preview_image_url ?? lookMatch.preview_image ?? lookMatch.image_url ?? null;
-        avatarImageCache.set(cacheKey, { url, at: Date.now() });
+        avatarImageCache.set(ck, { url, at: Date.now() });
         return url;
       }
     }
 
     // Not found anywhere
-    avatarImageCache.set(cacheKey, { url: null, at: Date.now() });
+    avatarImageCache.set(ck, { url: null, at: Date.now() });
     return null;
   } catch (err) {
     logger.warn({ avatarId, err }, "[HeyGen] fetchAvatarPreviewImage failed");
@@ -201,14 +203,15 @@ export async function fetchAvatarPreviewImage(
   }
 }
 
-// Per-API-key cache: avatarId → its group's default voice in HeyGen
-// Keyed by apiKeyHash so different accounts never share cached voice data.
-const defaultVoiceMaps = new Map<string, { map: Map<string, string>; at: number }>();
+
+// Per-API-key cache: avatarId → its group's default voice in HeyGen.
+// Keyed by apiKeyPrefix so different accounts never share cached voice data.
+const defaultVoiceMapByKey = new Map<string, { map: Map<string, string>; at: number }>();
 
 export async function getAvatarDefaultVoiceId(avatarId: string, apiKey?: string): Promise<string | null> {
-  const mapKey = apiKeyHash(apiKey);
-  const cached = defaultVoiceMaps.get(mapKey);
-  if (!cached || Date.now() - cached.at > 10 * 60 * 1000) {
+  const prefix = apiKeyPrefix(apiKey);
+  const existing = defaultVoiceMapByKey.get(prefix);
+  if (!existing || Date.now() - existing.at > 10 * 60 * 1000) {
     const client = getClient(apiKey);
     const res = await client.get("/v2/avatar_group.list", { params: { include_public: false } });
     const groups: any[] = res.data?.data?.avatar_group_list ?? [];
@@ -223,18 +226,18 @@ export async function getAvatarDefaultVoiceId(avatarId: string, apiKey?: string)
         }
       })
     );
-    if (results.some((r) => r.status === "rejected") && cached) {
+    if (results.some((r) => r.status === "rejected") && existing) {
       // Partial refresh: keep the previous complete map for this API key
     } else {
-      defaultVoiceMaps.set(mapKey, { map, at: Date.now() });
+      defaultVoiceMapByKey.set(prefix, { map, at: Date.now() });
     }
   }
-  return defaultVoiceMaps.get(mapKey)?.map.get(avatarId) ?? null;
+  return defaultVoiceMapByKey.get(prefix)?.map.get(avatarId) ?? null;
 }
 
 /** Invalidate the per-account default-voice cache (e.g. after deleting a group). */
 export function invalidateDefaultVoiceCache(apiKey?: string): void {
-  defaultVoiceMaps.delete(apiKeyHash(apiKey));
+  defaultVoiceMapByKey.delete(apiKeyPrefix(apiKey));
 }
 
 export async function listVoices(apiKey?: string): Promise<HeyGenVoice[]> {
@@ -332,6 +335,7 @@ export async function getVoiceCloneStatus(
   }
 }
 
+
 /**
  * Delete a cloned voice by its voice_id.
  * Only works for voices created via clone — HeyGen rejects deletion of built-in voices.
@@ -359,6 +363,7 @@ export async function renameVoice(
     logger.warn({ err, voiceId, newName }, "[HeyGen] renameVoice failed — DB display_name and HeyGen name may diverge");
   }
 }
+
 
 // ── Available avatar IDs cache ────────────────────────────────────────────────
 // Rebuilt from HeyGen every 5 min.  Keyed with tp: prefix for photo looks so
@@ -466,7 +471,8 @@ export function invalidateAvatarIdsCache(apiKey?: string): void {
   availableAvatarIdsCache.delete(cacheKey);
 }
 
-// Cache look engine eligibility for 30 minutes to avoid hammering the API
+// Cache look engine eligibility for 30 minutes to avoid hammering the API.
+// Keyed by "${apiKeyPrefix}:${lookId}" so different HeyGen accounts never share cached engines.
 const lookEngineCache = new Map<string, { engines: string[]; at: number }>();
 
 /**
@@ -474,15 +480,15 @@ const lookEngineCache = new Map<string, { engines: string[]; at: number }>();
  * Returns ["avatar_iv"] as a safe fallback on error.
  */
 export async function getLookSupportedEngines(lookId: string, apiKey?: string): Promise<string[]> {
-  const lookCacheKey = `${apiKeyHash(apiKey)}:${lookId}`;
-  const cached = lookEngineCache.get(lookCacheKey);
+  const ck = `${apiKeyPrefix(apiKey)}:${lookId}`;
+  const cached = lookEngineCache.get(ck);
   if (cached && Date.now() - cached.at < 30 * 60 * 1000) return cached.engines;
 
   try {
     const client = getClient(apiKey);
     const res = await client.get(`/v3/avatars/looks/${lookId}`);
     const engines: string[] = res.data?.data?.supported_api_engines ?? ["avatar_iv"];
-    lookEngineCache.set(lookCacheKey, { engines, at: Date.now() });
+    lookEngineCache.set(ck, { engines, at: Date.now() });
     return engines;
   } catch (err: unknown) {
     const axiosErr = err as { response?: { status?: number; data?: unknown } };
@@ -498,18 +504,18 @@ export async function getLookSupportedEngines(lookId: string, apiKey?: string): 
   }
 }
 
-/**
- * Invalidate engine + image caches for a specific look (call after delete or forced refresh).
- * Clears hashed keys (current format) and un-hashed keys (legacy, pre-migration safety).
- */
-export function invalidateLookCaches(lookId: string, apiKey?: string): void {
-  const h = apiKeyHash(apiKey);
-  lookEngineCache.delete(`${h}:${lookId}`);
-  avatarImageCache.delete(`${h}:${lookId}`);
-  // Legacy un-hashed keys (populated before this migration) — safe to always remove
-  lookEngineCache.delete(lookId);
-  avatarImageCache.delete(lookId);
+
+/** Clear engine + image caches for a single look. */
+export function invalidateLookCacheEntries(lookId: string, apiKey?: string): void {
+  const prefix = apiKeyPrefix(apiKey);
+  const rawId = lookId.startsWith("tp:") ? lookId.slice(3) : lookId;
+  lookEngineCache.delete(`${prefix}:${rawId}`);
+  lookEngineCache.delete(`${prefix}:${lookId}`);
+  avatarImageCache.delete(`${prefix}:${lookId}`);
+  avatarImageCache.delete(`${prefix}:${rawId}`);
+  defaultVoiceMapByKey.delete(prefix);
 }
+
 
 /**
  * Normalize a script for HeyGen TTS to avoid common Spanish (and general)
@@ -604,41 +610,49 @@ export function normalizeScriptForTTS(script: string, language?: string): string
     .replace(/ {2,}/g, " ")
     .trim();
 }
-
 export interface GenerateVideoParams {
   script: string;
+
   avatar_id: string;
+
   voice_id: string;
+
   title?: string;
-  width?: number;
-  height?: number;
-  /** When true, instructs HeyGen to burn captions into the rendered video. */
+  /** When true, instructs HeyGen to return a sidecar SRT subtitle file. */
+
   captionsEnabled?: boolean;
   /**
-   * Natural-language prompt for Avatar V body motion / hand gestures.
-   * Only sent when Avatar V is used.
+   * Override the automatic Avatar V motion prompt.
+   * Leave unset to use DEFAULT_AVATAR_V_MOTION_PROMPT.
    */
+
   motionPrompt?: string;
   /**
    * Voice speed multiplier applied via SSML <prosody rate>.
    * HeyGen v3 rejects voice_speed as a top-level param; SSML is the only way.
    * Range 0.5–1.5. null/undefined → omit (HeyGen default 1.0).
    */
+
   voiceSpeed?: number | null;
   /**
    * Voice pitch adjustment as a percentage offset applied via SSML <prosody pitch>.
    * Range -50 to +50 (%). null/0/undefined → omit (HeyGen default).
    */
+
   voicePitch?: number | null;
   /**
    * BCP-47 language code or plain name ("es", "en", "español", etc.).
    * Used by normalizeScriptForTTS to expand abbreviations correctly.
    */
+
   language?: string;
   /**
-   * DB user ID — used to query avatar_look_metadata for reference_look_id resolution.
-   * Optional: omit when the caller has no userId context (e.g. test scripts).
+   * The requesting user's ID.  When provided, generateVideo queries
+   * avatar_look_metadata to pass reference_look_id for Avatar V, which
+   * stabilises identity and motion consistency across looks in the same group.
    */
+
+
   userId?: number;
 }
 
@@ -689,6 +703,7 @@ export const DEFAULT_AVATAR_V_MOTION_PROMPT =
   "Gestos de manos moderados y naturales al hablar, postura relajada y segura, " +
   "contacto visual directo con la cámara, movimientos de cabeza sutiles y naturales, " +
   "evitar gestos repetitivos o exagerados, expresión facial animada y cálida";
+
 
 /**
  * Generate a video via HeyGen API v3.
@@ -743,74 +758,64 @@ export async function generateVideo(params: GenerateVideoParams, apiKey?: string
   // top-level payload param — "Extra inputs are not permitted").
   const finalScript = wrapWithProsody(normalizedScript, params.voiceSpeed, params.voicePitch);
 
-  // v3 flat payload
+  // v3 flat payload — resolution is always 1080×1920 (1080p portrait)
   const payload: Record<string, unknown> = {
     type: "avatar",
     avatar_id: rawAvatarId,
     script: finalScript,
     voice_id: params.voice_id,
     aspect_ratio: "9:16",
+    width: 1080,
+    height: 1920,
     title: params.title ?? "ContentPilot Video",
   };
 
-  // Always request 1080×1920 vertical full-HD. HeyGen v3 accepts width/height and
-  // overrides any default from the aspect_ratio hint. Fixes low-res output on
-  // accounts whose default encoding is 720×1280.
-  payload["width"]  = 1080;
-  payload["height"] = 1920;
+  // Natural-motion prompt injected automatically for Avatar V; callers may override.
+  const effectiveMotionPrompt = params.motionPrompt ?? DEFAULT_AVATAR_V_MOTION_PROMPT;
 
   if (supportsAvatarV) {
     // Avatar V: highest-fidelity lipsync + cross-reference animation.
-    // Motion prompt: use the caller's value if set, otherwise inject the platform default.
-    const effectiveMotionPrompt = params.motionPrompt ?? DEFAULT_AVATAR_V_MOTION_PROMPT;
-
-    // Build engine payload — may include reference_look_id for motion consistency
-    const enginePayload: Record<string, unknown> = { type: "avatar_v" };
-
-    // Resolve reference_look_id: the master look in the same group provides a stable
-    // identity anchor that improves motion consistency across sibling looks.
+    // Query avatar_look_metadata to pass reference_look_id when a master look exists for
+    // this group — this stabilises identity and motion across looks in the same group.
+    let enginePayload: Record<string, unknown> = { type: "avatar_v" };
     if (params.userId) {
       try {
-        const [lookMeta] = await db
+        const [currentMeta] = await db
           .select({ groupId: avatarLookMetadataTable.groupId })
           .from(avatarLookMetadataTable)
-          .where(and(
-            eq(avatarLookMetadataTable.userId, params.userId),
-            // Use the original avatarId (with tp: prefix) as stored in avatar_look_metadata
-            eq(avatarLookMetadataTable.lookId, params.avatar_id),
-          ))
+          .where(
+            and(
+              eq(avatarLookMetadataTable.userId, params.userId),
+              eq(avatarLookMetadataTable.lookId, rawAvatarId),
+            )
+          )
           .limit(1);
-
-        if (lookMeta?.groupId) {
+        const groupId = currentMeta?.groupId;
+        if (groupId) {
           const [masterLook] = await db
             .select({ lookId: avatarLookMetadataTable.lookId })
             .from(avatarLookMetadataTable)
-            .where(and(
-              eq(avatarLookMetadataTable.userId, params.userId),
-              eq(avatarLookMetadataTable.groupId, lookMeta.groupId),
-              eq(avatarLookMetadataTable.isMasterLook, true),
-            ))
+            .where(
+              and(
+                eq(avatarLookMetadataTable.userId, params.userId),
+                eq(avatarLookMetadataTable.groupId, groupId),
+                eq(avatarLookMetadataTable.isMasterLook, true),
+              )
+            )
             .limit(1);
-
-          if (masterLook?.lookId && masterLook.lookId !== params.avatar_id) {
-            // Strip our "tp:" prefix for the HeyGen API — it only wants the raw look ID
-            const masterRawId = masterLook.lookId.startsWith("tp:")
-              ? masterLook.lookId.slice(3)
-              : masterLook.lookId;
-            enginePayload["reference_look_id"] = masterRawId;
+          if (masterLook && masterLook.lookId !== rawAvatarId) {
+            enginePayload = { type: "avatar_v", reference_look_id: masterLook.lookId };
             logger.info(
-              { currentLookId: rawAvatarId, masterLookId: masterRawId, groupId: lookMeta.groupId },
-              "[HeyGen v3] Avatar V: using reference_look_id for motion consistency"
+              { avatarId: rawAvatarId, referenceLookId: masterLook.lookId, groupId },
+              "[HeyGen v3] Avatar V: using reference_look_id from master look"
             );
           }
         }
-      } catch (err) {
-        // Non-fatal: missing metadata shouldn't block video generation
-        logger.warn({ err, lookId: rawAvatarId }, "[HeyGen v3] Could not resolve reference look — continuing without reference_look_id");
+      } catch (metaErr) {
+        logger.warn({ metaErr, avatarId: rawAvatarId }, "[HeyGen v3] Could not query avatar_look_metadata — sending Avatar V without reference_look_id");
       }
     }
-
-    payload["engine"]        = enginePayload;
+    payload["engine"] = enginePayload;
     payload["motion_prompt"] = effectiveMotionPrompt;
   } else {
     // Avatar IV (default): broad coverage — digital_twin, Photo Avatar, Studio Avatar.
@@ -857,6 +862,7 @@ export async function generateVideo(params: GenerateVideoParams, apiKey?: string
   );
   return videoId;
 }
+
 
 /**
  * Poll video status via HeyGen API v3 (GET /v3/videos/{video_id}).
@@ -1198,4 +1204,16 @@ export async function getAvatarLookStatus(
     preview_image_url: d?.preview_image_url ?? null,
     preview_video_url: d?.preview_video_url ?? null,
   };
+}
+
+/** Clear all engine + image cache entries for every look belonging to a given API key. */
+export function invalidateAllLookCachesForKey(apiKey?: string): void {
+  const prefix = apiKeyPrefix(apiKey);
+  for (const key of [...lookEngineCache.keys()]) {
+    if (key.startsWith(`${prefix}:`)) lookEngineCache.delete(key);
+  }
+  for (const key of [...avatarImageCache.keys()]) {
+    if (key.startsWith(`${prefix}:`)) avatarImageCache.delete(key);
+  }
+  defaultVoiceMapByKey.delete(prefix);
 }
