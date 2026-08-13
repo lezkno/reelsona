@@ -89,6 +89,44 @@ import {
   cloneVoice, deleteVoice, renameVoice, getVoiceCloneStatus,
 } from "../lib/heygen";
 
+/**
+ * Extract a human-readable error from a HeyGen axios error.
+ * Returns { status, message } where status is the HTTP status code HeyGen returned
+ * and message is the most specific text available (prefers HeyGen's own body content).
+ */
+function extractHeyGenError(err: any): { status: number; message: string } {
+  const status: number = err?.response?.status ?? 500;
+  const body = err?.response?.data as any;
+  const heygenMsg: string =
+    body?.message ??
+    body?.error?.message ??
+    body?.error ??
+    body?.detail ??
+    err?.message ??
+    "Error desconocido";
+
+  // Translate common HeyGen HTTP codes into user-friendly Spanish messages.
+  if (status === 402) {
+    return {
+      status: 402,
+      message:
+        "Tu cuenta de HeyGen no tiene créditos suficientes para realizar esta acción. " +
+        "Visita heygen.com para recargar tu plan. " +
+        `(Detalle: ${heygenMsg})`,
+    };
+  }
+  if (status === 401) {
+    return { status: 401, message: "La API Key de HeyGen es inválida o expiró." };
+  }
+  if (status === 403) {
+    return { status: 403, message: "Tu cuenta de HeyGen no tiene permiso para realizar esta acción." };
+  }
+  if (status === 429) {
+    return { status: 429, message: "Demasiadas solicitudes a HeyGen. Espera un momento e intenta de nuevo." };
+  }
+  return { status: status >= 400 && status < 600 ? status : 500, message: heygenMsg };
+}
+
 // Multer: store file in memory (max 32 MB — HeyGen limit)
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 32 * 1024 * 1024 } });
 // Multer for voice uploads: audio only, max 25 MB
@@ -646,7 +684,8 @@ router.post("/heygen/avatars/looks/:lookId/new-look", async (req, res): Promise<
     const result = await createAvatarLook(lookId, group_id.trim(), name.trim(), prompt.trim(), { pose: pose ?? "half_body" });
     res.json(result);
   } catch (err: any) {
-    res.status(500).json({ error: err?.message ?? "Error al crear el nuevo look" });
+    const { status, message } = extractHeyGenError(err);
+    res.status(status).json({ error: message });
   }
 });
 
@@ -671,7 +710,8 @@ router.post("/heygen/avatars/create-prompt", async (req, res): Promise<void> => 
     });
     res.json(result);
   } catch (err: any) {
-    res.status(500).json({ error: err?.message ?? "Error al crear el avatar" });
+    const { status, message } = extractHeyGenError(err);
+    res.status(status).json({ error: message });
   }
 });
 
@@ -694,7 +734,8 @@ router.post("/heygen/avatars/create", async (req, res): Promise<void> => {
     const result = await createPhotoAvatar(name.trim(), asset_id.trim());
     res.json(result);
   } catch (err: any) {
-    res.status(500).json({ error: err?.message ?? "Error al crear el avatar" });
+    const { status, message } = extractHeyGenError(err);
+    res.status(status).json({ error: message });
   }
 });
 
