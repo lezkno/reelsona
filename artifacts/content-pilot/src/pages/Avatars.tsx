@@ -1,4 +1,4 @@
-import { useGetHeyGenVoices, useGetAvatarConfig, useUpdateAvatarConfig, getGetAvatarConfigQueryKey, AvatarConfigRotationStrategy } from "@workspace/api-client-react"
+import { useGetHeyGenVoices, useGetAvatarConfig, useUpdateAvatarConfig, getGetAvatarConfigQueryKey, getGetHeyGenVoicesQueryKey, AvatarConfigRotationStrategy } from "@workspace/api-client-react"
 import {
   useMyHeyGenAvatarGroups,
   usePublicHeyGenAvatarGroups,
@@ -2270,7 +2270,7 @@ export default function Avatars() {
   const handleDeleteVoice = async (voiceId: string) => {
     try {
       await deleteVoiceMut.mutateAsync(voiceId)
-      queryClient.invalidateQueries({ queryKey: ["getHeyGenVoices"] })
+      queryClient.invalidateQueries({ queryKey: getGetHeyGenVoicesQueryKey() })
       toast({ title: "Voz eliminada" })
     } catch {
       toast({ title: "Error", description: "No se pudo eliminar la voz", variant: "destructive" })
@@ -2281,7 +2281,7 @@ export default function Avatars() {
     if (!renameValue.trim()) return
     try {
       await renameVoiceMut.mutateAsync({ voiceId, name: renameValue.trim() })
-      queryClient.invalidateQueries({ queryKey: ["getHeyGenVoices"] })
+      queryClient.invalidateQueries({ queryKey: getGetHeyGenVoicesQueryKey() })
       setRenamingVoiceId(null)
     } catch {
       toast({ title: "Error", description: "No se pudo renombrar la voz", variant: "destructive" })
@@ -2291,7 +2291,7 @@ export default function Avatars() {
   const handleSaveVoiceSpeed = async (voiceId: string) => {
     try {
       await updateVoiceMut.mutateAsync({ voiceId, speed: speedEditValue })
-      queryClient.invalidateQueries({ queryKey: ["getHeyGenVoices"] })
+      queryClient.invalidateQueries({ queryKey: getGetHeyGenVoicesQueryKey() })
       setEditingSpeedVoiceId(null)
       toast({ title: "Velocidad guardada", description: `${speedEditValue.toFixed(2)}× aplicado a esta voz` })
     } catch {
@@ -2956,7 +2956,7 @@ export default function Avatars() {
           onClose={() => setShowCloneDialog(false)}
           onCloned={() => {
             setShowCloneDialog(false)
-            queryClient.invalidateQueries({ queryKey: ["getHeyGenVoices"] })
+            queryClient.invalidateQueries({ queryKey: getGetHeyGenVoicesQueryKey() })
           }}
         />
       )}
