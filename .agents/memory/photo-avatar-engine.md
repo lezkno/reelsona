@@ -1,18 +1,27 @@
 ---
 name: Photo avatar engine restriction
-description: tp: photo avatars must never use avatar_v engine; getLookSupportedEngines API incorrectly reports it as supported.
+description: History of tp: photo avatar engine selection. The old restriction forcing avatar_iv is now REMOVED — HeyGen fixed the bug.
 ---
 
-# Photo avatar must use avatar_iv, not avatar_v
+# Photo avatars and Avatar V engine
 
-## The rule
-When `isPhotoAvatar = true` (avatar_id starts with `tp:`), always force `avatar_iv` regardless of what `getLookSupportedEngines` returns. Code: `const supportsAvatarV = !isPhotoAvatar && supportedEngines.includes("avatar_v")`.
+## Current state (mid-2026 onwards)
 
-**Why:** HeyGen's `getLookSupportedEngines` endpoint incorrectly lists `avatar_v` as a supported engine for many photo avatar looks. When you send a photo avatar with `engine: {type: "avatar_v"}`, HeyGen accepts the POST and returns a valid videoId, but then silently fails the video during processing (~60 seconds later) with `status: "failed"` and `error: null`. This produces the fallback error "Error desconocido en HeyGen" on our side.
+**Photo avatars (tp: prefix) NOW support Avatar V.** Trust `getLookSupportedEngines` exclusively.
 
-**How to apply:** The check is in `generateVideo()` in `artifacts/api-server/src/lib/heygen.ts`. Any time you touch engine selection logic, preserve `!isPhotoAvatar &&`.
+HeyGen confirmed this via:
+- `GET /v3/avatars/looks/{id}` returns `supported_api_engines: ["avatar_v","avatar_iv","avatar_iii"]` for photo_avatar looks
+- Sending `avatar_id` (tp: look, raw) + `engine: {type: "avatar_v"}` passes schema validation — HeyGen progresses to voice validation, not avatar/engine rejection
+- `avatar_image_url` and `photo_url` are **not** valid v3 payload fields (rejected as "Extra inputs") — no need to pass the image separately
 
-## How we confirmed it
-- Dev DB had 20+ successful published videos — all used a single non-`tp:` avatar (`c880e13bfe004a649e26b96f11ced132`), so `isPhotoAvatar = false` and `avatar_v` worked fine.
-- Production videos 2 & 3 used `tp:11cb4a6bff8c42c1bbd349986e85f8eb` and `tp:75301275b9c348fb8b6bcfb141cc83ea` with `avatar_v` — both failed within ~62 seconds with `error: null`.
-- Pattern: non-photo + avatar_v = ✅; photo (tp:) + avatar_v = ❌ silent fail.
+**Code:** `const supportsAvatarV = supportedEngines.includes("avatar_v")` — no `!isPhotoAvatar` guard.
+
+**Why:** HeyGen fixed the silent failure bug that caused tp: + avatar_v videos to fail with `error: null` after ~60 s. That restriction was added based on empirical evidence of past failures but is now obsolete.
+
+## Historical context (no longer applicable)
+
+Previously `const supportsAvatarV = !isPhotoAvatar && supportedEngines.includes("avatar_v")` was used because:
+- Production videos using `tp:11cb4a6bff8c42c1bbd349986e85f8eb` and `tp:75301275b9c348fb8b6bcfb141cc83ea` with `avatar_v` silently failed (~62 s, `error: null`)
+- `getLookSupportedEngines` was incorrectly reporting `avatar_v` as supported even then
+
+This is no longer true as of mid-2026.

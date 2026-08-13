@@ -2,7 +2,7 @@
 - [HeyGen API quirks](heygen-api-quirks.md) — voices use `preview_audio` (not `_url`); group looks mix two field shapes; dump a raw response before writing schemas.
 - [HeyGen account integration](heygen-account-integration.md) — API key stored in settings.heygen_api_key (DB) with env var fallback; quota via GET /v2/user/remaining.quota; custom hooks in lib/api-client-react/src/custom-endpoints.ts.
 - [HeyGen v3 migration](heygen-v3-migration.md) — v2 API deprecated (sunset Oct 2026); v3 uses flat payload with top-level `type: "avatar"` for all avatar types; no more `talking_photo` character type; engine and expressiveness fields control quality.
-- [Photo avatar engine restriction](photo-avatar-engine.md) — tp: photo avatars must use avatar_iv, never avatar_v; getLookSupportedEngines incorrectly reports avatar_v for them; avatar_v accepts the POST but fails silently (~60 s) with error: null.
+- [Photo avatar engine restriction](photo-avatar-engine.md) — RESOLVED mid-2026: HeyGen fixed silent-fail bug; tp: photo avatars NOW support avatar_v; trust getLookSupportedEngines only, no !isPhotoAvatar guard.
 - [Caption engine architecture](caption-engine-arch.md) — HeyGen v3 returns subtitle_url (SRT) when caption param is set; FFmpeg+libass burns styled ASS captions; captioned videos served at /api/captioned/:file from /tmp/contentpilot-captioned/.
 - [Avatar rotation bug](avatar-rotation-bug.md) — Stored avatarId on content items must be validated against current selectedAvatarIds before use; if removed from selection, re-pick via pickNextAvatar.
 - [Per-avatar voice resolution](per-avatar-voice-resolution.md) — voice_overrides map (avatarId→voiceId) in avatar_config; Radix Select needs non-empty sentinel "avatar_default" for the default option.

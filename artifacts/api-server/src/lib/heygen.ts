@@ -646,11 +646,9 @@ export interface VideoStatus {
  * track photo-avatar looks).
  *
  * Engine selection:
- *   - Video avatars (no tp: prefix, e.g. Yasser Lezcano looks): Avatar V engine
- *     → best possible lipsync, trained from recorded video footage.
- *   - Photo avatars (tp: prefix, digital twins / photo-based looks): Avatar IV
- *     engine (default) + expressiveness: "high" → most natural result for
- *     photo-based avatars without requiring video matting.
+ *   Avatar V if the look's supported_api_engines includes "avatar_v" (checked live via
+ *   getLookSupportedEngines). Photo avatars (tp: prefix) now support avatar_v as of mid-2026 —
+ *   HeyGen fixed an earlier silent-failure bug. Avatar IV + expressiveness: high is the fallback.
  */
 export async function generateVideo(params: GenerateVideoParams, apiKey?: string): Promise<string> {
   const client = getClient(apiKey);
@@ -660,16 +658,14 @@ export async function generateVideo(params: GenerateVideoParams, apiKey?: string
   const rawAvatarId = isPhotoAvatar ? params.avatar_id.slice(3) : params.avatar_id;
 
   // Dynamically check which engines this look supports.
-  // Avatar V is available for both video avatars AND eligible digital_twin (photo) looks —
-  // the tp: heuristic alone is not enough; we must check supported_api_engines per look.
+  // HeyGen now supports avatar_v for photo_avatar looks — confirmed via API:
+  //   GET /v3/avatars/looks/{id} returns supported_api_engines: ["avatar_v","avatar_iv","avatar_iii"]
+  //   for photo avatar looks, and sending avatar_v in the payload is accepted (progresses past
+  //   avatar validation to voice validation).  An earlier restriction blocked tp: avatars from
+  //   avatar_v due to past silent failures, but HeyGen has since fixed this.
+  // Trust getLookSupportedEngines exclusively to determine engine eligibility.
   const supportedEngines = await getLookSupportedEngines(rawAvatarId, apiKey);
-  // avatar_v only supports digital_twin / video avatars — photo avatars (tp: prefix)
-  // fail silently: HeyGen accepts the POST (returns a videoId) but then marks the
-  // video as "failed" with error: null within ~60 s.  getLookSupportedEngines
-  // incorrectly reports avatar_v as supported for photo avatar looks, so we must
-  // exclude photo avatars explicitly.  avatar_iv with expressiveness: high is the
-  // correct engine for photo avatars and produces quality results.
-  const supportsAvatarV = !isPhotoAvatar && supportedEngines.includes("avatar_v");
+  const supportsAvatarV = supportedEngines.includes("avatar_v");
 
   logger.info(
     {
