@@ -1761,6 +1761,10 @@ function AvatarCreationDialog({
   return (
     <Dialog open onOpenChange={(open) => {
       if (!open) {
+        // Block closure while upload/compression is in progress — closing mid-upload
+        // would abort the fetch and leave a "ghost" Digital Twin in HeyGen with no
+        // look_id stored in the app.
+        if (isPending) return
         if (mode === "video" && step === "creating" && lookId && groupId) {
           // Digital Twin takes 10-20 min — allow dismissal and track job in background
           onPendingVideoJob?.({ lookId, groupId, name })
@@ -1771,7 +1775,7 @@ function AvatarCreationDialog({
         // photo/prompt creating steps still block dismissal (1-5 min, must wait)
       }
     }}>
-      <DialogContent className={`sm:max-w-lg max-h-[calc(100dvh-2rem)] overflow-hidden p-5 gap-3 ${step === "creating" && mode !== "video" ? "[&>button]:hidden" : ""}`}>
+      <DialogContent className={`sm:max-w-lg max-h-[calc(100dvh-2rem)] overflow-hidden p-5 gap-3 ${isPending || (step === "creating" && mode !== "video") ? "[&>button]:hidden" : ""}`}>
 
         {/* ── Configure step ── */}
         {step === "configure" && (
