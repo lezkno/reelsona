@@ -941,45 +941,46 @@ router.post("/heygen/avatars/create-digital-twin", videoUpload.single("file"), a
     res.status(400).json({ error: "name es requerido" });
     return;
   }
-  // Compress video if over 20 MB — HeyGen's /v3/assets endpoint rejects large files.
-  // FFmpeg re-encodes to 720p H.264 at ~800 kbps + AAC 96 kbps → ≈16 MB for a 2.5 min clip.
-  // All imports (execFileAsync, fs, path, os) are already available at the top of this file.
-  const HEYGEN_ASSET_MAX = 20 * 1024 * 1024; // 20 MB safe threshold
-  let uploadBuffer = req.file.buffer;
-  let uploadMime = effectiveMime;
-  let uploadName = req.file.originalname;
-
-  if (req.file.size > HEYGEN_ASSET_MAX) {
-    const tmpId = `twin_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    const inExt = uploadName.endsWith(".mp4") ? ".mp4" : ".webm";
-    const inputPath = path.join(os.tmpdir(), `${tmpId}${inExt}`);
-    const outputPath = path.join(os.tmpdir(), `${tmpId}_out.mp4`);
-    try {
-      await fs.writeFile(inputPath, req.file.buffer);
-      await execFileAsync("ffmpeg", [
-        "-y", "-i", inputPath,
-        "-c:v", "libx264", "-vf", "scale=-2:720",
-        "-b:v", "800k",
-        "-c:a", "aac", "-b:a", "96k",
-        "-movflags", "+faststart",
-        outputPath,
-      ], { timeout: 180000 });
-      uploadBuffer = await fs.readFile(outputPath);
-      uploadMime = "video/mp4";
-      uploadName = uploadName.replace(/\.[^.]+$/, "") + ".mp4";
-      logger.info(
-        { originalSize: req.file.size, compressedSize: uploadBuffer.length },
-        "[DigitalTwin] Video compressed with FFmpeg for HeyGen upload",
-      );
-    } finally {
-      await Promise.all([
-        fs.unlink(inputPath).catch(() => {}),
-        fs.unlink(outputPath).catch(() => {}),
-      ]);
-    }
-  }
-
+  // All errors (FFmpeg compression + HeyGen API) are caught in one block so the client
+  // always gets a JSON error response instead of an HTML 500.
   try {
+    // Compress video if over 20 MB — HeyGen's /v3/assets endpoint rejects large files.
+    // FFmpeg re-encodes to 720p H.264 ~800 kbps + AAC 96 kbps → ≈16 MB for a 2.5 min clip.
+    const HEYGEN_ASSET_MAX = 20 * 1024 * 1024; // 20 MB safe threshold
+    let uploadBuffer = req.file.buffer;
+    let uploadMime = effectiveMime;
+    let uploadName = req.file.originalname;
+
+    if (req.file.size > HEYGEN_ASSET_MAX) {
+      const tmpId = `twin_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      const inExt = uploadName.endsWith(".mp4") ? ".mp4" : ".webm";
+      const inputPath = path.join(os.tmpdir(), `${tmpId}${inExt}`);
+      const outputPath = path.join(os.tmpdir(), `${tmpId}_out.mp4`);
+      try {
+        await fs.writeFile(inputPath, req.file.buffer);
+        await execFileAsync("ffmpeg", [
+          "-y", "-i", inputPath,
+          "-c:v", "libx264", "-vf", "scale=-2:720",
+          "-b:v", "800k",
+          "-c:a", "aac", "-b:a", "96k",
+          "-movflags", "+faststart",
+          outputPath,
+        ], { timeout: 180000 });
+        uploadBuffer = await fs.readFile(outputPath);
+        uploadMime = "video/mp4";
+        uploadName = uploadName.replace(/\.[^.]+$/, "") + ".mp4";
+        logger.info(
+          { originalSize: req.file.size, compressedSize: uploadBuffer.length },
+          "[DigitalTwin] Video compressed with FFmpeg for HeyGen upload",
+        );
+      } finally {
+        await Promise.all([
+          fs.unlink(inputPath).catch(() => {}),
+          fs.unlink(outputPath).catch(() => {}),
+        ]);
+      }
+    }
+
     const apiKey = await getUserHeyGenKey(req.session.user!.userId);
     const { asset_id } = await uploadAsset(uploadBuffer, uploadMime, uploadName, apiKey);
     const result = await createDigitalTwinFromVideo(name.trim(), asset_id, apiKey);

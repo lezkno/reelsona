@@ -1103,7 +1103,7 @@ export async function createDigitalTwinFromVideo(
   const client = getClient(apiKey);
   const res = await client.post(
     "/v3/avatars",
-    { type: "video", name, file: { type: "asset_id", asset_id: assetId } },
+    { type: "digital_twin", name, file: { type: "asset_id", asset_id: assetId } },
     { timeout: 30000 },
   );
   const data = res.data?.data;

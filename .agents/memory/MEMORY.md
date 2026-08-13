@@ -29,3 +29,4 @@
 - [HeyGen avatar sync](avatar-sync.md) — getAllAvailableAvatarIds() (5 min cache) + pruneDeletedAvatars() run at top of every automation cycle; auto-remove on 404 catch; getLookSupportedEngines throws on 404 instead of silently falling back.
 - [HeyGen v3 voice parameters](heygen-v3-voice-params.md) — voice_speed/voice/voice_setting/speed/rate ALL rejected by v3 ("Extra inputs are not permitted"); use SSML <prosody rate pitch> in the script field instead.
 - [Wallet Credits Architecture](wallet-credits-architecture.md) — Phase 1 credit system: user_credits + credit_ledger tables, VIDEO_CREDIT_COST=10, reserve→consume/release lifecycle, provision recovery via purchases.provisioned_at.
+- [Digital Twin creation pipeline](digital-twin-creation.md) — mr.mimeType="text/plain" in Replit Chromium; FFmpeg compress >20MB before /v3/assets; POST /v3/avatars needs type:"digital_twin" not "video".
