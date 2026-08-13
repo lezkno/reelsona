@@ -222,7 +222,7 @@ async function generateHookCandidates(
   idealAudience?: string | null,
   voiceStyle?: string | null,
 ): Promise<{ candidates: string[]; winner: string; selectionReason: string }> {
-  const client = makeOpenAIClient(openaiApiKey);
+  const client = makeOpenAIClient();
 
   const auditContext = auditInsights?.topCaptions.length
     ? `\nCaptions que funcionaron bien en esta cuenta (solo como referencia de estilo de apertura):\n${auditInsights.topCaptions.slice(0, 3).map((c, i) => `${i + 1}. ${c.substring(0, 120)}`).join("\n")}`
@@ -329,7 +329,7 @@ export async function generateScript(
     customCta?: string | null;
   }
 ): Promise<ScriptOutput> {
-  const client = makeOpenAIClient(options?.openaiApiKey);
+  const client = makeOpenAIClient();
   const wordCount = Math.round((durationSeconds / 60) * 130);
 
   const avatarCTAs = getAvatarCTAs(language);
@@ -465,7 +465,7 @@ export async function regenerateCaption(
   topCaptions?: string[],
   openaiApiKey?: string | null,
 ): Promise<RegenerateCaptionOutput> {
-  const client = makeOpenAIClient(openaiApiKey);
+  const client = makeOpenAIClient();
 
   // Build examples block from top-performing captions
   const examplesBlock = topCaptions?.length
@@ -653,7 +653,7 @@ export async function generateContentTopics(
   strategyContext?: StrategyContext,   // 9th param — takes priority over auditInsights when present
   openaiApiKey?: string | null,
 ): Promise<ContentPlanTopicMeta[]> {
-  const client = makeOpenAIClient(openaiApiKey);
+  const client = makeOpenAIClient();
   const total = days * postsPerDay;
 
   const rawPillars = niche
@@ -862,7 +862,7 @@ export async function analyzeAuditAndRecommend(
   language: string,
   openaiApiKey?: string | null,
 ): Promise<{ recommended_topics: string[]; content_insights: string; best_posting_times: string[] }> {
-  const client = makeOpenAIClient(openaiApiKey);
+  const client = makeOpenAIClient();
 
   const prompt = `Analiza el rendimiento de una cuenta de Instagram y genera recomendaciones.
 
@@ -912,7 +912,7 @@ export async function reanalyzeTopicsWithStrategy(
   audience_pain: string;
   share_reason: string;
 }>> {
-  const client = makeOpenAIClient(openaiApiKey);
+  const client = makeOpenAIClient();
 
   const strategyBlock = `ESTRATEGIA DEL CREADOR:
 - Propuesta de valor única: ${strategyContext.content_strategy.unique_value_prop}

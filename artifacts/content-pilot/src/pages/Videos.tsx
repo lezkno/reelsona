@@ -319,14 +319,14 @@ export default function Videos() {
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       {/* Header */}
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <div>
-          <h1 className="text-4xl font-display font-bold tracking-tight">Librería de Videos</h1>
-          <p className="text-muted-foreground mt-1 text-lg">Todos los Reels generados por HeyGen.</p>
+          <h1 className="text-2xl sm:text-4xl font-display font-bold tracking-tight">Librería de Videos</h1>
+          <p className="text-muted-foreground mt-1 text-sm sm:text-lg">Todos los Reels generados por HeyGen.</p>
         </div>
 
         {videos && videos.length > 0 && (
-          <div className="flex gap-2 pt-1 shrink-0">
+          <div className="flex flex-wrap gap-2 sm:pt-1 shrink-0">
             {selectMode ? (
               <>
                 <Button

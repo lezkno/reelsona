@@ -1,5 +1,6 @@
 import { useGetInstagramAccount, useDisconnectInstagram, useHandleInstagramCallback, getGetInstagramAccountQueryKey, getGetInstagramPostsQueryKey } from "@workspace/api-client-react"
 import { ExternalLink, AlertTriangle, RefreshCw } from "lucide-react"
+import { useMutation } from "@tanstack/react-query"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -42,6 +43,15 @@ export default function Connect() {
   const { toast } = useToast()
   const [, setLocation] = useLocation()
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [picBroken, setPicBroken] = useState(false)
+
+  const refreshPicture = useMutation({
+    mutationFn: () => fetch("/api/instagram/refresh-profile-picture", { method: "POST" }).then(r => r.json()),
+    onSuccess: () => {
+      setPicBroken(false)
+      queryClient.invalidateQueries({ queryKey: getGetInstagramAccountQueryKey() })
+    },
+  })
 
   const handledCode = useRef<string | null>(null)
   const redirectUri = getRedirectUri()
@@ -238,15 +248,21 @@ export default function Connect() {
           </CardHeader>
           <CardContent>
             <div className="bg-muted/50 rounded-xl p-6 border flex items-center gap-6">
-              {account.profile_picture_url ? (
+              {account.profile_picture_url && !picBroken ? (
                 <img
                   src={account.profile_picture_url}
                   alt={account.username}
                   className="w-20 h-20 rounded-full border-4 border-background shadow-md object-cover"
+                  onError={() => {
+                    setPicBroken(true)
+                    refreshPicture.mutate()
+                  }}
                 />
               ) : (
-                <div className="w-20 h-20 rounded-full bg-secondary text-secondary-foreground flex items-center justify-center shadow-md">
-                  <User className="w-8 h-8" />
+                <div className="w-20 h-20 rounded-full bg-gradient-to-br from-primary/30 to-primary/10 border-4 border-background shadow-md flex items-center justify-center">
+                  <span className="text-xl font-bold text-primary select-none">
+                    {account.username.slice(0, 2).toUpperCase()}
+                  </span>
                 </div>
               )}
 

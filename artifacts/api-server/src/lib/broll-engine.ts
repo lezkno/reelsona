@@ -94,7 +94,7 @@ async function generateVisualDirection(
   openaiApiKey?: string | null,
 ): Promise<string> {
   try {
-    const client = makeOpenAIClient(openaiApiKey, { timeout: 30_000 });
+    const client = makeOpenAIClient({ timeout: 30_000 });
 
     const contextLines = [
       visualContext?.niche  ? `Niche: ${visualContext.niche}` : "",
@@ -156,7 +156,7 @@ async function analyzeScriptForBRoll(
 ): Promise<RawAISegment[]> {
   if (count <= 0 || sentences.length === 0) return [];
 
-  const client = makeOpenAIClient(openaiApiKey, { timeout: 60_000 });
+  const client = makeOpenAIClient({ timeout: 60_000 });
 
   const cap = Math.min(sentences.length, 50);
   const numbered = sentences.slice(0, cap).map((s, i) => `${i}: ${s}`).join("\n");
@@ -366,7 +366,7 @@ export async function generateBRollImages(
   visualDirection: string,
   openaiApiKey?: string | null,
 ): Promise<BRollImageAsset[]> {
-  const client = makeOpenAIClient(openaiApiKey, { timeout: 120_000 });
+  const client = makeOpenAIClient({ timeout: 120_000 });
 
   const results: BRollImageAsset[] = [];
   const directionPrefix = visualDirection ? `${visualDirection}. ` : "";
@@ -546,7 +546,13 @@ export async function applyBRoll(
 
     const assets = await generateBRollImages(segments, tmpDir, visualDirection, openaiApiKey);
     if (assets.length === 0) {
-      logger.info("[BRoll] No images generated — skipping compositing");
+      logger.warn(
+        { hasPersonalKey: !!openaiApiKey },
+        "[BRoll] No images generated — skipping compositing." +
+        (!openaiApiKey
+          ? " gpt-image-1 requires a personal OpenAI API key (the Replit proxy does not support image generation). Configure your key in Configuración → Integraciones."
+          : " Check above warn logs for per-segment errors."),
+      );
       return sourcePath;
     }
 

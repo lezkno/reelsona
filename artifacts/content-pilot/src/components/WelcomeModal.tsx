@@ -89,24 +89,26 @@ export function WelcomeModal() {
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) handleClose() }}>
-      <DialogContent className="w-[calc(100%-2rem)] max-w-xl p-0 overflow-hidden gap-0 max-h-[90vh] overflow-y-auto">
+      <DialogContent className="w-[calc(100%-2rem)] max-w-xl p-0 overflow-hidden gap-0">
         {/* Header gradient strip */}
-        <div className="bg-sidebar px-4 sm:px-6 pt-6 pb-5 text-sidebar-foreground">
-          <div className="flex justify-center mb-4">
-            <img src="/logo.png" alt="Reelsona" className="w-16 h-16 object-contain drop-shadow-lg" />
+        <div className="bg-sidebar px-4 sm:px-6 pt-4 pb-4 text-sidebar-foreground">
+          <div className="flex items-center gap-3 mb-2">
+            <img src="/logo.png" alt="Reelsona" className="w-10 h-10 object-contain drop-shadow-lg shrink-0" />
+            <div>
+              <DialogHeader className="space-y-0.5 text-left items-start">
+                <DialogTitle className="text-lg font-display font-bold text-sidebar-foreground leading-tight">
+                  Tu máquina de contenido con IA está lista
+                </DialogTitle>
+                <DialogDescription className="text-sidebar-foreground/70 text-xs">
+                  Mira el video y empieza el curso para publicar tu primer Reel hoy.
+                </DialogDescription>
+              </DialogHeader>
+            </div>
           </div>
-          <DialogHeader className="space-y-1 text-center items-center">
-            <DialogTitle className="text-2xl font-display font-bold text-sidebar-foreground leading-tight">
-              Tu máquina de contenido con IA está lista
-            </DialogTitle>
-            <DialogDescription className="text-sidebar-foreground/70 text-sm text-center">
-              Mira el video de introducción y empieza el curso guiado para tener tu primer Reel publicado hoy.
-            </DialogDescription>
-          </DialogHeader>
         </div>
 
-        {/* Video area */}
-        <div className="mx-3 sm:mx-6 -mt-3 rounded-xl overflow-hidden border border-border shadow-md">
+        {/* Video area — capped height so it never pushes content off-screen */}
+        <div className="mx-3 sm:mx-5 rounded-xl overflow-hidden border border-border shadow-md">
           {WELCOME_VIDEO_URL ? (
             <video
               src={WELCOME_VIDEO_URL}
@@ -116,13 +118,12 @@ export function WelcomeModal() {
               controlsList="nodownload noplaybackrate"
               disableRemotePlayback
               onContextMenu={(e) => e.preventDefault()}
-              className="w-full block"
+              className="w-full block max-h-[210px] object-cover"
             />
           ) : (
-            /* Placeholder mientras no hay video */
-            <div className="aspect-video bg-gradient-to-br from-muted/60 to-muted flex flex-col items-center justify-center gap-3 text-muted-foreground">
-              <div className="w-14 h-14 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center">
-                <Play className="w-6 h-6 text-primary fill-primary/30" />
+            <div className="h-[160px] bg-gradient-to-br from-muted/60 to-muted flex flex-col items-center justify-center gap-3 text-muted-foreground">
+              <div className="w-12 h-12 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center">
+                <Play className="w-5 h-5 text-primary fill-primary/30" />
               </div>
               <p className="text-sm font-medium">Video de introducción próximamente</p>
             </div>
@@ -130,7 +131,7 @@ export function WelcomeModal() {
         </div>
 
         {/* Footer */}
-        <div className="px-4 sm:px-6 py-5 space-y-4">
+        <div className="px-4 sm:px-5 py-3 space-y-3">
           {/* Steps summary */}
           <div className="grid grid-cols-3 gap-2 text-center">
             {[
@@ -138,7 +139,7 @@ export function WelcomeModal() {
               { num: "2", text: "Genera tu estrategia" },
               { num: "3", text: "Publica tu primer Reel" },
             ].map(({ num, text }) => (
-              <div key={num} className="rounded-lg bg-muted/50 border border-border px-2 py-2.5">
+              <div key={num} className="rounded-lg bg-muted/50 border border-border px-2 py-2">
                 <span className="block text-xs font-bold text-primary mb-0.5">{num}</span>
                 <span className="text-[11px] text-muted-foreground leading-tight">{text}</span>
               </div>
@@ -147,7 +148,7 @@ export function WelcomeModal() {
 
           {/* CTA */}
           <Button
-            className="w-full gap-2 text-sm font-semibold h-10"
+            className="w-full gap-2 text-sm font-semibold h-9"
             onClick={handleStartCourse}
           >
             <BookOpen className="w-4 h-4" />
@@ -155,7 +156,7 @@ export function WelcomeModal() {
           </Button>
 
           {/* Don't show again + skip */}
-          <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <Checkbox
                 id="dont-show"
@@ -172,7 +173,7 @@ export function WelcomeModal() {
             </div>
             <button
               onClick={handleClose}
-              className="min-h-[44px] px-3 text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
+              className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
             >
               Ahora no
             </button>

@@ -151,8 +151,8 @@ export default function Automation() {
   return (
     <div className="space-y-8 max-w-4xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div>
-        <h1 className="text-4xl font-display font-bold tracking-tight">Motor de Automatización</h1>
-        <p className="text-muted-foreground mt-1 text-lg">Controla el flujo de trabajo de generación y publicación.</p>
+        <h1 className="text-2xl sm:text-4xl font-display font-bold tracking-tight">Motor de Automatización</h1>
+        <p className="text-muted-foreground mt-1 text-sm sm:text-lg">Controla el flujo de trabajo de generación y publicación.</p>
       </div>
 
       {/* Processing lock banner */}
@@ -187,7 +187,7 @@ export default function Automation() {
           </div>
 
           {/* Three-mode selector */}
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 xs:grid-cols-3 sm:grid-cols-3 gap-3">
             <button
               disabled={isLocked}
               onClick={() => saveChange({ enabled: false })}

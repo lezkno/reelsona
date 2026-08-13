@@ -643,7 +643,7 @@ async function analyzeScriptForZooms(
 ): Promise<number[]> {
   if (count <= 0 || sentences.length === 0) return [];
 
-  const client = makeOpenAIClient(openaiApiKey);
+  const client = makeOpenAIClient();
 
   const cap      = Math.min(sentences.length, 45);
   const numbered = sentences.slice(0, cap).map((s, i) => `${i}: ${s}`).join("\n");

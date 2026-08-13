@@ -100,7 +100,7 @@ export default function Dashboard() {
   if (isLoading) {
     return (
       <div className="space-y-6">
-        <h1 className="text-4xl font-display font-bold">Dashboard</h1>
+        <h1 className="text-2xl sm:text-4xl font-display font-bold">Dashboard</h1>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <Skeleton className="h-32 rounded-xl" />
           <Skeleton className="h-32 rounded-xl" />

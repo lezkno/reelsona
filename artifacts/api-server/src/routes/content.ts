@@ -273,7 +273,6 @@ router.post("/content/plan/generate", async (req, res): Promise<void> => {
     existingTopics,
     auditInsights ?? undefined,
     strategyContext ?? undefined,
-    settings?.openaiApiKey,
   );
 
   // Server-side safety net: remove any topics the AI returned more than once
@@ -328,7 +327,7 @@ router.post("/content", async (req, res): Promise<void> => {
       getStrategyProfile().catch(() => null),
     ]);
     const strategyCtx = strategyProfile ? toStrategyContext(strategyProfile) : undefined;
-    const generated = await generateContentTopics(niche, keywords, tone, language, 1, 1, existingItems.map((i) => i.topic), auditInsights ?? undefined, strategyCtx ?? undefined, settings?.openaiApiKey);
+    const generated = await generateContentTopics(niche, keywords, tone, language, 1, 1, existingItems.map((i) => i.topic), auditInsights ?? undefined, strategyCtx ?? undefined);
     if (!generated[0]?.topic) {
       res.status(500).json({ error: "No se pudo generar el tema" });
       return;
@@ -407,7 +406,7 @@ router.post("/content/:id/suggest-topic", async (req, res): Promise<void> => {
     getStrategyProfile().catch(() => null),
   ]);
   const strategyCtxSuggest = strategyProfile ? toStrategyContext(strategyProfile) : undefined;
-  const [generated] = await generateContentTopics(niche, keywords, tone, language, 1, 1, existingTopics, auditInsights ?? undefined, strategyCtxSuggest ?? undefined, settings?.openaiApiKey);
+  const [generated] = await generateContentTopics(niche, keywords, tone, language, 1, 1, existingTopics, auditInsights ?? undefined, strategyCtxSuggest ?? undefined);
   if (!generated?.topic) { res.status(500).json({ error: "No se pudo generar el tema" }); return; }
 
   res.json({ topic: generated.topic });
@@ -429,7 +428,6 @@ router.post("/content/script", async (req, res): Promise<void> => {
   const result = await generateScript(parsed.data.topic, niche, tone, language, duration, {
     nicheDescription: settings?.nicheDescription,
     topicKeywords: (settings?.topicKeywords as string[] | null) ?? undefined,
-    openaiApiKey: settings?.openaiApiKey,
     offer: settings?.offer,
     idealAudience: settings?.idealAudience,
     uniqueValueProp: settings?.uniqueValueProp,
@@ -550,7 +548,6 @@ router.post("/content/:id/regenerate-caption", async (req, res): Promise<void> =
     item.script ?? item.hook ?? item.topic,
     niche, tone, language,
     auditInsights?.topCaptions?.slice(0, 3),
-    settings?.openaiApiKey,
   );
   res.json(result);
 });
@@ -591,7 +588,6 @@ router.post("/content/:id/regenerate", async (req, res): Promise<void> => {
   const scriptResult = await regenerateScriptWithCriterion(
     item.topic, niche, tone, language, duration, criterion,
     auditInsights ?? undefined,
-    settings?.openaiApiKey,
   );
 
   const [updated] = await db

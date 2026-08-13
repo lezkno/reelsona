@@ -133,7 +133,7 @@ async function analyzeScriptForCards(
   _durationSec: number,
   openaiApiKey?: string | null,
 ): Promise<TextCard[]> {
-  const openai = makeOpenAIClient(openaiApiKey);
+  const openai = makeOpenAIClient();
 
   const resp = await openai.chat.completions.create({
     model: "gpt-5.4-mini",

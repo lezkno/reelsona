@@ -2,10 +2,8 @@ import {
   useGetSettings, useUpdateSettings, useExtractBrandPalette,
   getGetSettingsQueryKey, SettingsTone, type SettingsInput,
 } from "@workspace/api-client-react"
-import {
-} from "@workspace/api-client-react"
 import { useUpload } from "@workspace/object-storage-web"
-import openaiLogoUrl from "@/assets/openai-logo.png"
+
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -18,7 +16,7 @@ import { Progress } from "@/components/ui/progress"
 import { useQueryClient } from "@tanstack/react-query"
 import { useToast } from "@/hooks/use-toast"
 import { useEffect, useRef, useState } from "react"
-import { Save, CheckCircle2, XCircle, Loader2, Link2, Link2Off, Eye, EyeOff, RefreshCw, Play, Upload, X, Palette, Sparkles } from "lucide-react"
+import { Save, CheckCircle2, Loader2, RefreshCw, Play, Upload, X, Palette, Sparkles } from "lucide-react"
 import AccessStatus from "@/components/AccessStatus"
 
 const WELCOME_STORAGE_KEY = "reelsona_welcome_dismissed"
@@ -318,168 +316,6 @@ function BrandIdentityCard() {
   )
 }
 
-// ── OpenAI integration card ───────────────────────────────────────────────────
-
-function OpenAIIntegrationCard() {
-  const { data: settings, isLoading } = useGetSettings()
-  const updateSettings = useUpdateSettings()
-  const queryClient    = useQueryClient()
-  const { toast } = useToast()
-
-  const [apiKeyInput, setApiKeyInput] = useState("")
-  const [showKey, setShowKey]         = useState(false)
-  const [editing, setEditing]         = useState(false)
-
-  const isConnected = settings?.openai_api_key_set ?? false
-
-  const handleSave = () => {
-    if (!apiKeyInput.trim()) return
-    updateSettings.mutate({ data: { openai_api_key: apiKeyInput.trim() } }, {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getGetSettingsQueryKey() })
-        toast({ title: "API Key guardada", description: "Las generaciones de IA usarán tu clave personal de OpenAI." })
-        setApiKeyInput("")
-        setEditing(false)
-      },
-      onError: () => toast({ title: "Error al guardar", description: "No se pudo guardar la API Key.", variant: "destructive" }),
-    })
-  }
-
-  const handleRemove = () => {
-    updateSettings.mutate({ data: { openai_api_key: null } }, {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getGetSettingsQueryKey() })
-        toast({ title: "API Key eliminada" })
-      },
-      onError: () => toast({ title: "Error", variant: "destructive" }),
-    })
-    setEditing(false)
-    setApiKeyInput("")
-  }
-
-  const startEdit = () => {
-    setEditing(true)
-    setApiKeyInput("")
-    setShowKey(false)
-  }
-
-  return (
-    <Card>
-      <CardHeader className="pb-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <img src={openaiLogoUrl} alt="OpenAI" className="w-10 h-10 rounded-xl shrink-0 object-cover" />
-            <div>
-              <CardTitle className="text-base">ChatGPT / OpenAI</CardTitle>
-              <CardDescription className="text-xs mt-0.5">Scripts, captions y análisis estratégico</CardDescription>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 shrink-0">
-            {isLoading ? (
-              <Skeleton className="h-6 w-24" />
-            ) : isConnected ? (
-              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-1 rounded-full border border-emerald-200 dark:border-emerald-800">
-                <CheckCircle2 className="w-3 h-3" /> Clave personal activa
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground bg-muted px-2.5 py-1 rounded-full border">
-                <XCircle className="w-3 h-3" /> Clave compartida
-              </span>
-            )}
-          </div>
-        </div>
-      </CardHeader>
-
-      <CardContent className="space-y-4">
-        <div className="space-y-2">
-          <Label className="text-sm">API Key personal</Label>
-
-          {isLoading ? (
-            <Skeleton className="h-10 w-full" />
-          ) : !isConnected || editing ? (
-            <div className="space-y-3">
-              <div className="relative">
-                <Input
-                  type={showKey ? "text" : "password"}
-                  value={apiKeyInput}
-                  onChange={e => setApiKeyInput(e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && handleSave()}
-                  placeholder="sk-..."
-                  className="pr-10 font-mono text-sm"
-                  disabled={updateSettings.isPending}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowKey(v => !v)}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                  tabIndex={-1}
-                >
-                  {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-
-              <div className="flex gap-2">
-                <Button
-                  onClick={handleSave}
-                  disabled={!apiKeyInput.trim() || updateSettings.isPending}
-                  size="sm"
-                  className="gap-2"
-                >
-                  {updateSettings.isPending ? (
-                    <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Guardando...</>
-                  ) : (
-                    <><Link2 className="w-3.5 h-3.5" /> {isConnected ? "Actualizar clave" : "Guardar clave"}</>
-                  )}
-                </Button>
-                {editing && (
-                  <Button variant="ghost" size="sm" onClick={() => { setEditing(false); setApiKeyInput("") }}>
-                    Cancelar
-                  </Button>
-                )}
-              </div>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2">
-              <div className="flex-1 font-mono text-sm bg-muted/50 border rounded-md px-3 py-2 text-muted-foreground select-none">
-                ●●●●●●●●●●●●●●●●●●●●●●●●●●●
-              </div>
-              <div className="flex gap-1.5 shrink-0">
-                <Button variant="outline" size="sm" onClick={startEdit} className="gap-1.5 text-xs">
-                  <Link2 className="w-3 h-3" /> Cambiar
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleRemove}
-                  disabled={updateSettings.isPending}
-                  className="gap-1.5 text-xs text-destructive hover:text-destructive"
-                >
-                  {updateSettings.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Link2Off className="w-3 h-3" />}
-                  Eliminar
-                </Button>
-              </div>
-            </div>
-          )}
-
-          <p className="text-xs text-muted-foreground pt-1">
-            ¿No tenés clave? Creá una en{" "}
-            <a
-              href="https://openai.com/es-419/api/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline underline-offset-2 text-primary"
-            >
-              openai.com/api
-            </a>
-            {" "}→ Get started → API Keys.
-          </p>
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
 // ── Main settings page ────────────────────────────────────────────────────────
 
 export default function Settings() {
@@ -535,7 +371,7 @@ export default function Settings() {
   if (isLoading || !formData) {
     return (
       <div className="space-y-6 max-w-3xl">
-        <h1 className="text-4xl font-display font-bold">Configuración</h1>
+        <h1 className="text-2xl sm:text-4xl font-display font-bold">Configuración</h1>
         <Card>
           <CardHeader><Skeleton className="h-8 w-1/3" /></CardHeader>
           <CardContent className="space-y-4">
@@ -553,17 +389,8 @@ export default function Settings() {
 
       {/* ── Header ── */}
       <div>
-        <h1 className="text-4xl font-display font-bold tracking-tight">Configuración</h1>
-        <p className="text-muted-foreground mt-1 text-lg">Personalizá tu marca e integraciones.</p>
-      </div>
-
-      {/* ── Integraciones ── */}
-      <div className="space-y-4">
-        <div>
-          <h2 className="text-xl font-display font-semibold">Integraciones</h2>
-          <p className="text-sm text-muted-foreground mt-0.5">Conecta tus herramientas externas para activar el pipeline de producción.</p>
-        </div>
-        <OpenAIIntegrationCard />
+        <h1 className="text-2xl sm:text-4xl font-display font-bold tracking-tight">Configuración</h1>
+        <p className="text-muted-foreground mt-1 text-sm sm:text-lg">Personalizá tu marca e integraciones.</p>
       </div>
 
       {/* ── Identidad Visual de Marca ── */}

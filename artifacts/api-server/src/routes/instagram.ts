@@ -184,6 +184,34 @@ router.delete("/instagram/disconnect", async (req, res): Promise<void> => {
 });
 
 /**
+ * POST /instagram/refresh-profile-picture
+ * Re-fetches the profile picture URL from the Instagram Graph API and updates
+ * the DB.  Instagram CDN URLs expire after a few hours, so this is called
+ * automatically when the frontend detects a broken image.
+ */
+router.post("/instagram/refresh-profile-picture", async (req, res): Promise<void> => {
+  const userId = req.session.user!.userId;
+  const [account] = await db.select().from(instagramAccountsTable)
+    .where(eq(instagramAccountsTable.userId, userId)).limit(1);
+  if (!account) {
+    res.status(404).json({ error: "No Instagram account connected" });
+    return;
+  }
+  try {
+    const fresh = await getAccountInfo(account.accessToken);
+    const freshUrl = fresh.profile_picture_url ?? null;
+    await db.update(instagramAccountsTable)
+      .set({ profilePictureUrl: freshUrl, updatedAt: new Date() })
+      .where(eq(instagramAccountsTable.userId, userId));
+    logger.info({ userId, hasUrl: !!freshUrl }, "[IG] Profile picture URL refreshed");
+    res.json({ profile_picture_url: freshUrl });
+  } catch (err: any) {
+    logger.warn({ err }, "[IG] Failed to refresh profile picture URL");
+    res.status(500).json({ error: "Failed to refresh profile picture" });
+  }
+});
+
+/**
  * POST /instagram/refresh-token
  * Manually trigger a token refresh for the connected account.
  * Called by the frontend when the token is close to expiry or when auto-refresh fails.

@@ -109,7 +109,7 @@ export async function synthesizeMarketStudy(opts: {
   openaiApiKey?: string | null;
 }): Promise<MarketInsights> {
   const { niche, nicheDescription, topicKeywords, tone, language, accountData, radarAccounts } = opts;
-  const client = makeOpenAIClient(opts.openaiApiKey);
+  const client = makeOpenAIClient();
 
   const topCaptionsBlock = accountData.top_captions.slice(0, 5).map((c, i) => `  ${i + 1}. "${c.substring(0, 120)}"`).join("\n");
 
@@ -214,7 +214,7 @@ export async function generateContentStrategy(opts: {
   openaiApiKey?: string | null;
 }): Promise<ContentStrategy> {
   const { niche, nicheDescription, topicKeywords, tone, language, accountData, marketInsights } = opts;
-  const client = makeOpenAIClient(opts.openaiApiKey);
+  const client = makeOpenAIClient();
 
   const prompt = `${getLanguageInstruction(language)}
 

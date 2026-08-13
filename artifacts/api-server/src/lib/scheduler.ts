@@ -113,7 +113,6 @@ async function fillEmptyScheduledSlots(
     existingTopics,
     auditInsights ?? undefined,
     strategyContext ?? undefined,
-    settings.openaiApiKey,
   );
 
   if (rawTopics.length === 0) return 0;
@@ -505,7 +504,6 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
       settings.videoDurationSeconds,
       {
         auditInsights: auditInsights ?? undefined,
-        openaiApiKey: settings.openaiApiKey,
         nicheDescription: settings.nicheDescription,
         topicKeywords: (settings.topicKeywords as string[] | null) ?? undefined,
         offer: settings.offer,
@@ -727,22 +725,30 @@ export async function runCaptionProcessing(
     .from(videosTable)
     .where(eq(videosTable.id, videoId))
     .limit(1);
-  const videoEffects = (videoRow?.videoEffects as { zoom?: boolean; ai_broll?: boolean; text_cards?: boolean } | null) ?? null;
   // If caller didn't supply a subtitle URL (e.g. recovery / reapply path), fall back to the
   // one saved in the DB at original completion time so captions keep real word timings.
   const resolvedSubtitleUrl = subtitleUrl ?? videoRow?.heygenSubtitleUrl ?? null;
 
-  // Log what effects will be applied so issues are diagnosable
-  logger.info(
-    { videoId, videoEffects, contentPlanId },
-    "[CaptionEngine] Starting caption processing — effects snapshot"
-  );
-
   const userId = videoRow?.userId;
   const [captionSettings] = userId
-    ? await db.select({ openaiApiKey: settingsTable.openaiApiKey })
+    ? await db.select({ videoEffects: settingsTable.videoEffects })
         .from(settingsTable).where(eq(settingsTable.userId, userId)).limit(1)
     : [];
+
+  // Merge live account effects on top of the frozen video snapshot so users
+  // don't need to re-create videos after toggling effects in Settings.
+  // Live account settings win — per-item overrides were already baked into the
+  // frozen snapshot at creation time and will be overridden here (acceptable trade-off).
+  const frozenEffects = (videoRow?.videoEffects as { zoom?: boolean; ai_broll?: boolean; text_cards?: boolean } | null) ?? {};
+  const liveEffects   = (captionSettings?.videoEffects as { zoom?: boolean; ai_broll?: boolean; text_cards?: boolean } | null) ?? {};
+  // Live account settings win so toggling an effect in Studio de Efectos takes
+  // effect immediately without re-creating the video.
+  const videoEffects  = { ...frozenEffects, ...liveEffects };
+
+  logger.info(
+    { videoId, frozenEffects, liveEffects, videoEffects, contentPlanId },
+    "[CaptionEngine] Starting caption processing — merged effects"
+  );
   const [captionCfg] = userId
     ? await db.select().from(captionConfigTable).where(eq(captionConfigTable.userId, userId)).limit(1)
     : await db.select().from(captionConfigTable).limit(1);
@@ -833,8 +839,6 @@ export async function runCaptionProcessing(
       visualSuggestions,
       // Pass saved card template so the engine can skip AI generation when a fixed template is configured
       cardTemplate: captionCfg.cardTemplate ?? undefined,
-      // Pass user's OpenAI key so B-roll and other AI effects can generate images
-      openaiApiKey: captionSettings?.openaiApiKey,
     });
 
     if (browserResult.url) {
@@ -906,7 +910,6 @@ export async function runCaptionProcessing(
       videoDurationSeconds: durationSeconds ?? undefined,
       videoEffects: videoEffects ?? undefined,
       visualSuggestions,
-      openaiApiKey: captionSettings?.openaiApiKey,
       cardTemplate: captionCfg.cardTemplate ?? undefined,
     });
 
@@ -976,7 +979,6 @@ async function runCopyGeneration(contentItemId: number): Promise<void> {
       tone,
       language,
       undefined,              // topCaptions — not available in automation context
-      settings?.openaiApiKey,
     );
 
     await db
@@ -1543,7 +1545,7 @@ async function _publishVideoToInstagramInner(videoId: number, videoUrl?: string)
           settings?.tone ?? "casual",
           settings?.language ?? "es",
           settings?.videoDurationSeconds ?? 60,
-          { openaiApiKey: settings?.openaiApiKey },
+          {},
         );
         await db
           .update(contentPlanItemsTable)

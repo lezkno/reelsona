@@ -179,14 +179,6 @@ export function Sidebar({ onClose }: SidebarProps) {
           )
         })()}
 
-        {/* System status */}
-        <div className="flex items-center gap-3 bg-sidebar-accent/30 p-3 rounded-lg">
-          <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-          <div className="text-xs font-medium text-sidebar-foreground/80">
-            Sistema en línea
-          </div>
-        </div>
-
         {/* Legal links */}
         <div className="flex items-center justify-center gap-3 pt-1">
           <Link href="/privacy" onClick={onClose} className="text-[10px] text-sidebar-foreground/40 hover:text-sidebar-foreground/70 transition-colors">

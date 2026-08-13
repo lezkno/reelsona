@@ -28,7 +28,7 @@ import { useToast } from "@/hooks/use-toast"
 import { useState, useEffect, useRef, useMemo, useCallback } from "react"
 import {
   Users, Save, CheckCircle2, Image as ImageIcon, Play, Square,
-  Plus, Camera, Mic, RefreshCw, Upload, Loader2, AlertCircle, ChevronDown, Sparkles, Video,
+  Plus, Camera, CameraOff, Mic, RefreshCw, Upload, Loader2, AlertCircle, ChevronDown, Sparkles, Video,
   Trash2, Lock, ZoomIn, X, Volume2, Search, Pencil,
 } from "lucide-react"
 
@@ -71,11 +71,13 @@ function LookVoiceInline({
   voiceOverride,
   voiceOptions,
   onChangeVoice,
+  isPublic = false,
 }: {
   lookId: string
   voiceOverride: string | undefined
   voiceOptions: VoiceOption[]
   onChangeVoice: (lookId: string, voiceId: string) => void
+  isPublic?: boolean
 }) {
   const [isPlaying, setIsPlaying] = useState(false)
   const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -93,38 +95,48 @@ function LookVoiceInline({
     audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false))
   }
 
+  const noVoiceWarning = isPublic && selectValue === LOOK_DEFAULT_VOICE_SENTINEL
+
   return (
-    <div className="flex items-center gap-1 mt-1.5 px-0.5" onClick={(e) => e.stopPropagation()}>
-      <Select
-        value={selectValue}
-        onValueChange={(v) => {
-          if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; setIsPlaying(false) }
-          onChangeVoice(lookId, v)
-        }}
-      >
-        <SelectTrigger className="h-7 text-[11px] flex-1 bg-background/80 border-border/60">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent className="max-h-56">
-          <SelectItem value={LOOK_DEFAULT_VOICE_SENTINEL}>
-            <span className="text-[11px] font-medium text-primary">Predeterminada</span>
-          </SelectItem>
-          {voiceOptions.map((v) => (
-            <SelectItem key={v.voice_id} value={v.voice_id}>
-              <span className="text-[11px]">
-                {v.name}
-                {v.is_cloned ? " · clonada" : ""}
-                {v.gender === "male" ? " · masc." : v.gender === "female" ? " · fem." : ""}
-              </span>
+    <div className="flex flex-col gap-0.5 mt-1.5 px-0.5" onClick={(e) => e.stopPropagation()}>
+      <div className="flex items-center gap-1">
+        <Select
+          value={selectValue}
+          onValueChange={(v) => {
+            if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; setIsPlaying(false) }
+            onChangeVoice(lookId, v)
+          }}
+        >
+          <SelectTrigger className={`h-7 text-[11px] flex-1 bg-background/80 ${noVoiceWarning ? "border-amber-400/70" : "border-border/60"}`}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="max-h-56">
+            <SelectItem value={LOOK_DEFAULT_VOICE_SENTINEL}>
+              <span className="text-[11px] font-medium text-primary">Predeterminada</span>
             </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      <Button type="button" variant="ghost" size="icon" className="h-7 w-7 shrink-0"
-        disabled={!selectedVoice?.preview_audio_url} onClick={togglePreview}
-        title={selectedVoice?.preview_audio_url ? "Escuchar muestra" : "Sin muestra"}>
-        {isPlaying ? <Square className="w-3 h-3" /> : <Play className="w-3 h-3" />}
-      </Button>
+            {voiceOptions.map((v) => (
+              <SelectItem key={v.voice_id} value={v.voice_id}>
+                <span className="text-[11px]">
+                  {v.name}
+                  {v.is_cloned ? " · clonada" : ""}
+                  {v.gender === "male" ? " · masc." : v.gender === "female" ? " · fem." : ""}
+                </span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button type="button" variant="ghost" size="icon" className="h-7 w-7 shrink-0"
+          disabled={!selectedVoice?.preview_audio_url} onClick={togglePreview}
+          title={selectedVoice?.preview_audio_url ? "Escuchar muestra" : "Sin muestra"}>
+          {isPlaying ? <Square className="w-3 h-3" /> : <Play className="w-3 h-3" />}
+        </Button>
+      </div>
+      {noVoiceWarning && (
+        <p className="text-[10px] text-amber-600 dark:text-amber-400 flex items-center gap-1 leading-tight">
+          <AlertCircle className="w-3 h-3 shrink-0" />
+          Los avatares públicos necesitan voz asignada
+        </p>
+      )}
     </div>
   )
 }
@@ -194,8 +206,8 @@ function NewLookDialog({
   }
 
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-lg">
+    <Dialog open onOpenChange={(open) => { if (!open && step !== "creating") onClose() }}>
+      <DialogContent className={`sm:max-w-lg ${step === "creating" ? "[&>button]:hidden" : ""}`}>
 
         {step === "configure" && (
           <>
@@ -664,6 +676,7 @@ function LooksDialogV3({
                             voiceOverride={voiceOverrides[look.id]}
                             voiceOptions={voiceOptions}
                             onChangeVoice={onChangeVoice}
+                            isPublic={!isOwned}
                           />
                         )}
                       </div>
@@ -779,7 +792,156 @@ function LooksDialogV3({
   )
 }
 
+// ── Audio quality analysis ────────────────────────────────────────────────────
+
+type AudioIssue = { level: "error" | "warning"; message: string }
+type AudioQualityResult = {
+  duration: number
+  rmsDb: number
+  clippingRatio: number
+  silenceRatio: number
+  issues: AudioIssue[]
+  hasBlocker: boolean
+}
+
+async function analyzeAudioBlob(blob: Blob): Promise<AudioQualityResult> {
+  const ctx = new AudioContext()
+  try {
+    const decoded = await ctx.decodeAudioData(await blob.arrayBuffer())
+    const ch = decoded.getChannelData(0)
+    const n = ch.length
+    const duration = decoded.duration
+    let sumSq = 0, clipped = 0, silent = 0
+    for (let i = 0; i < n; i++) {
+      const s = Math.abs(ch[i])
+      sumSq += s * s
+      if (s > 0.98) clipped++
+      if (s < 0.005) silent++
+    }
+    const rms = Math.sqrt(sumSq / n)
+    const rmsDb = rms > 0 ? 20 * Math.log10(rms) : -100
+    const clippingRatio = clipped / n
+    const silenceRatio = silent / n
+    const issues: AudioIssue[] = []
+    if (duration < 30)
+      issues.push({ level: "error", message: "Duración insuficiente — mínimo 30 segundos" })
+    if (rmsDb < -42)
+      issues.push({ level: "error", message: "Señal demasiado débil o silencio total — revisá el micrófono" })
+    else if (rmsDb < -32)
+      issues.push({ level: "warning", message: "Nivel de audio bajo — grabá más cerca del micrófono" })
+    if (silenceRatio > 0.80)
+      issues.push({ level: "error", message: "Más del 80 % es silencio — ¿olvidaste hablar?" })
+    else if (silenceRatio > 0.55)
+      issues.push({ level: "warning", message: "Muchas pausas — intentá hablar con más continuidad" })
+    if (clippingRatio > 0.002)
+      issues.push({ level: "warning", message: "Distorsión detectada — bajá el volumen del micrófono" })
+    return { duration, rmsDb, clippingRatio, silenceRatio, issues, hasBlocker: issues.some(i => i.level === "error") }
+  } finally {
+    ctx.close()
+  }
+}
+
+function AudioQualityPanel({ result, analyzing }: { result: AudioQualityResult | null; analyzing: boolean }) {
+  if (analyzing) {
+    return (
+      <div className="flex items-center gap-2 rounded-lg border bg-muted/30 px-3 py-2.5 text-sm text-muted-foreground">
+        <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+        Analizando calidad del audio…
+      </div>
+    )
+  }
+  if (!result) return null
+
+  const fmtDur = (s: number) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(Math.round(s % 60)).padStart(2, "0")}`
+  const levelLabel = result.rmsDb > -20 ? "Bueno" : result.rmsDb > -32 ? "Moderado" : result.rmsDb > -42 ? "Bajo" : "Muy bajo"
+  const silencePct = Math.round(result.silenceRatio * 100)
+
+  const rows: { label: string; value: string; state: "ok" | "warn" | "error" }[] = [
+    {
+      label: "Duración",
+      value: fmtDur(result.duration),
+      state: result.duration >= 60 ? "ok" : result.duration >= 30 ? "warn" : "error",
+    },
+    {
+      label: "Nivel de audio",
+      value: levelLabel,
+      state: result.rmsDb > -32 ? "ok" : result.rmsDb > -42 ? "warn" : "error",
+    },
+    {
+      label: "Silencios / pausas",
+      value: `${silencePct} %`,
+      state: result.silenceRatio < 0.30 ? "ok" : result.silenceRatio < 0.55 ? "warn" : "error",
+    },
+    {
+      label: "Distorsión",
+      value: result.clippingRatio > 0.002 ? `${(result.clippingRatio * 100).toFixed(2)} %` : "Sin detectar",
+      state: result.clippingRatio <= 0.002 ? "ok" : "warn",
+    },
+  ]
+
+  const borderClass = result.hasBlocker
+    ? "border-destructive/40 bg-destructive/5"
+    : result.issues.length > 0
+      ? "border-amber-400/40 bg-amber-500/5"
+      : "border-emerald-400/40 bg-emerald-500/5"
+
+  return (
+    <div className={`rounded-lg border px-3 py-2.5 space-y-2.5 ${borderClass}`}>
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Análisis de calidad</p>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+        {rows.map(r => (
+          <div key={r.label} className="flex items-start gap-1.5">
+            {r.state === "ok"
+              ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
+              : r.state === "warn"
+                ? <AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
+                : <X className="w-3.5 h-3.5 text-red-500 shrink-0 mt-0.5" />}
+            <div>
+              <p className="text-[10px] text-muted-foreground leading-none">{r.label}</p>
+              <p className="text-xs font-medium leading-tight">{r.value}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+      {result.issues.length > 0 && (
+        <div className="space-y-1 pt-1 border-t border-border/40">
+          {result.issues.map((issue, i) => (
+            <p key={i} className={`text-[11px] flex items-start gap-1.5 leading-snug
+              ${issue.level === "error" ? "text-destructive" : "text-amber-600 dark:text-amber-400"}`}>
+              {issue.level === "error"
+                ? <X className="w-3 h-3 shrink-0 mt-0.5" />
+                : <AlertCircle className="w-3 h-3 shrink-0 mt-0.5" />}
+              {issue.message}
+            </p>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── CloneVoiceDialog ──────────────────────────────────────────────────────────
+
+const HEYGEN_VOICE_REQUIREMENTS = [
+  "Mínimo 30 s de audio (recomendado: 1–3 minutos)",
+  "Solo tu voz — sin música ni sonidos de fondo",
+  "Sin eco ni reverberación (graba en un cuarto cerrado)",
+  "Volumen constante: no grites ni susurres",
+  "Pronunciación clara y ritmo natural",
+]
+
+// ~110 s de lectura a ritmo normal (~130 palabras/min)
+const TELEPROMPTER_TEXT = `La voz humana es una de las herramientas más poderosas que existen. Con ella transmitimos emociones, ideas y conocimientos que trascienden el espacio y el tiempo. Cada persona tiene una voz única, como una huella sonora que nos distingue del resto del mundo.
+
+Cuando hablamos con claridad y confianza, las palabras tienen mucho más impacto. La comunicación efectiva no depende solo de lo que decimos, sino también de cómo lo decimos. El tono, el ritmo y la entonación son elementos fundamentales que dan vida y autenticidad a nuestras palabras.
+
+En el mundo digital de hoy, la inteligencia artificial puede aprender los patrones únicos de nuestra voz. Esta tecnología nos permite crear experiencias más personales y auténticas en la comunicación digital, conectando lo humano con lo tecnológico de una manera completamente nueva.
+
+Para lograr un buen resultado en la clonación de voz, es importante hablar de manera natural y constante, sin pausas largas ni cambios bruscos de volumen. Mantener un ritmo fluido y una pronunciación clara ayuda a capturar mejor los matices y la esencia única de tu voz.
+
+La síntesis de voz avanza rápidamente y cada día se vuelve más sofisticada. Lo que antes parecía ciencia ficción hoy es una realidad accesible para todos. Gracias a estos avances, podemos dar vida a avatares digitales que hablan con nuestra propia voz, creando conexiones auténticas en el espacio digital.`
+
+const PROMPTER_SCROLL_SECS = 110
 
 function CloneVoiceDialog({ onClose, onCloned }: { onClose: () => void; onCloned: () => void }) {
   const { toast } = useToast()
@@ -787,9 +949,98 @@ function CloneVoiceDialog({ onClose, onCloned }: { onClose: () => void; onCloned
   const [displayName, setDisplayName] = useState("")
   const [file, setFile] = useState<File | null>(null)
   const [dragOver, setDragOver] = useState(false)
+  const [mode, setMode] = useState<"upload" | "record">("upload")
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const handleFile = (f: File) => {
+  // ── Quality analysis ──
+  const [analyzing, setAnalyzing] = useState(false)
+  const [audioQuality, setAudioQuality] = useState<AudioQualityResult | null>(null)
+
+  const runAnalysis = useCallback(async (blob: Blob) => {
+    setAnalyzing(true)
+    setAudioQuality(null)
+    try {
+      const result = await analyzeAudioBlob(blob)
+      setAudioQuality(result)
+    } catch {
+      // analysis failure is non-blocking — user can still try to submit
+    } finally {
+      setAnalyzing(false)
+    }
+  }, [])
+
+  // ── Recording state ──
+  const [recState, setRecState] = useState<"idle" | "recording" | "preview">("idle")
+  const [recSeconds, setRecSeconds] = useState(0)
+  const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null)
+  const [audioUrl, setAudioUrl] = useState<string | null>(null)
+  const mediaRecRef = useRef<MediaRecorder | null>(null)
+  const chunksRef = useRef<BlobPart[]>([])
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const rafRef = useRef<number | null>(null)
+  const recStartRef = useRef<number>(0)
+  const prompterRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current)
+      if (rafRef.current) cancelAnimationFrame(rafRef.current)
+      if (audioUrl) URL.revokeObjectURL(audioUrl)
+      if (mediaRecRef.current?.state === "recording") mediaRecRef.current.stop()
+    }
+  }, [audioUrl])
+
+  const tickScroll = useCallback(() => {
+    if (!prompterRef.current) return
+    const pct = Math.min((Date.now() - recStartRef.current) / 1000 / PROMPTER_SCROLL_SECS, 1)
+    const el = prompterRef.current
+    el.scrollTop = pct * (el.scrollHeight - el.clientHeight)
+    rafRef.current = requestAnimationFrame(tickScroll)
+  }, [])
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const mr = new MediaRecorder(stream)
+      chunksRef.current = []
+      mr.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data) }
+      mr.onstop = () => {
+        stream.getTracks().forEach(t => t.stop())
+        const blob = new Blob(chunksRef.current, { type: mr.mimeType || "audio/webm" })
+        setRecordedBlob(blob)
+        const url = URL.createObjectURL(blob)
+        setAudioUrl(url)
+        setRecState("preview")
+        runAnalysis(blob)
+      }
+      mr.start()
+      mediaRecRef.current = mr
+      recStartRef.current = Date.now()
+      setRecState("recording")
+      setRecSeconds(0)
+      timerRef.current = setInterval(() => setRecSeconds(Math.round((Date.now() - recStartRef.current) / 1000)), 500)
+      rafRef.current = requestAnimationFrame(tickScroll)
+    } catch {
+      toast({ title: "Sin acceso al micrófono", description: "Habilita el micrófono en tu navegador e intenta de nuevo.", variant: "destructive" })
+    }
+  }
+
+  const stopRecording = () => {
+    mediaRecRef.current?.stop()
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
+    if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
+  }
+
+  const resetRecording = () => {
+    if (audioUrl) { URL.revokeObjectURL(audioUrl); setAudioUrl(null) }
+    setRecordedBlob(null)
+    setRecSeconds(0)
+    setRecState("idle")
+    setAudioQuality(null)
+    setTimeout(() => { if (prompterRef.current) prompterRef.current.scrollTop = 0 }, 50)
+  }
+
+  const handleFile = async (f: File) => {
     if (!f.type.startsWith("audio/")) {
       toast({ title: "Formato no válido", description: "Solo se aceptan archivos de audio (MP3, WAV, M4A…)", variant: "destructive" })
       return
@@ -799,6 +1050,7 @@ function CloneVoiceDialog({ onClose, onCloned }: { onClose: () => void; onCloned
       return
     }
     setFile(f)
+    runAnalysis(f)
   }
 
   const handleDrop = (e: React.DragEvent) => {
@@ -807,9 +1059,10 @@ function CloneVoiceDialog({ onClose, onCloned }: { onClose: () => void; onCloned
   }
 
   const handleClone = async () => {
-    if (!file || !displayName.trim()) return
+    const src = mode === "record" ? recordedBlob : file
+    if (!src || !displayName.trim()) return
     const formData = new FormData()
-    formData.append("audio", file)
+    formData.append("audio", src, mode === "record" ? "recording.webm" : (file as File).name)
     formData.append("name", displayName.trim())
     try {
       await cloneVoice.mutateAsync(formData)
@@ -820,53 +1073,170 @@ function CloneVoiceDialog({ onClose, onCloned }: { onClose: () => void; onCloned
     }
   }
 
+  const fmt = (s: number) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`
+  const timerColor = recSeconds < 30 ? "text-red-500" : recSeconds < 60 ? "text-amber-500" : "text-emerald-500"
+  const timerHint = recSeconds < 30 ? "Muy corto · sigue leyendo" : recSeconds < 60 ? "Aceptable · recomendado: 1 min" : "¡Duración ideal!"
+  const qualityBlocks = !!audioQuality?.hasBlocker
+  const canSubmit = !!displayName.trim() && !analyzing && !qualityBlocks &&
+    (mode === "upload" ? !!file : recState === "preview")
+
+  const RequirementsList = () => (
+    <div className="rounded-lg border bg-muted/30 px-3 py-2.5">
+      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Requisitos de HeyGen</p>
+      <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+        {HEYGEN_VOICE_REQUIREMENTS.map((req, i) => (
+          <div key={i} className="flex items-start gap-1.5">
+            <CheckCircle2 className="w-3 h-3 text-emerald-500 mt-0.5 shrink-0" />
+            <p className="text-[10px] text-muted-foreground leading-snug">{req}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2"><Mic className="w-5 h-5 text-primary" /> Clonar mi voz</DialogTitle>
-          <DialogDescription>Sube una grabación de tu voz para crear un clon personalizado.</DialogDescription>
+      <DialogContent className="max-w-lg flex flex-col max-h-[min(90vh,680px)] p-0 gap-0">
+        <DialogHeader className="shrink-0 px-6 pt-5 pb-3 border-b border-border/50">
+          <DialogTitle className="flex items-center gap-2">
+            <Mic className="w-5 h-5 text-primary" /> Clonar mi voz
+          </DialogTitle>
+          <DialogDescription>
+            Sube un archivo de audio o grábate en vivo para crear un clon de voz personalizado.
+          </DialogDescription>
         </DialogHeader>
-        <div className="space-y-4 py-2">
+
+        <div className="flex-1 overflow-y-auto min-h-0 px-6 py-4 space-y-4">
+          {/* Name */}
           <div className="space-y-1.5">
             <Label htmlFor="voice-name">Nombre de la voz</Label>
             <Input id="voice-name" value={displayName} onChange={e => setDisplayName(e.target.value)}
               placeholder="Ej: Mi voz principal" disabled={cloneVoice.isPending} />
           </div>
-          <div className="space-y-1.5">
-            <Label>Audio de referencia</Label>
-            <div
-              onDragOver={e => { e.preventDefault(); setDragOver(true) }}
-              onDragLeave={() => setDragOver(false)}
-              onDrop={handleDrop}
-              onClick={() => fileInputRef.current?.click()}
-              className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors
-                ${dragOver ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"}`}
-            >
-              {file ? (
-                <div className="space-y-1">
-                  <Volume2 className="w-8 h-8 mx-auto text-primary" />
-                  <p className="text-sm font-medium">{file.name}</p>
-                  <p className="text-xs text-muted-foreground">{(file.size / 1024 / 1024).toFixed(1)} MB</p>
-                </div>
-              ) : (
-                <div className="space-y-1">
-                  <Upload className="w-8 h-8 mx-auto text-muted-foreground" />
-                  <p className="text-sm font-medium">Arrastra tu audio aquí</p>
-                  <p className="text-xs text-muted-foreground">MP3, WAV, M4A · máx 25 MB</p>
+
+          {/* Mode tabs */}
+          <Tabs value={mode} onValueChange={v => {
+            setMode(v as "upload" | "record")
+            resetRecording()
+            setFile(null)
+            setAudioQuality(null)
+          }}>
+            <TabsList className="w-full grid grid-cols-2">
+              <TabsTrigger value="upload" className="gap-1.5">
+                <Upload className="w-3.5 h-3.5" /> Subir archivo
+              </TabsTrigger>
+              <TabsTrigger value="record" className="gap-1.5">
+                <Mic className="w-3.5 h-3.5" /> Grabar ahora
+              </TabsTrigger>
+            </TabsList>
+
+            {/* ── Upload ── */}
+            <TabsContent value="upload" className="mt-3 space-y-3">
+              <RequirementsList />
+              <div
+                onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={handleDrop}
+                onClick={() => !analyzing && fileInputRef.current?.click()}
+                className={`border-2 border-dashed rounded-xl p-7 text-center transition-colors
+                  ${analyzing ? "opacity-60 cursor-wait" : "cursor-pointer"}
+                  ${dragOver ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"}`}
+              >
+                {file ? (
+                  <div className="space-y-1">
+                    <Volume2 className="w-8 h-8 mx-auto text-primary" />
+                    <p className="text-sm font-medium">{file.name}</p>
+                    <p className="text-xs text-muted-foreground">{(file.size / 1024 / 1024).toFixed(1)} MB · haz clic para cambiar</p>
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    <Upload className="w-8 h-8 mx-auto text-muted-foreground" />
+                    <p className="text-sm font-medium">Arrastra tu audio aquí</p>
+                    <p className="text-xs text-muted-foreground">MP3, WAV, M4A · máx 25 MB</p>
+                  </div>
+                )}
+                <input ref={fileInputRef} type="file" accept="audio/*" className="hidden"
+                  onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f) }} />
+              </div>
+              {/* Quality panel — shows while analyzing or after */}
+              {(analyzing || audioQuality) && (
+                <AudioQualityPanel result={audioQuality} analyzing={analyzing} />
+              )}
+            </TabsContent>
+
+            {/* ── Record ── */}
+            <TabsContent value="record" className="mt-3 space-y-3">
+              <RequirementsList />
+
+              {/* Teleprompter */}
+              {recState !== "preview" && (
+                <div className="space-y-1.5">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    {recState === "idle"
+                      ? "Lee este texto cuando empieces a grabar:"
+                      : "Lee en voz alta — el texto avanza solo:"}
+                  </p>
+                  <div
+                    ref={prompterRef}
+                    className={`h-28 overflow-hidden rounded-lg border p-3 text-sm leading-relaxed transition-colors
+                      ${recState === "recording" ? "border-red-400/50 bg-red-500/5" : "border-border bg-background"}`}
+                    style={{ scrollBehavior: "auto" }}
+                  >
+                    <p className="whitespace-pre-line text-foreground/80">{TELEPROMPTER_TEXT}</p>
+                    <div className="sticky bottom-0 h-6 bg-gradient-to-t from-background to-transparent pointer-events-none -mt-6" />
+                  </div>
                 </div>
               )}
-              <input ref={fileInputRef} type="file" accept="audio/*" className="hidden"
-                onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f) }} />
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Recomendado: 30 segundos o más, voz clara, sin ruido de fondo.
-            </p>
-          </div>
+
+              {/* Controls */}
+              {recState === "idle" && (
+                <Button onClick={startRecording} className="w-full gap-2">
+                  <span className="w-2 h-2 rounded-full bg-red-400" />
+                  Iniciar grabación
+                </Button>
+              )}
+
+              {recState === "recording" && (
+                <div className="flex items-center justify-between rounded-lg border border-red-400/30 bg-red-500/5 px-4 py-3">
+                  <div className="flex items-center gap-2.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse shrink-0" />
+                    <span className={`font-mono font-bold text-xl tabular-nums ${timerColor}`}>{fmt(recSeconds)}</span>
+                    <span className={`text-xs ${timerColor} opacity-80`}>{timerHint}</span>
+                  </div>
+                  <Button variant="destructive" size="sm" onClick={stopRecording} className="gap-1.5">
+                    <Square className="w-3 h-3 fill-current" /> Detener
+                  </Button>
+                </div>
+              )}
+
+              {recState === "preview" && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                      Grabación lista · {fmt(recSeconds)}
+                    </span>
+                    <button
+                      onClick={resetRecording}
+                      className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      <RefreshCw className="w-3 h-3" /> Grabar de nuevo
+                    </button>
+                  </div>
+                  {audioUrl && (
+                    <audio controls src={audioUrl} className="w-full h-10 rounded-lg" />
+                  )}
+                  {/* Quality panel — shows while analyzing or after */}
+                  <AudioQualityPanel result={audioQuality} analyzing={analyzing} />
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
         </div>
-        <DialogFooter>
+
+        <DialogFooter className="shrink-0 px-6 pb-5 pt-3 border-t border-border/50">
           <Button variant="outline" onClick={onClose} disabled={cloneVoice.isPending}>Cancelar</Button>
-          <Button onClick={handleClone} disabled={!file || !displayName.trim() || cloneVoice.isPending} className="gap-2">
+          <Button onClick={handleClone} disabled={!canSubmit || cloneVoice.isPending} className="gap-2">
             {cloneVoice.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
             {cloneVoice.isPending ? "Procesando…" : "Clonar voz"}
           </Button>
@@ -1045,6 +1415,15 @@ function AvatarCreationDialog({
   const [dragOver, setDragOver] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // Camera mode
+  const [photoSource, setPhotoSource] = useState<"upload" | "camera">("upload")
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null)
+  const [cameraError, setCameraError] = useState<string | null>(null)
+  const [capturing, setCapturing] = useState(false)
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const cameraStreamRef = useRef<MediaStream | null>(null)
+
   // Prompt mode
   const [promptText, setPromptText] = useState("")
   const [pose, setPose] = useState("half_body")
@@ -1094,6 +1473,68 @@ function AvatarCreationDialog({
     const f = e.dataTransfer.files[0]; if (f) handleFile(f)
   }
 
+  // ── Camera helpers ──────────────────────────────────────────────────────────
+  const stopCamera = useCallback(() => {
+    cameraStreamRef.current?.getTracks().forEach(t => t.stop())
+    cameraStreamRef.current = null
+    setCameraStream(null)
+  }, [])
+
+  const startCamera = useCallback(async () => {
+    setCameraError(null)
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "user" }, width: { ideal: 960 }, height: { ideal: 1280 } },
+      })
+      cameraStreamRef.current = stream
+      setCameraStream(stream)
+    } catch {
+      setCameraError("No se pudo acceder a la cámara. Verifica que la hayas habilitado en el navegador.")
+    }
+  }, [])
+
+  const capturePhoto = useCallback(() => {
+    const video = videoRef.current
+    const canvas = canvasRef.current
+    if (!video || !canvas) return
+    // Crop to 9:16 portrait from the center of the video frame
+    const srcH = video.videoHeight
+    const srcW = Math.round(srcH * 9 / 16)
+    const srcX = Math.round((video.videoWidth - srcW) / 2)
+    const srcY = 0
+    canvas.width = srcW
+    canvas.height = srcH
+    const ctx = canvas.getContext("2d")
+    if (!ctx) return
+    ctx.drawImage(video, srcX, srcY, srcW, srcH, 0, 0, srcW, srcH) // portrait crop, natural orientation
+    setCapturing(true)
+    setTimeout(() => setCapturing(false), 200)
+    canvas.toBlob((blob) => {
+      if (!blob) return
+      handleFile(new File([blob], "foto-camara.jpg", { type: "image/jpeg" }))
+      stopCamera()
+      setPhotoSource("upload")
+    }, "image/jpeg", 0.92)
+  }, [handleFile, stopCamera])
+
+  // Start/stop camera when source or mode changes
+  useEffect(() => {
+    if (mode === "photo" && photoSource === "camera") {
+      void startCamera()
+    } else {
+      stopCamera()
+    }
+    return () => stopCamera()
+  }, [mode, photoSource]) // eslint-disable-line
+
+  // Attach stream to <video> element once both are available
+  useEffect(() => {
+    const el = videoRef.current
+    if (!el || !cameraStream) return
+    el.srcObject = cameraStream
+    el.play().catch(() => {})
+  }, [cameraStream])
+
   const handleCreate = async () => {
     if (!name.trim()) return
     try {
@@ -1133,53 +1574,48 @@ function AvatarCreationDialog({
   const isPending = uploadAsset.isPending || createPhoto.isPending || createPrompt.isPending
 
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-lg">
+    <Dialog open onOpenChange={(open) => { if (!open && step !== "creating") onClose() }}>
+      <DialogContent className={`sm:max-w-lg max-h-[calc(100dvh-2rem)] overflow-hidden p-5 gap-3 ${step === "creating" ? "[&>button]:hidden" : ""}`}>
 
         {/* ── Configure step ── */}
         {step === "configure" && (
           <>
-            <DialogHeader>
-              <DialogTitle>Crear mi avatar</DialogTitle>
-              <DialogDescription>
+            <DialogHeader className="space-y-0.5 pr-8">
+              <DialogTitle className="text-xl">Crear mi avatar</DialogTitle>
+              <DialogDescription className="sr-only">
                 Elige cómo quieres crear tu avatar.
               </DialogDescription>
             </DialogHeader>
 
-            {/* Mode selector */}
-            <div className="grid grid-cols-2 gap-3">
+            {/* Mode selector — compact horizontal pills */}
+            <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
                 onClick={() => setMode("photo")}
-                className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 text-left transition-all
-                  ${mode === "photo" ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`}
+                className={`h-14 flex flex-row items-center justify-start gap-2.5 px-3 py-2 rounded-lg border text-left transition-all
+                  ${mode === "photo" ? "border-primary bg-primary/5 shadow-sm" : "border-border hover:border-primary/40"}`}
               >
-                <Camera className={`w-7 h-7 ${mode === "photo" ? "text-primary" : "text-muted-foreground"}`} />
-                <div>
-                  <p className="text-sm font-semibold">Desde una foto</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">Sube tu propia foto y el sistema la anima</p>
-                </div>
+                <Camera className={`w-4 h-4 shrink-0 ${mode === "photo" ? "text-primary" : "text-muted-foreground"}`} />
+                <p className="text-sm font-semibold leading-tight">Desde una foto</p>
               </button>
               <button
                 type="button"
                 onClick={() => setMode("prompt")}
-                className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 text-left transition-all
-                  ${mode === "prompt" ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`}
+                className={`h-14 flex flex-row items-center justify-start gap-2.5 px-3 py-2 rounded-lg border text-left transition-all
+                  ${mode === "prompt" ? "border-primary bg-primary/5 shadow-sm" : "border-border hover:border-primary/40"}`}
               >
-                <Sparkles className={`w-7 h-7 ${mode === "prompt" ? "text-primary" : "text-muted-foreground"}`} />
-                <div>
-                  <p className="text-sm font-semibold">Desde descripción</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">La IA genera un personaje a partir de texto</p>
-                </div>
+                <Sparkles className={`w-4 h-4 shrink-0 ${mode === "prompt" ? "text-primary" : "text-muted-foreground"}`} />
+                <p className="text-sm font-semibold leading-tight">Desde descripción</p>
               </button>
             </div>
 
-            <div className="space-y-4">
+            <div className="space-y-3">
               {/* Name — always visible */}
-              <div className="space-y-1.5">
+              <div className="space-y-1">
                 <Label htmlFor="avatar-name">Nombre del avatar</Label>
                 <Input
                   id="avatar-name"
+                  className="h-9"
                   placeholder="Ej: Mi Avatar Principal"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
@@ -1189,97 +1625,174 @@ function AvatarCreationDialog({
 
               {/* Photo mode */}
               {mode === "photo" && (
-                <div className="space-y-1.5">
-                  <Label>Foto de retrato</Label>
-                  <div
-                    className={`relative border-2 border-dashed rounded-xl transition-colors cursor-pointer
-                      ${dragOver ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"}
-                      ${file ? "p-3" : "p-8"}`}
-                    onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
-                    onDragLeave={() => setDragOver(false)}
-                    onDrop={handleDrop}
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    {file && preview ? (
-                      <div className="flex items-center gap-3">
-                        <img src={preview} alt="preview" className="w-16 h-20 object-cover rounded-lg border" />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate">{file.name}</p>
-                          <p className="text-xs text-muted-foreground">{(file.size / 1024).toFixed(0)} KB</p>
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); setFile(null); setPreview(null) }}
-                            className="text-xs text-destructive hover:underline mt-0.5"
-                          >
-                            Cambiar imagen
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="text-center">
-                        <Upload className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
-                        <p className="text-sm font-medium">Arrastra o haz clic para subir</p>
-                        <p className="text-xs text-muted-foreground mt-1">PNG o JPG · máx. 32 MB</p>
-                        <p className="text-xs text-muted-foreground">Retrato frontal, buena iluminación, un solo rostro</p>
-                      </div>
-                    )}
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/png,image/jpeg,image/jpg"
-                      className="hidden"
-                      onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f) }}
-                    />
+                <div className="space-y-2">
+                  {/* Label + toggle inline */}
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm font-medium">Foto de retrato</span>
+                    <div className="flex gap-0.5 p-0.5 bg-muted rounded-md">
+                      <button
+                        type="button"
+                        onClick={() => { setPhotoSource("upload"); stopCamera() }}
+                        className={`flex items-center gap-1.5 px-2.5 h-7 rounded text-xs font-medium transition-all
+                          ${photoSource === "upload" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                      >
+                        <Upload className="w-3.5 h-3.5" /> Subir
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setFile(null); setPreview(null); setPhotoSource("camera") }}
+                        className={`flex items-center gap-1.5 px-2.5 h-7 rounded text-xs font-medium transition-all
+                          ${photoSource === "camera" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                      >
+                        <Camera className="w-3.5 h-3.5" /> Cámara
+                      </button>
+                    </div>
                   </div>
+
+                  {/* Upload panel */}
+                  {photoSource === "upload" && (
+                    <div
+                      className={`relative h-[120px] border-2 border-dashed rounded-xl transition-colors cursor-pointer flex items-center justify-center
+                        ${dragOver ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"}
+                        ${file ? "p-3 justify-start" : "p-3"}`}
+                      onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+                      onDragLeave={() => setDragOver(false)}
+                      onDrop={handleDrop}
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      {file && preview ? (
+                        <div className="flex items-center gap-3 w-full">
+                          <img src={preview} alt="preview" className="w-12 h-16 object-cover rounded-lg border shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate">{file.name}</p>
+                            <p className="text-xs text-muted-foreground">{(file.size / 1024).toFixed(0)} KB</p>
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); setFile(null); setPreview(null) }}
+                              className="text-xs text-destructive hover:underline mt-0.5"
+                            >
+                              Cambiar imagen
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-center">
+                          <Upload className="w-6 h-6 mx-auto text-muted-foreground mb-1" />
+                          <p className="text-sm font-medium">Arrastra o haz clic</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">PNG o JPG · frontal · máx. 32 MB</p>
+                        </div>
+                      )}
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/png,image/jpeg,image/jpg"
+                        className="hidden"
+                        onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f) }}
+                      />
+                    </div>
+                  )}
+
+                  {/* Camera panel — viewfinder left, hint right */}
+                  {photoSource === "camera" && (
+                    <div className="flex h-40 items-center gap-3 rounded-xl border bg-muted/30 p-2">
+                      {/* Viewfinder */}
+                      <div className="relative h-36 w-[81px] shrink-0 overflow-hidden rounded-lg bg-black" style={{ aspectRatio: "9/16" }}>
+                        {cameraError ? (
+                          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-2 text-center">
+                            <CameraOff className="w-6 h-6 text-muted-foreground/50" />
+                            <button type="button" className="text-[10px] text-primary underline" onClick={() => void startCamera()}>Reintentar</button>
+                          </div>
+                        ) : (
+                          <>
+                            {!cameraStream && (
+                              <div className="absolute inset-0 flex items-center justify-center">
+                                <Loader2 className="w-6 h-6 animate-spin text-white/40" />
+                              </div>
+                            )}
+                            <video
+                              ref={videoRef}
+                              autoPlay
+                              playsInline
+                              muted
+                              className="w-full h-full object-cover"
+                              style={{ transform: "scaleX(-1)" }}
+                            />
+                            <canvas ref={canvasRef} className="hidden" />
+                            {capturing && <div className="absolute inset-0 bg-white/80 pointer-events-none" />}
+                            {cameraStream && (
+                              <div className="absolute bottom-2 inset-x-0 flex justify-center">
+                                <button
+                                  type="button"
+                                  onClick={capturePhoto}
+                                  className="w-11 h-11 rounded-full bg-white/90 border-4 border-white/50 shadow-xl hover:scale-105 active:scale-95 transition-transform"
+                                  title="Tomar foto"
+                                >
+                                  <div className="w-full h-full rounded-full border-2 border-gray-300" />
+                                </button>
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                      {/* Hint text */}
+                      <div className="flex-1 space-y-1.5">
+                        {cameraError ? (
+                          <p className="text-xs text-destructive leading-relaxed">{cameraError}</p>
+                        ) : (
+                          <>
+                            <p className="text-sm font-medium">Posiciónate frente a la cámara</p>
+                            <p className="text-xs text-muted-foreground leading-relaxed">Retrato frontal, buena iluminación, un solo rostro visible</p>
+                            <p className="text-xs text-muted-foreground">Presiona el botón blanco para capturar</p>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
               {/* Prompt mode */}
               {mode === "prompt" && (
-                <div className="space-y-3">
-                  <div className="space-y-1.5">
+                <div className="space-y-2">
+                  <div className="space-y-1">
                     <Label htmlFor="avatar-prompt">Descripción del avatar</Label>
                     <textarea
                       id="avatar-prompt"
-                      rows={4}
-                      placeholder="Ej: Mujer de unos 35 años, cabello oscuro, expresión profesional y cercana, fondo de oficina moderna, estilo realista"
+                      rows={3}
+                      placeholder="Ej: Mujer de unos 35 años, cabello oscuro, expresión profesional y cercana, fondo de oficina moderna"
                       value={promptText}
                       onChange={(e) => setPromptText(e.target.value)}
                       disabled={isPending}
                       className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
                     />
-                    <p className="text-xs text-muted-foreground">
-                      Describe la apariencia, el estilo y el fondo. Cuanto más detallado, mejor el resultado.
-                    </p>
+                    <p className="text-xs text-muted-foreground">Cuanto más detallado, mejor el resultado.</p>
                   </div>
-                  <div className="space-y-1.5">
+                  <div className="space-y-1">
                     <Label>Encuadre</Label>
                     <Select value={pose} onValueChange={setPose}>
-                      <SelectTrigger>
+                      <SelectTrigger className="h-9">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="half_body">Medio cuerpo (recomendado para video)</SelectItem>
+                        <SelectItem value="half_body">Medio cuerpo (recomendado)</SelectItem>
                         <SelectItem value="close_up">Primer plano</SelectItem>
                         <SelectItem value="full_body">Cuerpo completo</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                   {voiceOptions.length > 0 && (
-                    <div className="space-y-1.5">
+                    <div className="space-y-1">
                       <Label className="flex items-center gap-1.5">
                         <Mic className="w-3.5 h-3.5 text-primary" /> Voz (opcional)
                       </Label>
                       <Select value={promptVoiceId || "__default__"} onValueChange={v => setPromptVoiceId(v === "__default__" ? "" : v)}>
-                        <SelectTrigger className="bg-background">
+                        <SelectTrigger className="h-9 bg-background">
                           <SelectValue placeholder="Voz por defecto del sistema" />
                         </SelectTrigger>
                         <SelectContent className="max-h-60">
                           <SelectItem value="__default__">Voz por defecto del sistema</SelectItem>
                           {voiceOptions.filter(v => v.is_mine).map(v => (
-                            <SelectItem key={v.voice_id} value={v.voice_id}>
-                              🎙 {v.name} · clonada
-                            </SelectItem>
+                            <SelectItem key={v.voice_id} value={v.voice_id}>🎙 {v.name} · clonada</SelectItem>
                           ))}
                           {voiceOptions.filter(v => !v.is_mine).map(v => (
                             <SelectItem key={v.voice_id} value={v.voice_id}>
@@ -1288,16 +1801,15 @@ function AvatarCreationDialog({
                           ))}
                         </SelectContent>
                       </Select>
-                      <p className="text-xs text-muted-foreground">Puedes cambiarla después desde la pestaña Voces.</p>
                     </div>
                   )}
                 </div>
               )}
             </div>
 
-            <DialogFooter className="flex gap-2">
-              <Button variant="outline" onClick={onClose} disabled={isPending}>Cancelar</Button>
-              <Button onClick={handleCreate} disabled={!canSubmit || isPending} className="gap-2">
+            <DialogFooter className="pt-1 sm:space-x-2">
+              <Button variant="outline" className="h-9" onClick={onClose} disabled={isPending}>Cancelar</Button>
+              <Button className="h-9 gap-2" onClick={handleCreate} disabled={!canSubmit || isPending}>
                 {isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                 {isPending ? "Procesando..." : "Crear avatar"}
               </Button>
@@ -1378,10 +1890,12 @@ function AvatarGroupCard({
   group,
   selectedCount,
   onClick,
+  voicelessCount = 0,
 }: {
   group: V3Group
   selectedCount: number
   onClick: () => void
+  voicelessCount?: number
 }) {
   return (
     <Card
@@ -1402,6 +1916,12 @@ function AvatarGroupCard({
             {selectedCount} seleccionado{selectedCount !== 1 ? "s" : ""}
           </Badge>
         )}
+        {voicelessCount > 0 && (
+          <Badge className="absolute top-2 right-2 gap-1 bg-amber-500 text-white shadow text-[10px] px-1.5">
+            <AlertCircle className="w-2.5 h-2.5" />
+            Sin voz
+          </Badge>
+        )}
         {group.status === "processing" && (
           <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center gap-2">
             <Loader2 className="w-6 h-6 text-white animate-spin" />
@@ -1416,6 +1936,11 @@ function AvatarGroupCard({
             {group.looks_count} look{group.looks_count !== 1 ? "s" : ""}
             {selectedCount > 0 && <span className="text-primary font-medium"> · {selectedCount} en rotación</span>}
           </p>
+          {voicelessCount > 0 && (
+            <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5">
+              {voicelessCount} look{voicelessCount !== 1 ? "s" : ""} sin voz asignada
+            </p>
+          )}
         </div>
         <Badge variant="secondary" className="shrink-0 text-xs">Ver looks</Badge>
       </CardContent>
@@ -1761,10 +2286,9 @@ export default function Avatars() {
     return () => clearTimeout(t)
   }, [config]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Debounced auto-save: fires 700 ms after last change, only while dialog open
+  // Debounced auto-save: fires 700 ms after last change
   useEffect(() => {
     if (!autoSaveReadyRef.current) return
-    if (!openGroup) return
     if (selectedIds.size === 0) return
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
     setDialogSaveStatus("idle")
@@ -1800,7 +2324,7 @@ export default function Avatars() {
       )
     }, 700)
     return () => { if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current) }
-  }, [selectedIds, voiceOverrides]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedIds, voiceOverrides, strategy]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Computed ──────────────────────────────────────────────────────────────
   const selectedByGroup = useMemo(() => {
@@ -1813,12 +2337,31 @@ export default function Avatars() {
     return map
   }, [selectedIds, lookGroupMap])
 
+  // Looks sin voz asignada por grupo — solo relevante para avatares públicos
+  const voicelessByGroup = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const [lookId, groupId] of Object.entries(lookGroupMap)) {
+      if (selectedIds.has(lookId)) {
+        const override = voiceOverrides[lookId]
+        if (!override || override === LOOK_DEFAULT_VOICE_SENTINEL) {
+          map.set(groupId, (map.get(groupId) ?? 0) + 1)
+        }
+      }
+    }
+    return map
+  }, [selectedIds, voiceOverrides, lookGroupMap])
+
   const globalVoiceValue = useMemo(() => {
     const ids = Array.from(selectedIds)
     if (ids.length === 0) return LOOK_DEFAULT_VOICE_SENTINEL
     const first = voiceOverrides[ids[0]] ?? LOOK_DEFAULT_VOICE_SENTINEL
     return ids.every((id) => (voiceOverrides[id] ?? LOOK_DEFAULT_VOICE_SENTINEL) === first) ? first : "mixed"
   }, [selectedIds, voiceOverrides])
+
+  const voicelessTotal = useMemo(
+    () => Array.from(voicelessByGroup.values()).reduce((a, b) => a + b, 0),
+    [voicelessByGroup],
+  )
 
   // ── Filter: show only avatar groups that have selected looks ──────────────
   const [showOnlySelected, setShowOnlySelected] = useState(false)
@@ -1857,35 +2400,6 @@ export default function Avatars() {
     })
   }
 
-  const handleSave = () => {
-    if (selectedIds.size === 0) {
-      toast({ title: "Atención", description: "Debés seleccionar al menos un look.", variant: "destructive" })
-      return
-    }
-    const cleanedOverrides: Record<string, string> = {}
-    for (const [lookId, voiceId] of Object.entries(voiceOverrides)) {
-      if (selectedIds.has(lookId) && voiceId && voiceId !== LOOK_DEFAULT_VOICE_SENTINEL) {
-        cleanedOverrides[lookId] = voiceId
-      }
-    }
-    const payload = {
-      selected_avatar_ids: Array.from(selectedIds),
-      rotation_strategy: strategy,
-      preferred_voice_id: null as string | null,
-      voice_overrides: cleanedOverrides,
-    }
-    updateConfig.mutate({ data: payload }, {
-      onSuccess: () => {
-        toast({ title: "Guardado", description: "Configuración de avatares actualizada." })
-        setSelectedIds(new Set(payload.selected_avatar_ids))
-        setVoiceOverrides(payload.voice_overrides)
-        setStrategy(payload.rotation_strategy as AvatarConfigRotationStrategy)
-        queryClient.invalidateQueries({ queryKey: getGetAvatarConfigQueryKey() })
-      },
-      onError: () => toast({ title: "Error", description: "No se pudo guardar.", variant: "destructive" }),
-    })
-  }
-
   if (isLoadingConfig) {
     return <div className="p-8"><Skeleton className="h-96 w-full rounded-xl" /></div>
   }
@@ -1901,10 +2415,14 @@ export default function Avatars() {
             Selecciona los looks que usará Reelsona en tus videos.
           </p>
         </div>
-        <Button onClick={handleSave} disabled={updateConfig.isPending} className="gap-2 px-8 shadow-lg shadow-primary/20">
-          <Save className="w-4 h-4" />
-          Guardar ({selectedIds.size})
-        </Button>
+        <div className="flex items-center gap-1.5 text-sm text-muted-foreground h-9 px-1">
+          {dialogSaveStatus === "saving" && (
+            <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Guardando…</>
+          )}
+          {dialogSaveStatus === "saved" && (
+            <><CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> <span className="text-emerald-600 dark:text-emerald-400">Guardado</span></>
+          )}
+        </div>
       </div>
 
       {/* Rotation config */}
@@ -1915,7 +2433,14 @@ export default function Avatars() {
               <Users className="w-7 h-7" />
             </div>
             <div className="flex-1">
-              <h3 className="text-lg font-bold font-display">Rotación de avatar</h3>
+              <div className="flex items-center gap-2">
+                <h3 className="text-lg font-bold font-display">Rotación de avatar</h3>
+                {selectedIds.size > 0 && (
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary border border-primary/20">
+                    {selectedIds.size} {selectedIds.size === 1 ? "look" : "looks"}
+                  </span>
+                )}
+              </div>
               <p className="text-muted-foreground text-sm mt-0.5">
                 Cómo rotar entre los looks seleccionados en cada video.
               </p>
@@ -1943,6 +2468,17 @@ export default function Avatars() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Voice warning */}
+      {voicelessTotal > 0 && (
+        <div className="flex items-start gap-3 rounded-lg border border-amber-400/40 bg-amber-50 dark:bg-amber-950/30 px-4 py-3 text-amber-800 dark:text-amber-300">
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+          <p className="text-sm leading-snug">
+            <span className="font-semibold">{voicelessTotal} {voicelessTotal === 1 ? "look seleccionado no tiene" : "looks seleccionados no tienen"} voz asignada.</span>
+            {" "}Los videos generados usarán la voz por defecto del sistema. Asigna una voz desde la pestaña de cada avatar.
+          </p>
+        </div>
+      )}
 
       {/* Tabs */}
       <Tabs defaultValue="my">
@@ -2078,6 +2614,7 @@ export default function Avatars() {
                     group={group}
                     selectedCount={selectedByGroup.get(group.id) ?? 0}
                     onClick={() => setOpenGroup({ group, isOwned: false })}
+                    voicelessCount={voicelessByGroup.get(group.id) ?? 0}
                   />
                 ))}
               </div>

@@ -450,17 +450,11 @@ async function generateAICover(
   accentColor: string | null,
   avatarImageUrl: string | null,
   brandLogoUrl: string | null,
-  openaiApiKey?: string | null,
 ): Promise<string | null> {
-  if (!openaiApiKey) {
-    logger.warn({ videoId }, "[BrandCover] No OpenAI API key configured — skipping AI cover");
-    return null;
-  }
-
   const tmpFiles: string[] = [];
 
   try {
-    const client = makeOpenAIClient(openaiApiKey, { timeout: 120_000 });
+    const client = makeOpenAIClient({ timeout: 120_000 });
 
     // ── Try images.edit with reference photos ──────────────────────────────
     const refPaths: string[] = [];
@@ -563,6 +557,9 @@ async function generateAICover(
     return genUrl;
 
   } catch (err: any) {
+    // Re-throw configuration errors (missing proxy key) — these must not silently
+    // fall back to canvas, as that would hide a real system misconfiguration.
+    if (err?.message?.includes("no configurada")) throw err;
     logger.warn(
       { videoId, errMessage: err?.message, errStatus: err?.status },
       "[BrandCover] AI cover generation failed — will fall back to canvas",
@@ -616,7 +613,6 @@ export async function generateBrandCover(
     videoId, hookText, primaryColor, accentColor,
     null, // avatar already handled above
     brandLogoUrl ?? null,
-    openaiApiKey,
   );
   if (aiUrl) return aiUrl;
 

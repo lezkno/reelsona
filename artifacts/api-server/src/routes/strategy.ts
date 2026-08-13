@@ -127,7 +127,6 @@ router.post("/strategy/account", async (req, res): Promise<void> => {
       topCaptions,
       avgEngagement,
       settingsRow?.language ?? "es",
-      settingsRow?.openaiApiKey,
     );
 
     const top5Captions = sorted.slice(0, 5).map((p) => p.caption ?? "").filter(Boolean);
@@ -185,7 +184,7 @@ router.get("/strategy/radar/suggestions", async (req, res): Promise<void> => {
       .from(nicheRadarAccountsTable);
     const excludeList = existing.map((r) => r.igUsername);
 
-    const client = makeOpenAIClient(settingsRow?.openaiApiKey);
+    const client = makeOpenAIClient();
     const language = settingsRow.language ?? "es";
     const langInstruction = language === "en" ? "Respond in English." : "Responde en español.";
     const excludeBlock = excludeList.length > 0
@@ -407,7 +406,6 @@ router.post("/strategy/market", async (req, res): Promise<void> => {
       tone:              settingsRow?.tone ?? "casual",
       language:          settingsRow?.language ?? "es",
       accountData:       profile.account_data,
-      openaiApiKey:      settingsRow?.openaiApiKey,
       radarAccounts:     radarAccounts.map((r) => ({
         ig_username:      r.igUsername,
         bio:              r.bio,
@@ -457,7 +455,6 @@ router.post("/strategy/strategy", async (req, res): Promise<void> => {
       language:          settingsRow?.language ?? "es",
       accountData:       profile.account_data,
       marketInsights:    profile.market_insights,
-      openaiApiKey:      settingsRow?.openaiApiKey,
       radarAccounts:     radarAccounts.map((r) => ({
         ig_username:      r.igUsername,
         bio:              r.bio,
@@ -496,7 +493,6 @@ router.post("/strategy/strategy", async (req, res): Promise<void> => {
           const scores = await reanalyzeTopicsWithStrategy(
             drafts.map((d) => ({ id: d.id, topic: d.topic ?? "" })),
             strategyContext,
-            settingsRow?.openaiApiKey,
           );
 
           // Stale-job check: abort if a newer strategy has been saved while the

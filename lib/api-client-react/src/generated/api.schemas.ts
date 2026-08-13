@@ -607,8 +607,6 @@ export interface Settings {
   brand_accent_color?: string | null;
   /** Full extracted palette from the logo (hex strings) */
   brand_palette?: string[] | null;
-  /** Whether the user has saved their own OpenAI API key */
-  openai_api_key_set?: boolean;
   /** What the creator offers (product/service/course) */
   offer?: string | null;
   /** Ideal audience description */
@@ -656,8 +654,6 @@ export interface SettingsInput {
   /** @nullable */
   brand_accent_color?: string | null;
   brand_palette?: string[] | null;
-  /** Set or clear the user's own OpenAI API key (null = remove) */
-  openai_api_key?: string | null;
   offer?: string | null;
   ideal_audience?: string | null;
   unique_value_prop?: string | null;
