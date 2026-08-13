@@ -65,6 +65,8 @@ type VoiceOption = {
   is_cloned: boolean
   is_mine?: boolean
   speed?: number | null
+  /** Pitch adjustment percentage (-50…+50). Applied via SSML <prosody pitch> at generation time. */
+  pitch?: number | null
   /** Cloned voice processing status from heygen_cloned_voices: pending | ready | failed | null */
   status?: string | null
   /**
@@ -2102,6 +2104,7 @@ export default function Avatars() {
           is_cloned: v.is_cloned ?? false,
           is_mine: v.is_mine ?? false,
           speed: (v as any).speed ?? null,
+          pitch: (v as any).pitch ?? null,
           status: (v as any).status ?? null,
           clone_id: (v as any).clone_id ?? undefined,
         })),
@@ -2121,6 +2124,7 @@ export default function Avatars() {
           is_cloned: v.is_cloned ?? false,
           is_mine: v.is_mine ?? false,
           speed: (v as any).speed ?? null,
+          pitch: (v as any).pitch ?? null,
           status: (v as any).status ?? null,
           clone_id: (v as any).clone_id ?? undefined,
         }))
@@ -2293,6 +2297,7 @@ export default function Avatars() {
   const [renameValue, setRenameValue] = useState("")
   const [editingSpeedVoiceId, setEditingSpeedVoiceId] = useState<string | null>(null)
   const [speedEditValue, setSpeedEditValue] = useState(1.0)
+  const [pitchEditValue, setPitchEditValue] = useState(0)
   const [playingVoiceId, setPlayingVoiceId] = useState<string | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
 
@@ -2338,12 +2343,16 @@ export default function Avatars() {
 
   const handleSaveVoiceSpeed = async (voiceId: string) => {
     try {
-      await updateVoiceMut.mutateAsync({ voiceId, speed: speedEditValue })
+      await updateVoiceMut.mutateAsync({ voiceId, speed: speedEditValue, pitch: pitchEditValue })
       queryClient.invalidateQueries({ queryKey: getGetHeyGenVoicesQueryKey() })
       setEditingSpeedVoiceId(null)
-      toast({ title: "Velocidad guardada", description: `${speedEditValue.toFixed(2)}× aplicado a esta voz` })
+      const desc = [
+        speedEditValue !== 1.0 ? `${speedEditValue.toFixed(2)}× velocidad` : null,
+        pitchEditValue !== 0 ? `${pitchEditValue > 0 ? "+" : ""}${pitchEditValue}% tono` : null,
+      ].filter(Boolean).join(" · ") || "Sin cambios"
+      toast({ title: "Ajustes de voz guardados", description: desc })
     } catch {
-      toast({ title: "Error", description: "No se pudo guardar la velocidad", variant: "destructive" })
+      toast({ title: "Error", description: "No se pudo guardar los ajustes", variant: "destructive" })
     }
   }
 
@@ -2797,8 +2806,11 @@ export default function Avatars() {
                               ? "El procesamiento falló — intenta clonar de nuevo"
                               : `Clonada · ${v.gender === "male" ? "Masculina" : v.gender === "female" ? "Femenina" : "Voz clonada"}`
                           }
-                          {v.status !== "pending" && v.status !== "failed" && v.speed != null && (
+                          {v.status !== "pending" && v.status !== "failed" && v.speed != null && v.speed !== 1.0 && (
                             <span className="text-primary font-medium"> · {v.speed.toFixed(2)}×</span>
+                          )}
+                          {v.status !== "pending" && v.status !== "failed" && v.pitch != null && v.pitch !== 0 && (
+                            <span className="text-primary font-medium"> · {v.pitch > 0 ? "+" : ""}{v.pitch}% tono</span>
                           )}
                         </p>
                       </div>
@@ -2823,12 +2835,13 @@ export default function Avatars() {
                             <Button
                               size="sm" variant="ghost"
                               className={`w-8 h-8 p-0 ${editingSpeedVoiceId === v.voice_id ? "text-primary bg-primary/10" : ""}`}
-                              title="Ajustar velocidad"
+                              title="Ajustar velocidad y tono"
                               onClick={() => {
                                 if (editingSpeedVoiceId === v.voice_id) {
                                   setEditingSpeedVoiceId(null)
                                 } else {
                                   setSpeedEditValue(v.speed ?? 1.0)
+                                  setPitchEditValue(v.pitch ?? 0)
                                   setEditingSpeedVoiceId(v.voice_id)
                                 }
                               }}>
@@ -2843,27 +2856,52 @@ export default function Avatars() {
                       </div>
                     </div>
 
-                    {/* Inline speed editor */}
+                    {/* Inline voice tuning editor (speed + pitch via SSML prosody) */}
                     {editingSpeedVoiceId === v.voice_id && (
-                      <div className="px-4 pb-3 pt-1 border-t border-border/50 bg-muted/20 space-y-3">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="text-xs font-semibold">Velocidad de voz</p>
-                            <p className="text-[10px] text-muted-foreground">Valores menores a 1.0 reducen pausas entre frases. Rango HeyGen: 0.5–1.5</p>
+                      <div className="px-4 pb-3 pt-1 border-t border-border/50 bg-muted/20 space-y-4">
+                        {/* Speed */}
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-xs font-semibold">Velocidad</p>
+                              <p className="text-[10px] text-muted-foreground">Ajusta el ritmo de habla. Rango: 0.5–1.5×</p>
+                            </div>
+                            <span className="text-sm font-bold text-primary tabular-nums">{speedEditValue.toFixed(2)}×</span>
                           </div>
-                          <span className="text-sm font-bold text-primary tabular-nums">{speedEditValue.toFixed(2)}×</span>
+                          <Slider
+                            value={[speedEditValue]}
+                            min={0.5}
+                            max={1.5}
+                            step={0.05}
+                            onValueChange={([val]) => setSpeedEditValue(val)}
+                          />
+                          <div className="flex justify-between text-[10px] text-muted-foreground">
+                            <span>0.5× lento</span>
+                            <span className="text-foreground font-medium">1.0× normal</span>
+                            <span>1.5× rápido</span>
+                          </div>
                         </div>
-                        <Slider
-                          value={[speedEditValue]}
-                          min={0.5}
-                          max={1.5}
-                          step={0.05}
-                          onValueChange={([val]) => setSpeedEditValue(val)}
-                        />
-                        <div className="flex justify-between text-[10px] text-muted-foreground mb-1">
-                          <span>0.5× (lento)</span>
-                          <span className="text-foreground font-medium">1.0× (defecto)</span>
-                          <span>1.5× (rápido)</span>
+                        {/* Pitch */}
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-xs font-semibold">Tono (pitch)</p>
+                              <p className="text-[10px] text-muted-foreground">Eleva o baja el tono de la voz. Rango: −50%…+50%</p>
+                            </div>
+                            <span className="text-sm font-bold text-primary tabular-nums">{pitchEditValue > 0 ? "+" : ""}{pitchEditValue}%</span>
+                          </div>
+                          <Slider
+                            value={[pitchEditValue]}
+                            min={-50}
+                            max={50}
+                            step={5}
+                            onValueChange={([val]) => setPitchEditValue(val)}
+                          />
+                          <div className="flex justify-between text-[10px] text-muted-foreground">
+                            <span>−50% grave</span>
+                            <span className="text-foreground font-medium">0% normal</span>
+                            <span>+50% agudo</span>
+                          </div>
                         </div>
                         <div className="flex gap-2 justify-end">
                           <Button size="sm" variant="ghost" onClick={() => setEditingSpeedVoiceId(null)}>Cancelar</Button>

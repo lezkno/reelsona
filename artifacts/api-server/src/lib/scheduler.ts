@@ -681,14 +681,16 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
     })
     .returning();
 
-  // Look up per-voice speed from cloned voices table (null → use HeyGen default)
+  // Look up per-voice speed and pitch for SSML prosody wrapping
   let resolvedVoiceSpeed: number | undefined;
+  let resolvedVoicePitch: number | undefined;
   if (contentItem.voiceId) {
     const [clonedVoiceRow] = await db
-      .select({ speed: heygenClonedVoicesTable.speed })
+      .select({ speed: heygenClonedVoicesTable.speed, pitch: heygenClonedVoicesTable.pitch })
       .from(heygenClonedVoicesTable)
       .where(eq(heygenClonedVoicesTable.voiceId, contentItem.voiceId));
     resolvedVoiceSpeed = clonedVoiceRow?.speed ?? undefined;
+    resolvedVoicePitch = clonedVoiceRow?.pitch ?? undefined;
   }
 
   try {
@@ -699,6 +701,7 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
       title: contentItem.topic,
       captionsEnabled: automation.captionsEnabled ?? false,
       voiceSpeed: resolvedVoiceSpeed,
+      voicePitch: resolvedVoicePitch,
       language: settings.language ?? "es",
     }, heygenApiKey);
 

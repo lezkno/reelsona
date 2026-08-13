@@ -582,15 +582,48 @@ export interface GenerateVideoParams {
    */
   motionPrompt?: string;
   /**
-   * Voice speed multiplier. HeyGen default is 1.0.
-   * Range 0.5–1.5. null/undefined → omit from payload (use HeyGen default).
+   * Voice speed multiplier applied via SSML <prosody rate>.
+   * HeyGen v3 rejects voice_speed as a top-level param; SSML is the only way.
+   * Range 0.5–1.5. null/undefined → omit (HeyGen default 1.0).
    */
   voiceSpeed?: number | null;
+  /**
+   * Voice pitch adjustment as a percentage offset applied via SSML <prosody pitch>.
+   * Range -50 to +50 (%). null/0/undefined → omit (HeyGen default).
+   */
+  voicePitch?: number | null;
   /**
    * BCP-47 language code or plain name ("es", "en", "español", etc.).
    * Used by normalizeScriptForTTS to expand abbreviations correctly.
    */
   language?: string;
+}
+
+/**
+ * Wrap a TTS script in SSML <prosody> to apply speed and/or pitch adjustments.
+ * HeyGen v3 rejects voice_speed / voice / voice_setting as payload params —
+ * SSML <prosody rate pitch> is the correct mechanism for both.
+ *
+ * Speed mapping : multiplier 0.5–1.5  →  rate="-50%" … "+50%"
+ * Pitch mapping : percentage -50…+50  →  pitch="-50%" … "+50%"
+ */
+function wrapWithProsody(script: string, speed?: number | null, pitch?: number | null): string {
+  const hasSpeed = speed != null && Math.abs(speed - 1.0) > 0.01;
+  const hasPitch = pitch != null && Math.abs(pitch) > 0.5;
+  if (!hasSpeed && !hasPitch) return script;
+
+  const attrs: string[] = [];
+  if (hasSpeed) {
+    const pct = Math.round((speed! - 1) * 100);
+    attrs.push(`rate="${pct >= 0 ? "+" : ""}${pct}%"`);
+  }
+  if (hasPitch) {
+    const p = Math.round(pitch!);
+    attrs.push(`pitch="${p >= 0 ? "+" : ""}${p}%"`);
+  }
+  // Escape XML special chars in the script body
+  const safe = script.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return `<speak><prosody ${attrs.join(" ")}>${safe}</prosody></speak>`;
 }
 
 export interface VideoStatus {
@@ -657,21 +690,19 @@ export async function generateVideo(params: GenerateVideoParams, apiKey?: string
   // causes unnatural pauses in cloned voices (em-dashes, ellipsis, semicolons).
   const normalizedScript = normalizeScriptForTTS(params.script, params.language);
 
+  // Apply speed and pitch via SSML prosody (HeyGen v3 rejects voice_speed as a
+  // top-level payload param — "Extra inputs are not permitted").
+  const finalScript = wrapWithProsody(normalizedScript, params.voiceSpeed, params.voicePitch);
+
   // v3 flat payload
   const payload: Record<string, unknown> = {
     type: "avatar",
     avatar_id: rawAvatarId,
-    script: normalizedScript,
+    script: finalScript,
     voice_id: params.voice_id,
     aspect_ratio: "9:16",
     title: params.title ?? "ContentPilot Video",
   };
-
-  // Only include voice_speed when explicitly set — avoids overriding HeyGen's
-  // per-voice default for users who haven't configured it.
-  if (params.voiceSpeed != null) {
-    payload["voice_speed"] = params.voiceSpeed;
-  }
 
   if (supportsAvatarV) {
     // Avatar V: highest-fidelity lipsync + cross-reference animation.

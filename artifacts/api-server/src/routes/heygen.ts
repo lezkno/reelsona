@@ -123,12 +123,11 @@ router.get("/heygen/voices", async (req, res): Promise<void> => {
     listVoices(apiKey),
     db.select().from(heygenClonedVoicesTable).where(eq(heygenClonedVoicesTable.userId, userId)),
   ]);
-  const myCloneIds = new Set(myClones.map(c => c.voiceId));
+  const myCloneIds      = new Set(myClones.map(c => c.voiceId));
   const myCloneSpeedMap = new Map(myClones.map(c => [c.voiceId, c.speed ?? null]));
+  const myClonePitchMap = new Map(myClones.map(c => [c.voiceId, (c as any).pitch ?? null]));
   const myCloneStatusMap = new Map(myClones.map(c => [c.voiceId, c.status]));
-  // clone_id (stable DB row PK) lets the UI correlate pending/ready states even when
-  // the voice_id changes from voice_clone_id → final usable voice_id on completion.
-  const myCloneIdMap = new Map(myClones.map(c => [c.voiceId, c.id]));
+  const myCloneIdMap    = new Map(myClones.map(c => [c.voiceId, c.id]));
   const mapped = voices.map((v) => ({
     voice_id: v.voice_id,
     name: v.name,
@@ -138,14 +137,11 @@ router.get("/heygen/voices", async (req, res): Promise<void> => {
     is_cloned: v.is_clone ?? false,
     is_mine: myCloneIds.has(v.voice_id),
     speed: myCloneIds.has(v.voice_id) ? (myCloneSpeedMap.get(v.voice_id) ?? null) : null,
+    pitch: myCloneIds.has(v.voice_id) ? (myClonePitchMap.get(v.voice_id) ?? null) : null,
     status: myCloneIds.has(v.voice_id) ? (myCloneStatusMap.get(v.voice_id) ?? null) : null,
     clone_id: myCloneIds.has(v.voice_id) ? (myCloneIdMap.get(v.voice_id) ?? undefined) : undefined,
   }));
 
-  // Inject clones not yet in HeyGen's voice list so the UI shows their status
-  // (pending → spinner, failed → error badge) without requiring a page refresh.
-  // HeyGen omits still-processing voices from listVoices entirely, and failed
-  // clones never appear at all — we inject both so the user can see and delete them.
   const listedVoiceIds = new Set(voices.map(v => v.voice_id));
   for (const clone of myClones) {
     if (!listedVoiceIds.has(clone.voiceId) && (clone.status === "pending" || clone.status === "failed")) {
@@ -158,6 +154,7 @@ router.get("/heygen/voices", async (req, res): Promise<void> => {
         is_cloned: true,
         is_mine: true,
         speed: clone.speed ?? null,
+        pitch: (clone as any).pitch ?? null,
         status: clone.status,
         clone_id: clone.id,
       });
@@ -247,15 +244,18 @@ router.patch("/heygen/voices/:voiceId", async (req, res): Promise<void> => {
   try {
     const userId = req.session.user!.userId;
     const { voiceId } = req.params;
-    const { name, speed } = req.body ?? {};
-    if (!name && speed === undefined) {
-      res.status(400).json({ error: "Se requiere nombre o velocidad" }); return;
+    const { name, speed, pitch } = req.body ?? {};
+    if (!name && speed === undefined && pitch === undefined) {
+      res.status(400).json({ error: "Se requiere nombre, velocidad o tono" }); return;
     }
     if (name !== undefined && (typeof name !== "string" || !name.trim())) {
       res.status(400).json({ error: "El nombre no puede estar vacío" }); return;
     }
     if (speed !== undefined && speed !== null && (typeof speed !== "number" || speed < 0.5 || speed > 1.5)) {
       res.status(400).json({ error: "La velocidad debe estar entre 0.5 y 1.5" }); return;
+    }
+    if (pitch !== undefined && pitch !== null && (typeof pitch !== "number" || pitch < -50 || pitch > 50)) {
+      res.status(400).json({ error: "El tono debe estar entre -50 y +50" }); return;
     }
     const [row] = await db
       .select()
@@ -270,6 +270,7 @@ router.patch("/heygen/voices/:voiceId", async (req, res): Promise<void> => {
     const dbUpdates: Record<string, unknown> = { updatedAt: new Date() };
     if (name) dbUpdates.displayName = name.trim();
     if (speed !== undefined) dbUpdates.speed = speed;
+    if (pitch !== undefined) dbUpdates.pitch = pitch;
     await db.update(heygenClonedVoicesTable)
       .set(dbUpdates as any)
       .where(and(eq(heygenClonedVoicesTable.voiceId, voiceId), eq(heygenClonedVoicesTable.userId, userId)));
