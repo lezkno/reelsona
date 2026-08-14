@@ -959,3 +959,161 @@ export function useUpdateVoice() {
       ),
   });
 }
+
+// ── WaveSpeed avatar pipeline ─────────────────────────────────────────────────
+
+export interface WavespeedLookRow {
+  id: number;
+  userId: number;
+  personaId: number | null;
+  name: string;
+  imageUrl: string | null;
+  /** JSON string — {requestId, generationStatus, voiceId?, selected?} */
+  config: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WavespeedPersonaWithLooks {
+  id: number;
+  userId: number;
+  name: string;
+  description: string | null;
+  thumbnailUrl: string | null;
+  createdAt: string;
+  updatedAt: string;
+  looks: WavespeedLookRow[];
+}
+
+export interface WavespeedVoiceRow {
+  id: number;
+  userId: number;
+  personaId: number | null;
+  displayName: string;
+  wavespeedRequestId: string | null;
+  wavespeedVoiceId: string | null;
+  /** pending | ready | failed */
+  status: string;
+  errorMessage: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const WAVESPEED_PERSONAS_KEY = ["wavespeed", "personas"] as const;
+
+/** List the authenticated user's WaveSpeed personas with their looks. */
+export function useWavespeedPersonas() {
+  return useQuery<{ personas: WavespeedPersonaWithLooks[] }>({
+    queryKey: WAVESPEED_PERSONAS_KEY,
+    queryFn: () =>
+      customFetch<{ personas: WavespeedPersonaWithLooks[] }>("/api/wavespeed/personas"),
+    staleTime: 1000 * 60,
+  });
+}
+
+/** Create a WaveSpeed persona + submit 5 look-generation jobs. */
+export function useCreateWavespeedPersona() {
+  const qc = useQueryClient();
+  return useMutation<
+    { persona: { id: number; name: string }; looks: WavespeedLookRow[] },
+    Error,
+    { name: string; referenceObjectPath: string }
+  >({
+    mutationFn: (data) =>
+      customFetch<{ persona: { id: number; name: string }; looks: WavespeedLookRow[] }>(
+        "/api/wavespeed/personas",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        },
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: WAVESPEED_PERSONAS_KEY }),
+  });
+}
+
+/** Poll look generation status for a persona. Returns updated looks + allDone flag. */
+export function useWavespeedPersonaLooksStatus(personaId: number | null, enabled = true) {
+  return useQuery<{ looks: WavespeedLookRow[]; allDone: boolean }>({
+    queryKey: ["wavespeed", "persona-looks-status", personaId],
+    queryFn: () =>
+      customFetch<{ looks: WavespeedLookRow[]; allDone: boolean }>(
+        `/api/wavespeed/personas/${personaId}/looks/status`,
+      ),
+    enabled: !!personaId && enabled,
+    refetchInterval: (query) => {
+      const data = query.state.data as { allDone?: boolean } | undefined;
+      return data?.allDone ? false : 4000;
+    },
+    staleTime: 0,
+  });
+}
+
+/** Delete a WaveSpeed persona and all its looks. */
+export function useDeleteWavespeedPersona() {
+  const qc = useQueryClient();
+  return useMutation<{ ok: boolean }, Error, number>({
+    mutationFn: (personaId) =>
+      customFetch<{ ok: boolean }>(`/api/wavespeed/personas/${personaId}`, { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: WAVESPEED_PERSONAS_KEY }),
+  });
+}
+
+/** Upload audio and submit a WaveSpeed voice clone job. */
+export function useCloneWavespeedVoice() {
+  return useMutation<{ voiceId: number; displayName: string; status: string }, Error, FormData>({
+    mutationFn: (formData) =>
+      customFetch<{ voiceId: number; displayName: string; status: string }>(
+        "/api/wavespeed/voices/clone",
+        { method: "POST", body: formData },
+      ),
+  });
+}
+
+/** List authenticated user's WaveSpeed voices. */
+export function useWavespeedVoices() {
+  return useQuery<{ voices: WavespeedVoiceRow[] }>({
+    queryKey: ["wavespeed", "voices"],
+    queryFn: () => customFetch<{ voices: WavespeedVoiceRow[] }>("/api/wavespeed/voices"),
+    staleTime: 1000 * 30,
+  });
+}
+
+/** Poll WaveSpeed voice clone status. Auto-refetches until ready/failed. */
+export function useWavespeedVoiceStatus(voiceId: number | null, enabled = true) {
+  return useQuery<WavespeedVoiceRow>({
+    queryKey: ["wavespeed", "voice-status", voiceId],
+    queryFn: () =>
+      customFetch<WavespeedVoiceRow>(`/api/wavespeed/voices/${voiceId}/status`),
+    enabled: !!voiceId && enabled,
+    refetchInterval: (query) => {
+      const s = (query.state.data as WavespeedVoiceRow | undefined)?.status;
+      return s === "pending" || s == null ? 5000 : false;
+    },
+    staleTime: 0,
+  });
+}
+
+/** Update a WaveSpeed look's name or config (e.g. voiceId, selected). */
+export function usePatchWavespeedLook() {
+  const qc = useQueryClient();
+  return useMutation<WavespeedLookRow, Error, { id: number; name?: string; config?: Record<string, unknown> }>({
+    mutationFn: ({ id, name, config }) =>
+      customFetch<WavespeedLookRow>(`/api/wavespeed/looks/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, config }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: WAVESPEED_PERSONAS_KEY }),
+  });
+}
+
+/** Delete a single WaveSpeed look. */
+export function useDeleteWavespeedLook() {
+  const qc = useQueryClient();
+  return useMutation<{ ok: boolean }, Error, number>({
+    mutationFn: (lookId) =>
+      customFetch<{ ok: boolean }>(`/api/wavespeed/looks/${lookId}`, { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: WAVESPEED_PERSONAS_KEY }),
+  });
+}

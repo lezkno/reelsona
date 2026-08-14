@@ -51,50 +51,80 @@ interface WavespeedCtx {
 
 /**
  * Returns the user's active WaveSpeed persona/look/voice context, or null
- * when WaveSpeed is not available for this user (no persona, no ready voice,
- * or no look with an image URL).  Called once per generation cycle.
+ * when WaveSpeed is not available for this user.
+ *
+ * Selection rules (enforced here to match what the wizard promises the user):
+ *   1. Search ALL personas for this user (newest-first for determinism).
+ *   2. For each persona, find a look whose `config.selected === true` AND
+ *      whose `config.voiceId` maps to a ready wavespeed_voice owned by this user.
+ *   3. Return the first match found across all personas.
+ *   4. cfg.voiceId is the integer DB id of wavespeed_voices; resolved to the
+ *      WaveSpeed API id (wavespeedVoiceId) before returning.
+ *
+ * Searching all personas ensures users whose newest/most-recent persona is the
+ * only configured one are not blocked by an older incomplete persona that happens
+ * to sort first.
  */
 async function getWavespeedContext(userId: number): Promise<WavespeedCtx | null> {
   if (!isWavespeedConfigured()) return null;
 
-  const [persona] = await db
+  // Fetch all personas, newest first so the most recently configured one wins.
+  const personas = await db
     .select({ id: wavespeedPersonasTable.id })
     .from(wavespeedPersonasTable)
     .where(eq(wavespeedPersonasTable.userId, userId))
-    .limit(1);
-  if (!persona) return null;
+    .orderBy(desc(wavespeedPersonasTable.createdAt));
 
-  const [voice] = await db
-    .select({ id: wavespeedVoicesTable.id, wavespeedVoiceId: wavespeedVoicesTable.wavespeedVoiceId })
-    .from(wavespeedVoicesTable)
-    .where(
-      and(
-        eq(wavespeedVoicesTable.userId, userId),
-        eq(wavespeedVoicesTable.status, "ready"),
-        isNotNull(wavespeedVoicesTable.wavespeedVoiceId),
-      ),
-    )
-    .limit(1);
-  if (!voice?.wavespeedVoiceId) return null;
+  if (personas.length === 0) return null;
 
-  const [look] = await db
-    .select({ id: wavespeedLooksTable.id, imageUrl: wavespeedLooksTable.imageUrl })
-    .from(wavespeedLooksTable)
-    .where(
-      and(
-        eq(wavespeedLooksTable.userId, userId),
-        isNotNull(wavespeedLooksTable.imageUrl),
-      ),
-    )
-    .limit(1);
-  if (!look?.imageUrl) return null;
+  for (const persona of personas) {
+    // Load all looks for this persona that have a generated image
+    const looks = await db
+      .select({
+        id: wavespeedLooksTable.id,
+        imageUrl: wavespeedLooksTable.imageUrl,
+        config: wavespeedLooksTable.config,
+      })
+      .from(wavespeedLooksTable)
+      .where(
+        and(
+          eq(wavespeedLooksTable.userId, userId),
+          eq(wavespeedLooksTable.personaId, persona.id),
+          isNotNull(wavespeedLooksTable.imageUrl),
+        ),
+      );
 
-  return {
-    personaId: persona.id,
-    lookId: look.id,
-    imageUrl: look.imageUrl,
-    voiceId: voice.wavespeedVoiceId,
-  };
+    // Walk through looks to find one that is selected and has a ready linked voice.
+    for (const look of looks) {
+      let cfg: { selected?: boolean; voiceId?: number } = {};
+      try { cfg = JSON.parse(look.config ?? "{}") as typeof cfg; } catch { continue; }
+      if (!cfg.selected || !look.imageUrl || !cfg.voiceId) continue;
+
+      const [voice] = await db
+        .select({ wavespeedVoiceId: wavespeedVoicesTable.wavespeedVoiceId })
+        .from(wavespeedVoicesTable)
+        .where(
+          and(
+            eq(wavespeedVoicesTable.id, cfg.voiceId),
+            eq(wavespeedVoicesTable.userId, userId),
+            eq(wavespeedVoicesTable.status, "ready"),
+            isNotNull(wavespeedVoicesTable.wavespeedVoiceId),
+          ),
+        )
+        .limit(1);
+
+      if (voice?.wavespeedVoiceId) {
+        return {
+          personaId: persona.id,
+          lookId: look.id,
+          imageUrl: look.imageUrl,
+          voiceId: voice.wavespeedVoiceId,
+        };
+      }
+    }
+  }
+
+  return null;
 }
 
 /** Sentinel stored in preferred_voice_id meaning "use the avatar's own HeyGen default voice" (legacy, kept for backwards compat). */

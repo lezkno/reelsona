@@ -15,7 +15,14 @@ import {
   useDeleteVoice,
   useRenameVoice,
   useUpdateVoice,
+  useWavespeedPersonas,
+  useDeleteWavespeedPersona,
+  usePatchWavespeedLook,
+  WAVESPEED_PERSONAS_KEY,
+  type WavespeedPersonaWithLooks,
+  type WavespeedLookRow,
 } from "@workspace/api-client-react"
+import { CreateWavespeedAvatarDialog } from "./CreateWavespeedAvatarDialog"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -2411,6 +2418,233 @@ function AvatarGroupCard({
   )
 }
 
+// ── WavespeedPersonaCard ──────────────────────────────────────────────────────
+
+function WavespeedPersonaCard({
+  persona,
+  onClick,
+}: {
+  persona: WavespeedPersonaWithLooks
+  onClick: () => void
+}) {
+  const thumbnail =
+    persona.thumbnailUrl ??
+    persona.looks.find((l) => l.imageUrl)?.imageUrl ??
+    null
+  const readyLooks = persona.looks.filter((l) => {
+    try {
+      const cfg = JSON.parse(l.config ?? "{}") as { generationStatus?: string; selected?: boolean }
+      return cfg.generationStatus === "ready"
+    } catch {
+      return false
+    }
+  })
+  const activeLooks = persona.looks.filter((l) => {
+    try {
+      const cfg = JSON.parse(l.config ?? "{}") as { selected?: boolean }
+      return cfg.selected === true
+    } catch {
+      return false
+    }
+  })
+
+  return (
+    <Card
+      className="overflow-hidden cursor-pointer transition-all duration-300 hover:border-primary/50 hover:shadow-lg"
+      onClick={onClick}
+    >
+      <div className="aspect-square bg-muted relative">
+        {thumbnail ? (
+          <img src={thumbnail} alt={persona.name} className="w-full h-full object-cover" loading="lazy" />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+            <Sparkles className="w-10 h-10" />
+          </div>
+        )}
+        <Badge className="absolute top-2 left-2 gap-1 bg-violet-600 text-white shadow text-[10px] px-1.5">
+          <Sparkles className="w-2.5 h-2.5" />
+          AI
+        </Badge>
+        {activeLooks.length > 0 && (
+          <Badge className="absolute bottom-2 left-2 gap-1 bg-primary text-primary-foreground shadow">
+            <CheckCircle2 className="w-3 h-3" />
+            {activeLooks.length} activo{activeLooks.length !== 1 ? "s" : ""}
+          </Badge>
+        )}
+      </div>
+      <CardContent className="p-4 flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <h4 className="font-bold font-display truncate">{persona.name}</h4>
+          <p className="text-xs text-muted-foreground">
+            {readyLooks.length} look{readyLooks.length !== 1 ? "s" : ""} generado{readyLooks.length !== 1 ? "s" : ""}
+            {activeLooks.length > 0 && (
+              <span className="text-primary font-medium"> · {activeLooks.length} en uso</span>
+            )}
+          </p>
+        </div>
+        <Badge variant="secondary" className="shrink-0 text-xs">Ver looks</Badge>
+      </CardContent>
+    </Card>
+  )
+}
+
+// ── WavespeedPersonaDialog ─────────────────────────────────────────────────────
+
+function WavespeedPersonaDialog({
+  persona,
+  onClose,
+  onDeleted,
+}: {
+  persona: WavespeedPersonaWithLooks
+  onClose: () => void
+  onDeleted: () => void
+}) {
+  const { toast } = useToast()
+  const deletePersona = useDeleteWavespeedPersona()
+  const patchLook = usePatchWavespeedLook()
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  const readyLooks = persona.looks.filter((l) => {
+    try {
+      return (JSON.parse(l.config ?? "{}") as { generationStatus?: string }).generationStatus === "ready"
+    } catch {
+      return false
+    }
+  })
+
+  const getSelected = (look: WavespeedLookRow) => {
+    try {
+      return (JSON.parse(look.config ?? "{}") as { selected?: boolean }).selected === true
+    } catch {
+      return false
+    }
+  }
+
+  const handleToggle = async (look: WavespeedLookRow) => {
+    const isSelected = getSelected(look)
+    setSaving(true)
+    try {
+      await patchLook.mutateAsync({ id: look.id, config: { selected: !isSelected } })
+    } catch {
+      toast({ title: "Error al guardar", variant: "destructive" })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    setDeleting(true)
+    try {
+      await deletePersona.mutateAsync(persona.id)
+      onDeleted()
+    } catch {
+      toast({ title: "Error al eliminar el avatar", variant: "destructive" })
+      setConfirmDelete(false)
+      setDeleting(false)
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open && !deleting) onClose() }}>
+      <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
+        {confirmDelete ? (
+          <>
+            <DialogHeader>
+              <DialogTitle className="text-destructive flex items-center gap-2">
+                <Trash2 className="w-5 h-5" /> Eliminar avatar AI
+              </DialogTitle>
+              <DialogDescription>
+                Se eliminará permanentemente <strong>{persona.name}</strong> y todos sus looks.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="py-4 rounded-lg bg-destructive/10 border border-destructive/20 text-sm text-destructive text-center">
+              Esta acción no se puede deshacer.
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setConfirmDelete(false)} disabled={deleting}>Cancelar</Button>
+              <Button variant="destructive" onClick={handleDelete} disabled={deleting} className="gap-2">
+                {deleting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                {deleting ? "Eliminando…" : "Sí, eliminar"}
+              </Button>
+            </DialogFooter>
+          </>
+        ) : (
+          <>
+            <DialogHeader>
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <DialogTitle className="flex items-center gap-2">
+                    <Badge className="bg-violet-600 text-white text-[10px] px-1.5">
+                      <Sparkles className="w-2.5 h-2.5 mr-1" /> AI
+                    </Badge>
+                    {persona.name}
+                  </DialogTitle>
+                  <DialogDescription>
+                    Selecciona los looks que quieres usar en la generación de videos. Los marcados en verde se usarán en el siguiente ciclo.
+                  </DialogDescription>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setConfirmDelete(true)}
+                  className="mt-0.5 p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors flex-shrink-0"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            </DialogHeader>
+
+            {readyLooks.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground">
+                <ImageIcon className="w-10 h-10 mx-auto mb-3 opacity-40" />
+                <p className="text-sm">Este avatar no tiene looks generados todavía.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                {readyLooks.map((look) => {
+                  const isSelected = getSelected(look)
+                  return (
+                    <button
+                      key={look.id}
+                      type="button"
+                      onClick={() => handleToggle(look)}
+                      disabled={saving}
+                      className={`relative aspect-[3/4] rounded-lg overflow-hidden border-2 transition-all text-left
+                        ${isSelected ? "border-primary ring-2 ring-primary/30" : "border-border hover:border-primary/40"}`}
+                    >
+                      {look.imageUrl ? (
+                        <img src={look.imageUrl} alt={look.name} className="w-full h-full object-cover" loading="lazy" />
+                      ) : (
+                        <div className="w-full h-full bg-muted flex items-center justify-center">
+                          <ImageIcon className="w-6 h-6 text-muted-foreground" />
+                        </div>
+                      )}
+                      {isSelected && (
+                        <div className="absolute top-2 right-2 w-6 h-6 rounded-full bg-primary flex items-center justify-center">
+                          <CheckCircle2 className="w-4 h-4 text-primary-foreground" />
+                        </div>
+                      )}
+                      <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/70 to-transparent px-2 py-1.5">
+                        <p className="text-white text-xs font-medium truncate">{look.name}</p>
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+
+            <DialogFooter>
+              {saving && <span className="text-xs text-muted-foreground flex items-center gap-1 mr-auto"><Loader2 className="w-3 h-3 animate-spin" /> Guardando…</span>}
+              <Button variant="outline" onClick={onClose}>Cerrar</Button>
+            </DialogFooter>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function Avatars() {
@@ -2491,6 +2725,12 @@ export default function Avatars() {
       return changed ? next : prev
     })
   }, [])
+
+  // ── WaveSpeed personas ────────────────────────────────────────────────────
+  const { data: wavespeedData, refetch: refetchWavespeed } = useWavespeedPersonas()
+  const wavespeedPersonas = wavespeedData?.personas ?? []
+  const [showWavespeedWizard, setShowWavespeedWizard] = useState(false)
+  const [openWavespeedPersona, setOpenWavespeedPersona] = useState<WavespeedPersonaWithLooks | null>(null)
 
   // ── Dialog state ──────────────────────────────────────────────────────────
   const [openGroup, setOpenGroup] = useState<{ group: V3Group; isOwned: boolean } | null>(null)
@@ -3236,6 +3476,10 @@ export default function Avatars() {
               <Button variant="outline" size="sm" className="gap-1.5" onClick={() => refetchMy()} title="Actualizar">
                 <RefreshCw className="w-3.5 h-3.5" />
               </Button>
+              <Button variant="outline" size="sm" className="gap-1.5 border-violet-400/60 text-violet-700 dark:text-violet-300 hover:bg-violet-50 dark:hover:bg-violet-950/30" onClick={() => setShowWavespeedWizard(true)}>
+                <Sparkles className="w-4 h-4" />
+                Avatar AI
+              </Button>
               <Button size="sm" className="gap-1.5" onClick={() => setShowCreation(true)}>
                 <Plus className="w-4 h-4" />
                 Crear avatar
@@ -3247,8 +3491,8 @@ export default function Avatars() {
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-6">
               {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="aspect-square rounded-xl" />)}
             </div>
-          ) : myGroups.length === 0 && !pendingVideoJob ? (
-            /* Empty state — no avatars and no job in flight */
+          ) : myGroups.length === 0 && !pendingVideoJob && wavespeedPersonas.length === 0 ? (
+            /* Empty state — no avatars (HeyGen or WaveSpeed) and no job in flight */
             <div className="border-2 border-dashed rounded-2xl p-12 text-center flex flex-col items-center gap-4">
               <div className="w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center">
                 <Video className="w-8 h-8 text-primary" />
@@ -3259,14 +3503,20 @@ export default function Avatars() {
                   Graba un video corto hablando a cámara y HeyGen creará un avatar con tu voz, gestos e identidad visual — listo para Avatar V.
                 </p>
               </div>
-              <Button onClick={() => setShowCreation(true)} className="gap-2 mt-2">
-                <Plus className="w-4 h-4" />
-                Crear mi Digital Twin
-              </Button>
-              <p className="text-xs text-muted-foreground">También puedes crear tu avatar desde una foto o descripción con IA</p>
+              <div className="flex gap-2 mt-2">
+                <Button variant="outline" className="gap-2 border-violet-400/60 text-violet-700 dark:text-violet-300 hover:bg-violet-50 dark:hover:bg-violet-950/30" onClick={() => setShowWavespeedWizard(true)}>
+                  <Sparkles className="w-4 h-4" />
+                  Avatar AI
+                </Button>
+                <Button onClick={() => setShowCreation(true)} className="gap-2">
+                  <Plus className="w-4 h-4" />
+                  Crear mi Digital Twin
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">Con "Avatar AI" generas looks con tu cara en segundos, sin grabar video</p>
             </div>
-          ) : filteredMyGroups.length === 0 && !pendingVideoJob ? (
-            /* Empty state — filter active but no matches */
+          ) : filteredMyGroups.length === 0 && !pendingVideoJob && wavespeedPersonas.length === 0 ? (
+            /* Empty state — filter active but no HeyGen or WaveSpeed matches */
             <div className="text-center py-12 text-muted-foreground">
               <CheckCircle2 className="w-10 h-10 mx-auto mb-3 opacity-30" />
               <p className="text-sm font-medium">Ningún avatar propio en uso</p>
@@ -3276,6 +3526,14 @@ export default function Avatars() {
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-6">
+              {/* WaveSpeed AI persona cards */}
+              {wavespeedPersonas.map((persona) => (
+                <WavespeedPersonaCard
+                  key={`ws-${persona.id}`}
+                  persona={persona}
+                  onClick={() => setOpenWavespeedPersona(persona)}
+                />
+              ))}
               {/* Pending Digital Twin card — visible until HeyGen finishes training */}
               {pendingVideoJob && (
                 <PendingDigitalTwinCard
@@ -3754,6 +4012,29 @@ export default function Avatars() {
             if (voiceId) {
               setVoiceOverrides(prev => ({ ...prev, [newLookId]: voiceId }))
             }
+          }}
+        />
+      )}
+
+      {/* WaveSpeed Avatar creation wizard */}
+      {showWavespeedWizard && (
+        <CreateWavespeedAvatarDialog
+          onClose={() => setShowWavespeedWizard(false)}
+          onCreated={() => {
+            setShowWavespeedWizard(false)
+            void refetchWavespeed()
+          }}
+        />
+      )}
+
+      {/* WaveSpeed persona looks dialog */}
+      {openWavespeedPersona && (
+        <WavespeedPersonaDialog
+          persona={openWavespeedPersona}
+          onClose={() => setOpenWavespeedPersona(null)}
+          onDeleted={() => {
+            setOpenWavespeedPersona(null)
+            void refetchWavespeed()
           }}
         />
       )}
