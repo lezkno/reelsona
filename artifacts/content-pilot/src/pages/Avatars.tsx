@@ -4377,32 +4377,30 @@ export default function Avatars() {
                       <div className="px-4 pb-3 pt-1 border-t border-border/50 bg-muted/20 space-y-4">
                         <div className="space-y-2">
                           <div className="flex items-center justify-between">
-                            <div>
-                              <p className="text-xs font-semibold">Velocidad</p>
-                              <p className="text-[10px] text-muted-foreground">Ajusta el ritmo de habla. Rango: 0.5–1.5×</p>
-                            </div>
-                            <span className="text-sm font-bold text-primary tabular-nums">{wsSpeedValue.toFixed(2)}×</span>
+                            <p className="text-xs font-semibold">Velocidad</p>
+                            <span className="text-xs font-bold text-primary tabular-nums bg-primary/10 px-2 py-0.5 rounded">
+                              {wsSpeedValue.toFixed(2)}× {wsSpeedValue < 0.8 ? "· lento" : wsSpeedValue > 1.2 ? "· rápido" : wsSpeedValue === 1.0 ? "· normal" : ""}
+                            </span>
                           </div>
                           <Slider value={[wsSpeedValue]} min={0.5} max={1.5} step={0.05} onValueChange={([val]) => setWsSpeedValue(val)} />
                           <div className="flex justify-between text-[10px] text-muted-foreground">
-                            <span>0.5× lento</span><span className="text-foreground font-medium">1.0× normal</span><span>1.5× rápido</span>
+                            <span>0.5× lento</span><span>1.5× rápido</span>
                           </div>
                         </div>
                         <div className="space-y-2">
                           <div className="flex items-center justify-between">
-                            <div>
-                              <p className="text-xs font-semibold">Tono (pitch)</p>
-                              <p className="text-[10px] text-muted-foreground">Eleva o baja el tono. Rango: −12 a +12 semitonos</p>
-                            </div>
-                            <span className="text-sm font-bold text-primary tabular-nums">{wsPitchValue > 0 ? "+" : ""}{wsPitchValue} st</span>
+                            <p className="text-xs font-semibold">Tono (pitch)</p>
+                            <span className="text-xs font-bold text-primary tabular-nums bg-primary/10 px-2 py-0.5 rounded">
+                              {wsPitchValue > 0 ? "+" : ""}{wsPitchValue} st {wsPitchValue < -4 ? "· grave" : wsPitchValue > 4 ? "· agudo" : wsPitchValue === 0 ? "· normal" : ""}
+                            </span>
                           </div>
                           <Slider value={[wsPitchValue]} min={-12} max={12} step={1} onValueChange={([val]) => setWsPitchValue(val)} />
                           <div className="flex justify-between text-[10px] text-muted-foreground">
-                            <span>−12 grave</span><span className="text-foreground font-medium">0 normal</span><span>+12 agudo</span>
+                            <span>−12 grave</span><span>+12 agudo</span>
                           </div>
                         </div>
                         <p className="text-[10px] text-muted-foreground leading-snug rounded-lg bg-muted/40 px-3 py-2">
-                          💡 Guarda los ajustes y pulsa ▶ en la fila de la voz para escuchar el resultado — el preview se regenera gratis con la nueva configuración.
+                          💡 Ajusta los valores, <strong>Guarda</strong> y pulsa <strong>▶</strong> en la fila de la voz para escuchar el resultado con la nueva configuración.
                         </p>
                         <div className="flex gap-2 justify-end">
                           <Button size="sm" variant="ghost" onClick={() => setWsEditVoiceId(null)}>Cancelar</Button>
