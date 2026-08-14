@@ -585,14 +585,14 @@ router.get("/wavespeed/voices/:id/status", async (req, res) => {
       const [u] = await db
         .update(wavespeedVoicesTable)
         .set({ status: "ready", updatedAt: new Date() })
-        .where(eq(wavespeedVoicesTable.id, voiceId))
+        .where(and(eq(wavespeedVoicesTable.id, voiceId), eq(wavespeedVoicesTable.userId, userId)))
         .returning();
       updated = u;
     } else if (result.status === "failed") {
       const [u] = await db
         .update(wavespeedVoicesTable)
         .set({ status: "failed", errorMessage: result.error ?? "Unknown error", updatedAt: new Date() })
-        .where(eq(wavespeedVoicesTable.id, voiceId))
+        .where(and(eq(wavespeedVoicesTable.id, voiceId), eq(wavespeedVoicesTable.userId, userId)))
         .returning();
       updated = u;
     }
@@ -669,7 +669,7 @@ router.patch("/wavespeed/looks/:id", async (req, res) => {
     const [updated] = await db
       .update(wavespeedLooksTable)
       .set(updates)
-      .where(eq(wavespeedLooksTable.id, lookId))
+      .where(and(eq(wavespeedLooksTable.id, lookId), eq(wavespeedLooksTable.userId, userId)))
       .returning();
 
     res.json(updated);
