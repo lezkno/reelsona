@@ -690,9 +690,22 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
         </DialogHeader>
 
         <div className="py-6 space-y-5">
-          <div className="relative mx-auto w-16 h-16">
-            <Loader2 className="w-16 h-16 animate-spin text-primary/30" />
-            <Sparkles className="w-6 h-6 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-primary" />
+          {/* Logo spinner */}
+          <div className="relative mx-auto w-28 h-28">
+            <div
+              className="absolute inset-0 rounded-full animate-spin"
+              style={{
+                background: "conic-gradient(from 0deg, #6366f1, #8b5cf6, #06b6d4, transparent 75%)",
+                animationDuration: "2.5s",
+              }}
+            />
+            <div className="absolute inset-[3px] rounded-full bg-black overflow-hidden flex items-center justify-center">
+              <img
+                src={`${import.meta.env.BASE_URL}logo-spinner.png`}
+                alt=""
+                className="w-full h-full object-contain"
+              />
+            </div>
           </div>
 
           <div className="space-y-1.5">
@@ -988,7 +1001,22 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
             ) : voiceFailed ? (
               <AlertCircle className="w-5 h-5 text-destructive shrink-0" />
             ) : (
-              <Loader2 className="w-5 h-5 animate-spin shrink-0 text-muted-foreground" />
+              <div className="relative w-8 h-8 shrink-0">
+                <div
+                  className="absolute inset-0 rounded-full animate-spin"
+                  style={{
+                    background: "conic-gradient(from 0deg, #6366f1, #8b5cf6, #06b6d4, transparent 75%)",
+                    animationDuration: "2.5s",
+                  }}
+                />
+                <div className="absolute inset-[2px] rounded-full bg-black overflow-hidden flex items-center justify-center">
+                  <img
+                    src={`${import.meta.env.BASE_URL}logo-spinner.png`}
+                    alt=""
+                    className="w-full h-full object-contain"
+                  />
+                </div>
+              </div>
             )}
             <div>
               <p className="text-sm font-medium">Voz: {voiceName || "—"}</p>
