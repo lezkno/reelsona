@@ -15,3 +15,7 @@ export * from "./purchases";
 export * from "./heygen-cloned-voices";
 export * from "./credits";
 export * from "./avatar-look-metadata";
+export * from "./wavespeed-personas";
+export * from "./wavespeed-looks";
+export * from "./wavespeed-voices";
+export * from "./wavespeed-jobs";

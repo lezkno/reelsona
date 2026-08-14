@@ -12,6 +12,7 @@ import settingsRouter from "./settings";
 import captionsRouter from "./captions";
 import strategyRouter from "./strategy";
 import courseRouter from "./course";
+import wavespeedRouter from "./wavespeed";
 
 
 const router = Router();
@@ -20,6 +21,9 @@ const router = Router();
 router.use(healthRouter);
 router.use(dashboardRouter);
 router.use(settingsRouter);
+
+// WaveSpeed internal routes — accessible to any authenticated user (key check is internal)
+router.use(wavespeedRouter);
 
 // Tool routes — require active tool-access entitlement (admin always passes)
 router.use(requireToolAccess, storageRouter);
