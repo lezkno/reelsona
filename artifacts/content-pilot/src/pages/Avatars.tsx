@@ -2693,8 +2693,11 @@ function WavespeedPersonaDialog({
     const cfg = getCfg(l)
     return cfg.generationStatus === "pending" || (cfg.generationStatus === "ready" && !l.imageUrl)
   })
+  // Always render from persona.looks (kept in sync by setQueryData in usePatchWavespeedLook)
+  // so PATCH-driven config changes (selected, voiceId) are visible immediately.
+  // looksStatus is still used to detect when pending looks finish generating.
   const looksStatus = useWavespeedPersonaLooksStatus(persona.id, hasPending)
-  const livePersonaLooks = looksStatus.data?.looks ?? persona.looks
+  const livePersonaLooks = persona.looks
 
   const allLooks = livePersonaLooks
   // Defensive: treat a look as ready if generationStatus="ready" OR if it already has an imageUrl
@@ -3452,6 +3455,24 @@ export default function Avatars() {
     }
   }, [config])
 
+  // Auto-deselect any looks that belong to HeyGen custom avatar groups.
+  // Those avatars are hidden from the UI so their look IDs must not stay in
+  // the selection — remove them whenever the mapping becomes known.
+  const myGroupIdSet = useMemo(() => new Set(myGroups.map(g => g.id)), [myGroups])
+  useEffect(() => {
+    if (!myGroupIdSet.size || !configInitialized.current) return
+    const toRemove = Array.from(selectedIds).filter(id => {
+      const gid = lookGroupMap[id]
+      return gid != null && myGroupIdSet.has(gid)
+    })
+    if (!toRemove.length) return
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      toRemove.forEach(id => next.delete(id))
+      return next
+    })
+  }, [myGroupIdSet, lookGroupMap]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Enable auto-save 400 ms after config first loads (avoids saving on init)
   useEffect(() => {
     if (!configInitialized.current) return
@@ -3728,100 +3749,41 @@ export default function Avatars() {
         {/* ── Mi Avatar tab ── */}
         <TabsContent value="my" className="space-y-6">
           <div className="flex items-center justify-between gap-3 flex-wrap">
-            <div className="flex items-center gap-2 flex-wrap">
-              <p className="text-sm text-muted-foreground">
-                Tus avatares personalizados creados desde una foto.
-              </p>
-              {selectedIds.size > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setShowOnlySelected(v => !v)}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border transition-colors
-                    ${showOnlySelected
-                      ? "bg-primary text-primary-foreground border-primary"
-                      : "bg-background text-muted-foreground border-border hover:border-primary/50 hover:text-foreground"
-                    }`}
-                >
-                  <CheckCircle2 className="w-3 h-3" />
-                  {showOnlySelected ? "Ver todos" : `Solo en uso (${selectedIds.size})`}
-                </button>
-              )}
-            </div>
+            <p className="text-sm text-muted-foreground">
+              Tus avatares AI generados con tu cara.
+            </p>
             <div className="flex gap-2">
-              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => refetchMy()} title="Actualizar">
-                <RefreshCw className="w-3.5 h-3.5" />
-              </Button>
               <Button variant="outline" size="sm" className="gap-1.5 border-violet-400/60 text-violet-700 dark:text-violet-300 hover:bg-violet-50 dark:hover:bg-violet-950/30" onClick={() => setShowWavespeedWizard(true)}>
                 <Sparkles className="w-4 h-4" />
-                Avatar AI
-              </Button>
-              <Button size="sm" className="gap-1.5" onClick={() => setShowCreation(true)}>
-                <Plus className="w-4 h-4" />
-                Crear avatar
+                Nuevo Avatar AI
               </Button>
             </div>
           </div>
 
-          {isLoadingMy ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-6">
-              {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="aspect-square rounded-xl" />)}
-            </div>
-          ) : myGroups.length === 0 && !pendingVideoJob && wavespeedPersonas.length === 0 ? (
-            /* Empty state — no avatars (HeyGen or WaveSpeed) and no job in flight */
+          {wavespeedPersonas.length === 0 ? (
+            /* Empty state — no WaveSpeed avatars yet */
             <div className="border-2 border-dashed rounded-2xl p-12 text-center flex flex-col items-center gap-4">
-              <div className="w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center">
-                <Video className="w-8 h-8 text-primary" />
+              <div className="w-16 h-16 bg-violet-100 dark:bg-violet-950/40 rounded-2xl flex items-center justify-center">
+                <Sparkles className="w-8 h-8 text-violet-600 dark:text-violet-400" />
               </div>
               <div>
-                <h3 className="text-lg font-bold font-display">Crea tu Digital Twin</h3>
+                <h3 className="text-lg font-bold font-display">Crea tu Avatar AI</h3>
                 <p className="text-muted-foreground text-sm mt-1 max-w-sm mx-auto">
-                  Graba un video corto hablando a cámara y HeyGen creará un avatar con tu voz, gestos e identidad visual — listo para Avatar V.
+                  Sube una foto tuya y la IA generará looks personalizados con tu cara para usar en tus videos.
                 </p>
               </div>
-              <div className="flex gap-2 mt-2">
-                <Button variant="outline" className="gap-2 border-violet-400/60 text-violet-700 dark:text-violet-300 hover:bg-violet-50 dark:hover:bg-violet-950/30" onClick={() => setShowWavespeedWizard(true)}>
-                  <Sparkles className="w-4 h-4" />
-                  Avatar AI
-                </Button>
-                <Button onClick={() => setShowCreation(true)} className="gap-2">
-                  <Plus className="w-4 h-4" />
-                  Crear mi Digital Twin
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground">Con "Avatar AI" generas looks con tu cara en segundos, sin grabar video</p>
-            </div>
-          ) : filteredMyGroups.length === 0 && !pendingVideoJob && wavespeedPersonas.length === 0 ? (
-            /* Empty state — filter active but no HeyGen or WaveSpeed matches */
-            <div className="text-center py-12 text-muted-foreground">
-              <CheckCircle2 className="w-10 h-10 mx-auto mb-3 opacity-30" />
-              <p className="text-sm font-medium">Ningún avatar propio en uso</p>
-              <button type="button" onClick={() => setShowOnlySelected(false)} className="mt-2 text-xs text-primary hover:underline">
-                Ver todos los avatares
-              </button>
+              <Button className="gap-2 border-violet-400/60 text-violet-700 dark:text-violet-300 bg-violet-50 dark:bg-violet-950/30 border hover:bg-violet-100 dark:hover:bg-violet-950/50" onClick={() => setShowWavespeedWizard(true)}>
+                <Sparkles className="w-4 h-4" />
+                Nuevo Avatar AI
+              </Button>
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-6">
-              {/* WaveSpeed AI persona cards */}
               {wavespeedPersonas.map((persona) => (
                 <WavespeedPersonaCard
                   key={`ws-${persona.id}`}
                   persona={persona}
                   onClick={() => setOpenWavespeedPersona(persona)}
-                />
-              ))}
-              {/* Pending Digital Twin card — visible until HeyGen finishes training */}
-              {pendingVideoJob && (
-                <PendingDigitalTwinCard
-                  job={pendingVideoJob}
-                  elapsedSeconds={pendingElapsedSeconds}
-                />
-              )}
-              {filteredMyGroups.map((group) => (
-                <AvatarGroupCard
-                  key={group.id}
-                  group={group}
-                  selectedCount={selectedByGroup.get(group.id) ?? 0}
-                  onClick={() => setOpenGroup({ group, isOwned: true })}
                 />
               ))}
             </div>
