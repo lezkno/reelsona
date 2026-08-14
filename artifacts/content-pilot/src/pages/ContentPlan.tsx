@@ -345,6 +345,21 @@ export default function ContentPlan() {
   const [avatarPickerItem, setAvatarPickerItem] = useState<ContentPlanItem | null>(null)
   const [avatarPickerTab, setAvatarPickerTab] = useState<"wavespeed" | "heygen">("heygen")
 
+  // Auto-select the correct tab whenever the picker opens for a new item.
+  // Cannot rely on Dialog onOpenChange(true) — Radix only fires that for
+  // internal triggers (DialogTrigger), not when the open prop changes externally.
+  useEffect(() => {
+    if (!avatarPickerItem) return
+    if (avatarPickerItem.wavespeed_look_id) {
+      setAvatarPickerTab("wavespeed")
+    } else if (avatarPickerItem.avatar_id) {
+      setAvatarPickerTab("heygen")
+    } else {
+      // No pinned avatar — default to WaveSpeed tab if looks are available
+      setAvatarPickerTab(wavespeedPickerLooks.length > 0 ? "wavespeed" : "heygen")
+    }
+  }, [avatarPickerItem?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // WaveSpeed personas — only looks that are selected and have an image
   const { data: wavespeedData } = useWavespeedPersonas()
   const wavespeedPersonas = wavespeedData?.personas ?? []
@@ -1136,7 +1151,6 @@ export default function ContentPlan() {
               {scriptModalItem?.topic && (
                 <span className="font-medium">{scriptModalItem.topic}</span>
               )}
-              {" — "}Revisa y edita el guion antes de enviarlo a HeyGen.
             </DialogDescription>
           </DialogHeader>
 
@@ -1274,12 +1288,7 @@ export default function ContentPlan() {
 
       <Dialog
         open={avatarPickerItem !== null}
-        onOpenChange={(open) => {
-          if (!open) setAvatarPickerItem(null)
-          // Auto-select tab based on the current avatar type when opening
-          else if (avatarPickerItem?.wavespeed_look_id) setAvatarPickerTab("wavespeed")
-          else setAvatarPickerTab(wavespeedPickerLooks.length > 0 && !avatarPickerItem?.avatar_id ? "wavespeed" : "heygen")
-        }}
+        onOpenChange={(open) => { if (!open) setAvatarPickerItem(null) }}
       >
         <DialogContent className="sm:max-w-2xl max-h-[85vh] flex flex-col gap-0 p-0 overflow-hidden">
           <DialogHeader className="px-6 pt-6 pb-4 shrink-0">
