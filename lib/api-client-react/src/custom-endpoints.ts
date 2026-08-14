@@ -996,6 +996,8 @@ export interface WavespeedVoiceRow {
   /** pending | ready | failed */
   status: string;
   errorMessage: string | null;
+  /** GCS object name of the source WAV — present when the voice was recorded in-app */
+  sourceAudioObjectName: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -1069,6 +1071,12 @@ export function useCloneWavespeedVoice() {
         { method: "POST", body: formData },
       ),
   });
+}
+
+/** Fetch a fresh 1-hour signed URL for playing back the source audio of a cloned voice. */
+export async function fetchVoicePlayUrl(voiceId: number): Promise<string> {
+  const data = await customFetch<{ url: string }>(`/api/wavespeed/voices/${voiceId}/play-url`);
+  return data.url;
 }
 
 /** List authenticated user's WaveSpeed voices. */

@@ -24,6 +24,7 @@ import {
   useWavespeedVoices,
   useDeleteWavespeedVoice,
   useGenerateWavespeedPersonaLooks,
+  fetchVoicePlayUrl,
   WAVESPEED_PERSONAS_KEY,
   type WavespeedPersonaWithLooks,
   type WavespeedLookRow,
@@ -3081,6 +3082,37 @@ export default function Avatars() {
   const deleteWavespeedVoice = useDeleteWavespeedVoice()
   const wavespeedVoices: WavespeedVoiceRow[] = wavespeedVoicesData?.voices ?? []
 
+  // ── Cloned voice playback ─────────────────────────────────────────────────
+  const [clonePlayingId, setClonePlayingId] = useState<number | null>(null)
+  const cloneAudioRef = useRef<HTMLAudioElement | null>(null)
+
+  const playClonedVoice = useCallback(async (voiceId: number) => {
+    // Toggle off if already playing this voice
+    if (clonePlayingId === voiceId) {
+      cloneAudioRef.current?.pause()
+      cloneAudioRef.current = null
+      setClonePlayingId(null)
+      return
+    }
+    // Stop any other voice
+    if (cloneAudioRef.current) {
+      cloneAudioRef.current.pause()
+      cloneAudioRef.current = null
+    }
+    setClonePlayingId(voiceId)
+    try {
+      const url = await fetchVoicePlayUrl(voiceId)
+      const audio = new Audio(url)
+      cloneAudioRef.current = audio
+      audio.onended = () => { setClonePlayingId(null); cloneAudioRef.current = null }
+      audio.onerror = () => { setClonePlayingId(null); cloneAudioRef.current = null }
+      audio.play().catch(() => { setClonePlayingId(null); cloneAudioRef.current = null })
+    } catch {
+      setClonePlayingId(null)
+      toast({ title: "No se pudo reproducir la voz", variant: "destructive" })
+    }
+  }, [clonePlayingId, toast])
+
   // Poll voices every 10 s when any cloned voice is still processing so the UI
   // updates automatically when HeyGen finishes without a manual refresh.
   const hasPendingVoices = (voices ?? []).some(
@@ -4098,6 +4130,19 @@ export default function Avatars() {
                           }
                         </p>
                       </div>
+                      {/* Play source audio — only for ready voices recorded in-app */}
+                      {v.status === "ready" && v.sourceAudioObjectName && (
+                        <Button
+                          size="sm" variant="ghost"
+                          className={`w-8 h-8 p-0 shrink-0 ${clonePlayingId === v.id ? "text-violet-600" : "text-violet-400 hover:text-violet-600"}`}
+                          onClick={() => playClonedVoice(v.id)}
+                          title={clonePlayingId === v.id ? "Pausar" : "Escuchar voz clonada"}
+                        >
+                          {clonePlayingId === v.id
+                            ? <Square className="w-3 h-3 fill-current" />
+                            : <Play className="w-3.5 h-3.5 fill-current" />}
+                        </Button>
+                      )}
                       <Button
                         size="sm" variant="ghost"
                         className="w-8 h-8 p-0 text-destructive hover:text-destructive shrink-0"

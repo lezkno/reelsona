@@ -23,6 +23,8 @@ export const wavespeedVoicesTable = pgTable("wavespeed_voices", {
   /** pending | ready | failed */
   status:             text("status").notNull().default("pending"),
   errorMessage:       text("error_message"),
+  /** GCS object name of the source WAV uploaded for cloning — used to regenerate play URLs */
+  sourceAudioObjectName: text("source_audio_object_name"),
   createdAt:          timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt:          timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

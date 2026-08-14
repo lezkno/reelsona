@@ -85,14 +85,14 @@ function gcsObjectNameFromPath(objectPath: string): string {
   return [dirPrefix, entityId].filter(Boolean).join("/");
 }
 
-/** Upload a Buffer directly to GCS and return a 24-hour signed URL. */
+/** Upload a Buffer directly to GCS and return a 24-hour signed URL + the object name. */
 async function uploadBufferAndSign(
   buffer: Buffer,
   contentType: string,
   subDir: string,
   ext?: string,   // optional file extension e.g. ".wav" — included in the object name
                   // so WaveSpeed can identify the format from the URL
-): Promise<string> {
+): Promise<{ url: string; objectName: string }> {
   const bucketName = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
   if (!bucketName) throw new Error("DEFAULT_OBJECT_STORAGE_BUCKET_ID not set");
   const privateDir = process.env.PRIVATE_OBJECT_DIR ?? "";
@@ -103,7 +103,8 @@ async function uploadBufferAndSign(
   const objectName = [dirPrefix, subDir, filename].filter(Boolean).join("/");
   const file = objectStorageClient.bucket(bucketName).file(objectName);
   await file.save(buffer, { contentType, resumable: false });
-  return getSignedObjectUrl(objectName, 24 * 3600);
+  const url = await getSignedObjectUrl(objectName, 24 * 3600);
+  return { url, objectName };
 }
 
 /**
@@ -465,7 +466,8 @@ router.post("/wavespeed/voices/clone", upload.single("audio"), async (req, res) 
     // WaveSpeed's minimax voice-clone API rejects webm/ogg by extension (code 2013)
     // but accepts WAV.  Converting server-side avoids any browser compatibility issues.
     const wavBuffer = await convertToWav(file.buffer);
-    const audioUrl = await uploadBufferAndSign(wavBuffer, "audio/wav", "wavespeed-voices", ".wav");
+    const { url: audioUrl, objectName: sourceAudioObjectName } =
+      await uploadBufferAndSign(wavBuffer, "audio/wav", "wavespeed-voices", ".wav");
 
     // Generate a unique custom_voice_id that satisfies WaveSpeed format rules:
     //   ≥ 8 chars, starts with a letter, contains both letters and numbers.
@@ -486,6 +488,7 @@ router.post("/wavespeed/voices/clone", upload.single("audio"), async (req, res) 
         wavespeedRequestId: requestId,
         wavespeedVoiceId: customVoiceId, // stored immediately; ready to use once status = "ready"
         status: "pending",
+        sourceAudioObjectName,           // for regenerating play URLs later
       })
       .returning();
 
@@ -510,6 +513,34 @@ router.get("/wavespeed/voices", async (req, res) => {
     res.json({ voices });
   } catch (err: any) {
     req.log.error({ err }, "[WaveSpeed] Failed to list voices");
+    res.status(500).json({ error: err.message ?? "Internal error" });
+  }
+});
+
+// ── GET /wavespeed/voices/:id/play-url ───────────────────────────────────────
+// Generates a fresh 1-hour signed URL for the original WAV recorded by the user.
+
+router.get("/wavespeed/voices/:id/play-url", async (req, res) => {
+  const userId = requireAuth(req, res);
+  if (!userId) return;
+
+  const voiceId = parseInt(req.params.id, 10);
+  if (isNaN(voiceId)) { res.status(400).json({ error: "Invalid voice ID" }); return; }
+
+  const [voice] = await db
+    .select()
+    .from(wavespeedVoicesTable)
+    .where(and(eq(wavespeedVoicesTable.id, voiceId), eq(wavespeedVoicesTable.userId, userId)))
+    .limit(1);
+
+  if (!voice) { res.status(404).json({ error: "Voice not found" }); return; }
+  if (!voice.sourceAudioObjectName) { res.status(404).json({ error: "No source audio stored for this voice" }); return; }
+
+  try {
+    const url = await getSignedObjectUrl(voice.sourceAudioObjectName, 3600);
+    res.json({ url });
+  } catch (err: any) {
+    req.log.error({ err }, "[WaveSpeed] Failed to generate play URL");
     res.status(500).json({ error: err.message ?? "Internal error" });
   }
 });
