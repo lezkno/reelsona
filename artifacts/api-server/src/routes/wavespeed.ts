@@ -98,34 +98,34 @@ async function uploadBufferAndSign(
 }
 
 // ── 5 look variation prompts ──────────────────────────────────────────────────
-// Each prompt preserves the person exactly as-is (face, clothing, expression)
-// and changes ONLY the environment / background around them.
+// Portrait / vertical 9:16 framing, different outfit for each scene.
+// Face identity must be preserved exactly; only outfit, setting, and lighting change.
 
 const LOOK_PROMPTS = [
   {
-    name: "Entorno profesional",
+    name: "Estudio de podcast",
     prompt:
-      "Keep the person exactly as they appear — same face, hair, clothes, and expression. Change only the background to a sleek modern office with large windows, soft natural light, and a clean desk visible behind them. Photorealistic.",
+      "Vertical portrait photo, 9:16 aspect ratio. Same person, same face and hair. Outfit: smart-casual shirt or blazer. Setting: professional podcast studio — acoustic foam panels on the walls, a large professional condenser microphone on a boom arm directly in front of the person, moody dim background lighting with a subtle LED ring glow. The person is looking straight at the camera, confident and relaxed. Photorealistic, sharp detail.",
   },
   {
-    name: "Entorno natural",
+    name: "Look profesional",
     prompt:
-      "Keep the person exactly as they appear — same face, hair, clothes, and expression. Change only the background to a lush green park on a sunny day, with trees, soft bokeh foliage, and warm golden-hour light. Photorealistic.",
+      "Vertical portrait photo, 9:16 aspect ratio. Same person, same face and hair. Outfit: tailored business suit or blazer with a collared shirt, polished and authoritative. Setting: modern glass-walled office, soft natural window light, clean minimalist background. Photorealistic, sharp detail.",
   },
   {
-    name: "Entorno urbano",
+    name: "Look casual exterior",
     prompt:
-      "Keep the person exactly as they appear — same face, hair, clothes, and expression. Change only the background to a vibrant city street at dusk, with blurred car lights, neon signs, and urban architecture. Photorealistic.",
+      "Vertical portrait photo, 9:16 aspect ratio. Same person, same face and hair. Outfit: relaxed casual — well-fitted jeans, a plain t-shirt or open shirt, comfortable and approachable. Setting: sunny urban street or park, golden-hour light, blurred green bokeh background. Photorealistic, sharp detail.",
   },
   {
-    name: "Entorno estudio",
+    name: "Look deportivo",
     prompt:
-      "Keep the person exactly as they appear — same face, hair, clothes, and expression. Change only the background to a clean professional photo studio: solid light-gray seamless backdrop, soft box lighting, neutral and polished. Photorealistic.",
+      "Vertical portrait photo, 9:16 aspect ratio. Same person, same face and hair. Outfit: modern athletic wear — fitted performance top, jogger pants or shorts, clean sports shoes. Setting: bright outdoor gym area or rooftop with city skyline, energetic natural light. Photorealistic, sharp detail.",
   },
   {
-    name: "Entorno hogareño",
+    name: "Look creativo",
     prompt:
-      "Keep the person exactly as they appear — same face, hair, clothes, and expression. Change only the background to a cozy, warmly lit living room with bookshelves, plants, and soft ambient lamp light. Photorealistic.",
+      "Vertical portrait photo, 9:16 aspect ratio. Same person, same face and hair. Outfit: stylish smart-casual creative look — layered textures, interesting accessories, expressive but not formal. Setting: artistic loft studio or urban concrete wall with subtle graffiti art, warm ambient lighting. Photorealistic, sharp detail.",
   },
 ];
 
