@@ -666,7 +666,6 @@ export async function applyCaptionsBrowser(
     // FFmpeg overlay to clip the PNG at 1280px — text at y=83% of 1920=1593px
     // is invisible. Probing and matching ensures pixel-perfect compositing.
     const videoInfo = await probeVideoInfo(videoPath);
-    const videoDims = { width: videoInfo.width, height: videoInfo.height };
     logger.info(videoInfo, "[BrowserEngine] Video dimensions probed");
 
     // ── 4. Gather word timings (moved before zoom — needed for punch-zoom detection)
@@ -682,16 +681,58 @@ export async function applyCaptionsBrowser(
       }
     }
 
-    if (wordTimings.length === 0 && script && opts?.videoDurationSeconds) {
-      wordTimings = buildFallbackTimings(script, opts.videoDurationSeconds);
-      logger.info({ count: wordTimings.length }, "[BrowserEngine] Proportional fallback timings built");
+    // Use opts duration when available; fall back to the ffprobe-measured duration so
+    // WaveSpeed videos (which have no HeyGen SRT and no explicit duration param)
+    // still get proportional word timings instead of failing here.
+    const durationForTimings = opts?.videoDurationSeconds ?? videoInfo.duration;
+    if (wordTimings.length === 0 && script && durationForTimings) {
+      wordTimings = buildFallbackTimings(script, durationForTimings);
+      logger.info({ count: wordTimings.length, source: opts?.videoDurationSeconds ? "opts" : "probe" }, "[BrowserEngine] Proportional fallback timings built");
     }
 
     if (wordTimings.length === 0) {
       return { url: null, error: "[BrowserEngine] No word timings available" };
     }
 
-    // ── 3c. Punch zoom pre-process (optional) ────────────────────────────────
+    // ── 3c. Resolution normalisation ─────────────────────────────────────────
+    // Captions are burned in at the source video's native resolution.
+    // Different pipelines (HeyGen = 720×1280, WaveSpeed infinitetalk = 352×640)
+    // produce different pixel sizes for the same proportional font size — the
+    // text is correctly scaled relative to the frame, but at 352×640 the
+    // absolute stroke width is half that of a 720×1280 video, making captions
+    // look visibly thinner and smaller when both videos play at full-screen.
+    // Upscaling to 720×1280 before compositing gives every pipeline the same
+    // minimum caption quality regardless of source resolution.
+    const MIN_CAPTION_HEIGHT = 720;
+    let captionSourcePath = videoPath;
+    if (videoInfo.height < MIN_CAPTION_HEIGHT) {
+      const scaleFactor = MIN_CAPTION_HEIGHT / videoInfo.height;
+      // Keep aspect ratio; H.264 needs even dimensions
+      const normW = Math.round(videoInfo.width  * scaleFactor / 2) * 2;
+      const normH = Math.round(videoInfo.height * scaleFactor / 2) * 2;
+      const normPath = path.join(tmpDir, "normalized.mp4");
+      logger.info(
+        { from: `${videoInfo.width}×${videoInfo.height}`, to: `${normW}×${normH}` },
+        "[BrowserEngine] Upscaling video to normalise caption resolution",
+      );
+      await execFileAsync("ffmpeg", [
+        "-i", videoPath,
+        "-vf", `scale=${normW}:${normH}:flags=lanczos`,
+        "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+        "-c:a", "aac", "-b:a", "192k",
+        "-movflags", "+faststart",
+        "-y", normPath,
+      ], { maxBuffer: 500 * 1024 * 1024 });
+      captionSourcePath = normPath;
+      // Re-probe so all downstream steps (zoom args, canvas size) use new dims
+      const normInfo = await probeVideoInfo(normPath);
+      videoInfo.width  = normInfo.width;
+      videoInfo.height = normInfo.height;
+      videoInfo.fps    = normInfo.fps;
+      logger.info({ normW, normH }, "[BrowserEngine] Resolution normalised ✓");
+    }
+
+    // ── 3d. Punch zoom pre-process (optional) ────────────────────────────────
     // Quick zoom-in toward the avatar's face at the most impactful sentences:
     //   • 0.35 s ramp in (1.0× → 1.4×)
     //   • 2.3 s hold at peak zoom
@@ -699,7 +740,6 @@ export async function applyCaptionsBrowser(
     // Total: ~3 s per event, typically 2-3 events per video.
     // Uses zoompan with t-based expressions so timing is driven by real PTS,
     // not a fragile frame counter.
-    let captionSourcePath = videoPath;
     if (opts?.videoEffects?.zoom && script) {
       const punchTs   = await findPunchZoomTimestampsAI(script, wordTimings, videoInfo.duration, opts?.openaiApiKey);
       const punchArgs = buildPunchZoomArgs(punchTs, videoInfo.duration, videoInfo.width, videoInfo.height);
@@ -707,7 +747,7 @@ export async function applyCaptionsBrowser(
         const zoomedPath = path.join(tmpDir, "zoomed.mp4");
         logger.info({ punchTs }, "[BrowserEngine] Applying punch zoom at timestamps");
         await execFileAsync("ffmpeg", [
-          "-i", videoPath,
+          "-i", captionSourcePath,   // ← use normalised path, not raw videoPath
           ...punchArgs,
           "-c:v", "libx264", "-preset", "fast", "-crf", "21",
           "-c:a", "aac", "-b:a", "192k",
@@ -808,7 +848,7 @@ export async function applyCaptionsBrowser(
         const msPerStep   = zoomDur / ZOOM_STEPS.length;
 
         for (let s = 0; s < ZOOM_STEPS.length - 1; s++) {
-          const subPng  = await renderCueFrame(canvas, template, cue, videoDims.width, videoDims.height, undefined, ZOOM_STEPS[s]);
+          const subPng  = await renderCueFrame(canvas, template, cue, videoInfo.width, videoInfo.height, undefined, ZOOM_STEPS[s]);
           const subPath = path.join(tmpDir, `cue_${String(i).padStart(4, "0")}_z${s}.png`);
           await fs.writeFile(subPath, subPng);
           segments.push({
@@ -818,7 +858,7 @@ export async function applyCaptionsBrowser(
           });
         }
         // Full-size frame held for the rest of the cue
-        const fullPng  = await renderCueFrame(canvas, template, cue, videoDims.width, videoDims.height);
+        const fullPng  = await renderCueFrame(canvas, template, cue, videoInfo.width, videoInfo.height);
         const fullPath = path.join(tmpDir, `cue_${String(i).padStart(4, "0")}.png`);
         await fs.writeFile(fullPath, fullPng);
         segments.push({
@@ -833,7 +873,7 @@ export async function applyCaptionsBrowser(
         const msPerWord  = Math.min(80, cueDur / (numWords * 2));
 
         for (let w = 1; w < numWords; w++) {
-          const subPng  = await renderCueFrame(canvas, template, cue, videoDims.width, videoDims.height, w);
+          const subPng  = await renderCueFrame(canvas, template, cue, videoInfo.width, videoInfo.height, w);
           const subPath = path.join(tmpDir, `cue_${String(i).padStart(4, "0")}_w${w}.png`);
           await fs.writeFile(subPath, subPng);
           segments.push({
@@ -844,7 +884,7 @@ export async function applyCaptionsBrowser(
         }
 
         // Full cue held for the rest of the window's duration
-        const fullPng  = await renderCueFrame(canvas, template, cue, videoDims.width, videoDims.height);
+        const fullPng  = await renderCueFrame(canvas, template, cue, videoInfo.width, videoInfo.height);
         const fullPath = path.join(tmpDir, `cue_${String(i).padStart(4, "0")}.png`);
         await fs.writeFile(fullPath, fullPng);
         segments.push({
@@ -854,7 +894,7 @@ export async function applyCaptionsBrowser(
         });
       } else {
         // Standard: one PNG per cue
-        const png     = await renderCueFrame(canvas, template, cue, videoDims.width, videoDims.height);
+        const png     = await renderCueFrame(canvas, template, cue, videoInfo.width, videoInfo.height);
         const pngPath = path.join(tmpDir, `cue_${String(i).padStart(4, "0")}.png`);
         await fs.writeFile(pngPath, png);
         segments.push({
@@ -918,9 +958,9 @@ export async function applyCaptionsBrowser(
         const inLabel  = `[cap${i}]`;
         const outLabel = i < batch.length - 1 ? `[ov${i}]` : "[out]";
         extraInputs.push("-i", pngPath);
-        // PNG was rendered at videoDims.width × videoDims.height — scale is a no-op
+        // PNG was rendered at videoInfo.width × videoInfo.height — scale is a no-op
         // but we keep it explicit so any resize from a re-encode round-trip is corrected.
-        filterParts.push(`[${i + 1}:v]scale=${videoDims.width}:${videoDims.height}${inLabel}`);
+        filterParts.push(`[${i + 1}:v]scale=${videoInfo.width}:${videoInfo.height}${inLabel}`);
         filterParts.push(
           `${prevLabel}${inLabel}overlay=0:0:enable='between(t,${relStart},${relEnd})'${outLabel}`,
         );
