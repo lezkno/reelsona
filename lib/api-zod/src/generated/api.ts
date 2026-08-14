@@ -291,6 +291,7 @@ export const GetContentPlanResponseItem = zod.object({
   "script": zod.string().nullish(),
   "cta": zod.string().nullish(),
   "avatar_id": zod.string().nullish(),
+  "wavespeed_look_id": zod.number().nullish(),
   "voice_id": zod.string().nullish(),
   "caption": zod.string().nullish(),
   "hashtags": zod.string().nullish(),
