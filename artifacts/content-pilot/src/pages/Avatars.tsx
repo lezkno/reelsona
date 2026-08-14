@@ -18,6 +18,7 @@ import {
   useWavespeedPersonas,
   useDeleteWavespeedPersona,
   usePatchWavespeedLook,
+  useWavespeedPersonaLooksStatus,
   WAVESPEED_PERSONAS_KEY,
   type WavespeedPersonaWithLooks,
   type WavespeedLookRow,
@@ -2418,6 +2419,31 @@ function AvatarGroupCard({
   )
 }
 
+// ── LazyLookImage — shimmer skeleton + fade-in for WaveSpeed look images ──────
+
+function LazyLookImage({ src, alt }: { src: string; alt: string }) {
+  const [loaded, setLoaded] = useState(false)
+  const [error, setError] = useState(false)
+  return (
+    <div className="relative w-full h-full">
+      {!loaded && !error && <div className="absolute inset-0 bg-muted animate-pulse" />}
+      {error ? (
+        <div className="absolute inset-0 bg-muted flex items-center justify-center">
+          <AlertCircle className="w-5 h-5 text-destructive/50" />
+        </div>
+      ) : (
+        <img
+          src={src}
+          alt={alt}
+          className={`w-full h-full object-cover transition-opacity duration-300 ${loaded ? "opacity-100" : "opacity-0"}`}
+          onLoad={() => setLoaded(true)}
+          onError={() => setError(true)}
+        />
+      )}
+    </div>
+  )
+}
+
 // ── WavespeedPersonaCard ──────────────────────────────────────────────────────
 
 function WavespeedPersonaCard({
@@ -2506,7 +2532,18 @@ function WavespeedPersonaDialog({
   const [deleting, setDeleting] = useState(false)
   const [saving, setSaving] = useState(false)
 
-  const readyLooks = persona.looks.filter((l) => {
+  // Poll status so looks with null imageUrl (from previous broken poll runs)
+  // are recovered automatically when the dialog opens.
+  const hasNullImageUrl = persona.looks.some((l) => {
+    try {
+      const cfg = JSON.parse(l.config ?? "{}") as { generationStatus?: string }
+      return cfg.generationStatus === "ready" && !l.imageUrl
+    } catch { return false }
+  })
+  const looksStatus = useWavespeedPersonaLooksStatus(persona.id, hasNullImageUrl)
+  const livePersonaLooks = looksStatus.data?.looks ?? persona.looks
+
+  const readyLooks = livePersonaLooks.filter((l) => {
     try {
       return (JSON.parse(l.config ?? "{}") as { generationStatus?: string }).generationStatus === "ready"
     } catch {
@@ -2614,7 +2651,7 @@ function WavespeedPersonaDialog({
                         ${isSelected ? "border-primary ring-2 ring-primary/30" : "border-border hover:border-primary/40"}`}
                     >
                       {look.imageUrl ? (
-                        <img src={look.imageUrl} alt={look.name} className="w-full h-full object-cover" loading="lazy" />
+                        <LazyLookImage src={look.imageUrl} alt={look.name} />
                       ) : (
                         <div className="w-full h-full bg-muted flex items-center justify-center">
                           <ImageIcon className="w-6 h-6 text-muted-foreground" />

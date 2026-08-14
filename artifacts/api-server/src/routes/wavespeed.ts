@@ -311,8 +311,12 @@ router.get("/wavespeed/personas/:id/looks/status", async (req, res) => {
           cfg = {};
         }
 
-        // Only poll if still pending
-        if (cfg.generationStatus !== "pending" || !cfg.requestId) {
+        // Poll if pending, OR if marked ready but imageUrl is still null
+        // (can happen when previous polling runs extracted the URL incorrectly).
+        const needsPoll =
+          (cfg.generationStatus === "pending" && !!cfg.requestId) ||
+          (cfg.generationStatus === "ready" && !look.imageUrl && !!cfg.requestId);
+        if (!needsPoll) {
           return look;
         }
 
@@ -323,21 +327,22 @@ router.get("/wavespeed/personas/:id/looks/status", async (req, res) => {
             "[WaveSpeed] Poll look job response",
           );
           if (result.status === "completed") {
-            const outputs = result.outputs ?? {};
-            // Try all known WaveSpeed output shapes:
-            //   images: string[]   (common for image models)
-            //   image: string
-            //   url: string
-            //   images: {url:string}[]  (some models return objects)
-            const imagesArr = outputs["images"];
-            const rawUrl: string | undefined =
-              (Array.isArray(imagesArr)
-                ? typeof imagesArr[0] === "string"
-                  ? (imagesArr[0] as string)
-                  : (imagesArr[0] as any)?.url
-                : undefined) ??
-              (outputs["image"] as string | undefined) ??
-              (outputs["url"] as string | undefined);
+            const outputs = result.outputs;
+            // WaveSpeed returns outputs as a plain string[] (e.g. [cloudfront_url]).
+            // Fall back to object shapes for future-proofing.
+            let rawUrl: string | undefined;
+            if (Array.isArray(outputs)) {
+              rawUrl = typeof outputs[0] === "string" ? outputs[0] : (outputs[0] as any)?.url;
+            } else if (outputs && typeof outputs === "object") {
+              const obj = outputs as Record<string, unknown>;
+              const imagesArr = obj["images"];
+              rawUrl =
+                (Array.isArray(imagesArr)
+                  ? typeof imagesArr[0] === "string" ? imagesArr[0] : (imagesArr[0] as any)?.url
+                  : undefined) ??
+                (obj["image"] as string | undefined) ??
+                (obj["url"] as string | undefined);
+            }
             const imageUrl = rawUrl ?? null;
             req.log.info({ lookId: look.id, imageUrl }, "[WaveSpeed] Look completed, imageUrl resolved");
             cfg.generationStatus = "ready";

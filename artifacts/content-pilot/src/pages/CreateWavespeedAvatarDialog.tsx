@@ -97,6 +97,35 @@ async function analyzeAudioBlob(blob: Blob): Promise<AudioQualityResult> {
 
 const TELEPROMPTER = `Hola, mi nombre es [tu nombre] y soy experto en [tu área de expertise]. Hoy quiero hablarte sobre algo que puede transformar completamente la forma en que ves [tu tema]. Durante años he trabajado con personas como tú, ayudándolas a lograr [resultado concreto]. Lo más importante que he aprendido es que el éxito no llega por casualidad, sino a través de estrategias claras y acción consistente. Si estás buscando dar el siguiente paso y realmente comprometerte con tus metas, entonces este mensaje es para ti. Comencemos juntos este camino hacia el cambio. Estoy aquí para guiarte en cada etapa del proceso y asegurarme de que llegues a donde quieres estar.`
 
+// ── LazyLookImage — skeleton while loading, fade-in on ready ─────────────────
+
+function LazyLookImage({ src, alt, className = "" }: { src: string; alt: string; className?: string }) {
+  const [loaded, setLoaded] = useState(false)
+  const [error, setError] = useState(false)
+  return (
+    <div className="relative w-full h-full">
+      {/* Shimmer skeleton shown until image loads */}
+      {!loaded && !error && (
+        <div className="absolute inset-0 bg-muted animate-pulse" />
+      )}
+      {error ? (
+        <div className="absolute inset-0 bg-muted flex items-center justify-center">
+          <AlertCircle className="w-5 h-5 text-destructive/50" />
+        </div>
+      ) : (
+        <img
+          src={src}
+          alt={alt}
+          className={`w-full h-full object-cover transition-opacity duration-300 ${loaded ? "opacity-100" : "opacity-0"} ${className}`}
+          onLoad={() => setLoaded(true)}
+          onError={() => setError(true)}
+          loading="eager"
+        />
+      )}
+    </div>
+  )
+}
+
 // ── Main component ─────────────────────────────────────────────────────────────
 
 type WizardStep = "photo" | "generating" | "select" | "voice" | "done"
@@ -630,7 +659,7 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
                 return (
                   <div key={l.id} className="aspect-[3/4] rounded-lg overflow-hidden border-2 border-border bg-muted flex items-center justify-center">
                     {l.imageUrl ? (
-                      <img src={l.imageUrl} alt={l.name} className="w-full h-full object-cover" />
+                      <LazyLookImage src={l.imageUrl} alt={l.name} />
                     ) : status === "failed" ? (
                       <AlertCircle className="w-5 h-5 text-destructive/60" />
                     ) : (
@@ -691,7 +720,7 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
                     ${isSelected ? "border-primary ring-2 ring-primary/30" : "border-border hover:border-primary/40"}`}
                 >
                   {look.imageUrl ? (
-                    <img src={look.imageUrl} alt={look.name} className="w-full h-full object-cover" />
+                    <LazyLookImage src={look.imageUrl} alt={look.name} />
                   ) : (
                     <div className="w-full h-full bg-muted flex items-center justify-center">
                       <ImageIcon className="w-6 h-6 text-muted-foreground" />

@@ -115,6 +115,8 @@ export async function submitJob(
 
 /**
  * Poll the status of a previously submitted job.
+ * WaveSpeed v3 result endpoint: GET /api/v3/predictions/{task-id}/result
+ * https://wavespeed.ai/docs/get-result
  */
 export async function getJobStatus(
   requestId: string,
@@ -122,7 +124,7 @@ export async function getJobStatus(
 ): Promise<WavespeedJobResult> {
   return wavespeedFetch<WavespeedJobResult>(
     "GET",
-    `/api/v3/outputs/${requestId}`,
+    `/api/v3/predictions/${requestId}/result`,
     undefined,
     apiKey,
   );
