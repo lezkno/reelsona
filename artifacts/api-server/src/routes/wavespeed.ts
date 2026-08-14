@@ -117,16 +117,6 @@ const LOOK_PROMPTS = [
     prompt:
       "Vertical portrait photo, 9:16 aspect ratio. Same person, same face and hair. Outfit: relaxed casual — well-fitted jeans, a plain t-shirt or open shirt, comfortable and approachable. Setting: sunny urban street or park, golden-hour light, blurred green bokeh background. Photorealistic, sharp detail.",
   },
-  {
-    name: "Look deportivo",
-    prompt:
-      "Vertical portrait photo, 9:16 aspect ratio. Same person, same face and hair. Outfit: modern athletic wear — fitted performance top, jogger pants or shorts, clean sports shoes. Setting: bright outdoor gym area or rooftop with city skyline, energetic natural light. Photorealistic, sharp detail.",
-  },
-  {
-    name: "Look creativo",
-    prompt:
-      "Vertical portrait photo, 9:16 aspect ratio. Same person, same face and hair. Outfit: stylish smart-casual creative look — layered textures, interesting accessories, expressive but not formal. Setting: artistic loft studio or urban concrete wall with subtle graffiti art, warm ambient lighting. Photorealistic, sharp detail.",
-  },
 ];
 
 // ── GET /wavespeed/status ─────────────────────────────────────────────────────

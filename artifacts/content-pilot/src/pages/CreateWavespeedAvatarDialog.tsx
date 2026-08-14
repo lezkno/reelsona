@@ -458,7 +458,7 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
           Foto de referencia
         </DialogTitle>
         <DialogDescription>
-          Sube una foto tuya o tómate una selfie. La IA usará tu rostro para generar 5 looks diferentes.
+          Sube una foto tuya o tómate una selfie. La IA usará tu rostro para generar 3 looks diferentes.
         </DialogDescription>
       </DialogHeader>
 
@@ -646,14 +646,14 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
 
           <div className="space-y-1.5">
             <div className="flex justify-between text-sm text-muted-foreground">
-              <span>{readyCount}/{looks.length || 5} looks generados</span>
+              <span>{readyCount}/{looks.length || 3} looks generados</span>
               <span>{pct}%</span>
             </div>
             <Progress value={pct} />
           </div>
 
           {looks.length > 0 && (
-            <div className="grid grid-cols-5 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               {looks.map((l) => {
                 let cfg: { generationStatus?: string } = {}
                 try { cfg = JSON.parse(l.config ?? "{}") } catch { cfg = {} }
