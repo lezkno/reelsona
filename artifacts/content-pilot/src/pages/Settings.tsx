@@ -639,7 +639,7 @@ export default function Settings() {
       {/* ── Ajustes de Video ── */}
       <Card>
         <CardHeader>
-          <CardTitle>Ajustes de Video (HeyGen)</CardTitle>
+          <CardTitle>Ajustes de Video</CardTitle>
           <CardDescription>Preferencias para la generación de avatares.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">

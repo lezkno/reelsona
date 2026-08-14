@@ -1115,7 +1115,7 @@ function CloneVoiceDialog({ onClose, onCloned }: { onClose: () => void; onCloned
 
   const RequirementsList = () => (
     <div className="rounded-lg border bg-muted/30 px-3 py-2.5">
-      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Requisitos de HeyGen</p>
+      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Requisitos de audio</p>
       <div className="grid grid-cols-2 gap-x-3 gap-y-1">
         {HEYGEN_VOICE_REQUIREMENTS.map((req, i) => (
           <div key={i} className="flex items-start gap-1.5">
@@ -2033,7 +2033,7 @@ function AvatarCreationDialog({
                   )}
 
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    HeyGen tardará 10–20 min en crear tu Digital Twin.
+                    Esto tardará 10–20 min en crear tu Digital Twin.
                   </p>
                 </div>
               )}
@@ -2239,7 +2239,7 @@ function AvatarCreationDialog({
               <DialogTitle>Creando tu avatar…</DialogTitle>
               <DialogDescription>
                 {mode === "video"
-                  ? "HeyGen está entrenando tu Digital Twin. Esto puede tardar entre 10 y 20 minutos."
+                  ? "Tu Digital Twin está siendo entrenado. Esto puede tardar entre 10 y 20 minutos."
                   : mode === "photo"
                     ? "El sistema está procesando tu foto. Esto puede tardar entre 1 y 5 minutos."
                     : "La inteligencia artificial está generando tu avatar. Esto puede tardar unos minutos."}
@@ -4391,7 +4391,7 @@ export default function Avatars() {
                         )}
                         <p className="text-xs text-muted-foreground">
                           {v.status === "pending"
-                            ? "HeyGen está procesando el audio…"
+                            ? "Procesando el audio…"
                             : v.status === "failed"
                               ? "El procesamiento falló — intenta clonar de nuevo"
                               : `Clonada · ${v.gender === "male" ? "Masculina" : v.gender === "female" ? "Femenina" : "Voz clonada"}`

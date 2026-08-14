@@ -631,41 +631,49 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
     }
 
     // ── Avatar reservation (BEFORE AI call) ─────────────────────────────────
-    // Pick the avatar and advance lastUsedAvatarId in the DB immediately so
-    // that a second concurrent cycle (cron + manual trigger) reads the updated
-    // value and does NOT pick the same avatar.  Previously this write happened
-    // after the ~30-60 s AI call, which is the window where duplicates occur.
-    const storedAvatarValid =
-      draft.avatarId && avatarCfg.selectedAvatarIds.includes(draft.avatarId);
-    const avatarId = storedAvatarValid
-      ? draft.avatarId!
-      : pickNextAvatar(
-          avatarCfg.selectedAvatarIds,
-          avatarCfg.lastUsedAvatarId,
-          avatarCfg.rotationStrategy,
-          avatarCfg.avatarUsageCount as Record<string, number>
+    // WaveSpeed items: the user already pinned a WaveSpeed look, so skip the
+    // HeyGen avatar reservation entirely — picking a HeyGen avatar here would
+    // overwrite the user's explicit choice and could cause the wrong pipeline
+    // to fire if the WaveSpeed context is unavailable at generation time.
+    let avatarId: string | null = null;
+    let voiceId: string | null | undefined = null;
+    if (!draft.wavespeedLookId) {
+      // HeyGen path — pick and persist avatar NOW (before the AI call) so a
+      // concurrent cycle can't pick the same avatar.
+      const storedAvatarValid =
+        draft.avatarId && avatarCfg.selectedAvatarIds.includes(draft.avatarId);
+      avatarId = storedAvatarValid
+        ? draft.avatarId!
+        : pickNextAvatar(
+            avatarCfg.selectedAvatarIds,
+            avatarCfg.lastUsedAvatarId,
+            avatarCfg.rotationStrategy,
+            avatarCfg.avatarUsageCount as Record<string, number>
+          );
+      if (!storedAvatarValid && draft.avatarId) {
+        logger.warn(
+          { removedAvatarId: draft.avatarId, newAvatarId: avatarId },
+          "Stored avatarId is no longer in the active selection — re-picking from current list"
         );
-    if (!storedAvatarValid && draft.avatarId) {
-      logger.warn(
-        { removedAvatarId: draft.avatarId, newAvatarId: avatarId },
-        "Stored avatarId is no longer in the active selection — re-picking from current list"
+      }
+      if (!storedAvatarValid) {
+        await db
+          .update(avatarConfigTable)
+          .set({ lastUsedAvatarId: avatarId, updatedAt: new Date() })
+          .where(eq(avatarConfigTable.id, avatarCfg.id));
+        avatarCfg.lastUsedAvatarId = avatarId;
+      }
+    } else {
+      logger.info(
+        { itemId: draft.id, wavespeedLookId: draft.wavespeedLookId },
+        "WaveSpeed look pinned on draft — skipping HeyGen avatar reservation"
       );
-    }
-    // Persist the reservation immediately (only needed when rotation picked a
-    // new avatar — pre-assigned drafts keep whatever was last used).
-    if (!storedAvatarValid) {
-      await db
-        .update(avatarConfigTable)
-        .set({ lastUsedAvatarId: avatarId, updatedAt: new Date() })
-        .where(eq(avatarConfigTable.id, avatarCfg.id));
-      avatarCfg.lastUsedAvatarId = avatarId;
     }
 
     // ── AI script generation ──────────────────────────────────────────────────
     // Wrapped in try/catch: if the AI call throws, reset the item back to
     // "draft" so it isn't left stranded in "scripting" forever.
     let scriptResult: Awaited<ReturnType<typeof generateScript>>;
-    let voiceId: string | null | undefined;
     try {
       const auditInsights = await getLatestAuditCache().catch(() => null);
       scriptResult = await generateScript(
@@ -686,8 +694,10 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
           customCta: settings.customCta,
         },
       );
-      // Always re-resolve from current voice_overrides — draft.voiceId may be stale.
-      voiceId = (await resolveVoiceId(avatarId, heygenApiKey, userId)) ?? draft.voiceId;
+      // Resolve voice only for HeyGen items — WaveSpeed voice is in its own ctx.
+      if (!draft.wavespeedLookId) {
+        voiceId = (await resolveVoiceId(avatarId, heygenApiKey, userId)) ?? draft.voiceId;
+      }
     } catch (err) {
       // Reset to draft so the next cycle can retry.
       await db
@@ -705,6 +715,8 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
     // The atomic claim above moved the item to "scripting", so no other cycle
     // can touch it.  We only guard against the item having been manually reset
     // or deleted while the AI was running (extremely rare).
+    // For WaveSpeed items, do NOT overwrite avatarId/voiceId — the user's
+    // wavespeedLookId is the authoritative pipeline selector and must be preserved.
     const scriptWritten = await db
       .update(contentPlanItemsTable)
       .set({
@@ -713,8 +725,7 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
         cta: scriptResult.cta,
         caption: scriptResult.caption,
         hashtags: scriptResult.hashtags,
-        avatarId,
-        voiceId,
+        ...(!draft.wavespeedLookId && { avatarId, voiceId }),
         status: "scripted",
         hookCandidates: scriptResult.hook_candidates.length > 0 ? JSON.stringify(scriptResult.hook_candidates) : null,
         hookSelectionReason: scriptResult.hook_selection_reason || null,
@@ -734,15 +745,14 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
     contentItem = {
       ...draft,
       status: "scripted",
-      avatarId,
-      voiceId,
+      ...(!draft.wavespeedLookId && { avatarId, voiceId }),
       hook: scriptResult.hook,
       script: scriptResult.script,
       cta: scriptResult.cta,
       caption: scriptResult.caption,
       hashtags: scriptResult.hashtags,
     };
-    logger.info({ itemId: draft.id, avatarId }, "Script generated for draft item");
+    logger.info({ itemId: draft.id, avatarId, wavespeedLookId: draft.wavespeedLookId }, "Script generated for draft item");
   }
 
   if (!contentItem) {
@@ -765,6 +775,18 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
   if (contentItem.wavespeedLookId) {
     // User manually pinned a WaveSpeed look — force WaveSpeed, bypass HeyGen backfill.
     wavespeedCtx = await getWavespeedContext(userId, contentItem.wavespeedLookId);
+    if (!wavespeedCtx) {
+      // The pinned look is unavailable (no voice assigned, no image, or persona deleted).
+      // Do NOT fall back to HeyGen silently — the user made an explicit choice.
+      logger.error(
+        { itemId: contentItem.id, wavespeedLookId: contentItem.wavespeedLookId },
+        "WaveSpeed look pinned on item but getWavespeedContext returned null — aborting to avoid wrong pipeline"
+      );
+      return {
+        success: false,
+        message: "El look de WaveSpeed seleccionado no está disponible. Asegúrate de que tenga una voz asignada y una imagen generada.",
+      };
+    }
   } else {
     // HeyGen path (manual pick or auto-rotation) — run the HeyGen backfill first.
     // Backfill missing avatar/voice so scripted items never get stuck.

@@ -1826,7 +1826,7 @@ export default function CaptionStudio() {
           title: enabled ? "Captions activados" : "Captions desactivados",
           description: enabled
             ? "Los próximos videos recibirán captions dinámicos antes de publicarse."
-            : "Los videos se publicarán con el video original de HeyGen.",
+            : "Los videos se publicarán con el video original generado.",
         })
       },
       onError: () => {
@@ -1886,8 +1886,8 @@ export default function CaptionStudio() {
               <p className="font-bold text-base">{captionsEnabled ? "Captions activados" : "Captions desactivados"}</p>
               <p className="text-sm text-muted-foreground max-w-md">
                 {captionsEnabled
-                  ? "Los próximos videos recibirán captions dinámicos antes de publicarse. Si el render falla, se usa el video original de HeyGen."
-                  : "Los videos se publican directamente desde HeyGen sin capa de captions."}
+                  ? "Los próximos videos recibirán captions dinámicos antes de publicarse. Si el render falla, se usa el video original generado."
+                  : "Los videos se publican sin capa de captions."}
               </p>
             </div>
           </div>
@@ -2208,7 +2208,7 @@ export default function CaptionStudio() {
             <div>
               <p className="font-bold text-base">Efectos de video</p>
               <p className="text-sm text-muted-foreground max-w-md">
-                Se aplican automáticamente a cada video después de que HeyGen termina de renderizar. Los cambios afectan los próximos videos.
+                Se aplican automáticamente a cada video después de que termina de renderizarse. Los cambios afectan los próximos videos.
               </p>
             </div>
           </div>

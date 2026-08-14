@@ -106,7 +106,7 @@ export default function PrivacyPolicy() {
                 se envían a OpenAI; aplicamos políticas de uso responsable de la API.
               </li>
               <li>
-                <strong>HeyGen Inc.</strong> — generación de videos con avatar digital. Los guiones se envían
+                <strong>Proveedor de IA</strong> — generación de videos con avatar digital. Los guiones se envían
                 para la producción de videos.
               </li>
               <li>

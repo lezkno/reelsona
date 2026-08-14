@@ -436,21 +436,75 @@ async function fetchAllLooks(apiKey?: string): Promise<FlatLook[]> {
 }
 
 router.get("/heygen/looks", async (req, res): Promise<void> => {
-  const apiKey = await getUserHeyGenKey(req.session.user!.userId);
+  const userId = req.session.user!.userId;
+  const apiKey = await getUserHeyGenKey(userId);
   const prefix = looksKeyPrefix(apiKey);
   const cached = looksCacheByKey.get(prefix);
+
+  // Step 1 — private group looks (cached per API key)
+  let privateLooks: FlatLook[];
   if (cached && Date.now() - cached.at < LOOKS_CACHE_TTL) {
-    res.json(GetHeyGenAllLooksResponse.parse(cached.data));
+    privateLooks = cached.data;
+  } else {
+    // Single-flight per API key: coalesce concurrent refreshes (~20 HeyGen calls each)
+    let fetch = looksFetchByKey.get(prefix);
+    if (!fetch) {
+      fetch = fetchAllLooks(apiKey).finally(() => { looksFetchByKey.delete(prefix); });
+      looksFetchByKey.set(prefix, fetch);
+    }
+    privateLooks = await fetch;
+  }
+
+  // Step 2 — augment with selected public avatar looks not present in private groups.
+  // fetchAllLooks uses include_public:false so selected public avatars are missing;
+  // we resolve them via avatar_look_metadata (populated on config save).
+  const [avatarCfg] = await db.select({ selectedAvatarIds: avatarConfigTable.selectedAvatarIds })
+    .from(avatarConfigTable).where(eq(avatarConfigTable.userId, userId)).limit(1);
+  const selectedIds: string[] = avatarCfg?.selectedAvatarIds ?? [];
+
+  const privateIdSet = new Set(privateLooks.map(l => l.id));
+  const missingIds = selectedIds.filter(id => !privateIdSet.has(id));
+
+  if (missingIds.length === 0) {
+    res.json(GetHeyGenAllLooksResponse.parse(privateLooks));
     return;
   }
-  // Single-flight per API key: coalesce concurrent refreshes (~20 HeyGen calls each)
-  let fetch = looksFetchByKey.get(prefix);
-  if (!fetch) {
-    fetch = fetchAllLooks(apiKey).finally(() => { looksFetchByKey.delete(prefix); });
-    looksFetchByKey.set(prefix, fetch);
+
+  // Map look IDs → group IDs using the metadata table
+  const rawMissingIds = missingIds.map(id => id.startsWith("tp:") ? id.slice(3) : id);
+  const metadata = await db
+    .select({ lookId: avatarLookMetadataTable.lookId, groupId: avatarLookMetadataTable.groupId })
+    .from(avatarLookMetadataTable)
+    .where(and(eq(avatarLookMetadataTable.userId, userId), inArray(avatarLookMetadataTable.lookId, rawMissingIds)));
+
+  const groupIds = [...new Set(metadata.map(m => m.groupId).filter((g): g is string => g != null))];
+  if (groupIds.length === 0) {
+    res.json(GetHeyGenAllLooksResponse.parse(privateLooks));
+    return;
   }
-  const all = await fetch;
-  res.json(GetHeyGenAllLooksResponse.parse(all));
+
+  // Fetch looks from each public group (one API call per group, usually 1-3 groups)
+  const publicResults = await Promise.allSettled(
+    groupIds.map(async (gid) => {
+      const { looks } = await listV3GroupLooks(gid, undefined, apiKey);
+      return looks
+        .filter(l => !privateIdSet.has(l.id))
+        .map(l => ({
+          id: l.id,
+          name: l.name,
+          image_url: l.preview_image_url ?? null,
+          group_name: l.name,
+          group_id: gid,
+          is_talking_photo: l.is_talking_photo,
+        } satisfies FlatLook));
+    })
+  );
+
+  const publicLooks: FlatLook[] = publicResults
+    .filter((r): r is PromiseFulfilledResult<FlatLook[]> => r.status === "fulfilled")
+    .flatMap(r => r.value);
+
+  res.json(GetHeyGenAllLooksResponse.parse([...privateLooks, ...publicLooks]));
 });
 
 /**

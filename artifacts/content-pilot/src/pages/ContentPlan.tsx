@@ -258,6 +258,11 @@ export default function ContentPlan() {
           if (result.hook_candidates?.length) setHookCandidates(result.hook_candidates)
           if (result.hook_selection_reason) setHookSelectionReason(result.hook_selection_reason)
           setScriptGenerating(false)
+          // Auto-save the generated script so reopening the modal doesn't regenerate it
+          updateItem.mutate(
+            { id: boundItemId, data: { hook: result.hook, script: result.script, cta: result.cta } },
+            { onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetContentPlanQueryKey() }) }
+          )
         },
         onError: (err: any) => {
           if (scriptGenerationItemIdRef.current !== boundItemId) return
@@ -283,7 +288,7 @@ export default function ContentPlan() {
               onSuccess: () => {
                 setScriptModalItem(null)
                 setScriptDraft(null)
-                toast({ title: "Video Generándose", description: "HeyGen está creando el video. Esto puede tardar unos minutos." })
+                toast({ title: "Video Generándose", description: "Tu video está siendo creado. Esto puede tardar unos minutos." })
                 queryClient.invalidateQueries({ queryKey: getGetContentPlanQueryKey() })
                 queryClient.invalidateQueries({ queryKey: getGetVideosQueryKey() })
               },
@@ -1277,7 +1282,7 @@ export default function ContentPlan() {
               onClick={handleApproveAndGenerate}
             >
               {updateItem.isPending || generateVideo.isPending ? (
-                <><Loader2 className="w-4 h-4 animate-spin" /> Enviando a HeyGen…</>
+                <><Loader2 className="w-4 h-4 animate-spin" /> Generando video…</>
               ) : (
                 <><Video className="w-4 h-4" /> Aprobar y generar video</>
               )}
@@ -1424,7 +1429,7 @@ export default function ContentPlan() {
             <DialogDescription className="text-xs">
               {previewItem?.caption_status === "done"
                 ? "Con captions aplicados"
-                : "Video generado por HeyGen"}
+                : "Video generado"}
             </DialogDescription>
           </DialogHeader>
           {previewItem && (() => {

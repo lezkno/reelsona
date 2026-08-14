@@ -45,7 +45,7 @@ export default function TermsAndConditions() {
             </p>
             <ul className="list-disc pl-5 space-y-1 mt-2">
               <li>Generar guiones para videos con inteligencia artificial.</li>
-              <li>Crear videos con avatares digitales mediante la API de HeyGen.</li>
+              <li>Crear videos con avatares digitales mediante IA.</li>
               <li>Programar y publicar Reels de Instagram de manera automática.</li>
               <li>Analizar el rendimiento de su cuenta de Instagram.</li>
             </ul>

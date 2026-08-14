@@ -140,9 +140,9 @@ const globalStyles = `
 
 const autopilotSteps = [
   { n: "01", title: "Configura tu estrategia", desc: "Defines tu nicho, audiencia y tono una sola vez. El sistema genera el plan de temas del mes." },
-  { n: "02", title: "Conecta tus herramientas", desc: "Enlazas HeyGen, OpenAI e Instagram. Un solo paso de configuración." },
+  { n: "02", title: "Conecta tus herramientas", desc: "Enlazas tu IA e Instagram. Un solo paso de configuración." },
   { n: "03", title: "El sistema genera los guiones", desc: "IA produce scripts optimizados para avatar y Reels, listos para revisar o aprobar automáticamente." },
-  { n: "04", title: "Tu avatar graba y se edita", desc: "HeyGen produce el video con tu clon digital. Reelsona aplica captions y edición visual." },
+  { n: "04", title: "Tu avatar graba y se edita", desc: "La IA produce el video con tu clon digital. Reelsona aplica captions y edición visual." },
   { n: "05", title: "Se publica sin que hagas nada", desc: "Los Reels se programan y publican en Instagram en los horarios que configuraste." },
 ];
 
@@ -157,7 +157,7 @@ const forWhom = [
 const programIncludes = [
   "7 módulos completos con 23 clases en video",
   "Módulo 1 — Fundamentos de la máquina de contenido con avatar",
-  "Módulo 2 — Configuración técnica esencial (HeyGen, OpenAI, Instagram)",
+  "Módulo 2 — Configuración técnica esencial (IA, Instagram)",
   "Módulo 3 — Estrategia antes de crear contenido",
   "Módulo 4 — Crear los primeros Reels con tu avatar",
   "Módulo 5 — Captions, edición y calidad",
@@ -171,7 +171,7 @@ const programIncludes = [
 const toolsIncludes = [
   "Estudio de mercado con análisis de competidores",
   "Generador de temas y guiones con IA para Reels",
-  "Producción de videos con tu avatar en HeyGen",
+  "Producción de videos con tu avatar",
   "Caption Studio con plantillas visuales",
   "Publicación programada en Instagram",
   "Modo Autopilot — el sistema ejecuta todo el pipeline",
@@ -179,15 +179,15 @@ const toolsIncludes = [
 
 const notJustAiToolItems = [
   { wrong: "No es ChatGPT con un prompt para captions", right: "Es un sistema que conecta estrategia, guión, producción, edición y publicación en un flujo continuo" },
-  { wrong: "No es un editor de video más", right: "Los videos salen listos de HeyGen con captions aplicados — sin que abras ningún editor" },
+  { wrong: "No es un editor de video más", right: "Los videos salen listos con captions aplicados — sin que abras ningún editor" },
   { wrong: "No es un programador de posts", right: "La publicación es la última etapa de un sistema que empieza desde la idea" },
-  { wrong: "No es una plataforma genérica para crear avatares", right: "Te guiamos a crear tu avatar en HeyGen paso a paso — y luego Reelsona es la capa operativa" },
+  { wrong: "No es una plataforma genérica para crear avatares", right: "Te guiamos a crear tu avatar paso a paso — y luego Reelsona es la capa operativa" },
 ];
 
 const faqs = [
-  { q: "¿Reelsona es una herramienta para crear avatares?", a: "No. Reelsona no crea avatares ni compite con HeyGen. Es el sistema que usa tu avatar para automatizar todo el proceso: estrategia, guiones, producción del video, captions y publicación." },
-  { q: "¿Qué herramientas externas necesito?", a: "Para generar los videos necesitarás cuentas en HeyGen y OpenAI. Sus costos no están incluidos en Reelsona — te guiamos a configurarlas desde cero." },
-  { q: "¿Necesito tener un avatar en HeyGen antes de empezar?", a: "No. Puedes entrar sin avatar y sin cuenta de HeyGen. La ruta guiada dentro de Reelsona te explica exactamente cómo crear tu avatar de forma efectiva — desde la grabación hasta tenerlo listo para producir contenido." },
+  { q: "¿Reelsona es una herramienta para crear avatares?", a: "No. Reelsona no crea avatares digitales por sí sola. Es el sistema que usa tu avatar para automatizar todo el proceso: estrategia, guiones, producción del video, captions y publicación." },
+  { q: "¿Qué herramientas externas necesito?", a: "Para generar los videos necesitarás una cuenta de IA. Sus costos no están incluidos en Reelsona — te guiamos a configurarlas desde cero." },
+  { q: "¿Necesito tener un avatar antes de empezar?", a: "No. Puedes entrar sin avatar. La ruta guiada dentro de Reelsona te explica exactamente cómo crear tu avatar de forma efectiva — desde la grabación hasta tenerlo listo para producir contenido." },
   { q: "¿Cómo funciona el modo Autopilot?", a: "Cuando tienes tu estrategia, herramientas y preferencias configuradas, Autopilot ejecuta el pipeline completo: genera guiones, produce los videos con tu avatar, aplica captions y los publica en Instagram según el calendario que definiste." },
   { q: "¿Necesito saber editar videos?", a: "No. El sistema genera los videos completos con tu avatar y captions incluidos. No necesitas abrir ningún editor de video." },
   { q: "¿Tengo que grabarme frente a una cámara?", a: "No. Tu avatar IA habla por ti en cada Reel. Tú defines la estrategia y el guión — el sistema produce el video." },
@@ -338,7 +338,7 @@ export default function Landing() {
                 ))}
               </div>
               <p style={{ fontSize: "0.72rem", color: "#363636", marginTop: "0.9rem" }}>
-                Funciona con HeyGen y OpenAI · Costos independientes · Te guiamos paso a paso
+                Funciona con IA · Costos independientes · Te guiamos paso a paso
               </p>
             </div>
 
@@ -493,7 +493,7 @@ export default function Landing() {
                     {[
                       { Icon: Brain,     t: "Estrategia de 30 días generada automáticamente" },
                       { Icon: Bot,       t: "IA escribe guiones optimizados para Reels" },
-                      { Icon: Play,      t: "Avatar graba el video en HeyGen" },
+                      { Icon: Play,      t: "Avatar graba el video con IA" },
                       { Icon: Instagram, t: "Publicado con captions en Instagram" },
                     ].map(({ Icon, t }) => (
                       <div key={t} style={{ position: "relative", zIndex: 1, display: "flex", gap: "0.85rem", alignItems: "center", padding: "0.85rem 1rem", borderRadius: 12, background: "linear-gradient(90deg,rgba(79,110,247,0.08),rgba(79,110,247,0.02))", border: "1px solid rgba(79,110,247,0.15)" }}>
@@ -524,7 +524,7 @@ export default function Landing() {
         <div className="mx-auto" style={{ maxWidth: 1040 }}>
           <div className="text-center reveal-up" style={{ marginBottom: "3rem" }}>
             <h2 style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "clamp(1.75rem,4vw,2.6rem)", fontWeight: 800, letterSpacing: "-0.025em", lineHeight: 1.15, marginBottom: "1.25rem" }}>
-              "HeyGen crea el video.{" "}
+              "La IA crea el video.{" "}
               <span style={{ background: "linear-gradient(135deg,#4F6EF7,#9B5CF6)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>
                 Reelsona crea el sistema."
               </span>
@@ -543,7 +543,7 @@ export default function Landing() {
                   {["#333","#333","#333"].map((c,i) => <div key={i} style={{ width: 12, height: 12, borderRadius: "9999px", backgroundColor: c }} />)}
                 </div>
                 <div className="flex gap-1" style={{ overflowX: "auto" }}>
-                  {["Content Pipeline","Script Editor","HeyGen Config"].map((tab, i) => (
+                  {["Content Pipeline","Script Editor","Configuración"].map((tab, i) => (
                     <div key={tab} style={{ padding: "0.3rem 0.9rem", borderRadius: 8, fontSize: "0.78rem", fontWeight: 600, backgroundColor: i === 0 ? "rgba(255,255,255,0.07)" : "transparent", color: i === 0 ? "#e0e0e0" : "#555", whiteSpace: "nowrap" }}>{tab}</div>
                   ))}
                 </div>
@@ -756,7 +756,7 @@ export default function Landing() {
                 <div style={{ height: 10, backgroundColor: "#0a0a0a", borderRadius: 999, overflow: "hidden" }}>
                   <div style={{ height: "100%", width: "4%", background: "linear-gradient(90deg,#4F6EF7,#9B5CF6)", borderRadius: 999, boxShadow: "0 0 8px #4F6EF7" }} />
                 </div>
-                <p style={{ fontSize: "0.75rem", color: "#444", marginTop: "0.75rem" }}>*Requiere cuentas de HeyGen y OpenAI con costos independientes.</p>
+                <p style={{ fontSize: "0.75rem", color: "#444", marginTop: "0.75rem" }}>*Requiere cuentas de IA con costos independientes.</p>
               </div>
             </div>
           </div>
@@ -884,7 +884,7 @@ export default function Landing() {
               <div style={{ marginTop: "1.25rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
                 <div style={{ backgroundColor: "rgba(255,255,255,0.02)", border: "1px solid #1a1a1a", borderRadius: 10, padding: "0.75rem 1rem" }}>
                   <p style={{ fontSize: "0.72rem", color: "#3a3a3a", lineHeight: 1.65, margin: 0 }}>
-                    <span style={{ color: "#555", fontWeight: 700 }}>Costos externos:</span> HeyGen y OpenAI tienen sus propios planes y costos, no incluidos en los $47. Te guiamos a configurarlos en el módulo 2.
+                    <span style={{ color: "#555", fontWeight: 700 }}>Costos externos:</span> Las herramientas de IA tienen sus propios planes y costos, no incluidos en los $47. Te guiamos a configurarlos en el módulo 2.
                   </p>
                 </div>
                 <p style={{ color: "#2a2a2a", fontSize: "0.72rem", textAlign: "center", margin: 0 }}>Recibirás un email de activación al completar el pago.</p>

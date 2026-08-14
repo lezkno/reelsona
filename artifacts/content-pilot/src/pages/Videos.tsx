@@ -61,7 +61,7 @@ function VideoPreviewModal({ video, onClose }: { video: Video | null; onClose: (
       open={!!video}
       onClose={onClose}
       title={video?.topic ?? `Video #${video?.id}`}
-      subtitle={video?.captioned_video_url ? "Con captions aplicados" : "Video generado por HeyGen"}
+      subtitle={video?.captioned_video_url ? "Con captions aplicados" : "Video generado"}
       headerIcon={Eye}
       videoSrc={video?.captioned_video_url}
       fallbackSrc={video?.video_url}
@@ -322,7 +322,7 @@ export default function Videos() {
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl sm:text-4xl font-display font-bold tracking-tight">Librería de Videos</h1>
-          <p className="text-muted-foreground mt-1 text-sm sm:text-lg">Todos los Reels generados por HeyGen.</p>
+          <p className="text-muted-foreground mt-1 text-sm sm:text-lg">Todos los Reels generados.</p>
         </div>
 
         {videos && videos.length > 0 && (
