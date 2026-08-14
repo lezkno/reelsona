@@ -17,7 +17,7 @@ import {
   ScheduleVideoResponse,
 } from "@workspace/api-zod";
 import { generateVideo, fetchAvatarPreviewImage } from "../lib/heygen";
-import { publishVideoToInstagram, pickNextAvatar, resolveVoiceId, runCaptionProcessing } from "../lib/scheduler";
+import { publishVideoToInstagram, pickNextAvatar, resolveVoiceId, runCaptionProcessing, runAutomationCycle } from "../lib/scheduler";
 import { generateBrandCover } from "../lib/brand-cover";
 import { logger } from "../lib/logger";
 
@@ -120,6 +120,44 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
     res.status(409).json({
       error: `Ya hay un video en proceso: "${alreadyGenerating.topic}". Espera a que termine antes de crear otro.`,
     });
+    return;
+  }
+
+  // ── WaveSpeed branch ──────────────────────────────────────────────────────
+  // When the user manually selected a WaveSpeed look on this item, bypass the
+  // HeyGen path entirely and delegate to the scheduler's pipeline selector.
+  // The scheduler already handles avatar/voice resolution, video-row creation,
+  // WaveSpeed API submission, caption processing, and error recovery for this
+  // pipeline — duplicating any of that logic here would create a second bug surface.
+  if (item.wavespeedLookId) {
+    runAutomationCycle(userId, item.id).catch((err) => {
+      logger.error({ itemId: item.id, err }, "[/videos/generate] WaveSpeed runAutomationCycle failed");
+    });
+    // Return schema-compliant 202 immediately — the scheduler updates DB state
+    // asynchronously; the frontend polls via getContentPlan to track progress.
+    const now = new Date().toISOString();
+    res.status(202).json(GenerateVideoResponse.parse({
+      id: 0,
+      content_plan_id: item.id,
+      heygen_video_id: null,
+      topic: item.topic,
+      avatar_id: null,
+      status: "generating",
+      video_url: null,
+      thumbnail_url: null,
+      ig_media_id: null,
+      ig_permalink: null,
+      error_message: null,
+      duration_seconds: null,
+      captioned_video_url: null,
+      caption_status: null,
+      video_effects: null,
+      created_at: now,
+      updated_at: now,
+      published_at: null,
+      scheduled_publish_at: null,
+      thumbnail_cover_url: null,
+    }));
     return;
   }
 

@@ -527,7 +527,21 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
     }
   }
 
-  if (!avatarCfg?.selectedAvatarIds?.length) {
+  // For targeted runs of WaveSpeed items the HeyGen avatar requirement does not
+  // apply — WaveSpeed uses its own persona/look/voice system.  Check if the
+  // target item is pinned to a WaveSpeed look before applying the guard so that
+  // users who configured WaveSpeed but have no HeyGen avatars are not blocked.
+  let targetItemIsWaveSpeed = false;
+  if (targetItemId !== undefined) {
+    const [targetRow] = await db
+      .select({ wavespeedLookId: contentPlanItemsTable.wavespeedLookId })
+      .from(contentPlanItemsTable)
+      .where(eq(contentPlanItemsTable.id, targetItemId))
+      .limit(1);
+    targetItemIsWaveSpeed = !!targetRow?.wavespeedLookId;
+  }
+
+  if (!targetItemIsWaveSpeed && !avatarCfg?.selectedAvatarIds?.length) {
     logger.warn({ userId }, "Automation cycle aborted: no avatars configured");
     return { success: false, message: "No avatars configured" };
   }
