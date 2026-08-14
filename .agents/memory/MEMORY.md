@@ -34,4 +34,5 @@
 - [Digital Twin creation pipeline](digital-twin-creation.md) — mr.mimeType="text/plain" in Replit Chromium; FFmpeg compress >20MB before /v3/assets; POST /v3/avatars needs type:"digital_twin" not "video".
 - [WaveSpeed polling endpoint](wavespeed-polling-endpoint.md) — GET /api/v3/predictions/{id}/result (not /outputs/ or /status/); outputs is string[] not {images:[]}; poll must stay enabled in "select" step too.
 - [WaveSpeed video resolution quirks](wavespeed-video-resolution.md) — infinitetalk-fast outputs 352×640 (not 9:16); use probed duration for timings; upscale to ≥720px before caption compositing.
+- [WaveSpeed caption sync via Whisper](wavespeed-caption-sync.md) — Whisper transcribes TTS audio after TTS completes → word-level SRT in Object Storage → saved to heygenSubtitleUrl → caption engine uses it like HeyGen SRT.
 - [WaveSpeed voice clone audio format](wavespeed-voice-format.md) — minimax/voice-clone rejects webm/ogg (error 2013); convert to 16 kHz mono WAV with ffmpeg server-side and upload with .wav extension so WaveSpeed can identify by URL.

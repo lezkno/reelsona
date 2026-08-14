@@ -1000,6 +1000,10 @@ export interface WavespeedVoiceRow {
   sourceAudioObjectName: string | null;
   /** Cached WaveSpeed CDN URL for a short TTS preview clip */
   previewAudioUrl: string | null;
+  /** TTS speed multiplier passed to minimax. null = default (1.0). Range: 0.5–1.5 */
+  speed: number | null;
+  /** Voice pitch shift in semitones passed to minimax. null = default (0). Range: -12 to +12 */
+  pitch: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -1167,6 +1171,35 @@ export function usePatchWavespeedLook() {
               looks: p.looks.map((l) => (l.id === updatedLook.id ? updatedLook : l)),
             })),
           };
+        },
+      );
+    },
+  });
+}
+
+/**
+ * Save speed and/or pitch tuning for a WaveSpeed cloned voice.
+ * Automatically busts the cached preview so the next play regenerates with new settings.
+ */
+export function useUpdateWavespeedVoice() {
+  const qc = useQueryClient();
+  return useMutation<
+    { voice: WavespeedVoiceRow },
+    Error,
+    { id: number; speed?: number | null; pitch?: number | null }
+  >({
+    mutationFn: ({ id, speed, pitch }) =>
+      customFetch<{ voice: WavespeedVoiceRow }>(`/api/wavespeed/voices/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ speed, pitch }),
+      }),
+    onSuccess: ({ voice: updated }) => {
+      qc.setQueryData<{ voices: WavespeedVoiceRow[] }>(
+        ["wavespeed", "voices"],
+        (old) => {
+          if (!old) return old;
+          return { voices: old.voices.map((v) => (v.id === updated.id ? updated : v)) };
         },
       );
     },

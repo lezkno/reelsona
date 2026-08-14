@@ -135,19 +135,58 @@ export async function getJobStatus(
 // ── Model-specific helpers ────────────────────────────────────────────────────
 
 /**
+ * Default motion prompt for infinitetalk-fast.
+ *
+ * The model accepts a free-text `prompt` that steers pose, expression, and
+ * body behaviour.  Without it the avatar tends to stay nearly static; with
+ * it we get natural upper-body movement that looks much more engaging on
+ * social media.
+ *
+ * Keep this concise — the model reads it as a style directive, not a script.
+ */
+export const TALKING_HEAD_DEFAULT_PROMPT =
+  "Natural upper body movement with expressive gestures and slight head turns. " +
+  "Dynamic presenter energy: torso sway, occasional hand movement, engaged eye contact. " +
+  "Professional content creator speaking directly to camera.";
+
+/**
  * Submit a talking-head video job (wavespeed-ai/infinitetalk-fast).
+ *
+ * Documented parameters:
+ *   image      — portrait image URL (required)
+ *   audio      — speech audio URL (required)
+ *   prompt     — natural-language style/motion directive (optional; defaults to TALKING_HEAD_DEFAULT_PROMPT)
+ *   mask_image — optional mask that isolates the person to animate
+ *   seed       — integer seed; -1 = random (optional)
+ *
  * @param imageUrl  Portrait image URL (the face to animate)
  * @param audioUrl  Speech audio URL to drive lip-sync
+ * @param opts      Optional overrides for prompt, maskImage, seed
  */
 export async function submitTalkingHead(
   imageUrl: string,
   audioUrl: string,
+  opts?: {
+    prompt?:    string;
+    maskImage?: string;
+    seed?:      number;
+  },
   apiKey?: string,
 ): Promise<{ requestId: string; status: string }> {
+  const prompt    = opts?.prompt    ?? TALKING_HEAD_DEFAULT_PROMPT;
+  const maskImage = opts?.maskImage;
+  const seed      = opts?.seed      ?? -1;
+
   // WaveSpeed infinitetalk-fast uses "image" and "audio" (not image_url / audio_url)
   return submitJob(
     WAVESPEED_MODELS.TALKING_HEAD,
-    { image: imageUrl, audio: audioUrl },
+    {
+      image: imageUrl,
+      audio: audioUrl,
+      prompt,
+      seed,
+      ...(maskImage ? { mask_image: maskImage } : {}),
+    },
     apiKey,
   );
 }
@@ -156,17 +195,18 @@ export async function submitTalkingHead(
  * Submit a text-to-speech job (minimax/speech-2.6-turbo).
  * @param text     Script to synthesize
  * @param voiceId  WaveSpeed voice id (from a completed clone job or preset)
+ * @param opts     Optional voice tuning: speed (0.5–1.5) and pitch in semitones (-12 to +12)
  */
 export async function submitSpeech(
   text: string,
   voiceId: string,
   apiKey?: string,
+  opts?: { speed?: number; pitch?: number },
 ): Promise<{ requestId: string; status: string }> {
-  return submitJob(
-    WAVESPEED_MODELS.SPEECH,
-    { text, voice_id: voiceId },
-    apiKey,
-  );
+  const inputs: Record<string, unknown> = { text, voice_id: voiceId };
+  if (opts?.speed != null && opts.speed !== 1.0) inputs.speed  = opts.speed;
+  if (opts?.pitch != null && opts.pitch !== 0)   inputs.pitch  = Math.round(opts.pitch);
+  return submitJob(WAVESPEED_MODELS.SPEECH, inputs, apiKey);
 }
 
 /**

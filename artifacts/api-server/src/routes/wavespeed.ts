@@ -144,21 +144,26 @@ async function convertToWav(inputBuffer: Buffer): Promise<Buffer> {
 // Face identity must be preserved exactly; only outfit, setting, and lighting change.
 // "Profesional" is the default/primary look.
 
+// NOTE ON FRAMING — "both hands visible" is intentional and critical:
+// The talking-head model (infinitetalk-fast) can only animate what exists in the
+// source image. If the portrait crops at the shoulders the avatar will be nearly
+// static. Half-body framing with hands in frame gives the model natural hand and
+// arm movement to work with, producing a much more engaging talking-head video.
 const LOOK_PROMPTS = [
   {
     name: "Profesional",
     prompt:
-      "same person, RAW DSLR photograph, shot on 85mm f/1.4 prime lens, professional studio portrait, modern clean office background, business casual outfit, confident and trustworthy, vertical 9:16, natural soft lighting, natural skin texture with visible pores, no plastic smoothing, no AI artifacts, no digital retouching, authentic candid expression, photojournalistic quality, film grain",
+      "same person, RAW DSLR photograph, shot on 85mm f/1.4 prime lens, professional studio portrait, half-body shot from waist up with both hands naturally visible, modern clean office background, business casual outfit, confident and trustworthy, vertical 9:16, natural soft lighting, natural skin texture with visible pores, no plastic smoothing, no AI artifacts, no digital retouching, authentic candid expression, photojournalistic quality, film grain",
   },
   {
     name: "Cercano",
     prompt:
-      "same person, RAW DSLR photograph, shot on 85mm f/1.4 prime lens, warm lifestyle portrait, cozy home office or cafe background, casual polished outfit, approachable and friendly, vertical 9:16, warm natural window light, natural skin texture with visible pores, no plastic smoothing, no AI artifacts, no digital retouching, authentic candid expression, photojournalistic quality, film grain",
+      "same person, RAW DSLR photograph, shot on 85mm f/1.4 prime lens, warm lifestyle portrait, half-body shot from waist up with both hands naturally visible, cozy home office or cafe background, casual polished outfit, approachable and friendly, vertical 9:16, warm natural window light, natural skin texture with visible pores, no plastic smoothing, no AI artifacts, no digital retouching, authentic candid expression, photojournalistic quality, film grain",
   },
   {
     name: "Dinámico",
     prompt:
-      "same person, RAW DSLR photograph, shot on 85mm f/1.4 prime lens, creator studio portrait, modern content creator set, subtle colorful background lights, stylish casual outfit, energetic and charismatic, vertical 9:16, mixed practical lighting, natural skin texture with visible pores, no plastic smoothing, no AI artifacts, no digital retouching, authentic candid expression, photojournalistic quality, film grain",
+      "same person, RAW DSLR photograph, shot on 85mm f/1.4 prime lens, creator studio portrait, half-body shot from waist up with both hands naturally visible, modern content creator set, subtle colorful background lights, stylish casual outfit, energetic and charismatic, vertical 9:16, mixed practical lighting, natural skin texture with visible pores, no plastic smoothing, no AI artifacts, no digital retouching, authentic candid expression, photojournalistic quality, film grain",
   },
 ];
 
@@ -749,11 +754,14 @@ router.post("/wavespeed/personas/:id/looks/generate", async (req, res) => {
     pose?: "half_body" | "close_up" | "full_body";
   };
 
-  // Pose framing prefix injected into every prompt
+  // Pose framing prefix injected into every prompt.
+  // "both hands naturally visible" is intentional — infinitetalk-fast can only
+  // animate what exists in the source image, so hands must be in frame for the
+  // talking-head video to show natural arm/hand movement.
   const POSE_PREFIX: Record<string, string> = {
-    half_body: "Half-body framing (from the waist up).",
-    close_up: "Close-up framing (from the chest up, face prominent).",
-    full_body: "Full-body framing (entire body visible).",
+    half_body: "Half-body framing (from the waist up), both hands and arms naturally visible in frame.",
+    close_up:  "Close-up framing (from the chest up, face prominent). Upper arms visible if possible.",
+    full_body:  "Full-body framing (entire body visible, hands and arms clearly in frame).",
   };
   const posePrefix = POSE_PREFIX[pose ?? "half_body"] ?? POSE_PREFIX.half_body;
 
@@ -836,13 +844,49 @@ router.post("/wavespeed/personas/:id/looks/generate", async (req, res) => {
   }
 });
 
+// ── PATCH /wavespeed/voices/:id ───────────────────────────────────────────────
+// Save voice tuning settings (speed and/or pitch) for a WaveSpeed cloned voice.
+// Clears the cached previewAudioUrl so the next play regenerates with new settings.
+
+router.patch("/wavespeed/voices/:id", async (req, res) => {
+  const userId = requireAuth(req, res);
+  if (!userId) return;
+
+  const voiceId = parseInt(req.params.id, 10);
+  if (isNaN(voiceId)) { res.status(400).json({ error: "Invalid voice ID" }); return; }
+
+  const { speed, pitch } = (req.body ?? {}) as { speed?: number | null; pitch?: number | null };
+
+  try {
+    const updateFields: Record<string, unknown> = { previewAudioUrl: null, updatedAt: new Date() };
+    if (speed !== undefined) updateFields.speed  = speed;
+    if (pitch !== undefined) updateFields.pitch  = pitch;
+
+    const [updated] = await db
+      .update(wavespeedVoicesTable)
+      .set(updateFields)
+      .where(and(eq(wavespeedVoicesTable.id, voiceId), eq(wavespeedVoicesTable.userId, userId)))
+      .returning();
+
+    if (!updated) { res.status(404).json({ error: "Voice not found" }); return; }
+
+    res.json({ voice: updated });
+  } catch (err: any) {
+    req.log.error({ err }, "[WaveSpeed] Failed to update voice settings");
+    res.status(500).json({ error: err.message ?? "Internal error" });
+  }
+});
+
 // ── GET /wavespeed/voices/:id/preview ─────────────────────────────────────────
 // Returns a playable audio URL for any ready WaveSpeed cloned voice.
 //
-//  • Fast path A: cached previewAudioUrl (stored from a previous call)
-//  • Fast path B: original source audio signed URL (voices recorded in-app)
-//  • Slow path:   generate a short TTS clip via WaveSpeed, poll until ready,
-//                 cache the URL in DB, return it (~5-15 s on first call)
+//  • Fast path:  cached previewAudioUrl (busted by PATCH when speed/pitch change)
+//  • Slow path:  generate a short TTS clip using the cloned voice + saved tuning,
+//                poll until ready, cache the URL in DB, return it (~5-15 s first call)
+//
+// NOTE: The original source audio fast-path was intentionally removed.
+// Returning the raw recording is misleading — it sounds like the user's human voice,
+// not the AI clone, so they cannot hear if the clone sounds right or how tuning applies.
 
 const VOICE_PREVIEW_TEXT =
   "Hola, esta es mi voz clonada con inteligencia artificial. ¿Cómo suena?";
@@ -866,20 +910,19 @@ router.get("/wavespeed/voices/:id/preview", async (req, res) => {
       res.status(400).json({ error: "Voice is not ready yet" }); return;
     }
 
-    // Fast path A — already cached
+    // Fast path — already cached (cache cleared by PATCH when speed/pitch change)
     if (voice.previewAudioUrl) {
       res.json({ url: voice.previewAudioUrl }); return;
     }
 
-    // Fast path B — original recording in GCS
-    if (voice.sourceAudioObjectName) {
-      const url = await getSignedObjectUrl(voice.sourceAudioObjectName, 3600);
-      res.json({ url }); return;
-    }
-
-    // Slow path — generate TTS preview
-    req.log.info({ voiceId }, "[WaveSpeed] Generating TTS preview for voice");
-    const { requestId } = await submitSpeech(VOICE_PREVIEW_TEXT, voice.wavespeedVoiceId);
+    // Slow path — synthesise with the cloned voice at configured speed/pitch.
+    req.log.info({ voiceId, speed: voice.speed, pitch: voice.pitch }, "[WaveSpeed] Generating TTS preview for voice");
+    const { requestId } = await submitSpeech(
+      VOICE_PREVIEW_TEXT,
+      voice.wavespeedVoiceId,
+      undefined,
+      { speed: voice.speed ?? undefined, pitch: voice.pitch ?? undefined },
+    );
 
     // Poll up to 45 s (15 × 3 s)
     let audioUrl: string | null = null;

@@ -24,6 +24,7 @@ import {
   useWavespeedVoices,
   useWavespeedVoiceStatus,
   useDeleteWavespeedVoice,
+  useUpdateWavespeedVoice,
   useGenerateWavespeedPersonaLooks,
   fetchVoicePreview,
   WAVESPEED_PERSONAS_KEY,
@@ -3172,6 +3173,7 @@ export default function Avatars() {
   const { data: voices, isLoading: isLoadingVoices, refetch: refetchVoices } = useGetHeyGenVoices()
   const { data: wavespeedVoicesData, refetch: refetchWavespeedVoices } = useWavespeedVoices()
   const deleteWavespeedVoice = useDeleteWavespeedVoice()
+  const updateWsVoiceMut = useUpdateWavespeedVoice()
   const wavespeedVoices: WavespeedVoiceRow[] = wavespeedVoicesData?.voices ?? []
 
   // ── Cloned voice playback ─────────────────────────────────────────────────
@@ -3213,6 +3215,62 @@ export default function Avatars() {
       toast({ title: "No se pudo reproducir la voz", variant: "destructive" })
     }
   }, [clonePlayingId, toast])
+
+  // ── WaveSpeed voice tuning (speed 0.5–1.5, pitch in semitones -12 to +12) ─
+  const [wsEditVoiceId,  setWsEditVoiceId]  = useState<number | null>(null)
+  const [wsSpeedValue,   setWsSpeedValue]   = useState(1.0)
+  const [wsPitchValue,   setWsPitchValue]   = useState(0)
+  const [wsTuningPlayId, setWsTuningPlayId] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (!wsEditVoiceId) { stopTuningPreview(); setWsTuningPlayId(null) }
+  }, [wsEditVoiceId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleWsPreviewTuning = async (voiceId: number) => {
+    if (wsTuningPlayId === voiceId) { stopTuningPreview(); setWsTuningPlayId(null); return }
+    stopTuningPreview()
+    setWsTuningPlayId(voiceId)
+    try {
+      const previewUrl  = await fetchVoicePreview(voiceId)
+      const encodedUrl  = encodeURIComponent(previewUrl)
+      const response    = await fetch(`/api/heygen/audio-proxy?url=${encodedUrl}`)
+      if (!response.ok) throw new Error("proxy error")
+      const arrayBuffer = await response.arrayBuffer()
+      const ctx         = new AudioContext()
+      tuningCtxRef.current = ctx
+      const decoded     = await ctx.decodeAudioData(arrayBuffer)
+      const source      = ctx.createBufferSource()
+      source.buffer     = decoded
+      // semitones → cents (1 semitone = 100 cents exactly)
+      const detuneCents     = wsPitchValue * 100
+      const compensatedRate = wsSpeedValue / Math.pow(2, detuneCents / 1200)
+      source.playbackRate.value = compensatedRate
+      source.detune.value       = detuneCents
+      source.connect(ctx.destination)
+      source.onended = () => setWsTuningPlayId(null)
+      source.start()
+      tuningSourceRef.current = source
+    } catch {
+      setWsTuningPlayId(null)
+      toast({ title: "Error al reproducir", description: "No se pudo cargar el audio", variant: "destructive" })
+    }
+  }
+
+  const handleWsSave = async (voiceId: number) => {
+    stopTuningPreview()
+    try {
+      await updateWsVoiceMut.mutateAsync({ id: voiceId, speed: wsSpeedValue, pitch: wsPitchValue })
+      setWsEditVoiceId(null)
+      const desc = [
+        wsSpeedValue !== 1.0 ? `${wsSpeedValue.toFixed(2)}× velocidad` : null,
+        wsPitchValue !== 0 ? `${wsPitchValue > 0 ? "+" : ""}${wsPitchValue} st tono` : null,
+      ].filter(Boolean).join(" · ") || "Sin cambios"
+      toast({ title: "Ajustes de voz guardados", description: desc })
+      void refetchWavespeedVoices()
+    } catch {
+      toast({ title: "Error", description: "No se pudo guardar los ajustes", variant: "destructive" })
+    }
+  }
 
   // Poll voices every 10 s when any cloned voice is still processing so the UI
   // updates automatically when HeyGen finishes without a manual refresh.
@@ -4321,6 +4379,24 @@ export default function Avatars() {
                               : <Play className="w-3.5 h-3.5 fill-current" />}
                         </Button>
                       )}
+                      {/* Tuning button — only for ready voices */}
+                      {v.status === "ready" && (
+                        <Button
+                          size="sm" variant="ghost"
+                          className={`w-8 h-8 p-0 shrink-0 ${wsEditVoiceId === v.id ? "text-primary bg-primary/10" : ""}`}
+                          title="Ajustar velocidad y tono"
+                          onClick={() => {
+                            if (wsEditVoiceId === v.id) { setWsEditVoiceId(null) }
+                            else {
+                              setWsSpeedValue(v.speed ?? 1.0)
+                              setWsPitchValue(v.pitch ?? 0)
+                              setWsEditVoiceId(v.id)
+                            }
+                          }}
+                        >
+                          <SlidersHorizontal className="w-3.5 h-3.5" />
+                        </Button>
+                      )}
                       <Button
                         size="sm" variant="ghost"
                         className="w-8 h-8 p-0 text-destructive hover:text-destructive shrink-0"
@@ -4333,6 +4409,48 @@ export default function Avatars() {
                         <Trash2 className="w-3.5 h-3.5" />
                       </Button>
                     </div>
+                    {wsEditVoiceId === v.id && (
+                      <div className="px-4 pb-3 pt-1 border-t border-border/50 bg-muted/20 space-y-4">
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-xs font-semibold">Velocidad</p>
+                              <p className="text-[10px] text-muted-foreground">Ajusta el ritmo de habla. Rango: 0.5–1.5×</p>
+                            </div>
+                            <span className="text-sm font-bold text-primary tabular-nums">{wsSpeedValue.toFixed(2)}×</span>
+                          </div>
+                          <Slider value={[wsSpeedValue]} min={0.5} max={1.5} step={0.05} onValueChange={([val]) => setWsSpeedValue(val)} />
+                          <div className="flex justify-between text-[10px] text-muted-foreground">
+                            <span>0.5× lento</span><span className="text-foreground font-medium">1.0× normal</span><span>1.5× rápido</span>
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-xs font-semibold">Tono (pitch)</p>
+                              <p className="text-[10px] text-muted-foreground">Eleva o baja el tono. Rango: −12 a +12 semitonos</p>
+                            </div>
+                            <span className="text-sm font-bold text-primary tabular-nums">{wsPitchValue > 0 ? "+" : ""}{wsPitchValue} st</span>
+                          </div>
+                          <Slider value={[wsPitchValue]} min={-12} max={12} step={1} onValueChange={([val]) => setWsPitchValue(val)} />
+                          <div className="flex justify-between text-[10px] text-muted-foreground">
+                            <span>−12 grave</span><span className="text-foreground font-medium">0 normal</span><span>+12 agudo</span>
+                          </div>
+                        </div>
+                        <div className="rounded-lg border border-border/40 bg-background/60 p-2.5 flex items-center gap-3">
+                          <Button size="sm" variant={wsTuningPlayId === v.id ? "default" : "outline"} className="gap-1.5 shrink-0" onClick={() => handleWsPreviewTuning(v.id)}>
+                            {wsTuningPlayId === v.id ? <><Square className="w-3 h-3 fill-current" /> Detener</> : <><Play className="w-3 h-3 fill-current" /> Escuchar preview</>}
+                          </Button>
+                          <p className="text-[10px] text-muted-foreground leading-tight">Preview con velocidad y tono aplicados.</p>
+                        </div>
+                        <div className="flex gap-2 justify-end">
+                          <Button size="sm" variant="ghost" onClick={() => setWsEditVoiceId(null)}>Cancelar</Button>
+                          <Button size="sm" onClick={() => handleWsSave(v.id)} disabled={updateWsVoiceMut.isPending} className="gap-1.5">
+                            {updateWsVoiceMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />} Guardar
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

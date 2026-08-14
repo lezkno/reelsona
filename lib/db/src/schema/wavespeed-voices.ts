@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, text, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, text, timestamp, real } from "drizzle-orm/pg-core";
 import { users } from "./users";
 import { wavespeedPersonasTable } from "./wavespeed-personas";
 
@@ -27,6 +27,10 @@ export const wavespeedVoicesTable = pgTable("wavespeed_voices", {
   sourceAudioObjectName: text("source_audio_object_name"),
   /** WaveSpeed CDN URL of a short TTS preview clip — cached after first generation */
   previewAudioUrl: text("preview_audio_url"),
+  /** TTS playback rate multiplier passed to minimax. null = default (1.0). Range: 0.5–1.5 */
+  speed: real("speed"),
+  /** Voice pitch shift in semitones passed to minimax. null = default (0). Range: -12 to +12 */
+  pitch: real("pitch"),
   createdAt:          timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt:          timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

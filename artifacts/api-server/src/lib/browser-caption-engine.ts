@@ -1023,10 +1023,36 @@ export async function applyCaptionsBrowser(
 
     logger.info({ gcsObjectName, url }, "[BrowserEngine] Captioned video uploaded ✓");
 
+    // ── 9. Generate thumbnail from captioned video ────────────────────────────
+    // Extract a frame at 1 second (skips any blank intro), scale to portrait
+    // width that matches the video's aspect ratio, and upload to Object Storage.
+    // This gives WaveSpeed videos (which have no HeyGen-supplied thumbnail) a
+    // proper poster image in the library card.
+    let thumbnailUrl: string | undefined;
+    try {
+      const thumbPath = path.join(tmpDir, "thumb.jpg");
+      await execFileAsync("ffmpeg", [
+        "-ss", "1",
+        "-i", outputPath,
+        "-vframes", "1",
+        "-vf", "scale=720:-2",
+        "-q:v", "3",
+        "-y", thumbPath,
+      ], { maxBuffer: 50 * 1024 * 1024 });
+      const thumbName = `thumbnails/browser_${runId}.jpg`;
+      const thumbFile = bucket.file(thumbName);
+      await thumbFile.save(await fs.readFile(thumbPath), { contentType: "image/jpeg" });
+      thumbnailUrl = `https://${domain}/api/captioned-objects/${thumbName}`;
+      logger.info({ thumbnailUrl }, "[BrowserEngine] Thumbnail uploaded ✓");
+    } catch (thumbErr) {
+      // Non-fatal — video still works without a thumbnail poster
+      logger.warn({ thumbErr }, "[BrowserEngine] Thumbnail generation failed (non-fatal)");
+    }
+
     // Cleanup tmp files (fire-and-forget — don't block return)
     fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
 
-    return { url };
+    return { url, thumbnailUrl };
 
   } catch (err) {
     logger.error({ err, templateId }, "[BrowserEngine] Render failed");

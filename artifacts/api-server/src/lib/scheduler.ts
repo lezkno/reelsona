@@ -32,6 +32,7 @@ import { isWavespeedConfigured, submitSpeech, submitTalkingHead, getJobStatus as
 import { wavespeedPersonasTable, wavespeedLooksTable, wavespeedVoicesTable, wavespeedJobsTable } from "@workspace/db";
 import { createReelContainer, checkContainerStatus, publishContainer, getPermalink, refreshInstagramToken } from "./instagram-api";
 import { getSignedCaptionedVideoUrl, objectStorageClient } from "./objectStorage";
+import { makeOpenAIClient } from "./openai-client";
 import { generateBrandCover } from "./brand-cover";
 
 // ── Low-credit alert rate-limiter ─────────────────────────────────────────────
@@ -47,6 +48,10 @@ interface WavespeedCtx {
   lookId: number;
   imageUrl: string;
   voiceId: string; // wavespeed_voice_id (resolved)
+  /** TTS speed multiplier (0.5–1.5). null = minimax default. */
+  speed: number | null;
+  /** Voice pitch shift in semitones (-12 to +12). null = minimax default. */
+  pitch: number | null;
 }
 
 /**
@@ -125,7 +130,11 @@ async function getWavespeedContext(
 
     // Validate that the target look's voice is still ready.
     const [voice] = await db
-      .select({ wavespeedVoiceId: wavespeedVoicesTable.wavespeedVoiceId })
+      .select({
+        wavespeedVoiceId: wavespeedVoicesTable.wavespeedVoiceId,
+        speed: wavespeedVoicesTable.speed,
+        pitch: wavespeedVoicesTable.pitch,
+      })
       .from(wavespeedVoicesTable)
       .where(
         and(
@@ -152,6 +161,8 @@ async function getWavespeedContext(
       lookId: targetLook.id,
       imageUrl: targetLook.imageUrl!,
       voiceId: voice.wavespeedVoiceId,
+      speed: voice.speed ?? null,
+      pitch: voice.pitch ?? null,
     };
   }
 
@@ -1178,10 +1189,15 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
       // Step 2 happens during polling: when TTS completes → submit talking-head.
       // The sentinel "wavespeed-tts:{id}" stored in heygenVideoId tells the
       // poller which stage we're in and which request id to poll.
-      logger.info({ videoId: videoRow.id, voiceId: wavespeedCtx.voiceId }, "[WaveSpeed] Submitting TTS job");
+      logger.info(
+        { videoId: videoRow.id, voiceId: wavespeedCtx.voiceId, speed: wavespeedCtx.speed, pitch: wavespeedCtx.pitch },
+        "[WaveSpeed] Submitting TTS job",
+      );
       const { requestId: ttsRequestId } = await submitSpeech(
         contentItem.script!,
         wavespeedCtx.voiceId,
+        undefined,
+        { speed: wavespeedCtx.speed ?? undefined, pitch: wavespeedCtx.pitch ?? undefined },
       );
       const sentinel = `wavespeed-tts:${ttsRequestId}`;
 
@@ -1436,7 +1452,14 @@ export async function runCaptionProcessing(
     if (browserResult.url) {
       await db
         .update(videosTable)
-        .set({ captionedVideoUrl: browserResult.url, captionStatus: "done", updatedAt: new Date() })
+        .set({
+          captionedVideoUrl: browserResult.url,
+          captionStatus: "done",
+          // Save generated thumbnail when available (e.g. WaveSpeed videos that
+          // have no HeyGen-supplied thumbnail_url after generation)
+          ...(browserResult.thumbnailUrl && { thumbnailUrl: browserResult.thumbnailUrl }),
+          updatedAt: new Date(),
+        })
         .where(eq(videosTable.id, videoId));
       logger.info({ videoId }, "[BrowserEngine] Captioned video ready ✓");
       // Trigger IG copy generation (fire-and-forget)
@@ -1649,6 +1672,75 @@ async function refreshExpiringTokens(): Promise<void> {
   } catch (err) {
     // Non-fatal: log and continue — the rest of the polling cycle must not be blocked
     logger.warn({ err }, "[IG/TokenRefresh] Error querying expiring tokens");
+  }
+}
+
+/**
+ * Transcribe a TTS audio file with OpenAI Whisper (word-level timestamps) and
+ * store the result as a word-level SRT in Object Storage.
+ *
+ * Returns the public proxy URL of the SRT so it can be saved to
+ * `videos.heygen_subtitle_url` and consumed by the browser caption engine
+ * exactly like HeyGen-supplied subtitles — giving WaveSpeed videos accurate
+ * per-word caption sync instead of the proportional fallback.
+ *
+ * Non-fatal: returns null on any error so video generation is never blocked.
+ */
+async function transcribeAudioToSrt(audioUrl: string, videoId: number): Promise<string | null> {
+  try {
+    const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
+    if (!bucketId) throw new Error("Object storage not configured");
+
+    // Download TTS audio from WaveSpeed CDN
+    const audioRes = await fetch(audioUrl, { signal: AbortSignal.timeout(60_000) });
+    if (!audioRes.ok) throw new Error(`Audio download failed: HTTP ${audioRes.status}`);
+    const audioBuffer = Buffer.from(await audioRes.arrayBuffer());
+
+    // Transcribe with Whisper — word-level granularity for precise per-word timing
+    const openai   = makeOpenAIClient({ timeout: 120_000 });
+    const transcript = await openai.audio.transcriptions.create({
+      file:                    new File([audioBuffer], "audio.mp3", { type: "audio/mpeg" }),
+      model:                   "whisper-1",
+      language:                "es",
+      response_format:         "verbose_json",
+      timestamp_granularities: ["word"],
+    } as Parameters<typeof openai.audio.transcriptions.create>[0]);
+
+    // verbose_json returns a TranscriptionVerbose shape with `words`
+    const words = (transcript as unknown as { words?: Array<{ word: string; start: number; end: number }> }).words;
+    if (!words?.length) throw new Error("Whisper returned no word timings");
+
+    // Format milliseconds as SRT timestamp HH:MM:SS,mmm
+    const toSrtTs = (sec: number): string => {
+      const ms  = Math.round(sec * 1000);
+      const h   = Math.floor(ms / 3_600_000);
+      const min = Math.floor((ms % 3_600_000) / 60_000);
+      const s   = Math.floor((ms % 60_000) / 1000);
+      const rem = ms % 1000;
+      return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}:${String(s).padStart(2, "0")},${String(rem).padStart(3, "0")}`;
+    };
+
+    // One SRT block per word — maximum precision for the caption renderer
+    const srt = words
+      .map((w, i) => `${i + 1}\n${toSrtTs(w.start)} --> ${toSrtTs(w.end)}\n${w.word.trim()}`)
+      .join("\n\n");
+
+    // Upload to Object Storage
+    const objectName = `subtitles/${videoId}.srt`;
+    await objectStorageClient
+      .bucket(bucketId)
+      .file(objectName)
+      .save(Buffer.from(srt, "utf-8"), { contentType: "text/plain; charset=utf-8" });
+
+    const domain = process.env.REPLIT_DEV_DOMAIN;
+    if (!domain) throw new Error("REPLIT_DEV_DOMAIN not set");
+    const srtUrl = `https://${domain}/api/captioned-objects/${objectName}`;
+
+    logger.info({ videoId, words: words.length, srtUrl }, "[WaveSpeed] Whisper SRT uploaded ✓");
+    return srtUrl;
+  } catch (err) {
+    logger.warn({ videoId, err }, "[WaveSpeed] Whisper transcription failed — captions will use proportional fallback");
+    return null;
   }
 }
 
@@ -2050,6 +2142,18 @@ export async function pollAndPublishVideos(): Promise<void> {
               throw new Error("No se encontró imageUrl para el paso de talking-head");
             }
 
+            // ── Whisper transcription for accurate caption sync ────────────────
+            // Run before submitting talking-head so the SRT is in the DB by the
+            // time the video is marked "ready" and caption processing starts.
+            // Non-fatal: on failure the caption engine falls back to proportional timings.
+            const srtUrl = await transcribeAudioToSrt(audioUrl, video.id);
+            if (srtUrl) {
+              await db
+                .update(videosTable)
+                .set({ heygenSubtitleUrl: srtUrl, updatedAt: new Date() })
+                .where(eq(videosTable.id, video.id));
+            }
+
             // Mark TTS job done
             await db
               .update(wavespeedJobsTable)
@@ -2057,8 +2161,16 @@ export async function pollAndPublishVideos(): Promise<void> {
               .where(eq(wavespeedJobsTable.wavespeedRequestId, requestId));
 
             // Submit talking-head job
-            logger.info({ videoId: video.id, audioUrl }, "[WaveSpeed] TTS completado — enviando talking-head");
-            const { requestId: thRequestId } = await submitTalkingHead(imageUrl, audioUrl);
+            // Build a topic-aware motion prompt so the model produces natural
+            // body movement suited to the content — falls back to the library
+            // default when no topic is stored on the video row.
+            const motionPrompt = video.topic
+              ? `Natural upper body movement with expressive gestures and slight head turns. ` +
+                `Dynamic presenter energy: torso sway, occasional hand movement, engaged eye contact. ` +
+                `Professional content creator speaking directly to camera about: ${video.topic}.`
+              : undefined; // undefined → submitTalkingHead uses TALKING_HEAD_DEFAULT_PROMPT
+            logger.info({ videoId: video.id, audioUrl, motionPrompt: motionPrompt?.slice(0, 80) }, "[WaveSpeed] TTS completado — enviando talking-head");
+            const { requestId: thRequestId } = await submitTalkingHead(imageUrl, audioUrl, { prompt: motionPrompt });
 
             await db.insert(wavespeedJobsTable).values({
               userId: video.userId,

@@ -28,7 +28,7 @@ router.use("/captioned-objects", async (req, res, next): Promise<void> => {
   // brand-covers/     — branded Reel cover images (fetched by Instagram)
   // voice-audio/ is intentionally NOT listed here — those files are only accessed
   // by HeyGen via short-lived signed GCS URLs, never through this public proxy.
-  const ALLOWED_NAMESPACES = ["captioned-videos/", "brand-covers/", "raw-videos/", "thumbnails/"];
+  const ALLOWED_NAMESPACES = ["captioned-videos/", "brand-covers/", "raw-videos/", "thumbnails/", "subtitles/"];
   if (
     !objectName ||
     objectName.includes("..") ||
@@ -54,11 +54,28 @@ router.use("/captioned-objects", async (req, res, next): Promise<void> => {
       return;
     }
     const [metadata] = await file.getMetadata();
-    res.setHeader("Content-Type", (metadata.contentType as string) || "video/mp4");
-    if (metadata.size) res.setHeader("Content-Length", String(metadata.size));
+    const contentType = (metadata.contentType as string) || "video/mp4";
+    const fileSize    = Number(metadata.size) || 0;
+
+    res.setHeader("Content-Type", contentType);
     res.setHeader("Cache-Control", "public, max-age=86400");
     res.setHeader("Accept-Ranges", "bytes");
-    file.createReadStream().pipe(res);
+
+    const rangeHeader = req.headers.range;
+    if (rangeHeader && fileSize) {
+      // Proper 206 Partial Content — required for HTML5 video seeking in all browsers
+      const [startStr, endStr] = rangeHeader.replace(/bytes=/, "").split("-");
+      const start   = parseInt(startStr, 10);
+      const end     = endStr ? parseInt(endStr, 10) : fileSize - 1;
+      const chunk   = end - start + 1;
+      res.status(206);
+      res.setHeader("Content-Length", chunk);
+      res.setHeader("Content-Range", `bytes ${start}-${end}/${fileSize}`);
+      file.createReadStream({ start, end }).pipe(res);
+    } else {
+      if (fileSize) res.setHeader("Content-Length", String(fileSize));
+      file.createReadStream().pipe(res);
+    }
   } catch {
     res.status(500).json({ error: "Failed to serve video" });
   }
