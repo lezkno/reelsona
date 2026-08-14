@@ -685,7 +685,7 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
             Generando looks
           </DialogTitle>
           <DialogDescription>
-            La IA está creando 5 variaciones de tu imagen — misma persona, diferentes looks.
+            La IA está creando 3 looks de tu imagen — misma persona, diferente estilo: Profesional, Cercano y Dinámico.
           </DialogDescription>
         </DialogHeader>
 

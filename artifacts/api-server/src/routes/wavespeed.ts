@@ -132,25 +132,26 @@ async function convertToWav(inputBuffer: Buffer): Promise<Buffer> {
   }
 }
 
-// ── 5 look variation prompts ──────────────────────────────────────────────────
-// Portrait / vertical 9:16 framing, different outfit for each scene.
+// ── 3 look variation prompts ──────────────────────────────────────────────────
+// One look per archetype: authority (Profesional), closeness (Cercano), energy (Dinámico).
 // Face identity must be preserved exactly; only outfit, setting, and lighting change.
+// "Profesional" is the default/primary look.
 
 const LOOK_PROMPTS = [
   {
-    name: "Estudio de podcast",
+    name: "Profesional",
     prompt:
-      "Vertical portrait photo, 9:16 aspect ratio. Same person, same face and hair. Outfit: smart-casual shirt or blazer. Setting: professional podcast studio — acoustic foam panels on the walls, a large professional condenser microphone on a boom arm directly in front of the person, moody dim background lighting with a subtle LED ring glow. The person is looking straight at the camera, confident and relaxed. Photorealistic, sharp detail.",
+      "same person, realistic professional studio portrait, modern clean office background, business casual outfit, confident and trustworthy, vertical 9:16, natural lighting",
   },
   {
-    name: "Look profesional",
+    name: "Cercano",
     prompt:
-      "Vertical portrait photo, 9:16 aspect ratio. Same person, same face and hair. Outfit: tailored business suit or blazer with a collared shirt, polished and authoritative. Setting: modern glass-walled office, soft natural window light, clean minimalist background. Photorealistic, sharp detail.",
+      "same person, realistic warm lifestyle portrait, cozy home office or cafe background, casual polished outfit, approachable and friendly, vertical 9:16, natural lighting",
   },
   {
-    name: "Look casual exterior",
+    name: "Dinámico",
     prompt:
-      "Vertical portrait photo, 9:16 aspect ratio. Same person, same face and hair. Outfit: relaxed casual — well-fitted jeans, a plain t-shirt or open shirt, comfortable and approachable. Setting: sunny urban street or park, golden-hour light, blurred green bokeh background. Photorealistic, sharp detail.",
+      "same person, realistic creator studio portrait, modern content creator set, subtle colorful lights, stylish outfit, energetic and charismatic, vertical 9:16, natural lighting",
   },
 ];
 
