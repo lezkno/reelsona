@@ -998,6 +998,8 @@ export interface WavespeedVoiceRow {
   errorMessage: string | null;
   /** GCS object name of the source WAV — present when the voice was recorded in-app */
   sourceAudioObjectName: string | null;
+  /** Cached WaveSpeed CDN URL for a short TTS preview clip */
+  previewAudioUrl: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -1076,6 +1078,18 @@ export function useCloneWavespeedVoice() {
 /** Fetch a fresh 1-hour signed URL for playing back the source audio of a cloned voice. */
 export async function fetchVoicePlayUrl(voiceId: number): Promise<string> {
   const data = await customFetch<{ url: string }>(`/api/wavespeed/voices/${voiceId}/play-url`);
+  return data.url;
+}
+
+/**
+ * Get a playable audio URL for any ready WaveSpeed cloned voice.
+ * Returns immediately if a preview is cached; otherwise waits while WaveSpeed
+ * generates a short TTS clip (~5-15 s on first call for old voices).
+ */
+export async function fetchVoicePreview(voiceId: number): Promise<string> {
+  const data = await customFetch<{ url: string }>(
+    `/api/wavespeed/voices/${voiceId}/preview`,
+  );
   return data.url;
 }
 

@@ -24,7 +24,7 @@ import {
   useWavespeedVoices,
   useDeleteWavespeedVoice,
   useGenerateWavespeedPersonaLooks,
-  fetchVoicePlayUrl,
+  fetchVoicePreview,
   WAVESPEED_PERSONAS_KEY,
   type WavespeedPersonaWithLooks,
   type WavespeedLookRow,
@@ -2452,6 +2452,42 @@ function LazyLookImage({ src, alt }: { src: string; alt: string }) {
   )
 }
 
+// ── WavespeedPendingPoller ────────────────────────────────────────────────────
+// Invisible component that polls look-generation status for a persona even when
+// the persona dialog is closed.  Propagates completed looks into WAVESPEED_PERSONAS_KEY
+// so the grid thumbnails (and the dialog if open) update without a full refetch.
+
+function WavespeedPendingPoller({ persona }: { persona: WavespeedPersonaWithLooks }) {
+  const queryClient = useQueryClient()
+  const looksStatus = useWavespeedPersonaLooksStatus(persona.id, true)
+
+  useEffect(() => {
+    const updatedLooks = looksStatus.data?.looks
+    if (!updatedLooks?.length) return
+    const hasReady = updatedLooks.some((l) => {
+      try {
+        const cfg = JSON.parse(l.config ?? "{}") as { generationStatus?: string }
+        return cfg.generationStatus === "ready" && !!l.imageUrl
+      } catch { return false }
+    })
+    if (!hasReady) return
+    queryClient.setQueryData(
+      WAVESPEED_PERSONAS_KEY,
+      (old: { personas: WavespeedPersonaWithLooks[] } | undefined) => {
+        if (!old) return old
+        return {
+          ...old,
+          personas: old.personas.map((p) =>
+            p.id === persona.id ? { ...p, looks: updatedLooks } : p,
+          ),
+        }
+      },
+    )
+  }, [looksStatus.data]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  return null
+}
+
 // ── WavespeedPersonaCard ──────────────────────────────────────────────────────
 
 function WavespeedPersonaCard({
@@ -2673,6 +2709,7 @@ function WavespeedPersonaDialog({
   onNewLook: () => void
 }) {
   const { toast } = useToast()
+  const queryClient = useQueryClient()
   const deletePersona = useDeleteWavespeedPersona()
   const patchPersona = usePatchWavespeedPersona()
   const deleteLookMutation = useDeleteWavespeedLook()
@@ -2776,6 +2813,35 @@ function WavespeedPersonaDialog({
   })
   // Always render from persona.looks (kept in sync by setQueryData in usePatchWavespeedLook)
   const looksStatus = useWavespeedPersonaLooksStatus(persona.id, hasPending)
+
+  // Propagate completed poll results back to WAVESPEED_PERSONAS_KEY so thumbnails
+  // appear instantly without waiting for a full refetch of the personas query.
+  // This also triggers the parent's useEffect (line ~3225) which syncs
+  // openWavespeedPersona, making persona.looks update in the dialog too.
+  useEffect(() => {
+    const updatedLooks = looksStatus.data?.looks
+    if (!updatedLooks?.length) return
+    const hasReady = updatedLooks.some((l) => {
+      try {
+        const cfg = JSON.parse(l.config ?? "{}") as { generationStatus?: string }
+        return cfg.generationStatus === "ready" && !!l.imageUrl
+      } catch { return false }
+    })
+    if (!hasReady) return
+    queryClient.setQueryData(
+      WAVESPEED_PERSONAS_KEY,
+      (old: { personas: WavespeedPersonaWithLooks[] } | undefined) => {
+        if (!old) return old
+        return {
+          ...old,
+          personas: old.personas.map((p) =>
+            p.id === persona.id ? { ...p, looks: updatedLooks } : p,
+          ),
+        }
+      },
+    )
+  }, [looksStatus.data]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const livePersonaLooks = persona.looks
 
   const allLooks = livePersonaLooks
@@ -3085,6 +3151,7 @@ export default function Avatars() {
 
   // ── Cloned voice playback ─────────────────────────────────────────────────
   const [clonePlayingId, setClonePlayingId] = useState<number | null>(null)
+  const [cloneLoadingId, setCloneLoadingId] = useState<number | null>(null)
   const cloneAudioRef = useRef<HTMLAudioElement | null>(null)
 
   const playClonedVoice = useCallback(async (voiceId: number) => {
@@ -3095,20 +3162,28 @@ export default function Avatars() {
       setClonePlayingId(null)
       return
     }
-    // Stop any other voice
+    // Stop any other voice currently playing
     if (cloneAudioRef.current) {
       cloneAudioRef.current.pause()
       cloneAudioRef.current = null
+      setClonePlayingId(null)
     }
-    setClonePlayingId(voiceId)
+    setCloneLoadingId(voiceId)
     try {
-      const url = await fetchVoicePlayUrl(voiceId)
+      // fetchVoicePreview handles all cases:
+      //  • cached previewAudioUrl → instant
+      //  • sourceAudioObjectName → signed GCS URL → instant
+      //  • only wavespeedVoiceId → generates short TTS clip (~5-15 s first call)
+      const url = await fetchVoicePreview(voiceId)
+      setCloneLoadingId(null)
+      setClonePlayingId(voiceId)
       const audio = new Audio(url)
       cloneAudioRef.current = audio
       audio.onended = () => { setClonePlayingId(null); cloneAudioRef.current = null }
       audio.onerror = () => { setClonePlayingId(null); cloneAudioRef.current = null }
       audio.play().catch(() => { setClonePlayingId(null); cloneAudioRef.current = null })
     } catch {
+      setCloneLoadingId(null)
       setClonePlayingId(null)
       toast({ title: "No se pudo reproducir la voz", variant: "destructive" })
     }
@@ -3196,6 +3271,16 @@ export default function Avatars() {
   // ── WaveSpeed personas ────────────────────────────────────────────────────
   const { data: wavespeedData, refetch: refetchWavespeed } = useWavespeedPersonas()
   const wavespeedPersonas = wavespeedData?.personas ?? []
+
+  // Count of WaveSpeed looks currently selected for rotation across ALL personas.
+  const wavespeedSelectedCount = useMemo(() => {
+    return wavespeedPersonas.reduce((total, persona) => {
+      return total + persona.looks.filter(look => {
+        try { return !!(JSON.parse(look.config ?? "{}") as { selected?: boolean }).selected }
+        catch { return false }
+      }).length
+    }, 0)
+  }, [wavespeedPersonas])
   const [showWavespeedWizard, setShowWavespeedWizard] = useState(false)
   const [openWavespeedPersona, setOpenWavespeedPersona] = useState<WavespeedPersonaWithLooks | null>(null)
   const [showCreateLookForPersona, setShowCreateLookForPersona] = useState(false)
@@ -3213,6 +3298,10 @@ export default function Avatars() {
   const [dialogSaveStatus, setDialogSaveStatus] = useState<"idle" | "saving" | "saved">("idle")
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const autoSaveReadyRef = useRef(false)
+  // Holds a function that fires the pending save immediately.
+  // Armed by the auto-save effect; called by the flush-on-unmount effect so
+  // navigating away before the 700 ms debounce fires never loses a change.
+  const flushSaveRef = useRef<(() => void) | null>(null)
   const [showCreation, setShowCreation] = useState(false)
   // Tracks a Digital Twin job that was dismissed from the dialog while still processing
   const [pendingVideoJob, setPendingVideoJob] = useState<{ lookId: string; groupId: string; name: string; startedAt: number } | null>(null)
@@ -3678,37 +3767,47 @@ export default function Avatars() {
     return () => clearTimeout(t)
   }, [config]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Debounced auto-save: fires 700 ms after last change
+  // Flush any pending save when the component unmounts (user navigates away before
+  // the 700 ms debounce fires).  React Query mutations survive unmount so the HTTP
+  // request still completes even though the component is gone.
+  useEffect(() => {
+    return () => { flushSaveRef.current?.() }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Debounced auto-save: fires 700 ms after the last change.
+  // Captures a snapshot of current values so both the debounce callback and
+  // flush-on-unmount use consistent, up-to-date data.
   useEffect(() => {
     if (!autoSaveReadyRef.current) return
-    if (selectedIds.size === 0) return
+    // Always clear the old timer first — even when selection is now empty
+    // (avoids a stale timer firing with the previous non-empty selection).
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
-    setDialogSaveStatus("idle")
-    autoSaveTimerRef.current = setTimeout(() => {
-      if (updateConfig.isPending) return
+
+    // Snapshot at scheduling time so the closure is stable.
+    const snapshotIds       = new Set(selectedIds)
+    const snapshotOverrides = { ...voiceOverrides }
+    const snapshotStrategy  = strategy
+    const snapshotGroupMap  = { ...lookGroupMap }
+    const snapshotTypeMap   = { ...lookAvatarTypeMap }
+
+    const doSave = () => {
       const cleanedOverrides: Record<string, string> = {}
-      for (const [lookId, voiceId] of Object.entries(voiceOverrides)) {
-        if (selectedIds.has(lookId) && voiceId && voiceId !== LOOK_DEFAULT_VOICE_SENTINEL) {
+      for (const [lookId, voiceId] of Object.entries(snapshotOverrides)) {
+        if (snapshotIds.has(lookId) && voiceId && voiceId !== LOOK_DEFAULT_VOICE_SENTINEL) {
           cleanedOverrides[lookId] = voiceId
         }
       }
-      setDialogSaveStatus("saving")
-      // Build per-look metadata for all looks we have data for.
-      // The backend upserts this into avatar_look_metadata so generateVideo()
-      // can resolve reference_look_id for Avatar V without extra HeyGen API calls.
+      // Build per-look metadata for Avatar V reference stabilization.
       const lookMetadata: Record<string, { group_id: string; avatar_type: string }> = {}
-      for (const [lookId, groupId] of Object.entries(lookGroupMap)) {
-        const avatarType = lookAvatarTypeMap[lookId]
-        if (avatarType) {
-          lookMetadata[lookId] = { group_id: groupId, avatar_type: avatarType }
-        }
+      for (const [lookId, groupId] of Object.entries(snapshotGroupMap)) {
+        const avatarType = snapshotTypeMap[lookId]
+        if (avatarType) lookMetadata[lookId] = { group_id: groupId, avatar_type: avatarType }
       }
-
       updateConfig.mutate(
         {
           data: {
-            selected_avatar_ids: Array.from(selectedIds),
-            rotation_strategy: strategy,
+            selected_avatar_ids: Array.from(snapshotIds),
+            rotation_strategy: snapshotStrategy,
             preferred_voice_id: null,
             voice_overrides: cleanedOverrides,
             look_metadata: Object.keys(lookMetadata).length > 0 ? lookMetadata : undefined,
@@ -3726,7 +3825,18 @@ export default function Avatars() {
           },
         },
       )
+    }
+
+    flushSaveRef.current = doSave   // arm — called on unmount if timer hasn't fired
+    setDialogSaveStatus("idle")
+
+    autoSaveTimerRef.current = setTimeout(() => {
+      flushSaveRef.current = null   // disarm — timer fired normally
+      if (updateConfig.isPending) return
+      setDialogSaveStatus("saving")
+      doSave()
     }, 700)
+
     return () => { if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current) }
   }, [selectedIds, voiceOverrides, strategy]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -3858,9 +3968,9 @@ export default function Avatars() {
             <div className="flex-1">
               <div className="flex items-center gap-2">
                 <h3 className="text-lg font-bold font-display">Rotación de avatar</h3>
-                {selectedIds.size > 0 && (
+                {(selectedIds.size + wavespeedSelectedCount) > 0 && (
                   <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary border border-primary/20">
-                    {selectedIds.size} {selectedIds.size === 1 ? "look" : "looks"}
+                    {selectedIds.size + wavespeedSelectedCount} {(selectedIds.size + wavespeedSelectedCount) === 1 ? "look" : "looks"}
                   </span>
                 )}
               </div>
@@ -3939,8 +4049,22 @@ export default function Avatars() {
       {/* Tabs */}
       <Tabs defaultValue="my">
         <TabsList className="mb-4">
-          <TabsTrigger value="my">Mi Avatar</TabsTrigger>
-          <TabsTrigger value="public">Avatares públicos</TabsTrigger>
+          <TabsTrigger value="my" className="gap-1.5">
+            Mi Avatar
+            {wavespeedSelectedCount > 0 && (
+              <span className="inline-flex items-center justify-center text-[10px] font-bold leading-none bg-violet-500 text-white rounded-full min-w-[18px] h-[18px] px-1">
+                {wavespeedSelectedCount}
+              </span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="public" className="gap-1.5">
+            Avatares públicos
+            {selectedIds.size > 0 && (
+              <span className="inline-flex items-center justify-center text-[10px] font-bold leading-none bg-primary text-primary-foreground rounded-full min-w-[18px] h-[18px] px-1">
+                {selectedIds.size}
+              </span>
+            )}
+          </TabsTrigger>
           <TabsTrigger value="voices">Voces</TabsTrigger>
         </TabsList>
 
@@ -3957,6 +4081,19 @@ export default function Avatars() {
               </Button>
             </div>
           </div>
+
+          {/* Background pollers — fire even while the persona dialog is closed.
+              React Query deduplicates the request if the dialog also polls. */}
+          {wavespeedPersonas
+            .filter((p) =>
+              p.looks.some((l) => {
+                try {
+                  const cfg = JSON.parse(l.config ?? "{}") as { generationStatus?: string }
+                  return cfg.generationStatus === "pending" || (cfg.generationStatus === "ready" && !l.imageUrl)
+                } catch { return false }
+              }),
+            )
+            .map((p) => <WavespeedPendingPoller key={p.id} persona={p} />)}
 
           {wavespeedPersonas.length === 0 ? (
             /* Empty state — no WaveSpeed avatars yet */
@@ -4131,17 +4268,27 @@ export default function Avatars() {
                           }
                         </p>
                       </div>
-                      {/* Play source audio — only for ready voices recorded in-app */}
-                      {v.status === "ready" && v.sourceAudioObjectName && (
+                      {/* Play preview — available for every ready voice */}
+                      {v.status === "ready" && v.wavespeedVoiceId && (
                         <Button
                           size="sm" variant="ghost"
-                          className={`w-8 h-8 p-0 shrink-0 ${clonePlayingId === v.id ? "text-violet-600" : "text-violet-400 hover:text-violet-600"}`}
+                          className={`w-8 h-8 p-0 shrink-0 transition-colors ${
+                            clonePlayingId === v.id
+                              ? "text-violet-600"
+                              : "text-violet-400 hover:text-violet-600"
+                          }`}
                           onClick={() => playClonedVoice(v.id)}
-                          title={clonePlayingId === v.id ? "Pausar" : "Escuchar voz clonada"}
+                          disabled={cloneLoadingId === v.id}
+                          title={
+                            cloneLoadingId === v.id ? "Generando preview…" :
+                            clonePlayingId === v.id ? "Detener" : "Escuchar voz clonada"
+                          }
                         >
-                          {clonePlayingId === v.id
-                            ? <Square className="w-3 h-3 fill-current" />
-                            : <Play className="w-3.5 h-3.5 fill-current" />}
+                          {cloneLoadingId === v.id
+                            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            : clonePlayingId === v.id
+                              ? <Square className="w-3 h-3 fill-current" />
+                              : <Play className="w-3.5 h-3.5 fill-current" />}
                         </Button>
                       )}
                       <Button

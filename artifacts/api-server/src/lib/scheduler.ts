@@ -50,27 +50,30 @@ interface WavespeedCtx {
 }
 
 /**
- * Returns the user's active WaveSpeed persona/look/voice context, or null
- * when WaveSpeed is not available for this user.
+ * Returns the WaveSpeed context for the next video generation, or null when
+ * WaveSpeed is not available for this user.
  *
- * Selection rules (enforced here to match what the wizard promises the user):
- *   1. Search ALL personas for this user (newest-first for determinism).
- *   2. For each persona, find a look whose `config.selected === true` AND
- *      whose `config.voiceId` maps to a ready wavespeed_voice owned by this user.
- *   3. Return the first match found across all personas.
- *   4. cfg.voiceId is the integer DB id of wavespeed_voices; resolved to the
- *      WaveSpeed API id (wavespeedVoiceId) before returning.
+ * Selection rules:
+ *   1. Search all personas newest-first.
+ *   2. Collect all looks that are selected (config.selected === true), have an
+ *      imageUrl, and have a voiceId that maps to a ready wavespeed_voice.
+ *   3. If `preferredLookId` is one of those looks, use it (the content item is
+ *      already pinned to that look — e.g. on a retry).
+ *   4. Otherwise rotate sequentially: pick the look after `persona.lastUsedLookId`
+ *      (wraps around).  Update `persona.last_used_look_id` so the NEXT call picks
+ *      a different one.
  *
- * Searching all personas ensures users whose newest/most-recent persona is the
- * only configured one are not blocked by an older incomplete persona that happens
- * to sort first.
+ * @param preferredLookId  wavespeed_look_id stored on the content item (may be null).
  */
-async function getWavespeedContext(userId: number): Promise<WavespeedCtx | null> {
+async function getWavespeedContext(
+  userId: number,
+  preferredLookId?: number | null,
+): Promise<WavespeedCtx | null> {
   if (!isWavespeedConfigured()) return null;
 
   // Fetch all personas, newest first so the most recently configured one wins.
   const personas = await db
-    .select({ id: wavespeedPersonasTable.id })
+    .select({ id: wavespeedPersonasTable.id, lastUsedLookId: wavespeedPersonasTable.lastUsedLookId })
     .from(wavespeedPersonasTable)
     .where(eq(wavespeedPersonasTable.userId, userId))
     .orderBy(desc(wavespeedPersonasTable.createdAt));
@@ -94,34 +97,62 @@ async function getWavespeedContext(userId: number): Promise<WavespeedCtx | null>
         ),
       );
 
-    // Walk through looks to find one that is selected and has a ready linked voice.
-    for (const look of looks) {
-      let cfg: { selected?: boolean; voiceId?: number } = {};
-      try { cfg = JSON.parse(look.config ?? "{}") as typeof cfg; } catch { continue; }
-      if (!cfg.selected || !look.imageUrl || !cfg.voiceId) continue;
+    // Filter to looks that are selected and have a voiceId configured.
+    type LookCfg = { selected?: boolean; voiceId?: number };
+    const selectedLooks = looks.flatMap((look) => {
+      try {
+        const cfg = JSON.parse(look.config ?? "{}") as LookCfg;
+        if (!cfg.selected || !cfg.voiceId || !look.imageUrl) return [];
+        return [{ ...look, voiceId: cfg.voiceId }];
+      } catch { return []; }
+    });
 
-      const [voice] = await db
-        .select({ wavespeedVoiceId: wavespeedVoicesTable.wavespeedVoiceId })
-        .from(wavespeedVoicesTable)
-        .where(
-          and(
-            eq(wavespeedVoicesTable.id, cfg.voiceId),
-            eq(wavespeedVoicesTable.userId, userId),
-            eq(wavespeedVoicesTable.status, "ready"),
-            isNotNull(wavespeedVoicesTable.wavespeedVoiceId),
-          ),
-        )
-        .limit(1);
+    if (selectedLooks.length === 0) continue;
 
-      if (voice?.wavespeedVoiceId) {
-        return {
-          personaId: persona.id,
-          lookId: look.id,
-          imageUrl: look.imageUrl,
-          voiceId: voice.wavespeedVoiceId,
-        };
-      }
+    // Determine which look to use.
+    // Priority 1: the preferred look (content item is already pinned to it).
+    // Priority 2: sequential rotation — pick the look after lastUsedLookId.
+    const preferredIdx = selectedLooks.findIndex((l) => l.id === preferredLookId);
+    const isPreferredValid = preferredIdx >= 0;
+
+    let targetLook: typeof selectedLooks[number];
+    if (isPreferredValid) {
+      targetLook = selectedLooks[preferredIdx];
+    } else {
+      const lastIdx = selectedLooks.findIndex((l) => l.id === persona.lastUsedLookId);
+      targetLook = selectedLooks[(lastIdx + 1) % selectedLooks.length];
     }
+
+    // Validate that the target look's voice is still ready.
+    const [voice] = await db
+      .select({ wavespeedVoiceId: wavespeedVoicesTable.wavespeedVoiceId })
+      .from(wavespeedVoicesTable)
+      .where(
+        and(
+          eq(wavespeedVoicesTable.id, targetLook.voiceId),
+          eq(wavespeedVoicesTable.userId, userId),
+          eq(wavespeedVoicesTable.status, "ready"),
+          isNotNull(wavespeedVoicesTable.wavespeedVoiceId),
+        ),
+      )
+      .limit(1);
+
+    if (!voice?.wavespeedVoiceId) continue;
+
+    // Advance the rotation pointer only when we picked via rotation (not preferred).
+    if (!isPreferredValid) {
+      await db
+        .update(wavespeedPersonasTable)
+        .set({ lastUsedLookId: targetLook.id, updatedAt: new Date() })
+        .where(eq(wavespeedPersonasTable.id, persona.id));
+    }
+
+    return {
+      personaId: persona.id,
+      lookId: targetLook.id,
+      imageUrl: targetLook.imageUrl!,
+      voiceId: voice.wavespeedVoiceId,
+    };
   }
 
   return null;
@@ -762,7 +793,18 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
   }
 
   // Check WaveSpeed availability for this user — takes priority over HeyGen when configured.
-  const wavespeedCtx = await getWavespeedContext(userId);
+  // Pass the look already pinned to this item (if any) so rotation is stable across retries.
+  const wavespeedCtx = await getWavespeedContext(userId, contentItem.wavespeedLookId);
+
+  // Pin the resolved look to this content item so retries reuse the same look
+  // and we know which look produced each video.
+  if (wavespeedCtx && wavespeedCtx.lookId !== contentItem.wavespeedLookId) {
+    contentItem.wavespeedLookId = wavespeedCtx.lookId;
+    await db
+      .update(contentPlanItemsTable)
+      .set({ wavespeedLookId: wavespeedCtx.lookId, updatedAt: new Date() })
+      .where(eq(contentPlanItemsTable.id, contentItem.id));
+  }
 
   if (!contentItem.script) {
     logger.error({ itemId: contentItem.id }, "Content item missing script");

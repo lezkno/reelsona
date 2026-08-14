@@ -14,6 +14,9 @@ export const wavespeedPersonasTable = pgTable("wavespeed_personas", {
   thumbnailUrl:         text("thumbnail_url"),
   /** GCS object path of the reference photo used to generate looks (e.g. /objects/…) */
   referenceObjectPath:  text("reference_object_path"),
+  /** Last WaveSpeed look used to generate a video — drives sequential look rotation.
+   *  FK to wavespeed_looks.id exists in the DB; omitted here to avoid a circular import. */
+  lastUsedLookId:       integer("last_used_look_id"),
   createdAt:            timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt:            timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

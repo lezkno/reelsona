@@ -36,6 +36,7 @@ import {
   WAVESPEED_MODELS,
   submitImageEdit,
   submitVoiceClone,
+  submitSpeech,
   getJobStatus,
 } from "../lib/wavespeed";
 import {
@@ -113,6 +114,9 @@ async function uploadBufferAndSign(
  * extension (error 2013) but accepts WAV, MP3, and M4A.
  */
 async function convertToWav(inputBuffer: Buffer): Promise<Buffer> {
+  if (!inputBuffer || inputBuffer.length === 0) {
+    throw new Error("Audio buffer is empty — nothing was recorded");
+  }
   const id = randomUUID();
   const inputPath  = pathJoin(tmpdir(), `ws-audio-in-${id}.webm`);
   const outputPath = pathJoin(tmpdir(), `ws-audio-out-${id}.wav`);
@@ -125,8 +129,10 @@ async function convertToWav(inputBuffer: Buffer): Promise<Buffer> {
       "-ac", "1",       // mono
       "-f", "wav",
       outputPath,
-    ]);
-    return await readFile(outputPath);
+    ], { timeout: 60_000 }); // 60 s max — hangs indefinitely without this
+    const out = await readFile(outputPath);
+    if (out.length === 0) throw new Error("ffmpeg produced an empty WAV file");
+    return out;
   } finally {
     await unlink(inputPath).catch(() => {});
     await unlink(outputPath).catch(() => {});
@@ -826,6 +832,81 @@ router.post("/wavespeed/personas/:id/looks/generate", async (req, res) => {
     res.json({ look: { id: look.id, name: look.name, config: look.config } });
   } catch (err: any) {
     req.log.error({ err }, "[WaveSpeed] Failed to generate new look");
+    res.status(500).json({ error: err.message ?? "Internal error" });
+  }
+});
+
+// ── GET /wavespeed/voices/:id/preview ─────────────────────────────────────────
+// Returns a playable audio URL for any ready WaveSpeed cloned voice.
+//
+//  • Fast path A: cached previewAudioUrl (stored from a previous call)
+//  • Fast path B: original source audio signed URL (voices recorded in-app)
+//  • Slow path:   generate a short TTS clip via WaveSpeed, poll until ready,
+//                 cache the URL in DB, return it (~5-15 s on first call)
+
+const VOICE_PREVIEW_TEXT =
+  "Hola, esta es mi voz clonada con inteligencia artificial. ¿Cómo suena?";
+
+router.get("/wavespeed/voices/:id/preview", async (req, res) => {
+  const userId = requireAuth(req, res);
+  if (!userId) return;
+
+  const voiceId = parseInt(req.params.id, 10);
+  if (isNaN(voiceId)) { res.status(400).json({ error: "Invalid voice ID" }); return; }
+
+  try {
+    const [voice] = await db
+      .select()
+      .from(wavespeedVoicesTable)
+      .where(and(eq(wavespeedVoicesTable.id, voiceId), eq(wavespeedVoicesTable.userId, userId)))
+      .limit(1);
+
+    if (!voice) { res.status(404).json({ error: "Voice not found" }); return; }
+    if (voice.status !== "ready" || !voice.wavespeedVoiceId) {
+      res.status(400).json({ error: "Voice is not ready yet" }); return;
+    }
+
+    // Fast path A — already cached
+    if (voice.previewAudioUrl) {
+      res.json({ url: voice.previewAudioUrl }); return;
+    }
+
+    // Fast path B — original recording in GCS
+    if (voice.sourceAudioObjectName) {
+      const url = await getSignedObjectUrl(voice.sourceAudioObjectName, 3600);
+      res.json({ url }); return;
+    }
+
+    // Slow path — generate TTS preview
+    req.log.info({ voiceId }, "[WaveSpeed] Generating TTS preview for voice");
+    const { requestId } = await submitSpeech(VOICE_PREVIEW_TEXT, voice.wavespeedVoiceId);
+
+    // Poll up to 45 s (15 × 3 s)
+    let audioUrl: string | null = null;
+    for (let i = 0; i < 15; i++) {
+      await new Promise<void>((r) => setTimeout(r, 3000));
+      const result = await getJobStatus(requestId);
+      if (result.status === "completed") {
+        const out = result.outputs as string[] | undefined;
+        audioUrl = out?.[0] ?? null;
+        break;
+      }
+      if (result.status === "failed") break;
+    }
+
+    if (!audioUrl) {
+      res.status(504).json({ error: "Preview generation timed out — try again in a moment" }); return;
+    }
+
+    // Cache so subsequent plays are instant
+    await db
+      .update(wavespeedVoicesTable)
+      .set({ previewAudioUrl: audioUrl, updatedAt: new Date() })
+      .where(and(eq(wavespeedVoicesTable.id, voiceId), eq(wavespeedVoicesTable.userId, userId)));
+
+    res.json({ url: audioUrl });
+  } catch (err: any) {
+    req.log.error({ err }, "[WaveSpeed] Failed to generate voice preview");
     res.status(500).json({ error: err.message ?? "Internal error" });
   }
 });

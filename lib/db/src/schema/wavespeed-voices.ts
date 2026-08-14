@@ -25,6 +25,8 @@ export const wavespeedVoicesTable = pgTable("wavespeed_voices", {
   errorMessage:       text("error_message"),
   /** GCS object name of the source WAV uploaded for cloning — used to regenerate play URLs */
   sourceAudioObjectName: text("source_audio_object_name"),
+  /** WaveSpeed CDN URL of a short TTS preview clip — cached after first generation */
+  previewAudioUrl: text("preview_audio_url"),
   createdAt:          timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt:          timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
