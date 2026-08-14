@@ -186,9 +186,10 @@ export async function submitImageEdit(
   prompt: string,
   apiKey?: string,
 ): Promise<{ requestId: string; status: string }> {
+  // bytedance/seedream-v5.0-pro/edit requires `images` as an array of URLs
   return submitJob(
     WAVESPEED_MODELS.IMAGE_EDIT,
-    { image_url: imageUrl, prompt },
+    { images: [imageUrl], prompt },
     apiKey,
   );
 }
