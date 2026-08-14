@@ -175,9 +175,11 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
   const patchLook = usePatchWavespeedLook()
 
   // Polling
+  // Poll in "generating" AND "select" — looks may have null imageUrl on first
+  // arrival at select if the recovery re-poll hasn't fired yet.
   const looksStatusQuery = useWavespeedPersonaLooksStatus(
     personaId,
-    step === "generating",
+    step === "generating" || step === "select",
   )
   const voiceStatusQuery = useWavespeedVoiceStatus(
     voiceDbId,
