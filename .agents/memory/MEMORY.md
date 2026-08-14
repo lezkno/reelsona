@@ -32,3 +32,4 @@
 - [Wallet Credits Architecture](wallet-credits-architecture.md) — Phase 1 credit system: user_credits + credit_ledger tables, VIDEO_CREDIT_COST=10, reserve→consume/release lifecycle, provision recovery via purchases.provisioned_at.
 - [Digital Twin creation pipeline](digital-twin-creation.md) — mr.mimeType="text/plain" in Replit Chromium; FFmpeg compress >20MB before /v3/assets; POST /v3/avatars needs type:"digital_twin" not "video".
 - [WaveSpeed polling endpoint](wavespeed-polling-endpoint.md) — GET /api/v3/predictions/{id}/result (not /outputs/ or /status/); outputs is string[] not {images:[]}; poll must stay enabled in "select" step too.
+- [WaveSpeed voice clone audio format](wavespeed-voice-format.md) — minimax/voice-clone rejects webm/ogg (error 2013); convert to 16 kHz mono WAV with ffmpeg server-side and upload with .wav extension so WaveSpeed can identify by URL.

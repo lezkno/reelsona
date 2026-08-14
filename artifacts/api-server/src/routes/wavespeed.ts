@@ -17,6 +17,12 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import multer from "multer";
 import { randomUUID } from "crypto";
+import { execFile } from "child_process";
+import { promisify } from "util";
+import { writeFile, readFile, unlink } from "fs/promises";
+import { tmpdir } from "os";
+import { join as pathJoin } from "path";
+const execFileAsync = promisify(execFile);
 import { eq, and, isNotNull } from "drizzle-orm";
 import { db } from "@workspace/db";
 import {
@@ -84,6 +90,8 @@ async function uploadBufferAndSign(
   buffer: Buffer,
   contentType: string,
   subDir: string,
+  ext?: string,   // optional file extension e.g. ".wav" — included in the object name
+                  // so WaveSpeed can identify the format from the URL
 ): Promise<string> {
   const bucketName = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
   if (!bucketName) throw new Error("DEFAULT_OBJECT_STORAGE_BUCKET_ID not set");
@@ -91,10 +99,37 @@ async function uploadBufferAndSign(
   const dirParts = privateDir.split("/").filter(Boolean);
   const dirPrefix = dirParts.slice(1).join("/");
   const objectId = randomUUID();
-  const objectName = [dirPrefix, subDir, objectId].filter(Boolean).join("/");
+  const filename = ext ? `${objectId}${ext}` : objectId;
+  const objectName = [dirPrefix, subDir, filename].filter(Boolean).join("/");
   const file = objectStorageClient.bucket(bucketName).file(objectName);
   await file.save(buffer, { contentType, resumable: false });
   return getSignedObjectUrl(objectName, 24 * 3600);
+}
+
+/**
+ * Convert any browser-recorded audio (webm, ogg, etc.) to 16-kHz mono WAV
+ * using ffmpeg.  WaveSpeed's minimax voice-clone API rejects webm/ogg by
+ * extension (error 2013) but accepts WAV, MP3, and M4A.
+ */
+async function convertToWav(inputBuffer: Buffer): Promise<Buffer> {
+  const id = randomUUID();
+  const inputPath  = pathJoin(tmpdir(), `ws-audio-in-${id}.webm`);
+  const outputPath = pathJoin(tmpdir(), `ws-audio-out-${id}.wav`);
+  try {
+    await writeFile(inputPath, inputBuffer);
+    await execFileAsync("ffmpeg", [
+      "-y",             // overwrite output without asking
+      "-i", inputPath,
+      "-ar", "16000",   // 16 kHz — minimax requirement
+      "-ac", "1",       // mono
+      "-f", "wav",
+      outputPath,
+    ]);
+    return await readFile(outputPath);
+  } finally {
+    await unlink(inputPath).catch(() => {});
+    await unlink(outputPath).catch(() => {});
+  }
 }
 
 // ── 5 look variation prompts ──────────────────────────────────────────────────
@@ -425,9 +460,11 @@ router.post("/wavespeed/voices/clone", upload.single("audio"), async (req, res) 
   }
 
   try {
-    // Upload audio to object storage and get a signed URL
-    const contentType = file.mimetype || "audio/webm";
-    const audioUrl = await uploadBufferAndSign(file.buffer, contentType, "wavespeed-voices");
+    // Convert whatever the browser recorded (webm, ogg…) to 16-kHz mono WAV.
+    // WaveSpeed's minimax voice-clone API rejects webm/ogg by extension (code 2013)
+    // but accepts WAV.  Converting server-side avoids any browser compatibility issues.
+    const wavBuffer = await convertToWav(file.buffer);
+    const audioUrl = await uploadBufferAndSign(wavBuffer, "audio/wav", "wavespeed-voices", ".wav");
 
     // Generate a unique custom_voice_id that satisfies WaveSpeed format rules:
     //   ≥ 8 chars, starts with a letter, contains both letters and numbers.
