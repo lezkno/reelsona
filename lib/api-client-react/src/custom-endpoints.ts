@@ -1105,7 +1105,23 @@ export function usePatchWavespeedLook() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, config }),
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: WAVESPEED_PERSONAS_KEY }),
+    onSuccess: (updatedLook) => {
+      // Update the look in-place in the React Query cache so the UI reflects the
+      // change immediately — without relying on a network round-trip that may
+      // return a 304 (browser-cached response) and leave stale data on screen.
+      qc.setQueryData<{ personas: WavespeedPersonaWithLooks[] }>(
+        WAVESPEED_PERSONAS_KEY,
+        (old) => {
+          if (!old) return old;
+          return {
+            personas: old.personas.map((p) => ({
+              ...p,
+              looks: p.looks.map((l) => (l.id === updatedLook.id ? updatedLook : l)),
+            })),
+          };
+        },
+      );
+    },
   });
 }
 
