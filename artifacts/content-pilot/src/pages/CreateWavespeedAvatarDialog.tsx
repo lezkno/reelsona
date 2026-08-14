@@ -242,11 +242,32 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
     setWebcamActive(false)
   }
 
-  /** Switch to a different camera while the webcam is already active. */
+  /** Switch to a different camera while the webcam is already active.
+   *  The video element is already mounted, so we attach srcObject directly
+   *  instead of relying on the useEffect (which only fires on state changes). */
   const switchCamera = async (deviceId: string) => {
     setSelectedCameraId(deviceId)
-    if (webcamActive) {
-      await startWebcam(deviceId)
+    if (!webcamActive) return
+
+    // Stop existing tracks
+    streamRef.current?.getTracks().forEach((t) => t.stop())
+    streamRef.current = null
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { deviceId: { exact: deviceId } },
+        audio: false,
+      })
+      streamRef.current = stream
+
+      // Attach directly — video element is already in the DOM
+      const vid = videoRef.current
+      if (vid) {
+        vid.srcObject = stream
+        vid.play().catch(() => {})
+      }
+    } catch {
+      toast({ title: "No se pudo cambiar la cámara", variant: "destructive" })
     }
   }
 
