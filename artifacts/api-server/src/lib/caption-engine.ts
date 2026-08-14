@@ -847,7 +847,7 @@ function _heuristicSentenceIndices(sentences: string[], count: number): number[]
  * support is broken when called via execFile (no shell escaping).
  *
  * Effect per timestamp T (3 s total):
- *   Normal before → scale×1.4 + center-crop (hold for 3 s) → normal after
+ *   Normal before → scale×1.4 + face-anchored crop (hold for 3 s) → normal after
  * All segments are re-concat for both video and audio so A/V stays in sync.
  *
  * Returns a string[] ready to spread into execFileAsync args, or null if empty.
@@ -866,7 +866,21 @@ export function buildPunchZoomArgs(
   const scaledW = Math.ceil(W * zoomFactor / 2) * 2;
   const scaledH = Math.ceil(H * zoomFactor / 2) * 2;
   const cropX   = Math.floor((scaledW - W) / 2);
-  const cropY   = 0; // top of frame — face lives in upper portion of portrait videos
+  // Anchor the crop so the face stays in place during the zoom.
+  // Talking-head avatars (both HeyGen and WaveSpeed portrait videos) have their
+  // face center at roughly 28-30% from the top of the frame.  A cropY anchored
+  // at that fraction keeps the face stationary while the background zooms in.
+  //
+  // Math: a point at original `y` maps to `y * zoomFactor` in the scaled frame.
+  // To keep `y` fixed in the output: output_y = y*zoomFactor - cropY = y
+  //   → cropY = y * (zoomFactor - 1)  = y * 0.4
+  // For faceY = H * FACE_ANCHOR → cropY = H * FACE_ANCHOR * (zoomFactor - 1)
+  //                              = (scaledH - H) * FACE_ANCHOR
+  //
+  // FACE_ANCHOR = 0.30 → face at 30 % from top stays fixed (moves <2 % for
+  // faces in the 25–35 % band, which covers almost all avatar compositions).
+  const FACE_ANCHOR = 0.30;
+  const cropY = Math.round((scaledH - H) * FACE_ANCHOR);
 
   type Seg = { start: number; end: number; isZoom: boolean };
   const segments: Seg[] = [];
