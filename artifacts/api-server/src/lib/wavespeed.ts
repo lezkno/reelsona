@@ -70,13 +70,18 @@ async function wavespeedFetch<T>(
     throw new Error(`WaveSpeed ${method} ${path} → HTTP ${res.status}: ${text}`);
   }
 
-  let json: WavespeedResponse<T>;
+  let json: unknown;
   try {
     json = JSON.parse(text);
   } catch {
     throw new Error(`WaveSpeed ${method} ${path} → non-JSON response: ${text.slice(0, 200)}`);
   }
-  return json.data;
+
+  // WaveSpeed wraps successful responses in { data: T }.
+  // Some endpoints (e.g. GET /outputs/:id) may return the object directly.
+  // Support both shapes to avoid silent undefined errors.
+  const wrapped = json as WavespeedResponse<T>;
+  return (wrapped.data ?? json) as T;
 }
 
 // ── Job types ──────────────────────────────────────────────────────────────────

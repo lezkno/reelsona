@@ -642,8 +642,12 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
             </div>
           )}
 
-          <p className="text-xs text-center text-muted-foreground">Esto puede tardar 1–3 minutos. No cierres esta ventana.</p>
+          <p className="text-xs text-center text-muted-foreground">Esto puede tardar 1–3 minutos.</p>
         </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cerrar</Button>
+        </DialogFooter>
       </>
     )
   }

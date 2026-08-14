@@ -360,7 +360,7 @@ router.get("/wavespeed/personas/:id/looks/status", async (req, res) => {
             return { ...look, config: newConfig };
           }
         } catch (pollErr: any) {
-          req.log.warn({ lookId: look.id, pollErr }, "[WaveSpeed] Poll look job error");
+          req.log.warn({ lookId: look.id, err: pollErr }, "[WaveSpeed] Poll look job error");
         }
         return look;
       }),
