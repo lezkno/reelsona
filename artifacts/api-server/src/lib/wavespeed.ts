@@ -168,17 +168,35 @@ export async function submitSpeech(
 
 /**
  * Submit a voice clone job (minimax/voice-clone).
- * @param name      Display name for the cloned voice
- * @param audioUrl  Reference audio URL (clear speech, min ~30 s recommended)
+ *
+ * The caller must supply a `customVoiceId` that is:
+ *   • ≥ 8 characters
+ *   • Starts with a letter
+ *   • Contains both letters and numbers
+ *   • Unique across the WaveSpeed account
+ *
+ * The same ID is used directly when calling minimax/speech-02-hd, so save it
+ * to the DB before submitting — no need to parse it from outputs later.
+ *
+ * @param customVoiceId  Caller-chosen unique voice ID (see format rules above)
+ * @param audioUrl       Publicly accessible reference audio URL (≥ 30 s recommended)
  */
 export async function submitVoiceClone(
-  name: string,
+  customVoiceId: string,
   audioUrl: string,
   apiKey?: string,
 ): Promise<{ requestId: string; status: string }> {
   return submitJob(
     WAVESPEED_MODELS.VOICE_CLONE,
-    { name, audio_url: audioUrl },
+    {
+      audio: audioUrl,
+      custom_voice_id: customVoiceId,
+      model: "speech-02-hd",
+      language_boost: "Spanish",
+      need_noise_reduction: true,
+      need_volume_normalization: true,
+      accuracy: 0.7,
+    },
     apiKey,
   );
 }

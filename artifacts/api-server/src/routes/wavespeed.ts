@@ -417,10 +417,10 @@ router.post("/wavespeed/voices/clone", upload.single("audio"), async (req, res) 
   }
 
   const file = req.file;
-  const name = (req.body?.name ?? "").trim();
+  const name = (req.body?.name ?? "Mi voz").trim() || "Mi voz";
 
-  if (!file || !name) {
-    res.status(400).json({ error: "audio file and name are required" });
+  if (!file) {
+    res.status(400).json({ error: "audio file is required" });
     return;
   }
 
@@ -429,13 +429,26 @@ router.post("/wavespeed/voices/clone", upload.single("audio"), async (req, res) 
     const contentType = file.mimetype || "audio/webm";
     const audioUrl = await uploadBufferAndSign(file.buffer, contentType, "wavespeed-voices");
 
-    // Submit clone job
-    const { requestId } = await submitVoiceClone(name, audioUrl);
+    // Generate a unique custom_voice_id that satisfies WaveSpeed format rules:
+    //   ≥ 8 chars, starts with a letter, contains both letters and numbers.
+    // We keep it and save it immediately — no need to parse it from outputs later.
+    const ts = Date.now();
+    const hex = randomUUID().replace(/-/g, "").slice(0, 6);
+    const customVoiceId = `WsV${ts}${hex}`; // e.g. WsV1723657890123abc123
 
-    // Create voice row
+    // Submit clone job to WaveSpeed
+    const { requestId } = await submitVoiceClone(customVoiceId, audioUrl);
+
+    // Create voice row — wavespeedVoiceId is already known upfront
     const [voiceRow] = await db
       .insert(wavespeedVoicesTable)
-      .values({ userId, displayName: name, wavespeedRequestId: requestId, status: "pending" })
+      .values({
+        userId,
+        displayName: name,
+        wavespeedRequestId: requestId,
+        wavespeedVoiceId: customVoiceId, // stored immediately; ready to use once status = "ready"
+        status: "pending",
+      })
       .returning();
 
     res.json({ voiceId: voiceRow.id, displayName: voiceRow.displayName, status: voiceRow.status });
@@ -498,30 +511,14 @@ router.get("/wavespeed/voices/:id/status", async (req, res) => {
     let updated = voice;
 
     if (result.status === "completed") {
-      const outputs = result.outputs ?? {};
-      // minimax/voice-clone returns outputs.voice_id or outputs.id
-      const wavespeedVoiceId: string | undefined =
-        (outputs["voice_id"] as string | undefined) ??
-        (outputs["id"] as string | undefined) ??
-        (outputs["voiceId"] as string | undefined);
-
-      if (wavespeedVoiceId) {
-        const [u] = await db
-          .update(wavespeedVoicesTable)
-          .set({ status: "ready", wavespeedVoiceId, updatedAt: new Date() })
-          .where(eq(wavespeedVoicesTable.id, voiceId))
-          .returning();
-        updated = u;
-      } else {
-        // Completed but no voice ID — treat as failed
-        const errMsg = `Clone completed but no voice_id in outputs: ${JSON.stringify(outputs)}`;
-        const [u] = await db
-          .update(wavespeedVoicesTable)
-          .set({ status: "failed", errorMessage: errMsg, updatedAt: new Date() })
-          .where(eq(wavespeedVoicesTable.id, voiceId))
-          .returning();
-        updated = u;
-      }
+      // wavespeedVoiceId (= custom_voice_id) was stored at submission time —
+      // no need to parse it from outputs. Just flip status to "ready".
+      const [u] = await db
+        .update(wavespeedVoicesTable)
+        .set({ status: "ready", updatedAt: new Date() })
+        .where(eq(wavespeedVoicesTable.id, voiceId))
+        .returning();
+      updated = u;
     } else if (result.status === "failed") {
       const [u] = await db
         .update(wavespeedVoicesTable)
