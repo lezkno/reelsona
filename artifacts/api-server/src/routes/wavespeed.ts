@@ -98,32 +98,34 @@ async function uploadBufferAndSign(
 }
 
 // ── 5 look variation prompts ──────────────────────────────────────────────────
+// Each prompt preserves the person exactly as-is (face, clothing, expression)
+// and changes ONLY the environment / background around them.
 
 const LOOK_PROMPTS = [
   {
-    name: "Look casual exterior",
+    name: "Entorno profesional",
     prompt:
-      "Same person, casual outdoor setting, relaxed casual clothing, natural sunlight, park or street background",
+      "Keep the person exactly as they appear — same face, hair, clothes, and expression. Change only the background to a sleek modern office with large windows, soft natural light, and a clean desk visible behind them. Photorealistic.",
   },
   {
-    name: "Look profesional",
+    name: "Entorno natural",
     prompt:
-      "Same person, professional business attire, modern office or studio background, polished and confident look",
+      "Keep the person exactly as they appear — same face, hair, clothes, and expression. Change only the background to a lush green park on a sunny day, with trees, soft bokeh foliage, and warm golden-hour light. Photorealistic.",
   },
   {
-    name: "Look deportivo",
+    name: "Entorno urbano",
     prompt:
-      "Same person, sporty athletic wear, outdoor or gym environment, energetic and active feel",
+      "Keep the person exactly as they appear — same face, hair, clothes, and expression. Change only the background to a vibrant city street at dusk, with blurred car lights, neon signs, and urban architecture. Photorealistic.",
   },
   {
-    name: "Look casual interior",
+    name: "Entorno estudio",
     prompt:
-      "Same person, comfortable casual home clothing, cozy indoor background with warm lighting",
+      "Keep the person exactly as they appear — same face, hair, clothes, and expression. Change only the background to a clean professional photo studio: solid light-gray seamless backdrop, soft box lighting, neutral and polished. Photorealistic.",
   },
   {
-    name: "Look artístico",
+    name: "Entorno hogareño",
     prompt:
-      "Same person, smart casual creative outfit, artistic studio or urban background, stylish creative ambience",
+      "Keep the person exactly as they appear — same face, hair, clothes, and expression. Change only the background to a cozy, warmly lit living room with bookshelves, plants, and soft ambient lamp light. Photorealistic.",
   },
 ];
 
@@ -193,6 +195,16 @@ router.post("/wavespeed/personas", async (req, res) => {
     const lookJobs = await Promise.allSettled(
       LOOK_PROMPTS.map((lp) => submitImageEdit(referenceImageUrl, lp.prompt)),
     );
+
+    // Log any submission failures so they appear in server logs
+    lookJobs.forEach((job, i) => {
+      if (job.status === "rejected") {
+        req.log.error(
+          { err: job.reason, lookName: LOOK_PROMPTS[i].name },
+          "[WaveSpeed] Image-edit job submission failed",
+        );
+      }
+    });
 
     // Create look + job rows for each (even if submission failed)
     const lookRows = [];
@@ -306,14 +318,28 @@ router.get("/wavespeed/personas/:id/looks/status", async (req, res) => {
 
         try {
           const result = await getJobStatus(String(cfg.requestId));
+          req.log.info(
+            { lookId: look.id, requestId: cfg.requestId, status: result.status, outputs: result.outputs, error: result.error },
+            "[WaveSpeed] Poll look job response",
+          );
           if (result.status === "completed") {
             const outputs = result.outputs ?? {};
-            // WaveSpeed image edit returns outputs.images[0] or outputs.image
+            // Try all known WaveSpeed output shapes:
+            //   images: string[]   (common for image models)
+            //   image: string
+            //   url: string
+            //   images: {url:string}[]  (some models return objects)
+            const imagesArr = outputs["images"];
             const rawUrl: string | undefined =
-              (Array.isArray(outputs["images"]) ? (outputs["images"] as string[])[0] : undefined) ??
+              (Array.isArray(imagesArr)
+                ? typeof imagesArr[0] === "string"
+                  ? (imagesArr[0] as string)
+                  : (imagesArr[0] as any)?.url
+                : undefined) ??
               (outputs["image"] as string | undefined) ??
               (outputs["url"] as string | undefined);
             const imageUrl = rawUrl ?? null;
+            req.log.info({ lookId: look.id, imageUrl }, "[WaveSpeed] Look completed, imageUrl resolved");
             cfg.generationStatus = "ready";
             cfg.outputUrl = imageUrl;
             const newConfig = JSON.stringify(cfg);
@@ -323,6 +349,7 @@ router.get("/wavespeed/personas/:id/looks/status", async (req, res) => {
               .where(eq(wavespeedLooksTable.id, look.id));
             return { ...look, imageUrl, config: newConfig };
           } else if (result.status === "failed") {
+            req.log.error({ lookId: look.id, error: result.error }, "[WaveSpeed] Look job failed");
             cfg.generationStatus = "failed";
             cfg.errorMessage = result.error ?? "Generation failed";
             const newConfig = JSON.stringify(cfg);

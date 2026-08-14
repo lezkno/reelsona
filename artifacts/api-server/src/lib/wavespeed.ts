@@ -178,7 +178,7 @@ export async function submitVoiceClone(
 
 /**
  * Submit an image edit job (bytedance/seedream-v5.0-pro/edit).
- * @param imageUrl  Source image URL
+ * @param imageUrl  Source image URL (must be publicly reachable)
  * @param prompt    Editing instruction in natural language
  */
 export async function submitImageEdit(
@@ -188,7 +188,7 @@ export async function submitImageEdit(
 ): Promise<{ requestId: string; status: string }> {
   return submitJob(
     WAVESPEED_MODELS.IMAGE_EDIT,
-    { image: imageUrl, prompt },
+    { image_url: imageUrl, prompt },
     apiKey,
   );
 }
