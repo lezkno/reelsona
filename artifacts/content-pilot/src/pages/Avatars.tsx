@@ -18,10 +18,15 @@ import {
   useWavespeedPersonas,
   useDeleteWavespeedPersona,
   usePatchWavespeedLook,
+  useDeleteWavespeedLook,
   useWavespeedPersonaLooksStatus,
+  useWavespeedVoices,
+  useDeleteWavespeedVoice,
+  useGenerateWavespeedPersonaLooks,
   WAVESPEED_PERSONAS_KEY,
   type WavespeedPersonaWithLooks,
   type WavespeedLookRow,
+  type WavespeedVoiceRow,
 } from "@workspace/api-client-react"
 import { CreateWavespeedAvatarDialog } from "./CreateWavespeedAvatarDialog"
 import { Card, CardContent } from "@/components/ui/card"
@@ -2514,64 +2519,214 @@ function WavespeedPersonaCard({
   )
 }
 
+// ── CreateNewLookDialog ───────────────────────────────────────────────────────
+
+function CreateNewLookDialog({
+  persona,
+  readyLooks,
+  onClose,
+  onGenerated,
+}: {
+  persona: WavespeedPersonaWithLooks
+  readyLooks: WavespeedLookRow[]
+  onClose: () => void
+  onGenerated: () => void
+}) {
+  const { toast } = useToast()
+  const generateLooks = useGenerateWavespeedPersonaLooks()
+
+  const [baseLookId, setBaseLookId] = useState<number | null>(readyLooks[0]?.id ?? null)
+  const [lookName, setLookName] = useState("")
+  const [prompt, setPrompt] = useState("")
+  const [pose, setPose] = useState<"half_body" | "close_up" | "full_body">("half_body")
+
+  const handleGenerate = async () => {
+    try {
+      await generateLooks.mutateAsync({
+        personaId: persona.id,
+        name: lookName.trim() || undefined,
+        prompt: prompt.trim() || undefined,
+        baseLookId: baseLookId ?? undefined,
+        pose,
+      })
+      toast({ title: "Generando look…", description: "Aparecerá en la cuadrícula en unos segundos." })
+      onGenerated()
+      onClose()
+    } catch (err: any) {
+      toast({ title: "Error al generar look", description: err.message, variant: "destructive" })
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open && !generateLooks.isPending) onClose() }}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Crear nuevo look</DialogTitle>
+          <DialogDescription>
+            Genera una variante del avatar con diferente ropa, fondo o pose. La IA mantiene el mismo personaje.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-5 py-1">
+          {/* Basar en */}
+          {readyLooks.length > 0 && (
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Basar en</label>
+              <div className="flex gap-2 flex-wrap">
+                {readyLooks.map((look) => (
+                  <button
+                    key={look.id}
+                    type="button"
+                    onClick={() => setBaseLookId(look.id)}
+                    className={`w-16 h-16 rounded-lg overflow-hidden border-2 flex-shrink-0 transition-all
+                      ${baseLookId === look.id ? "border-primary ring-2 ring-primary/30" : "border-border hover:border-primary/40"}`}
+                  >
+                    {look.imageUrl ? (
+                      <img src={look.imageUrl} alt={look.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full bg-muted flex items-center justify-center">
+                        <ImageIcon className="w-4 h-4 text-muted-foreground" />
+                      </div>
+                    )}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground">La IA usará este look como referencia de identidad</p>
+            </div>
+          )}
+
+          {/* Nombre del look */}
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium" htmlFor="look-name">Nombre del look</label>
+            <input
+              id="look-name"
+              value={lookName}
+              onChange={(e) => setLookName(e.target.value)}
+              placeholder="Ej: Look casual verano"
+              className="w-full text-sm rounded-md border bg-background px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/50"
+            />
+          </div>
+
+          {/* Descripción */}
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium" htmlFor="look-prompt">Descripción del nuevo look</label>
+            <textarea
+              id="look-prompt"
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder="Ej: Camisa casual azul, fondo de cafetería moderna, luz natural cálida"
+              rows={3}
+              className="w-full text-sm rounded-md border bg-background px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-primary/50"
+            />
+            <p className="text-xs text-muted-foreground">Describe solo lo que cambia: ropa, fondo, iluminación</p>
+          </div>
+
+          {/* Encuadre */}
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">Encuadre</label>
+            <Select value={pose} onValueChange={(v) => setPose(v as typeof pose)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="half_body">Medio cuerpo (recomendado)</SelectItem>
+                <SelectItem value="close_up">Primer plano</SelectItem>
+                <SelectItem value="full_body">Cuerpo completo</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={generateLooks.isPending}>
+            Cancelar
+          </Button>
+          <Button
+            onClick={handleGenerate}
+            disabled={generateLooks.isPending || (!persona.referenceObjectPath && !baseLookId)}
+            className="gap-1.5 bg-violet-600 hover:bg-violet-700 text-white"
+          >
+            {generateLooks.isPending
+              ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Generando…</>
+              : "Generar look"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 // ── WavespeedPersonaDialog ─────────────────────────────────────────────────────
 
 function WavespeedPersonaDialog({
   persona,
   onClose,
   onDeleted,
+  onNewLook,
 }: {
   persona: WavespeedPersonaWithLooks
   onClose: () => void
   onDeleted: () => void
+  onNewLook: () => void
 }) {
   const { toast } = useToast()
   const deletePersona = useDeleteWavespeedPersona()
+  const deleteLookMutation = useDeleteWavespeedLook()
   const patchLook = usePatchWavespeedLook()
+  const { data: voicesData } = useWavespeedVoices()
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const [saving, setSaving] = useState(false)
+  const [showOnlySelected, setShowOnlySelected] = useState(false)
 
-  // Poll status so looks with null imageUrl (from previous broken poll runs)
-  // are recovered automatically when the dialog opens.
-  const hasNullImageUrl = persona.looks.some((l) => {
-    try {
-      const cfg = JSON.parse(l.config ?? "{}") as { generationStatus?: string }
-      return cfg.generationStatus === "ready" && !l.imageUrl
-    } catch { return false }
+  const readyVoices = (voicesData?.voices ?? []).filter((v) => v.status === "ready")
+
+  // Helper: parse look config
+  const getCfg = (look: WavespeedLookRow) => {
+    try { return JSON.parse(look.config ?? "{}") as { generationStatus?: string; selected?: boolean; voiceId?: number | null; requestId?: string } }
+    catch { return {} }
+  }
+  const getSelected = (look: WavespeedLookRow) => getCfg(look).selected === true
+  const getVoiceId = (look: WavespeedLookRow) => getCfg(look).voiceId ?? null
+
+  // Poll while any look needs recovery (null imageUrl) or is still pending
+  const hasPending = persona.looks.some((l) => {
+    const cfg = getCfg(l)
+    return cfg.generationStatus === "pending" || (cfg.generationStatus === "ready" && !l.imageUrl)
   })
-  const looksStatus = useWavespeedPersonaLooksStatus(persona.id, hasNullImageUrl)
+  const looksStatus = useWavespeedPersonaLooksStatus(persona.id, hasPending)
   const livePersonaLooks = looksStatus.data?.looks ?? persona.looks
 
-  const readyLooks = livePersonaLooks.filter((l) => {
-    try {
-      return (JSON.parse(l.config ?? "{}") as { generationStatus?: string }).generationStatus === "ready"
-    } catch {
-      return false
-    }
+  const allLooks = livePersonaLooks
+  // Defensive: treat a look as ready if generationStatus="ready" OR if it already has an imageUrl
+  const readyLooks = allLooks.filter((l) => {
+    const cfg = getCfg(l)
+    return cfg.generationStatus === "ready" || !!l.imageUrl
   })
-
-  const getSelected = (look: WavespeedLookRow) => {
-    try {
-      return (JSON.parse(look.config ?? "{}") as { selected?: boolean }).selected === true
-    } catch {
-      return false
-    }
-  }
+  const pendingLooks = allLooks.filter((l) => {
+    const cfg = getCfg(l)
+    return cfg.generationStatus === "pending" && !l.imageUrl
+  })
+  const selectedCount = readyLooks.filter(getSelected).length
+  const visibleLooks = showOnlySelected ? readyLooks.filter(getSelected) : readyLooks
 
   const handleToggle = async (look: WavespeedLookRow) => {
     const isSelected = getSelected(look)
-    setSaving(true)
-    try {
-      await patchLook.mutateAsync({ id: look.id, config: { selected: !isSelected } })
-    } catch {
-      toast({ title: "Error al guardar", variant: "destructive" })
-    } finally {
-      setSaving(false)
-    }
+    try { await patchLook.mutateAsync({ id: look.id, config: { selected: !isSelected } }) }
+    catch { toast({ title: "Error al guardar", variant: "destructive" }) }
   }
 
-  const handleDelete = async () => {
+  const handleVoiceChange = async (look: WavespeedLookRow, value: string) => {
+    const voiceId = value === "__none__" ? null : parseInt(value, 10)
+    try { await patchLook.mutateAsync({ id: look.id, config: { voiceId } }) }
+    catch { toast({ title: "Error al guardar la voz", variant: "destructive" }) }
+  }
+
+  const handleDeleteLook = async (look: WavespeedLookRow) => {
+    try { await deleteLookMutation.mutateAsync(look.id) }
+    catch { toast({ title: "Error al eliminar el look", variant: "destructive" }) }
+  }
+
+  const handleDeletePersona = async () => {
     setDeleting(true)
     try {
       await deletePersona.mutateAsync(persona.id)
@@ -2585,96 +2740,160 @@ function WavespeedPersonaDialog({
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open && !deleting) onClose() }}>
-      <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-2xl max-h-[90vh] flex flex-col gap-0 p-0">
         {confirmDelete ? (
-          <>
+          <div className="p-6 flex flex-col gap-4">
             <DialogHeader>
               <DialogTitle className="text-destructive flex items-center gap-2">
                 <Trash2 className="w-5 h-5" /> Eliminar avatar AI
               </DialogTitle>
               <DialogDescription>
-                Se eliminará permanentemente <strong>{persona.name}</strong> y todos sus looks.
+                Se eliminará permanentemente <strong>{persona.name}</strong> y todos sus looks. Esta acción no se puede deshacer.
               </DialogDescription>
             </DialogHeader>
-            <div className="py-4 rounded-lg bg-destructive/10 border border-destructive/20 text-sm text-destructive text-center">
-              Esta acción no se puede deshacer.
-            </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setConfirmDelete(false)} disabled={deleting}>Cancelar</Button>
-              <Button variant="destructive" onClick={handleDelete} disabled={deleting} className="gap-2">
+              <Button variant="destructive" onClick={handleDeletePersona} disabled={deleting} className="gap-2">
                 {deleting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                 {deleting ? "Eliminando…" : "Sí, eliminar"}
               </Button>
             </DialogFooter>
-          </>
+          </div>
         ) : (
           <>
-            <DialogHeader>
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <DialogTitle className="flex items-center gap-2">
-                    <Badge className="bg-violet-600 text-white text-[10px] px-1.5">
-                      <Sparkles className="w-2.5 h-2.5 mr-1" /> AI
-                    </Badge>
-                    {persona.name}
-                  </DialogTitle>
-                  <DialogDescription>
-                    Selecciona los looks que quieres usar en la generación de videos. Los marcados en verde se usarán en el siguiente ciclo.
-                  </DialogDescription>
-                </div>
+            {/* Header */}
+            <div className="flex items-start justify-between gap-3 px-6 pt-6 pb-3 flex-shrink-0">
+              <div className="min-w-0">
+                <h2 className="text-base font-semibold flex items-center gap-2 flex-wrap">
+                  <Badge className="bg-violet-600 text-white text-[10px] px-1.5 shrink-0">
+                    <Sparkles className="w-2.5 h-2.5 mr-1" /> AI
+                  </Badge>
+                  <span className="truncate">{persona.name}</span>
+                </h2>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  Elige los looks que quieres usar. Al seleccionar un look puedes asignarle una voz.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(true)}
+                className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors flex-shrink-0 mt-0.5"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Filter toggle */}
+            {selectedCount > 0 && (
+              <div className="px-6 pb-2 flex-shrink-0">
                 <button
                   type="button"
-                  onClick={() => setConfirmDelete(true)}
-                  className="mt-0.5 p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors flex-shrink-0"
+                  onClick={() => setShowOnlySelected((v) => !v)}
+                  className={`inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full border transition-colors
+                    ${showOnlySelected ? "bg-primary/10 border-primary text-primary" : "border-border text-muted-foreground hover:border-primary/50"}`}
                 >
-                  <Trash2 className="w-4 h-4" />
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  Ver solo seleccionados ({selectedCount})
                 </button>
-              </div>
-            </DialogHeader>
-
-            {readyLooks.length === 0 ? (
-              <div className="text-center py-12 text-muted-foreground">
-                <ImageIcon className="w-10 h-10 mx-auto mb-3 opacity-40" />
-                <p className="text-sm">Este avatar no tiene looks generados todavía.</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                {readyLooks.map((look) => {
-                  const isSelected = getSelected(look)
-                  return (
-                    <button
-                      key={look.id}
-                      type="button"
-                      onClick={() => handleToggle(look)}
-                      disabled={saving}
-                      className={`relative aspect-[3/4] rounded-lg overflow-hidden border-2 transition-all text-left
-                        ${isSelected ? "border-primary ring-2 ring-primary/30" : "border-border hover:border-primary/40"}`}
-                    >
-                      {look.imageUrl ? (
-                        <LazyLookImage src={look.imageUrl} alt={look.name} />
-                      ) : (
-                        <div className="w-full h-full bg-muted flex items-center justify-center">
-                          <ImageIcon className="w-6 h-6 text-muted-foreground" />
-                        </div>
-                      )}
-                      {isSelected && (
-                        <div className="absolute top-2 right-2 w-6 h-6 rounded-full bg-primary flex items-center justify-center">
-                          <CheckCircle2 className="w-4 h-4 text-primary-foreground" />
-                        </div>
-                      )}
-                      <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/70 to-transparent px-2 py-1.5">
-                        <p className="text-white text-xs font-medium truncate">{look.name}</p>
-                      </div>
-                    </button>
-                  )
-                })}
               </div>
             )}
 
-            <DialogFooter>
-              {saving && <span className="text-xs text-muted-foreground flex items-center gap-1 mr-auto"><Loader2 className="w-3 h-3 animate-spin" /> Guardando…</span>}
-              <Button variant="outline" onClick={onClose}>Cerrar</Button>
-            </DialogFooter>
+            {/* Scrollable look grid */}
+            <div className="flex-1 overflow-y-auto px-6 pb-2">
+              {readyLooks.length === 0 && pendingLooks.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  <ImageIcon className="w-10 h-10 mx-auto mb-3 opacity-40" />
+                  <p className="text-sm">Este avatar no tiene looks generados todavía.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                  {visibleLooks.map((look) => {
+                    const isSelected = getSelected(look)
+                    const voiceId = getVoiceId(look)
+                    return (
+                      <div key={look.id} className="flex flex-col gap-1.5">
+                        {/* Card */}
+                        <div className="relative aspect-[3/4] group">
+                          <button
+                            type="button"
+                            onClick={() => handleToggle(look)}
+                            className={`w-full h-full rounded-lg overflow-hidden border-2 transition-all text-left
+                              ${isSelected ? "border-primary ring-2 ring-primary/30" : "border-border hover:border-primary/40"}`}
+                          >
+                            {look.imageUrl ? (
+                              <LazyLookImage src={look.imageUrl} alt={look.name} />
+                            ) : (
+                              <div className="w-full h-full bg-muted flex items-center justify-center">
+                                <ImageIcon className="w-6 h-6 text-muted-foreground" />
+                              </div>
+                            )}
+                            {isSelected && (
+                              <div className="absolute top-2 right-2 w-6 h-6 rounded-full bg-primary flex items-center justify-center shadow">
+                                <CheckCircle2 className="w-4 h-4 text-primary-foreground" />
+                              </div>
+                            )}
+                            <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/70 to-transparent px-2 py-1.5">
+                              <p className="text-white text-xs font-medium truncate">{look.name}</p>
+                            </div>
+                          </button>
+                          {/* Per-card delete — visible on hover */}
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteLook(look)}
+                            disabled={deleteLookMutation.isPending}
+                            className="absolute top-2 left-2 w-6 h-6 rounded-full bg-black/60 text-white opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center hover:bg-destructive"
+                            title="Eliminar look"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        {/* Voice picker */}
+                        <Select
+                          value={voiceId !== null ? String(voiceId) : "__none__"}
+                          onValueChange={(v) => handleVoiceChange(look, v)}
+                        >
+                          <SelectTrigger className="h-7 text-xs">
+                            <SelectValue placeholder="Sin voz" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none__">Sin voz (predeterminada)</SelectItem>
+                            {readyVoices.map((v) => (
+                              <SelectItem key={v.id} value={String(v.id)}>{v.displayName}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )
+                  })}
+
+                  {/* Pending looks — skeleton cards */}
+                  {(!showOnlySelected) && pendingLooks.map((look) => (
+                    <div key={look.id} className="flex flex-col gap-1.5">
+                      <div className="aspect-[3/4] rounded-lg bg-muted animate-pulse border-2 border-border flex flex-col items-center justify-center gap-2">
+                        <Loader2 className="w-5 h-5 text-muted-foreground/50 animate-spin" />
+                        <p className="text-[10px] text-muted-foreground/60 text-center px-2">{look.name}</p>
+                      </div>
+                      <div className="h-7 rounded-md bg-muted animate-pulse" />
+                    </div>
+                  ))}
+                </div>
+              )}
+
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-between gap-3 px-6 py-4 border-t flex-shrink-0">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onNewLook}
+                className="gap-1.5"
+              >
+                <Plus className="w-4 h-4" /> Nuevo look
+              </Button>
+              <Button variant="outline" size="sm" onClick={onClose}>Cerrar</Button>
+            </div>
           </>
         )}
       </DialogContent>
@@ -2690,17 +2909,27 @@ export default function Avatars() {
   const queryClient = useQueryClient()
   const { toast } = useToast()
   const { data: voices, isLoading: isLoadingVoices, refetch: refetchVoices } = useGetHeyGenVoices()
+  const { data: wavespeedVoicesData, refetch: refetchWavespeedVoices } = useWavespeedVoices()
+  const deleteWavespeedVoice = useDeleteWavespeedVoice()
+  const wavespeedVoices: WavespeedVoiceRow[] = wavespeedVoicesData?.voices ?? []
 
   // Poll voices every 10 s when any cloned voice is still processing so the UI
   // updates automatically when HeyGen finishes without a manual refresh.
   const hasPendingVoices = (voices ?? []).some(
     (v) => (v as any).is_mine && (v as any).status === "pending"
   )
+  const hasPendingWavespeedVoices = wavespeedVoices.some((v) => v.status === "pending")
   useEffect(() => {
     if (!hasPendingVoices) return
     const interval = setInterval(() => { refetchVoices() }, 10_000)
     return () => clearInterval(interval)
   }, [hasPendingVoices, refetchVoices])
+
+  useEffect(() => {
+    if (!hasPendingWavespeedVoices) return
+    const interval = setInterval(() => { refetchWavespeedVoices() }, 6_000)
+    return () => clearInterval(interval)
+  }, [hasPendingWavespeedVoices, refetchWavespeedVoices])
 
   // ── Shared selection state ────────────────────────────────────────────────
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -2768,6 +2997,15 @@ export default function Avatars() {
   const wavespeedPersonas = wavespeedData?.personas ?? []
   const [showWavespeedWizard, setShowWavespeedWizard] = useState(false)
   const [openWavespeedPersona, setOpenWavespeedPersona] = useState<WavespeedPersonaWithLooks | null>(null)
+  const [showCreateLookForPersona, setShowCreateLookForPersona] = useState(false)
+
+  // Keep openWavespeedPersona in sync when mutations invalidate the personas query
+  // so look selection/deselection changes are visible immediately.
+  useEffect(() => {
+    if (!openWavespeedPersona || !wavespeedData) return
+    const updated = wavespeedData.personas.find(p => p.id === openWavespeedPersona.id)
+    if (updated) setOpenWavespeedPersona(updated)
+  }, [wavespeedData]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Dialog state ──────────────────────────────────────────────────────────
   const [openGroup, setOpenGroup] = useState<{ group: V3Group; isOwned: boolean } | null>(null)
@@ -3686,6 +3924,71 @@ export default function Avatars() {
             />
           </div>
 
+          {/* WaveSpeed cloned voices */}
+          {wavespeedVoices.length > 0 && (
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                <Mic className="w-4 h-4 text-violet-500" />
+                Mis voces clonadas
+                <Badge className="bg-violet-600 text-white text-[10px] px-1.5 py-0">AI</Badge>
+              </h3>
+              <div className="space-y-2">
+                {wavespeedVoices
+                  .filter(v => !voiceSearch || v.displayName.toLowerCase().includes(voiceSearch.toLowerCase()))
+                  .map(v => (
+                  <div key={v.id} className="rounded-xl border bg-card overflow-hidden">
+                    <div className="flex items-center gap-3 p-3 hover:bg-muted/40 transition-colors">
+                      <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${
+                        v.status === "pending" ? "bg-amber-500/10" : v.status === "failed" ? "bg-destructive/10" : "bg-violet-500/10"
+                      }`}>
+                        {v.status === "pending"
+                          ? <Loader2 className="w-4 h-4 text-amber-500 animate-spin" />
+                          : v.status === "failed"
+                            ? <AlertCircle className="w-4 h-4 text-destructive" />
+                            : <Mic className="w-4 h-4 text-violet-500" />
+                        }
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <p className="text-sm font-medium truncate">{v.displayName}</p>
+                          {v.status === "pending" && (
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-amber-400/70 text-amber-600 bg-amber-50 dark:bg-amber-950/30 shrink-0">
+                              Procesando…
+                            </Badge>
+                          )}
+                          {v.status === "failed" && (
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-destructive/60 text-destructive shrink-0">
+                              Error
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {v.status === "pending"
+                            ? "Clonando voz con AI…"
+                            : v.status === "failed"
+                              ? (v.errorMessage ?? "El procesamiento falló — intenta clonar de nuevo")
+                              : "Voz clonada · Avatar AI"
+                          }
+                        </p>
+                      </div>
+                      <Button
+                        size="sm" variant="ghost"
+                        className="w-8 h-8 p-0 text-destructive hover:text-destructive shrink-0"
+                        onClick={async () => {
+                          try { await deleteWavespeedVoice.mutateAsync(v.id) }
+                          catch { toast({ title: "Error al eliminar la voz", variant: "destructive" }) }
+                        }}
+                        disabled={deleteWavespeedVoice.isPending}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* My cloned voices */}
           {allVoices.filter(v => v.is_mine).length > 0 && (
             <div className="space-y-3">
@@ -4073,6 +4376,22 @@ export default function Avatars() {
             setOpenWavespeedPersona(null)
             void refetchWavespeed()
           }}
+          onNewLook={() => setShowCreateLookForPersona(true)}
+        />
+      )}
+
+      {/* CreateNewLookDialog — rendered at top level so Radix events work correctly */}
+      {openWavespeedPersona && showCreateLookForPersona && (
+        <CreateNewLookDialog
+          persona={openWavespeedPersona}
+          readyLooks={openWavespeedPersona.looks.filter(l => {
+            try {
+              const cfg = JSON.parse(l.config ?? "{}") as { generationStatus?: string }
+              return cfg.generationStatus === "ready" || !!l.imageUrl
+            } catch { return !!l.imageUrl }
+          })}
+          onClose={() => setShowCreateLookForPersona(false)}
+          onGenerated={() => setShowCreateLookForPersona(false)}
         />
       )}
 

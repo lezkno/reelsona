@@ -980,6 +980,7 @@ export interface WavespeedPersonaWithLooks {
   name: string;
   description: string | null;
   thumbnailUrl: string | null;
+  referenceObjectPath: string | null;
   createdAt: string;
   updatedAt: string;
   looks: WavespeedLookRow[];
@@ -1104,6 +1105,43 @@ export function usePatchWavespeedLook() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, config }),
       }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: WAVESPEED_PERSONAS_KEY }),
+  });
+}
+
+/** Delete a WaveSpeed cloned voice. */
+export function useDeleteWavespeedVoice() {
+  const qc = useQueryClient();
+  return useMutation<{ ok: boolean }, Error, number>({
+    mutationFn: (voiceId) =>
+      customFetch<{ ok: boolean }>(`/api/wavespeed/voices/${voiceId}`, { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["wavespeed", "voices"] }),
+  });
+}
+
+/** Generate one additional look for an existing persona. */
+export function useGenerateWavespeedPersonaLooks() {
+  const qc = useQueryClient();
+  return useMutation<
+    { look: { id: number; name: string; config: string | null } },
+    Error,
+    {
+      personaId: number;
+      name?: string;
+      prompt?: string;
+      baseLookId?: number;
+      pose?: "half_body" | "close_up" | "full_body";
+    }
+  >({
+    mutationFn: ({ personaId, name, prompt, baseLookId, pose }) =>
+      customFetch<{ look: { id: number; name: string; config: string | null } }>(
+        `/api/wavespeed/personas/${personaId}/looks/generate`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, prompt, baseLookId, pose }),
+        },
+      ),
     onSuccess: () => qc.invalidateQueries({ queryKey: WAVESPEED_PERSONAS_KEY }),
   });
 }

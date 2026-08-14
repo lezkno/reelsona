@@ -7,13 +7,15 @@ import { users } from "./users";
  * One persona can have multiple looks and a cloned voice.
  */
 export const wavespeedPersonasTable = pgTable("wavespeed_personas", {
-  id:           serial("id").primaryKey(),
-  userId:       integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  name:         text("name").notNull(),
-  description:  text("description"),
-  thumbnailUrl: text("thumbnail_url"),
-  createdAt:    timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt:    timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  id:                   serial("id").primaryKey(),
+  userId:               integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  name:                 text("name").notNull(),
+  description:          text("description"),
+  thumbnailUrl:         text("thumbnail_url"),
+  /** GCS object path of the reference photo used to generate looks (e.g. /objects/…) */
+  referenceObjectPath:  text("reference_object_path"),
+  createdAt:            timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt:            timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export type WavespeedPersona    = typeof wavespeedPersonasTable.$inferSelect;

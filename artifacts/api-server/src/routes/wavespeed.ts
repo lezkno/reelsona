@@ -175,10 +175,10 @@ router.post("/wavespeed/personas", async (req, res) => {
     const gcsName = gcsObjectNameFromPath(referenceObjectPath);
     const referenceImageUrl = await getSignedObjectUrl(gcsName, 4 * 3600);
 
-    // Create persona row
+    // Create persona row — store the reference path so we can generate more looks later
     const [persona] = await db
       .insert(wavespeedPersonasTable)
-      .values({ userId, name: name.trim() })
+      .values({ userId, name: name.trim(), referenceObjectPath })
       .returning();
 
     // Submit 5 image-edit jobs in parallel
@@ -602,6 +602,134 @@ router.delete("/wavespeed/looks/:id", async (req, res) => {
     res.json({ ok: true });
   } catch (err: any) {
     req.log.error({ err }, "[WaveSpeed] Failed to delete look");
+    res.status(500).json({ error: err.message ?? "Internal error" });
+  }
+});
+
+// ── DELETE /wavespeed/voices/:id ─────────────────────────────────────────────
+
+router.delete("/wavespeed/voices/:id", async (req, res) => {
+  const userId = requireAuth(req, res);
+  if (!userId) return;
+
+  const voiceId = parseInt(req.params.id, 10);
+  if (isNaN(voiceId)) { res.status(400).json({ error: "Invalid voice ID" }); return; }
+
+  try {
+    await db
+      .delete(wavespeedVoicesTable)
+      .where(and(eq(wavespeedVoicesTable.id, voiceId), eq(wavespeedVoicesTable.userId, userId)));
+    res.json({ ok: true });
+  } catch (err: any) {
+    req.log.error({ err }, "[WaveSpeed] Failed to delete voice");
+    res.status(500).json({ error: err.message ?? "Internal error" });
+  }
+});
+
+// ── POST /wavespeed/personas/:id/looks/generate ───────────────────────────────
+
+router.post("/wavespeed/personas/:id/looks/generate", async (req, res) => {
+  const userId = requireAuth(req, res);
+  if (!userId) return;
+
+  const personaId = parseInt(req.params.id, 10);
+  if (isNaN(personaId)) { res.status(400).json({ error: "Invalid persona ID" }); return; }
+
+  const {
+    name: customName,
+    prompt: customPrompt,
+    baseLookId,
+    pose,
+  } = (req.body ?? {}) as {
+    name?: string;
+    prompt?: string;
+    baseLookId?: number;
+    pose?: "half_body" | "close_up" | "full_body";
+  };
+
+  // Pose framing prefix injected into every prompt
+  const POSE_PREFIX: Record<string, string> = {
+    half_body: "Half-body framing (from the waist up).",
+    close_up: "Close-up framing (from the chest up, face prominent).",
+    full_body: "Full-body framing (entire body visible).",
+  };
+  const posePrefix = POSE_PREFIX[pose ?? "half_body"] ?? POSE_PREFIX.half_body;
+
+  try {
+    const [persona] = await db
+      .select()
+      .from(wavespeedPersonasTable)
+      .where(and(eq(wavespeedPersonasTable.id, personaId), eq(wavespeedPersonasTable.userId, userId)))
+      .limit(1);
+
+    if (!persona) { res.status(404).json({ error: "Persona not found" }); return; }
+
+    // Determine reference image:
+    // 1. Use baseLookId's imageUrl if provided (user picked an existing look as reference)
+    // 2. Fall back to the persona's original reference photo
+    let referenceImageUrl: string;
+
+    if (baseLookId) {
+      const [baseLook] = await db
+        .select()
+        .from(wavespeedLooksTable)
+        .where(
+          and(
+            eq(wavespeedLooksTable.id, baseLookId),
+            eq(wavespeedLooksTable.userId, userId),
+          ),
+        )
+        .limit(1);
+
+      if (!baseLook?.imageUrl) {
+        res.status(400).json({ error: "El look de referencia no tiene imagen. Elige otro look." });
+        return;
+      }
+      referenceImageUrl = baseLook.imageUrl;
+    } else {
+      if (!persona.referenceObjectPath) {
+        res.status(400).json({ error: "Esta persona no tiene una foto de referencia guardada. Crea un nuevo avatar AI para generar más looks." });
+        return;
+      }
+      const gcsName = gcsObjectNameFromPath(persona.referenceObjectPath);
+      referenceImageUrl = await getSignedObjectUrl(gcsName, 4 * 3600);
+    }
+
+    // Build prompt
+    const existingLooks = await db
+      .select({ name: wavespeedLooksTable.name })
+      .from(wavespeedLooksTable)
+      .where(and(eq(wavespeedLooksTable.personaId, personaId), eq(wavespeedLooksTable.userId, userId)));
+
+    const existingNames = new Set(existingLooks.map((l) => l.name));
+    const unusedPreset = LOOK_PROMPTS.find((lp) => !existingNames.has(lp.name));
+
+    const lookPrompt = customPrompt?.trim()
+      ? `Vertical portrait photo, 9:16 aspect ratio. ${posePrefix} Same person, same face and hair. ${customPrompt.trim()}. Photorealistic, sharp detail.`
+      : (unusedPreset?.prompt ?? LOOK_PROMPTS[Math.floor(Math.random() * LOOK_PROMPTS.length)].prompt);
+
+    const lookName = customName?.trim()
+      || (customPrompt?.trim() ? "Look personalizado" : (unusedPreset?.name ?? "Look extra"));
+
+    const { requestId } = await submitImageEdit(referenceImageUrl, lookPrompt);
+    const config = JSON.stringify({ requestId, generationStatus: "pending" });
+
+    const [look] = await db
+      .insert(wavespeedLooksTable)
+      .values({ userId, personaId, name: lookName, config })
+      .returning();
+
+    await db.insert(wavespeedJobsTable).values({
+      userId,
+      model: WAVESPEED_MODELS.IMAGE_EDIT,
+      status: "processing",
+      wavespeedRequestId: requestId,
+      inputPayload: JSON.stringify({ prompt: lookPrompt, personaId, lookId: look.id }),
+    });
+
+    res.json({ look: { id: look.id, name: look.name, config: look.config } });
+  } catch (err: any) {
+    req.log.error({ err }, "[WaveSpeed] Failed to generate new look");
     res.status(500).json({ error: err.message ?? "Internal error" });
   }
 });
