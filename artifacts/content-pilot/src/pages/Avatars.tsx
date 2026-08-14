@@ -3226,6 +3226,16 @@ export default function Avatars() {
     if (!wsEditVoiceId) { stopTuningPreview(); setWsTuningPlayId(null) }
   }, [wsEditVoiceId]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Update the playing node in real time as sliders move
+  useEffect(() => {
+    if (wsTuningPlayId !== null && tuningSourceRef.current) {
+      const detuneCents     = wsPitchValue * 100
+      const compensatedRate = wsSpeedValue / Math.pow(2, detuneCents / 1200)
+      tuningSourceRef.current.playbackRate.value = compensatedRate
+      tuningSourceRef.current.detune.value       = detuneCents
+    }
+  }, [wsSpeedValue, wsPitchValue, wsTuningPlayId])
+
   const handleWsPreviewTuning = async (voiceId: number) => {
     if (wsTuningPlayId === voiceId) { stopTuningPreview(); setWsTuningPlayId(null); return }
     stopTuningPreview()
