@@ -28,6 +28,8 @@ import { generateScript, regenerateCaption, generateContentTopics } from "./ai-s
 import { getLatestAuditCache } from "./audit-cache";
 import { getStrategyProfile, toStrategyContext } from "./strategy-profile";
 import { generateVideo, getVideoStatus, listVoices, getAvatarDefaultVoiceId, fetchAvatarPreviewImage, getAllAvailableAvatarIds, invalidateAvatarIdsCache, getVoiceCloneStatus } from "./heygen";
+import { isWavespeedConfigured, submitSpeech, submitTalkingHead, getJobStatus as getWavespeedJobStatus, WAVESPEED_MODELS } from "./wavespeed";
+import { wavespeedPersonasTable, wavespeedLooksTable, wavespeedVoicesTable, wavespeedJobsTable } from "@workspace/db";
 import { createReelContainer, checkContainerStatus, publishContainer, getPermalink, refreshInstagramToken } from "./instagram-api";
 import { getSignedCaptionedVideoUrl, objectStorageClient } from "./objectStorage";
 import { generateBrandCover } from "./brand-cover";
@@ -37,6 +39,63 @@ import { generateBrandCover } from "./brand-cover";
 // spam users. Reset on process restart (acceptable — alerts are advisory).
 const lowCreditAlertsSent = new Map<number, number>(); // userId → timestamp ms
 const LOW_CREDIT_ALERT_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24 h
+
+// ── WaveSpeed context ─────────────────────────────────────────────────────────
+
+interface WavespeedCtx {
+  personaId: number;
+  lookId: number;
+  imageUrl: string;
+  voiceId: string; // wavespeed_voice_id (resolved)
+}
+
+/**
+ * Returns the user's active WaveSpeed persona/look/voice context, or null
+ * when WaveSpeed is not available for this user (no persona, no ready voice,
+ * or no look with an image URL).  Called once per generation cycle.
+ */
+async function getWavespeedContext(userId: number): Promise<WavespeedCtx | null> {
+  if (!isWavespeedConfigured()) return null;
+
+  const [persona] = await db
+    .select({ id: wavespeedPersonasTable.id })
+    .from(wavespeedPersonasTable)
+    .where(eq(wavespeedPersonasTable.userId, userId))
+    .limit(1);
+  if (!persona) return null;
+
+  const [voice] = await db
+    .select({ id: wavespeedVoicesTable.id, wavespeedVoiceId: wavespeedVoicesTable.wavespeedVoiceId })
+    .from(wavespeedVoicesTable)
+    .where(
+      and(
+        eq(wavespeedVoicesTable.userId, userId),
+        eq(wavespeedVoicesTable.status, "ready"),
+        isNotNull(wavespeedVoicesTable.wavespeedVoiceId),
+      ),
+    )
+    .limit(1);
+  if (!voice?.wavespeedVoiceId) return null;
+
+  const [look] = await db
+    .select({ id: wavespeedLooksTable.id, imageUrl: wavespeedLooksTable.imageUrl })
+    .from(wavespeedLooksTable)
+    .where(
+      and(
+        eq(wavespeedLooksTable.userId, userId),
+        isNotNull(wavespeedLooksTable.imageUrl),
+      ),
+    )
+    .limit(1);
+  if (!look?.imageUrl) return null;
+
+  return {
+    personaId: persona.id,
+    lookId: look.id,
+    imageUrl: look.imageUrl,
+    voiceId: voice.wavespeedVoiceId,
+  };
+}
 
 /** Sentinel stored in preferred_voice_id meaning "use the avatar's own HeyGen default voice" (legacy, kept for backwards compat). */
 export const AVATAR_DEFAULT_VOICE = "avatar_default";
@@ -672,8 +731,15 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
       .where(eq(contentPlanItemsTable.id, contentItem.id));
   }
 
-  if (!contentItem.avatarId || !contentItem.voiceId || !contentItem.script) {
-    logger.error({ itemId: contentItem.id, hasAvatar: !!contentItem.avatarId, hasVoice: !!contentItem.voiceId, hasScript: !!contentItem.script }, "Content item missing avatar, voice, or script");
+  // Check WaveSpeed availability for this user — takes priority over HeyGen when configured.
+  const wavespeedCtx = await getWavespeedContext(userId);
+
+  if (!contentItem.script) {
+    logger.error({ itemId: contentItem.id }, "Content item missing script");
+    return { success: false, message: "Content item missing script" };
+  }
+  if (!wavespeedCtx && (!contentItem.avatarId || !contentItem.voiceId)) {
+    logger.error({ itemId: contentItem.id, hasAvatar: !!contentItem.avatarId, hasVoice: !!contentItem.voiceId }, "Content item missing avatar or voice (no WaveSpeed context available)");
     return { success: false, message: "Content item missing avatar, voice, or script" };
   }
 
@@ -789,10 +855,53 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
   }
 
   try {
+    if (wavespeedCtx) {
+      // ── WaveSpeed path ────────────────────────────────────────────────────
+      // Step 1: submit TTS job (minimax/speech-2.6-turbo).
+      // Step 2 happens during polling: when TTS completes → submit talking-head.
+      // The sentinel "wavespeed-tts:{id}" stored in heygenVideoId tells the
+      // poller which stage we're in and which request id to poll.
+      logger.info({ videoId: videoRow.id, voiceId: wavespeedCtx.voiceId }, "[WaveSpeed] Submitting TTS job");
+      const { requestId: ttsRequestId } = await submitSpeech(
+        contentItem.script!,
+        wavespeedCtx.voiceId,
+      );
+      const sentinel = `wavespeed-tts:${ttsRequestId}`;
+
+      // Track the job in wavespeed_jobs so the poller can find imageUrl later.
+      await db.insert(wavespeedJobsTable).values({
+        userId,
+        model: WAVESPEED_MODELS.SPEECH,
+        status: "processing",
+        wavespeedRequestId: ttsRequestId,
+        // Store imageUrl in inputPayload so the talking-head step can read it without a separate query.
+        inputPayload: JSON.stringify({
+          text: contentItem.script,
+          voice_id: wavespeedCtx.voiceId,
+          imageUrl: wavespeedCtx.imageUrl,
+        }),
+        relatedVideoId: videoRow.id,
+      });
+
+      await db
+        .update(videosTable)
+        .set({ heygenVideoId: sentinel, updatedAt: new Date() })
+        .where(eq(videosTable.id, videoRow.id));
+
+      await db
+        .update(contentPlanItemsTable)
+        .set({ videoId: videoRow.id, updatedAt: new Date() })
+        .where(eq(contentPlanItemsTable.id, contentItem.id));
+
+      logger.info({ videoId: videoRow.id, ttsRequestId, sentinel }, "[WaveSpeed] TTS job submitted — polling will advance to talking-head step");
+      return { success: true, message: "WaveSpeed video generation started (TTS submitted)", contentItemId: contentItem.id, videoId: videoRow.id };
+    }
+
+    // ── HeyGen path (unchanged) ───────────────────────────────────────────
     const heygenVideoId = await generateVideo({
       script:          contentItem.script,
-      avatar_id:       contentItem.avatarId,
-      voice_id:        contentItem.voiceId,
+      avatar_id:       contentItem.avatarId!,
+      voice_id:        contentItem.voiceId!,
       title:           contentItem.topic,
       captionsEnabled: automation.captionsEnabled ?? false,
       voiceSpeed:      resolvedVoiceSpeed,
@@ -813,7 +922,7 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
 
     // Update avatar usage count
     const usageCount = (avatarCfg.avatarUsageCount as Record<string, number>) ?? {};
-    usageCount[contentItem.avatarId] = (usageCount[contentItem.avatarId] ?? 0) + 1;
+    usageCount[contentItem.avatarId!] = (usageCount[contentItem.avatarId!] ?? 0) + 1;
     await db
       .update(avatarConfigTable)
       .set({ lastUsedAvatarId: contentItem.avatarId, avatarUsageCount: usageCount, updatedAt: new Date() })
@@ -1526,6 +1635,150 @@ export async function pollAndPublishVideos(): Promise<void> {
         );
       }
       continue;
+    }
+
+    // ── WaveSpeed polling: sentinel "wavespeed-{stage}:{requestId}" ───────
+    // Two-stage pipeline:
+    //   wavespeed-tts:{id}  → poll TTS; when done submit talking-head
+    //   wavespeed-th:{id}   → poll talking-head; when done mark video ready
+    if (video.heygenVideoId.startsWith("wavespeed-")) {
+      const [stage, requestId] = video.heygenVideoId.replace("wavespeed-", "").split(":");
+      if (!requestId) continue;
+      try {
+        const jobResult = await getWavespeedJobStatus(requestId);
+
+        if (stage === "tts") {
+          if (jobResult.status === "completed") {
+            // Extract audio URL from outputs
+            const outputs = jobResult.outputs ?? {};
+            const audioUrl: string | undefined =
+              (outputs["audio_url"] ?? outputs["audio"] ?? outputs["url"]) as string | undefined;
+            if (!audioUrl) {
+              throw new Error(`TTS completado pero sin audio_url en outputs: ${JSON.stringify(outputs)}`);
+            }
+
+            // Find imageUrl stored in the TTS job's inputPayload
+            const [ttsJobRow] = await db
+              .select({ inputPayload: wavespeedJobsTable.inputPayload })
+              .from(wavespeedJobsTable)
+              .where(
+                and(
+                  eq(wavespeedJobsTable.wavespeedRequestId, requestId),
+                  eq(wavespeedJobsTable.relatedVideoId, video.id),
+                ),
+              )
+              .limit(1);
+            const imageUrl: string | undefined = ttsJobRow?.inputPayload
+              ? (JSON.parse(ttsJobRow.inputPayload) as { imageUrl?: string }).imageUrl
+              : undefined;
+            if (!imageUrl) {
+              throw new Error("No se encontró imageUrl para el paso de talking-head");
+            }
+
+            // Mark TTS job done
+            await db
+              .update(wavespeedJobsTable)
+              .set({ status: "completed", outputUrl: audioUrl, updatedAt: new Date() })
+              .where(eq(wavespeedJobsTable.wavespeedRequestId, requestId));
+
+            // Submit talking-head job
+            logger.info({ videoId: video.id, audioUrl }, "[WaveSpeed] TTS completado — enviando talking-head");
+            const { requestId: thRequestId } = await submitTalkingHead(imageUrl, audioUrl);
+
+            await db.insert(wavespeedJobsTable).values({
+              userId: video.userId,
+              model: WAVESPEED_MODELS.TALKING_HEAD,
+              status: "processing",
+              wavespeedRequestId: thRequestId,
+              inputPayload: JSON.stringify({ image_url: imageUrl, audio_url: audioUrl }),
+              relatedVideoId: video.id,
+            });
+
+            await db
+              .update(videosTable)
+              .set({ heygenVideoId: `wavespeed-th:${thRequestId}`, updatedAt: new Date() })
+              .where(eq(videosTable.id, video.id));
+
+            logger.info({ videoId: video.id, thRequestId }, "[WaveSpeed] Talking-head job enviado");
+          } else if (jobResult.status === "failed") {
+            throw new Error(`TTS fallido: ${jobResult.error ?? "error desconocido"}`);
+          }
+          // queued/processing → keep polling next cycle
+        } else if (stage === "th") {
+          if (jobResult.status === "completed") {
+            const outputs = jobResult.outputs ?? {};
+            const videoUrl: string | undefined =
+              (outputs["video_url"] ?? outputs["video"] ?? outputs["url"]) as string | undefined;
+            if (!videoUrl) {
+              throw new Error(`Talking-head completado pero sin video_url en outputs: ${JSON.stringify(outputs)}`);
+            }
+
+            await db
+              .update(wavespeedJobsTable)
+              .set({ status: "completed", outputUrl: videoUrl, updatedAt: new Date() })
+              .where(eq(wavespeedJobsTable.wavespeedRequestId, requestId));
+
+            await db
+              .update(videosTable)
+              .set({ status: "ready", videoUrl, updatedAt: new Date() })
+              .where(eq(videosTable.id, video.id));
+
+            await consumeVideoCredits(video.id).catch((err) =>
+              logger.error({ videoId: video.id, err }, "[Credits][WaveSpeed] Consume falló al completar video")
+            );
+
+            if (video.contentPlanId) {
+              await db
+                .update(contentPlanItemsTable)
+                .set({ status: "ready", updatedAt: new Date() })
+                .where(eq(contentPlanItemsTable.id, video.contentPlanId));
+            }
+
+            logger.info({ videoId: video.id, videoUrl }, "[WaveSpeed] Video listo");
+
+            // Caption processing (WaveSpeed has no subtitle_url; engine will generate from script)
+            if (video.captionStatus === null) {
+              const [autoCfg] = await db.select({ captionsEnabled: automationConfigTable.captionsEnabled })
+                .from(automationConfigTable)
+                .where(eq(automationConfigTable.userId, video.userId))
+                .limit(1);
+              if (autoCfg?.captionsEnabled) {
+                await runCaptionProcessing(video.id, videoUrl, video.contentPlanId ?? null, undefined, null);
+              } else {
+                await db
+                  .update(videosTable)
+                  .set({ captionStatus: "disabled", updatedAt: new Date() })
+                  .where(eq(videosTable.id, video.id));
+                if (video.contentPlanId) {
+                  runCopyGeneration(video.contentPlanId).catch((err) =>
+                    logger.error({ videoId: video.id, contentPlanId: video.contentPlanId, err }, "[CopyEngine][WaveSpeed] Failed to start copy generation")
+                  );
+                }
+              }
+            }
+          } else if (jobResult.status === "failed") {
+            throw new Error(`Talking-head fallido: ${jobResult.error ?? "error desconocido"}`);
+          }
+          // queued/processing → keep polling next cycle
+        }
+      } catch (wsErr: any) {
+        const wsError = wsErr instanceof Error ? wsErr.message : String(wsErr);
+        logger.error({ videoId: video.id, stage, requestId, wsError }, "[WaveSpeed] Error en polling");
+        await db
+          .update(videosTable)
+          .set({ status: "failed", errorMessage: wsError, updatedAt: new Date() })
+          .where(eq(videosTable.id, video.id));
+        if (video.contentPlanId) {
+          await db
+            .update(contentPlanItemsTable)
+            .set({ status: "scripted", updatedAt: new Date() }) // retryable
+            .where(eq(contentPlanItemsTable.id, video.contentPlanId));
+        }
+        await releaseVideoCredits(video.id, `WaveSpeed fallo: ${wsError}`).catch((err) =>
+          logger.error({ videoId: video.id, err }, "[Credits][WaveSpeed] Release falló en error de polling")
+        );
+      }
+      continue; // skip HeyGen polling for this video
     }
 
     // ── Track polling attempts and generation start time ──────────────────
