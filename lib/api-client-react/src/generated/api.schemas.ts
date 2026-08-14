@@ -328,6 +328,8 @@ export interface ContentPlanItem {
   /** @nullable */
   avatar_id?: string | null;
   /** @nullable */
+  wavespeed_look_id?: number | null;
+  /** @nullable */
   voice_id?: string | null;
   /** @nullable */
   caption?: string | null;
@@ -412,6 +414,8 @@ export interface ContentPlanItemUpdate {
   cta?: string | null;
   /** @nullable */
   avatar_id?: string | null;
+  /** @nullable */
+  wavespeed_look_id?: number | null;
   /** @nullable */
   voice_id?: string | null;
   /** @nullable */

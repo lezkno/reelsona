@@ -75,6 +75,7 @@ function mapItem(
     script: item.script ?? null,
     cta: item.cta ?? null,
     avatar_id: item.avatarId ?? null,
+    wavespeed_look_id: item.wavespeedLookId ?? null,
     voice_id: item.voiceId ?? null,
     caption: item.caption ?? null,
     hashtags: item.hashtags ?? null,
@@ -494,6 +495,7 @@ router.patch("/content/:id", async (req, res): Promise<void> => {
   if (b.script !== undefined) updates.script = b.script ?? null;
   if (b.cta !== undefined) updates.cta = b.cta ?? null;
   if (b.avatar_id !== undefined) updates.avatarId = b.avatar_id ?? null;
+  if (b.wavespeed_look_id !== undefined) updates.wavespeedLookId = b.wavespeed_look_id ?? null;
   if (b.voice_id !== undefined) updates.voiceId = b.voice_id ?? null;
   if (b.caption !== undefined) updates.caption = b.caption ?? null;
   if (b.hashtags !== undefined) updates.hashtags = b.hashtags ?? null;

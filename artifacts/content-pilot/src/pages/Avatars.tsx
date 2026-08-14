@@ -22,6 +22,7 @@ import {
   useDeleteWavespeedLook,
   useWavespeedPersonaLooksStatus,
   useWavespeedVoices,
+  useWavespeedVoiceStatus,
   useDeleteWavespeedVoice,
   useGenerateWavespeedPersonaLooks,
   fetchVoicePreview,
@@ -2488,6 +2489,30 @@ function WavespeedPendingPoller({ persona }: { persona: WavespeedPersonaWithLook
   return null
 }
 
+// ── PendingVoicePoller ────────────────────────────────────────────────────────
+// Invisible component that polls WaveSpeed's API every 5 s for a single pending
+// voice clone.  When the status transitions to ready/failed it patches the
+// ["wavespeed","voices"] cache so the Voces tab updates without a page refresh.
+
+function PendingVoicePoller({ voiceId }: { voiceId: number }) {
+  const queryClient = useQueryClient()
+  const statusQuery = useWavespeedVoiceStatus(voiceId, true)
+
+  useEffect(() => {
+    const data = statusQuery.data
+    if (!data || (data.status !== "ready" && data.status !== "failed")) return
+    queryClient.setQueryData<{ voices: WavespeedVoiceRow[] }>(
+      ["wavespeed", "voices"],
+      (old) => {
+        if (!old) return old
+        return { ...old, voices: old.voices.map((v) => (v.id === data.id ? { ...v, ...data } : v)) }
+      },
+    )
+  }, [statusQuery.data]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  return null
+}
+
 // ── WavespeedPersonaCard ──────────────────────────────────────────────────────
 
 function WavespeedPersonaCard({
@@ -4221,6 +4246,11 @@ export default function Avatars() {
             />
           </div>
 
+          {/* Invisible pollers — one per pending voice clone, each polls WaveSpeed every 5 s */}
+          {wavespeedVoices.filter((v) => v.status === "pending").map((v) => (
+            <PendingVoicePoller key={v.id} voiceId={v.id} />
+          ))}
+
           {/* WaveSpeed cloned voices */}
           {wavespeedVoices.length > 0 && (
             <div className="space-y-3">
@@ -4627,7 +4657,7 @@ export default function Avatars() {
       <CloneWavespeedVoiceDialog
         open={showCloneDialog}
         onClose={() => setShowCloneDialog(false)}
-        onCloned={() => setShowCloneDialog(false)}
+        onCloned={() => { setShowCloneDialog(false); void refetchWavespeedVoices() }}
       />
 
       {/* ── Assign voice to looks dialog ── */}

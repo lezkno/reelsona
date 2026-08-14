@@ -754,47 +754,65 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
     return { success: true, message: "Script ready, video generation disabled", contentItemId: contentItem.id };
   }
 
-  // Backfill missing avatar/voice so scripted items never get stuck.
-  // Also replace stored avatarId if it's no longer in the active selection.
-  const currentAvatarValid =
-    contentItem.avatarId && avatarCfg.selectedAvatarIds.includes(contentItem.avatarId);
-  if (!currentAvatarValid) {
-    if (contentItem.avatarId) {
-      logger.warn(
-        { removedAvatarId: contentItem.avatarId },
-        "avatarId on scripted item is no longer in active selection — re-picking"
-      );
-    }
-    contentItem.avatarId = pickNextAvatar(
-      avatarCfg.selectedAvatarIds,
-      avatarCfg.lastUsedAvatarId,
-      avatarCfg.rotationStrategy,
-      (avatarCfg.avatarUsageCount as Record<string, number>) ?? {}
-    );
-    // Advance lastUsedAvatarId so the next cycle picks differently
-    await db
-      .update(avatarConfigTable)
-      .set({ lastUsedAvatarId: contentItem.avatarId, updatedAt: new Date() })
-      .where(eq(avatarConfigTable.id, avatarCfg.id));
-    avatarCfg.lastUsedAvatarId = contentItem.avatarId;
-    // Voice must be re-resolved for the new avatar
-    contentItem.voiceId = null;
-  }
-  // Always re-resolve voice from current overrides at generation time.
-  // The voiceId stored on the item may be stale (set before the user configured
-  // per-avatar overrides). The override map always wins over the cached value.
-  const freshVoiceId = await resolveVoiceId(contentItem.avatarId, heygenApiKey, userId);
-  contentItem.voiceId = freshVoiceId ?? contentItem.voiceId;
-  if (contentItem.avatarId && contentItem.voiceId) {
-    await db
-      .update(contentPlanItemsTable)
-      .set({ avatarId: contentItem.avatarId, voiceId: contentItem.voiceId, updatedAt: new Date() })
-      .where(eq(contentPlanItemsTable.id, contentItem.id));
-  }
+  // ── Pipeline selection ────────────────────────────────────────────────────
+  // Respect the user's manual avatar choice:
+  //   • wavespeedLookId set  → WaveSpeed pipeline; skip HeyGen backfill entirely.
+  //   • avatarId set (no wavespeedLookId) → user explicitly chose HeyGen; skip WaveSpeed.
+  //   • neither set → auto-rotation: WaveSpeed takes priority when configured.
 
-  // Check WaveSpeed availability for this user — takes priority over HeyGen when configured.
-  // Pass the look already pinned to this item (if any) so rotation is stable across retries.
-  const wavespeedCtx = await getWavespeedContext(userId, contentItem.wavespeedLookId);
+  let wavespeedCtx: Awaited<ReturnType<typeof getWavespeedContext>> = null;
+
+  if (contentItem.wavespeedLookId) {
+    // User manually pinned a WaveSpeed look — force WaveSpeed, bypass HeyGen backfill.
+    wavespeedCtx = await getWavespeedContext(userId, contentItem.wavespeedLookId);
+  } else {
+    // HeyGen path (manual pick or auto-rotation) — run the HeyGen backfill first.
+    // Backfill missing avatar/voice so scripted items never get stuck.
+    // Also replace stored avatarId if it's no longer in the active selection.
+    const currentAvatarValid =
+      contentItem.avatarId && avatarCfg.selectedAvatarIds.includes(contentItem.avatarId);
+    if (!currentAvatarValid) {
+      if (contentItem.avatarId) {
+        logger.warn(
+          { removedAvatarId: contentItem.avatarId },
+          "avatarId on scripted item is no longer in active selection — re-picking"
+        );
+      }
+      contentItem.avatarId = pickNextAvatar(
+        avatarCfg.selectedAvatarIds,
+        avatarCfg.lastUsedAvatarId,
+        avatarCfg.rotationStrategy,
+        (avatarCfg.avatarUsageCount as Record<string, number>) ?? {}
+      );
+      // Advance lastUsedAvatarId so the next cycle picks differently
+      await db
+        .update(avatarConfigTable)
+        .set({ lastUsedAvatarId: contentItem.avatarId, updatedAt: new Date() })
+        .where(eq(avatarConfigTable.id, avatarCfg.id));
+      avatarCfg.lastUsedAvatarId = contentItem.avatarId;
+      // Voice must be re-resolved for the new avatar
+      contentItem.voiceId = null;
+    }
+    // Always re-resolve voice from current overrides at generation time.
+    // The voiceId stored on the item may be stale (set before the user configured
+    // per-avatar overrides). The override map always wins over the cached value.
+    const freshVoiceId = await resolveVoiceId(contentItem.avatarId, heygenApiKey, userId);
+    contentItem.voiceId = freshVoiceId ?? contentItem.voiceId;
+    if (contentItem.avatarId && contentItem.voiceId) {
+      await db
+        .update(contentPlanItemsTable)
+        .set({ avatarId: contentItem.avatarId, voiceId: contentItem.voiceId, updatedAt: new Date() })
+        .where(eq(contentPlanItemsTable.id, contentItem.id));
+    }
+
+    if (contentItem.avatarId) {
+      // User explicitly picked a HeyGen avatar → stay on HeyGen, skip WaveSpeed.
+      wavespeedCtx = null;
+    } else {
+      // No manual selection → auto-rotation: WaveSpeed takes priority if configured.
+      wavespeedCtx = await getWavespeedContext(userId, null);
+    }
+  }
 
   // Pin the resolved look to this content item so retries reuse the same look
   // and we know which look produced each video.

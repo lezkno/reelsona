@@ -2,13 +2,14 @@ import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { format, isSameDay } from "date-fns"
 import { es } from "date-fns/locale"
 import { useGetContentPlan, useGenerateContentPlan, useDeleteContentItem, useGenerateVideo, useUpdateContentItem, useCreateContentItem, useGetHeyGenAllLooks, useGetAvatarConfig, useGenerateScript, usePublishVideo, useGetAutomation, getGetContentPlanQueryKey, getGetVideosQueryKey, type ContentPlanItem, useGetSettings } from "@workspace/api-client-react"
+import { useWavespeedPersonas, type WavespeedLookRow } from "@workspace/api-client-react"
 import { useRegenerateScript, useReanalyzeContentPlan, useRescheduleOverdue, type RegenerateCriterion, DEFAULT_VIDEO_EFFECTS } from "@workspace/api-client-react"
 import type { VideoEffects } from "@workspace/api-client-react"
 import { Textarea } from "@/components/ui/textarea"
@@ -342,6 +343,20 @@ export default function ContentPlan() {
   const selectedAvatarIds = new Set(avatarConfig?.selected_avatar_ids ?? [])
   const pickerLooks = (allLooks ?? []).filter((l) => selectedAvatarIds.has(l.id))
   const [avatarPickerItem, setAvatarPickerItem] = useState<ContentPlanItem | null>(null)
+  const [avatarPickerTab, setAvatarPickerTab] = useState<"wavespeed" | "heygen">("heygen")
+
+  // WaveSpeed personas — only looks that are selected and have an image
+  const { data: wavespeedData } = useWavespeedPersonas()
+  const wavespeedPersonas = wavespeedData?.personas ?? []
+  const parseLookCfg = (l: WavespeedLookRow) => {
+    try { return JSON.parse(l.config ?? "{}") as { selected?: boolean; generationStatus?: string } } catch { return {} }
+  }
+  const wavespeedPickerLooks: Array<{ look: WavespeedLookRow; personaName: string }> = wavespeedPersonas.flatMap((p) =>
+    p.looks
+      .filter((l) => !!l.imageUrl && parseLookCfg(l).selected === true)
+      .map((l) => ({ look: l, personaName: p.name }))
+  )
+  const wavespeedLookById = new Map(wavespeedPickerLooks.map(({ look }) => [look.id, look]))
 
   const handleSaveTopic = (id: number, value: string) => {
     const trimmed = value.trim()
@@ -353,14 +368,28 @@ export default function ContentPlan() {
     })
   }
 
-  const handlePickAvatar = (itemId: number, avatarId: string) => {
-    updateItem.mutate({ id: itemId, data: { avatar_id: avatarId } }, {
+  const handlePickAvatar = (itemId: number, opts: { type: "heygen"; avatarId: string } | { type: "wavespeed"; lookId: number }) => {
+    const patch = opts.type === "heygen"
+      ? { avatar_id: opts.avatarId, wavespeed_look_id: null as number | null }
+      : { wavespeed_look_id: opts.lookId, avatar_id: null as string | null }
+
+    // Optimistic update — thumbnail reflects the new pick immediately
+    queryClient.setQueryData<ContentPlanItem[]>(
+      getGetContentPlanQueryKey({ limit: 100 }),
+      (old) => old ? old.map((i) => i.id === itemId ? { ...i, ...patch } : i) : old,
+    )
+    setAvatarPickerItem(null)
+
+    updateItem.mutate({ id: itemId, data: patch }, {
       onSuccess: () => {
-        setAvatarPickerItem(null)
         toast({ title: "Avatar actualizado", description: "Este video usará el look elegido." })
         queryClient.invalidateQueries({ queryKey: getGetContentPlanQueryKey() })
       },
-      onError: () => toast({ title: "Error", description: "No se pudo cambiar el avatar.", variant: "destructive" })
+      onError: () => {
+        // Roll back optimistic update
+        queryClient.invalidateQueries({ queryKey: getGetContentPlanQueryKey() })
+        toast({ title: "Error", description: "No se pudo cambiar el avatar.", variant: "destructive" })
+      }
     })
   }
 
@@ -878,17 +907,20 @@ export default function ContentPlan() {
                           <div className="flex-1">
                             <div className="flex items-start gap-3 mb-2">
                               {(() => {
-                                const look = item.avatar_id ? lookById.get(item.avatar_id) : null
+                                const wsLook = item.wavespeed_look_id ? wavespeedLookById.get(item.wavespeed_look_id) : null
+                                const hgLook = (!wsLook && item.avatar_id) ? lookById.get(item.avatar_id) : null
+                                const imageUrl = wsLook?.imageUrl ?? hgLook?.image_url ?? null
+                                const label = wsLook?.name ?? hgLook?.name ?? null
                                 const canChange = item.status === "draft" || item.status === "scripted"
                                 return (
                                   <button
                                     type="button"
-                                    title={look ? `Avatar: ${look.name}${canChange ? " · clic para cambiar" : ""}` : canChange ? "Elegir avatar para este video" : "Avatar en rotación"}
+                                    title={label ? `Avatar: ${label}${canChange ? " · clic para cambiar" : ""}` : canChange ? "Elegir avatar para este video" : "Avatar en rotación"}
                                     onClick={() => canChange && setAvatarPickerItem(item)}
                                     className={`shrink-0 w-11 h-11 rounded-full overflow-hidden border-2 ${canChange ? "border-primary/40 hover:border-primary cursor-pointer" : "border-muted cursor-default"} bg-muted flex items-center justify-center`}
                                   >
-                                    {look?.image_url ? (
-                                      <img src={look.image_url} alt={look.name} className="w-full h-full object-cover" loading="lazy" />
+                                    {imageUrl ? (
+                                      <img src={imageUrl} alt={label ?? "avatar"} className="w-full h-full object-cover" loading="lazy" />
                                     ) : (
                                       <Users className="w-5 h-5 text-muted-foreground" />
                                     )}
@@ -1240,42 +1272,138 @@ export default function ContentPlan() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={avatarPickerItem !== null} onOpenChange={(open) => !open && setAvatarPickerItem(null)}>
-        <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
+      <Dialog
+        open={avatarPickerItem !== null}
+        onOpenChange={(open) => {
+          if (!open) setAvatarPickerItem(null)
+          // Auto-select tab based on the current avatar type when opening
+          else if (avatarPickerItem?.wavespeed_look_id) setAvatarPickerTab("wavespeed")
+          else setAvatarPickerTab(wavespeedPickerLooks.length > 0 && !avatarPickerItem?.avatar_id ? "wavespeed" : "heygen")
+        }}
+      >
+        <DialogContent className="sm:max-w-2xl max-h-[85vh] flex flex-col gap-0 p-0 overflow-hidden">
+          <DialogHeader className="px-6 pt-6 pb-4 shrink-0">
             <DialogTitle>Elegir avatar para este video</DialogTitle>
-            <DialogDescription>{avatarPickerItem?.topic}</DialogDescription>
+            <DialogDescription className="truncate">{avatarPickerItem?.topic}</DialogDescription>
           </DialogHeader>
-          <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
-            {pickerLooks.map((look) => {
-              const isCurrent = avatarPickerItem?.avatar_id === look.id
-              return (
-                <button
-                  key={look.id}
-                  type="button"
-                  disabled={updateItem.isPending}
-                  onClick={() => avatarPickerItem && handlePickAvatar(avatarPickerItem.id, look.id)}
-                  className={`relative rounded-lg overflow-hidden border-2 text-left transition-all ${isCurrent ? "border-primary ring-2 ring-primary/30" : "border-transparent hover:border-primary/40"}`}
-                >
-                  <div className="aspect-[3/4] bg-muted">
-                    {look.image_url ? (
-                      <img src={look.image_url} alt={look.name} className="w-full h-full object-cover" loading="lazy" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-muted-foreground"><Users className="w-6 h-6" /></div>
-                    )}
-                  </div>
-                  {isCurrent && (
-                    <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-primary text-primary-foreground flex items-center justify-center">
-                      <CheckCircle2 className="w-4 h-4" />
-                    </div>
-                  )}
-                  <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/70 to-transparent px-1.5 py-1">
-                    <p className="text-white text-[10px] font-medium truncate">{look.group_name}</p>
-                  </div>
-                </button>
-              )
-            })}
-          </div>
+
+          <Tabs
+            value={avatarPickerTab}
+            onValueChange={(v) => setAvatarPickerTab(v as "wavespeed" | "heygen")}
+            className="flex flex-col flex-1 min-h-0"
+          >
+            <TabsList className="mx-6 mb-4 shrink-0 grid w-[calc(100%-3rem)] grid-cols-2">
+              <TabsTrigger value="wavespeed" className="gap-1.5">
+                <Sparkles className="w-3.5 h-3.5" />
+                Mi Avatar
+                {wavespeedPickerLooks.length > 0 && (
+                  <span className="ml-1 text-[10px] bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300 rounded-full px-1.5 py-0.5 font-semibold">
+                    {wavespeedPickerLooks.length}
+                  </span>
+                )}
+              </TabsTrigger>
+              <TabsTrigger value="heygen" className="gap-1.5">
+                <Users className="w-3.5 h-3.5" />
+                Avatares públicos
+                {pickerLooks.length > 0 && (
+                  <span className="ml-1 text-[10px] bg-muted text-muted-foreground rounded-full px-1.5 py-0.5 font-semibold">
+                    {pickerLooks.length}
+                  </span>
+                )}
+              </TabsTrigger>
+            </TabsList>
+
+            {/* ── Mi Avatar (WaveSpeed) ── */}
+            <TabsContent value="wavespeed" className="flex-1 overflow-y-auto px-6 pb-6 mt-0">
+              {wavespeedPickerLooks.length === 0 ? (
+                <div className="flex flex-col items-center gap-3 py-12 text-center text-muted-foreground">
+                  <Sparkles className="w-8 h-8 opacity-40" />
+                  <p className="text-sm">
+                    No tienes looks activos en tu Avatar AI.<br />
+                    Ve a <strong>Avatares → Mi Avatar</strong> y activa al menos uno.
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
+                  {wavespeedPickerLooks.map(({ look, personaName }) => {
+                    const isCurrent = avatarPickerItem?.wavespeed_look_id === look.id
+                    return (
+                      <button
+                        key={look.id}
+                        type="button"
+                        disabled={updateItem.isPending}
+                        onClick={() => avatarPickerItem && handlePickAvatar(avatarPickerItem.id, { type: "wavespeed", lookId: look.id })}
+                        className={`relative rounded-lg overflow-hidden border-2 text-left transition-all ${isCurrent ? "border-violet-500 ring-2 ring-violet-400/30" : "border-transparent hover:border-violet-400/50"}`}
+                      >
+                        <div className="aspect-[3/4] bg-muted">
+                          {look.imageUrl ? (
+                            <img src={look.imageUrl} alt={look.name} className="w-full h-full object-cover" loading="lazy" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+                              <Sparkles className="w-6 h-6" />
+                            </div>
+                          )}
+                        </div>
+                        {isCurrent && (
+                          <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-violet-500 text-white flex items-center justify-center">
+                            <CheckCircle2 className="w-4 h-4" />
+                          </div>
+                        )}
+                        <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/75 to-transparent px-1.5 py-1.5">
+                          <p className="text-white text-[10px] font-semibold truncate">{look.name}</p>
+                          <p className="text-white/70 text-[9px] truncate">{personaName}</p>
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </TabsContent>
+
+            {/* ── Avatares públicos (HeyGen) ── */}
+            <TabsContent value="heygen" className="flex-1 overflow-y-auto px-6 pb-6 mt-0">
+              {pickerLooks.length === 0 ? (
+                <div className="flex flex-col items-center gap-3 py-12 text-center text-muted-foreground">
+                  <Users className="w-8 h-8 opacity-40" />
+                  <p className="text-sm">
+                    No hay avatares públicos activos.<br />
+                    Ve a <strong>Avatares → Avatares públicos</strong> y activa algunos.
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
+                  {pickerLooks.map((look) => {
+                    const isCurrent = !avatarPickerItem?.wavespeed_look_id && avatarPickerItem?.avatar_id === look.id
+                    return (
+                      <button
+                        key={look.id}
+                        type="button"
+                        disabled={updateItem.isPending}
+                        onClick={() => avatarPickerItem && handlePickAvatar(avatarPickerItem.id, { type: "heygen", avatarId: look.id })}
+                        className={`relative rounded-lg overflow-hidden border-2 text-left transition-all ${isCurrent ? "border-primary ring-2 ring-primary/30" : "border-transparent hover:border-primary/40"}`}
+                      >
+                        <div className="aspect-[3/4] bg-muted">
+                          {look.image_url ? (
+                            <img src={look.image_url} alt={look.name} className="w-full h-full object-cover" loading="lazy" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-muted-foreground"><Users className="w-6 h-6" /></div>
+                          )}
+                        </div>
+                        {isCurrent && (
+                          <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-primary text-primary-foreground flex items-center justify-center">
+                            <CheckCircle2 className="w-4 h-4" />
+                          </div>
+                        )}
+                        <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/70 to-transparent px-1.5 py-1">
+                          <p className="text-white text-[10px] font-medium truncate">{look.group_name}</p>
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
         </DialogContent>
       </Dialog>
 
