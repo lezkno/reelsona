@@ -244,6 +244,101 @@ export async function submitVoiceClone(
   );
 }
 
+// ── Voice Director presets ─────────────────────────────────────────────────────
+//
+// Pure configuration — NOT yet wired into video generation.
+// These presets define suggested minimax/speech-2.6-turbo parameters for each
+// vocal character. Wire them into the pipeline via voiceDirectorToSpeechOpts()
+// when ready to apply per-video style settings.
+
+export const VOICE_DIRECTOR_PRESET_IDS = ["natural", "energetico", "dramatico"] as const;
+export type VoiceDirectorPresetId = (typeof VOICE_DIRECTOR_PRESET_IDS)[number];
+
+export interface VoiceDirectorSpeechParams {
+  /** Playback rate multiplier. 1.0 = default. Range: 0.5–1.5 */
+  speed: number;
+  /** Pitch shift in semitones. 0 = unchanged. Range: -12 to +12 */
+  pitch: number;
+  /** Language emphasis passed to minimax (voice-clone and speech). */
+  languageBoost: "Spanish";
+  /**
+   * Descriptive emotion/style hint — use in script/topic prompts to steer
+   * the AI-generated copy toward the right register before TTS synthesis.
+   */
+  emotionHint: string;
+}
+
+export interface VoiceDirectorPreset {
+  id: VoiceDirectorPresetId;
+  /** Display name shown in the UI */
+  name: string;
+  /** One-line description of when to use this preset */
+  description: string;
+  params: VoiceDirectorSpeechParams;
+}
+
+/** All built-in presets indexed by ID. */
+export const VOICE_DIRECTOR_PRESETS: Record<VoiceDirectorPresetId, VoiceDirectorPreset> = {
+  natural: {
+    id: "natural",
+    name: "Natural",
+    description: "Tono de conversación real: cercano, claro y sin esfuerzo.",
+    params: {
+      speed: 1.0,
+      pitch: 0,
+      languageBoost: "Spanish",
+      emotionHint: "conversational, warm, natural — habla como a un amigo",
+    },
+  },
+  energetico: {
+    id: "energetico",
+    name: "Enérgico",
+    description: "Ritmo rápido y pitch elevado: ideal para CTAs y contenido motivacional.",
+    params: {
+      speed: 1.1,
+      pitch: 2,
+      languageBoost: "Spanish",
+      emotionHint: "energetic, upbeat, motivational — llama a la acción con entusiasmo",
+    },
+  },
+  dramatico: {
+    id: "dramatico",
+    name: "Dramático",
+    description: "Ritmo pausado y tono más grave: peso y autoridad para mensajes de alto impacto.",
+    params: {
+      speed: 0.9,
+      pitch: -2,
+      languageBoost: "Spanish",
+      emotionHint: "serious, powerful, authoritative — habla con convicción y peso",
+    },
+  },
+};
+
+/**
+ * Returns the full preset definition for a given ID.
+ * Pure function — safe to call anywhere without side effects.
+ */
+export function getVoiceDirectorPreset(id: VoiceDirectorPresetId): VoiceDirectorPreset {
+  return VOICE_DIRECTOR_PRESETS[id];
+}
+
+/**
+ * Converts a preset into submitSpeech()-compatible opts.
+ * Use this when wiring presets into the video generation pipeline.
+ *
+ * @example
+ *   const opts = voiceDirectorToSpeechOpts("energetico")
+ *   await submitSpeech(script, voiceId, apiKey, opts)
+ */
+export function voiceDirectorToSpeechOpts(
+  id: VoiceDirectorPresetId,
+): { speed: number; pitch: number } {
+  const { params } = getVoiceDirectorPreset(id);
+  return { speed: params.speed, pitch: params.pitch };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 /**
  * Submit an image edit job (bytedance/seedream-v5.0-pro/edit).
  * @param imageUrl  Source image URL (must be publicly reachable)

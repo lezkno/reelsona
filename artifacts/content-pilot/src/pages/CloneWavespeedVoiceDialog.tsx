@@ -2,6 +2,8 @@
  * CloneWavespeedVoiceDialog — standalone dialog for recording and submitting a
  * WaveSpeed voice clone.  Extracted from CreateWavespeedAvatarDialog so it can
  * be opened from the Voces tab independently of the avatar creation wizard.
+ *
+ * Flow: instructions → single guided recording (20-30 s) → quality check → submit
  */
 
 import { useState, useRef, useEffect, useCallback } from "react"
@@ -13,7 +15,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
 import {
-  Mic, Square, Loader2, CheckCircle2, RefreshCw, AlertCircle,
+  Mic, Square, Loader2, CheckCircle2, RefreshCw, AlertCircle, Copy, Check,
 } from "lucide-react"
 import { useCloneWavespeedVoice } from "@workspace/api-client-react"
 import { useQueryClient } from "@tanstack/react-query"
@@ -47,7 +49,8 @@ async function analyzeAudioBlob(blob: Blob): Promise<AudioQualityResult> {
     const clippingRatio = clipped / n
     const silenceRatio = silent / n
     const issues: AudioIssue[] = []
-    if (duration < 30) issues.push({ level: "error", message: "Mínimo 30 segundos de grabación" })
+    // Minimum 20 s — matches the ~25-30 s guided text
+    if (duration < 20) issues.push({ level: "error", message: "Mínimo 20 segundos de grabación" })
     if (rmsDb < -42) issues.push({ level: "error", message: "Señal demasiado débil — revisá el micrófono" })
     else if (rmsDb < -32) issues.push({ level: "warning", message: "Audio bajo — grabá más cerca del micrófono" })
     if (silenceRatio > 0.80) issues.push({ level: "error", message: "Más del 80 % es silencio" })
@@ -58,12 +61,37 @@ async function analyzeAudioBlob(blob: Blob): Promise<AudioQualityResult> {
   }
 }
 
-// ── Teleprompter text ─────────────────────────────────────────────────────────
+// ── Guided sample text (~25-30 s at natural pace) ─────────────────────────────
+//
+// Designed to capture four natural tonal registers in a single reading:
+//   • Apertura cálida  → calma y cercanía
+//   • Declaración directa → energía y claridad
+//   • Reflexión pausada  → seriedad y profundidad
+//   • Cierre motivador  → confianza y convicción
 
-const TELEPROMPTER = `Hola, bienvenido. Hoy quiero compartir contigo algo que puede marcar una diferencia real en tu vida. A lo largo del tiempo he aprendido que el éxito no llega por casualidad. Llega cuando tomamos decisiones conscientes y actuamos con determinación, día tras día. Cada mañana es una oportunidad para mejorar, para aprender algo nuevo, para dar un paso más hacia donde queremos estar. No importa cuál sea tu punto de partida. Lo que importa es la dirección en la que caminas y la constancia con la que avanzas. El progreso sostenido, aunque parezca pequeño, es lo que genera resultados extraordinarios con el tiempo. Los grandes logros no son el resultado de un solo momento brillante, sino de muchas acciones pequeñas y consistentes acumuladas. Así que sigue adelante. Confía en el proceso, celebra cada avance, y recuerda que cada paso cuenta. Estoy aquí para acompañarte en ese camino.`
+const GUIDED_TEXT =
+  "Hola, me alegra que estés aquí. Lo que quiero compartir contigo es esto: " +
+  "el momento de actuar es ahora. No mañana — ahora. " +
+  "Cuando tomas decisiones con claridad, los resultados llegan. " +
+  "He visto esto pasar una y otra vez. " +
+  "La confianza no se espera, se construye. " +
+  "Y tú tienes todo lo necesario para empezar. " +
+  "Así que vamos — demos ese primer paso juntos."
+
+// Scroll duration calibrated to ~30 s reading + small buffer
+const SCROLL_DURATION_MS = 42_000
 
 const fmtSec = (s: number) =>
   `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`
+
+// ── Recording tips ─────────────────────────────────────────────────────────────
+
+const TIPS = [
+  { emoji: "🔇", text: "Silencio total — cierra ventanas, apaga música y TV" },
+  { emoji: "🎙️", text: "Habla directo al micrófono, a unos 15-20 cm de distancia" },
+  { emoji: "🗣️", text: "Varía el tono — no leas plano, como si hablaras con un cliente real" },
+  { emoji: "⏸️", text: "Haz pausas naturales entre ideas; no hay que correr" },
+]
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -82,19 +110,21 @@ export function CloneWavespeedVoiceDialog({ open, onClose, onCloned }: Props) {
   const [voiceName, setVoiceName] = useState("Mi voz")
 
   // Recording
-  const [isRecording, setIsRecording] = useState(false)
-  const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null)
+  const [isRecording, setIsRecording]     = useState(false)
+  const [recordedBlob, setRecordedBlob]   = useState<Blob | null>(null)
   const [recordSeconds, setRecordSeconds] = useState(0)
-  const [reached30s, setReached30s] = useState(false)
-  const [audioQuality, setAudioQuality] = useState<AudioQualityResult | null>(null)
+  const [reached20s, setReached20s]       = useState(false)
+  const [audioQuality, setAudioQuality]   = useState<AudioQualityResult | null>(null)
   const [analyzingAudio, setAnalyzingAudio] = useState(false)
+  const [textCopied, setTextCopied]       = useState(false)
+
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
-  const audioChunksRef = useRef<BlobPart[]>([])
-  const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const audioStreamRef = useRef<MediaStream | null>(null)
-  const teleprompterRef = useRef<HTMLDivElement>(null)
-  const scrollRafRef = useRef<number | null>(null)
-  const scrollStartRef = useRef<number>(0)
+  const audioChunksRef   = useRef<BlobPart[]>([])
+  const recordTimerRef   = useRef<ReturnType<typeof setInterval> | null>(null)
+  const audioStreamRef   = useRef<MediaStream | null>(null)
+  const teleprompterRef  = useRef<HTMLDivElement>(null)
+  const scrollRafRef     = useRef<number | null>(null)
+  const scrollStartRef   = useRef<number>(0)
 
   // Reset state when dialog closes
   useEffect(() => {
@@ -103,16 +133,17 @@ export function CloneWavespeedVoiceDialog({ open, onClose, onCloned }: Props) {
       setIsRecording(false)
       setRecordedBlob(null)
       setRecordSeconds(0)
-      setReached30s(false)
+      setReached20s(false)
       setAudioQuality(null)
       setAnalyzingAudio(false)
+      setTextCopied(false)
       if (recordTimerRef.current) { clearInterval(recordTimerRef.current); recordTimerRef.current = null }
       mediaRecorderRef.current?.stop()
       audioStreamRef.current?.getTracks().forEach(t => t.stop())
     }
   }, [open])
 
-  // Beep at 30 s
+  // Beep at 20 s
   const playBeep = useCallback(() => {
     try {
       const ctx = new AudioContext()
@@ -127,13 +158,13 @@ export function CloneWavespeedVoiceDialog({ open, onClose, onCloned }: Props) {
   }, [])
 
   useEffect(() => {
-    if (recordSeconds === 30 && isRecording && !reached30s) {
-      setReached30s(true)
+    if (recordSeconds === 20 && isRecording && !reached20s) {
+      setReached20s(true)
       playBeep()
     }
-  }, [recordSeconds, isRecording, reached30s, playBeep])
+  }, [recordSeconds, isRecording, reached20s, playBeep])
 
-  // Auto-scroll teleprompter
+  // Auto-scroll teleprompter during recording
   useEffect(() => {
     const el = teleprompterRef.current
     if (!el) return
@@ -144,9 +175,8 @@ export function CloneWavespeedVoiceDialog({ open, onClose, onCloned }: Props) {
     el.scrollTop = 0
     scrollStartRef.current = performance.now()
     const totalHeight = el.scrollHeight - el.clientHeight
-    const DURATION_MS = 65_000
     const tick = (now: number) => {
-      const fraction = Math.min((now - scrollStartRef.current) / DURATION_MS, 1)
+      const fraction = Math.min((now - scrollStartRef.current) / SCROLL_DURATION_MS, 1)
       el.scrollTop = totalHeight * fraction
       if (fraction < 1) scrollRafRef.current = requestAnimationFrame(tick)
     }
@@ -179,7 +209,7 @@ export function CloneWavespeedVoiceDialog({ open, onClose, onCloned }: Props) {
       mediaRecorderRef.current = mr
       setIsRecording(true)
       setRecordSeconds(0)
-      setReached30s(false)
+      setReached20s(false)
       recordTimerRef.current = setInterval(() => setRecordSeconds(s => s + 1), 1000)
     } catch {
       toast({ title: "No se pudo acceder al micrófono", variant: "destructive" })
@@ -193,11 +223,23 @@ export function CloneWavespeedVoiceDialog({ open, onClose, onCloned }: Props) {
     setIsRecording(false)
   }
 
+  const handleCopyText = async () => {
+    try {
+      await navigator.clipboard.writeText(GUIDED_TEXT)
+      setTextCopied(true)
+      setTimeout(() => setTextCopied(false), 2000)
+    } catch {
+      toast({ title: "No se pudo copiar", description: "Selecciona el texto manualmente", variant: "destructive" })
+    }
+  }
+
   const handleSubmit = async () => {
     if (!recordedBlob || !voiceName.trim()) return
     const fd = new FormData()
     fd.append("audio", recordedBlob, "voice.webm")
     fd.append("name", voiceName.trim())
+    // Metadata — logged by backend for future Voice Director routing (no migration needed)
+    fd.append("sampleType", "guided_dynamic_sample")
     try {
       await cloneVoice.mutateAsync(fd)
       queryClient.invalidateQueries({ queryKey: ["wavespeed", "voices"] })
@@ -219,11 +261,13 @@ export function CloneWavespeedVoiceDialog({ open, onClose, onCloned }: Props) {
             Clonar mi voz
           </DialogTitle>
           <DialogDescription>
-            Graba al menos 30 segundos leyendo el texto en voz alta. Habla de manera natural y clara.
+            Solo necesitas <strong>una grabación</strong> — lee el texto guiado en 20-30 segundos,
+            con variedad de tono natural, y el AI capturará tu voz completa.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
+
           {/* Voice name */}
           <div>
             <Label>Nombre de la voz</Label>
@@ -236,77 +280,123 @@ export function CloneWavespeedVoiceDialog({ open, onClose, onCloned }: Props) {
             />
           </div>
 
-          {/* Teleprompter */}
-          <div
-            ref={teleprompterRef}
-            className="rounded-lg border bg-muted/40 px-4 py-3 max-h-28 overflow-hidden select-none"
-          >
-            <p className="text-xs text-muted-foreground leading-relaxed">{TELEPROMPTER}</p>
-          </div>
-
-          {/* Requirements */}
-          <div className="rounded-lg border border-border bg-muted/20 px-3 py-2.5 space-y-1">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Requisitos</p>
-            {[
-              "Mínimo 30 segundos de voz continua",
-              "Sin música ni ruido de fondo",
-              "Habla directo al micrófono",
-            ].map(r => (
-              <p key={r} className="text-xs text-muted-foreground flex items-center gap-1.5">
-                <CheckCircle2 className="w-3 h-3 text-emerald-500 shrink-0" /> {r}
+          {/* Tips — visible before and after recording, hidden during */}
+          {!isRecording && !recordedBlob && (
+            <div className="rounded-lg border border-border bg-muted/20 px-3 py-2.5 space-y-2">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                Antes de grabar
               </p>
-            ))}
+              {TIPS.map(tip => (
+                <p key={tip.text} className="text-xs text-muted-foreground flex items-start gap-2 leading-snug">
+                  <span className="shrink-0">{tip.emoji}</span>
+                  <span>{tip.text}</span>
+                </p>
+              ))}
+            </div>
+          )}
+
+          {/* Guided text with copy button */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                Texto guiado — leé en voz alta
+              </p>
+              <Button
+                size="sm" variant="ghost"
+                className="h-6 px-2 text-[10px] gap-1 text-muted-foreground hover:text-foreground"
+                onClick={handleCopyText}
+                type="button"
+              >
+                {textCopied
+                  ? <><Check className="w-3 h-3 text-emerald-500" /> Copiado</>
+                  : <><Copy className="w-3 h-3" /> Copiar texto</>
+                }
+              </Button>
+            </div>
+            <div
+              ref={teleprompterRef}
+              className="rounded-lg border bg-muted/40 px-4 py-3 max-h-44 overflow-hidden cursor-default"
+            >
+              <p className="text-sm text-foreground leading-relaxed font-medium">
+                {GUIDED_TEXT}
+              </p>
+              <p className="text-[10px] text-muted-foreground mt-2 italic">
+                ≈ 25-30 segundos al ritmo natural de habla
+              </p>
+            </div>
+            {!isRecording && !recordedBlob && (
+              <p className="text-[10px] text-muted-foreground">
+                💡 Al empezar a grabar, el texto comenzará a desplazarse automáticamente.
+              </p>
+            )}
           </div>
 
           {/* Recording controls */}
           <div className="flex flex-col items-center gap-3">
             <div className={`w-16 h-16 rounded-full flex items-center justify-center transition-colors
-              ${isRecording && reached30s
+              ${isRecording && reached20s
                 ? "bg-emerald-500/15 border-2 border-emerald-500"
                 : isRecording
                   ? "bg-red-500/15 border-2 border-red-500 animate-pulse"
-                  : "bg-muted"}`}>
-              <Mic className={`w-7 h-7 ${isRecording
-                ? (reached30s ? "text-emerald-500" : "text-red-500")
-                : "text-muted-foreground"}`} />
+                  : recordedBlob
+                    ? "bg-emerald-500/10 border-2 border-emerald-500/50"
+                    : "bg-muted"}`}>
+              <Mic className={`w-7 h-7 ${
+                isRecording
+                  ? (reached20s ? "text-emerald-500" : "text-red-500")
+                  : recordedBlob
+                    ? "text-emerald-500"
+                    : "text-muted-foreground"
+              }`} />
             </div>
 
             {isRecording && (
               <div className="text-center">
                 <span className={`font-mono text-2xl font-bold tabular-nums transition-colors
-                  ${reached30s ? "text-emerald-600 dark:text-emerald-400" : ""}`}>
+                  ${reached20s ? "text-emerald-600 dark:text-emerald-400" : ""}`}>
                   {fmtSec(recordSeconds)}
                 </span>
-                {reached30s ? (
+                {reached20s ? (
                   <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium mt-0.5 flex items-center justify-center gap-1">
-                    <CheckCircle2 className="w-3 h-3" /> ¡Listo! Detén cuando quieras
+                    <CheckCircle2 className="w-3 h-3" /> ¡Listo! Detén cuando termines el texto
                   </p>
                 ) : (
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Grabando… ({30 - recordSeconds}s restantes para el mínimo)
+                    Grabando… ({20 - recordSeconds}s restantes para el mínimo)
                   </p>
                 )}
               </div>
+            )}
+
+            {recordedBlob && !isRecording && (
+              <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
+                <CheckCircle2 className="w-3.5 h-3.5" /> Grabación lista — {Math.round(audioQuality?.duration ?? 0)}s
+              </p>
             )}
 
             <div className="flex gap-2">
               {isRecording ? (
                 <Button
                   onClick={stopRecording}
-                  variant={reached30s ? "default" : "destructive"}
-                  className={`gap-2 ${reached30s ? "bg-emerald-600 hover:bg-emerald-700 text-white" : ""}`}
+                  variant={reached20s ? "default" : "destructive"}
+                  className={`gap-2 ${reached20s ? "bg-emerald-600 hover:bg-emerald-700 text-white" : ""}`}
                 >
                   <Square className="w-4 h-4" /> Detener
                 </Button>
               ) : (
-                <Button onClick={startRecording} disabled={!!recordedBlob || cloneVoice.isPending} className="gap-2">
-                  <Mic className="w-4 h-4" /> {recordedBlob ? "Grabado ✓" : "Grabar"}
+                <Button
+                  onClick={startRecording}
+                  disabled={!!recordedBlob || cloneVoice.isPending}
+                  className="gap-2"
+                >
+                  <Mic className="w-4 h-4" />
+                  {recordedBlob ? "Grabado ✓" : "Comenzar grabación"}
                 </Button>
               )}
               {recordedBlob && !isRecording && (
                 <Button
                   variant="outline" size="icon" title="Volver a grabar"
-                  onClick={() => { setRecordedBlob(null); setAudioQuality(null); setRecordSeconds(0); setReached30s(false) }}
+                  onClick={() => { setRecordedBlob(null); setAudioQuality(null); setRecordSeconds(0); setReached20s(false) }}
                   disabled={cloneVoice.isPending}
                 >
                   <RefreshCw className="w-4 h-4" />
