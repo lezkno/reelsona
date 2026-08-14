@@ -898,6 +898,12 @@ router.get("/wavespeed/voices/:id/preview", async (req, res) => {
   const voiceId = parseInt(req.params.id, 10);
   if (isNaN(voiceId)) { res.status(400).json({ error: "Invalid voice ID" }); return; }
 
+  // Optional override params — used by the tuning UI to preview before saving.
+  // When present the cache is bypassed and the result is NOT saved to DB.
+  const overrideSpeed = req.query.speed !== undefined ? parseFloat(req.query.speed as string) : undefined;
+  const overridePitch = req.query.pitch !== undefined ? parseFloat(req.query.pitch as string) : undefined;
+  const hasOverride   = overrideSpeed !== undefined || overridePitch !== undefined;
+
   try {
     const [voice] = await db
       .select()
@@ -910,18 +916,20 @@ router.get("/wavespeed/voices/:id/preview", async (req, res) => {
       res.status(400).json({ error: "Voice is not ready yet" }); return;
     }
 
-    // Fast path — already cached (cache cleared by PATCH when speed/pitch change)
-    if (voice.previewAudioUrl) {
+    // Fast path — already cached AND no override requested
+    if (voice.previewAudioUrl && !hasOverride) {
       res.json({ url: voice.previewAudioUrl }); return;
     }
 
-    // Slow path — synthesise with the cloned voice at configured speed/pitch.
-    req.log.info({ voiceId, speed: voice.speed, pitch: voice.pitch }, "[WaveSpeed] Generating TTS preview for voice");
+    const effectiveSpeed = overrideSpeed ?? voice.speed ?? undefined;
+    const effectivePitch = overridePitch ?? voice.pitch ?? undefined;
+
+    req.log.info({ voiceId, speed: effectiveSpeed, pitch: effectivePitch, hasOverride }, "[WaveSpeed] Generating TTS preview for voice");
     const { requestId } = await submitSpeech(
       VOICE_PREVIEW_TEXT,
       voice.wavespeedVoiceId,
       undefined,
-      { speed: voice.speed ?? undefined, pitch: voice.pitch ?? undefined },
+      { speed: effectiveSpeed, pitch: effectivePitch },
     );
 
     // Poll up to 45 s (15 × 3 s)
@@ -938,14 +946,16 @@ router.get("/wavespeed/voices/:id/preview", async (req, res) => {
     }
 
     if (!audioUrl) {
-      res.status(504).json({ error: "Preview generation timed out — try again in a moment" }); return;
+      res.status(504).json({ error: "Preview generation timed out — try again" }); return;
     }
 
-    // Cache so subsequent plays are instant
-    await db
-      .update(wavespeedVoicesTable)
-      .set({ previewAudioUrl: audioUrl, updatedAt: new Date() })
-      .where(and(eq(wavespeedVoicesTable.id, voiceId), eq(wavespeedVoicesTable.userId, userId)));
+    // Only cache when NOT using override values (override = still exploring)
+    if (!hasOverride) {
+      await db
+        .update(wavespeedVoicesTable)
+        .set({ previewAudioUrl: audioUrl, updatedAt: new Date() })
+        .where(and(eq(wavespeedVoicesTable.id, voiceId), eq(wavespeedVoicesTable.userId, userId)));
+    }
 
     res.json({ url: audioUrl });
   } catch (err: any) {

@@ -1090,9 +1090,16 @@ export async function fetchVoicePlayUrl(voiceId: number): Promise<string> {
  * Returns immediately if a preview is cached; otherwise waits while WaveSpeed
  * generates a short TTS clip (~5-15 s on first call for old voices).
  */
-export async function fetchVoicePreview(voiceId: number): Promise<string> {
+export async function fetchVoicePreview(
+  voiceId: number,
+  opts?: { speed?: number; pitch?: number },
+): Promise<string> {
+  const params = new URLSearchParams();
+  if (opts?.speed !== undefined) params.set("speed", String(opts.speed));
+  if (opts?.pitch !== undefined) params.set("pitch", String(opts.pitch));
+  const qs = params.toString();
   const data = await customFetch<{ url: string }>(
-    `/api/wavespeed/voices/${voiceId}/preview`,
+    `/api/wavespeed/voices/${voiceId}/preview${qs ? `?${qs}` : ""}`,
   );
   return data.url;
 }

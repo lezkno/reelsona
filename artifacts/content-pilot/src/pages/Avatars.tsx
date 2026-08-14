@@ -3217,55 +3217,11 @@ export default function Avatars() {
   }, [clonePlayingId, toast])
 
   // ── WaveSpeed voice tuning (speed 0.5–1.5, pitch in semitones -12 to +12) ─
-  const [wsEditVoiceId,  setWsEditVoiceId]  = useState<number | null>(null)
-  const [wsSpeedValue,   setWsSpeedValue]   = useState(1.0)
-  const [wsPitchValue,   setWsPitchValue]   = useState(0)
-  const [wsTuningPlayId, setWsTuningPlayId] = useState<number | null>(null)
-
-  useEffect(() => {
-    if (!wsEditVoiceId) { stopTuningPreview(); setWsTuningPlayId(null) }
-  }, [wsEditVoiceId]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Update the playing node in real time as sliders move.
-  // Note: AudioBufferSourceNode couples speed+pitch; this gives audible feedback
-  // but is not fully independent. The actual TTS generation via minimax IS independent.
-  useEffect(() => {
-    if (wsTuningPlayId !== null && tuningSourceRef.current) {
-      tuningSourceRef.current.playbackRate.value = wsSpeedValue
-      tuningSourceRef.current.detune.value       = wsPitchValue * 100
-    }
-  }, [wsSpeedValue, wsPitchValue, wsTuningPlayId])
-
-  const handleWsPreviewTuning = async (voiceId: number) => {
-    if (wsTuningPlayId === voiceId) { stopTuningPreview(); setWsTuningPlayId(null); return }
-    stopTuningPreview()
-    setWsTuningPlayId(voiceId)
-    try {
-      const previewUrl  = await fetchVoicePreview(voiceId)
-      const encodedUrl  = encodeURIComponent(previewUrl)
-      const response    = await fetch(`/api/heygen/audio-proxy?url=${encodedUrl}`)
-      if (!response.ok) throw new Error("proxy error")
-      const arrayBuffer = await response.arrayBuffer()
-      const ctx         = new AudioContext()
-      tuningCtxRef.current = ctx
-      const decoded     = await ctx.decodeAudioData(arrayBuffer)
-      const source      = ctx.createBufferSource()
-      source.buffer     = decoded
-      // Direct values — speed and pitch both audible (preview approximation)
-      source.playbackRate.value = wsSpeedValue
-      source.detune.value       = wsPitchValue * 100
-      source.connect(ctx.destination)
-      source.onended = () => setWsTuningPlayId(null)
-      source.start()
-      tuningSourceRef.current = source
-    } catch {
-      setWsTuningPlayId(null)
-      toast({ title: "Error al reproducir", description: "No se pudo cargar el audio", variant: "destructive" })
-    }
-  }
+  const [wsEditVoiceId, setWsEditVoiceId] = useState<number | null>(null)
+  const [wsSpeedValue,  setWsSpeedValue]  = useState(1.0)
+  const [wsPitchValue,  setWsPitchValue]  = useState(0)
 
   const handleWsSave = async (voiceId: number) => {
-    stopTuningPreview()
     try {
       await updateWsVoiceMut.mutateAsync({ id: voiceId, speed: wsSpeedValue, pitch: wsPitchValue })
       setWsEditVoiceId(null)
@@ -4445,12 +4401,9 @@ export default function Avatars() {
                             <span>−12 grave</span><span className="text-foreground font-medium">0 normal</span><span>+12 agudo</span>
                           </div>
                         </div>
-                        <div className="rounded-lg border border-border/40 bg-background/60 p-2.5 flex items-center gap-3">
-                          <Button size="sm" variant={wsTuningPlayId === v.id ? "default" : "outline"} className="gap-1.5 shrink-0" onClick={() => handleWsPreviewTuning(v.id)}>
-                            {wsTuningPlayId === v.id ? <><Square className="w-3 h-3 fill-current" /> Detener</> : <><Play className="w-3 h-3 fill-current" /> Escuchar preview</>}
-                          </Button>
-                          <p className="text-[10px] text-muted-foreground leading-tight">Preview con velocidad y tono aplicados.</p>
-                        </div>
+                        <p className="text-[10px] text-muted-foreground leading-snug rounded-lg bg-muted/40 px-3 py-2">
+                          💡 Guarda los ajustes y pulsa ▶ en la fila de la voz para escuchar el resultado — el preview se regenera gratis con la nueva configuración.
+                        </p>
                         <div className="flex gap-2 justify-end">
                           <Button size="sm" variant="ghost" onClick={() => setWsEditVoiceId(null)}>Cancelar</Button>
                           <Button size="sm" onClick={() => handleWsSave(v.id)} disabled={updateWsVoiceMut.isPending} className="gap-1.5">
