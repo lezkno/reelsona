@@ -95,7 +95,7 @@ async function analyzeAudioBlob(blob: Blob): Promise<AudioQualityResult> {
 
 // ── Teleprompter text ─────────────────────────────────────────────────────────
 
-const TELEPROMPTER = `Hola, mi nombre es [tu nombre] y soy experto en [tu área de expertise]. Hoy quiero hablarte sobre algo que puede transformar completamente la forma en que ves [tu tema]. Durante años he trabajado con personas como tú, ayudándolas a lograr [resultado concreto]. Lo más importante que he aprendido es que el éxito no llega por casualidad, sino a través de estrategias claras y acción consistente. Si estás buscando dar el siguiente paso y realmente comprometerte con tus metas, entonces este mensaje es para ti. Comencemos juntos este camino hacia el cambio. Estoy aquí para guiarte en cada etapa del proceso y asegurarme de que llegues a donde quieres estar.`
+const TELEPROMPTER = `Hola, bienvenido. Hoy quiero compartir contigo algo que puede marcar una diferencia real en tu vida. A lo largo del tiempo he aprendido que el éxito no llega por casualidad. Llega cuando tomamos decisiones conscientes y actuamos con determinación, día tras día. Cada mañana es una oportunidad para mejorar, para aprender algo nuevo, para dar un paso más hacia donde queremos estar. No importa cuál sea tu punto de partida. Lo que importa es la dirección en la que caminas y la constancia con la que avanzas. El progreso sostenido, aunque parezca pequeño, es lo que genera resultados extraordinarios con el tiempo. Los grandes logros no son el resultado de un solo momento brillante, sino de muchas acciones pequeñas y consistentes acumuladas. Así que sigue adelante. Confía en el proceso, celebra cada avance, y recuerda que cada paso cuenta. Estoy aquí para acompañarte en ese camino.`
 
 // ── LazyLookImage — skeleton while loading, fade-in on ready ─────────────────
 
@@ -146,7 +146,7 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
   const [personaId, setPersonaId] = useState<number | null>(null)
   const [selectedLookIds, setSelectedLookIds] = useState<Set<number>>(new Set())
   const [voiceDbId, setVoiceDbId] = useState<number | null>(null)
-  const [voiceName, setVoiceName] = useState("")
+  const [voiceName, setVoiceName] = useState("Mi voz")
   const [assigning, setAssigning] = useState(false)
 
   // Webcam
@@ -162,12 +162,16 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
   const [isRecording, setIsRecording] = useState(false)
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null)
   const [recordSeconds, setRecordSeconds] = useState(0)
+  const [reached30s, setReached30s] = useState(false)
   const [audioQuality, setAudioQuality] = useState<AudioQualityResult | null>(null)
   const [analyzingAudio, setAnalyzingAudio] = useState(false)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<BlobPart[]>([])
   const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const audioStreamRef = useRef<MediaStream | null>(null)
+  const teleprompterRef = useRef<HTMLDivElement>(null)
+  const scrollRafRef = useRef<number | null>(null)
+  const scrollStartRef = useRef<number>(0)
 
   // Mutations
   const createPersona = useCreateWavespeedPersona()
@@ -367,6 +371,52 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
     })
   }
 
+  // ── Audio helpers ────────────────────────────────────────────────────────────
+
+  const playBeep = () => {
+    try {
+      const ctx = new AudioContext()
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      osc.frequency.value = 880
+      gain.gain.setValueAtTime(0.4, ctx.currentTime)
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4)
+      osc.start()
+      osc.stop(ctx.currentTime + 0.4)
+    } catch { /* ignore */ }
+  }
+
+  // Notify at 30 s
+  useEffect(() => {
+    if (recordSeconds === 30 && isRecording && !reached30s) {
+      setReached30s(true)
+      playBeep()
+    }
+  }, [recordSeconds, isRecording, reached30s])
+
+  // Auto-scroll teleprompter while recording (completes in ~65 s)
+  useEffect(() => {
+    const el = teleprompterRef.current
+    if (!el) return
+    if (!isRecording) {
+      if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current)
+      return
+    }
+    el.scrollTop = 0
+    scrollStartRef.current = performance.now()
+    const totalHeight = el.scrollHeight - el.clientHeight
+    const DURATION_MS = 65_000
+    const tick = (now: number) => {
+      const fraction = Math.min((now - scrollStartRef.current) / DURATION_MS, 1)
+      el.scrollTop = totalHeight * fraction
+      if (fraction < 1) scrollRafRef.current = requestAnimationFrame(tick)
+    }
+    scrollRafRef.current = requestAnimationFrame(tick)
+    return () => { if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current) }
+  }, [isRecording])
+
   // ── Audio recording ─────────────────────────────────────────────────────────
 
   const startRecording = async () => {
@@ -397,6 +447,7 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
       mediaRecorderRef.current = mr
       setIsRecording(true)
       setRecordSeconds(0)
+      setReached30s(false)
       recordTimerRef.current = setInterval(() => setRecordSeconds((s) => s + 1), 1000)
     } catch {
       toast({ title: "No se pudo acceder al micrófono", variant: "destructive" })
@@ -790,8 +841,11 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
           />
         </div>
 
-        {/* Teleprompter */}
-        <div className="rounded-lg border bg-muted/40 px-4 py-3 max-h-28 overflow-y-auto">
+        {/* Teleprompter — auto-scrolls while recording; locked to prevent manual interference */}
+        <div
+          ref={teleprompterRef}
+          className="rounded-lg border bg-muted/40 px-4 py-3 max-h-28 overflow-hidden select-none"
+        >
           <p className="text-xs text-muted-foreground leading-relaxed">{TELEPROMPTER}</p>
         </div>
 
@@ -812,18 +866,36 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
 
         {/* Recording controls */}
         <div className="flex flex-col items-center gap-3">
-          <div className={`w-16 h-16 rounded-full flex items-center justify-center transition-colors ${isRecording ? "bg-red-500/15 border-2 border-red-500 animate-pulse" : "bg-muted"}`}>
-            {isRecording ? <Mic className="w-7 h-7 text-red-500" /> : <Mic className="w-7 h-7 text-muted-foreground" />}
+          <div className={`w-16 h-16 rounded-full flex items-center justify-center transition-colors
+            ${isRecording && reached30s ? "bg-emerald-500/15 border-2 border-emerald-500" :
+              isRecording ? "bg-red-500/15 border-2 border-red-500 animate-pulse" : "bg-muted"}`}>
+            {isRecording
+              ? <Mic className={`w-7 h-7 ${reached30s ? "text-emerald-500" : "text-red-500"}`} />
+              : <Mic className="w-7 h-7 text-muted-foreground" />}
           </div>
           {isRecording && (
             <div className="text-center">
-              <span className="font-mono text-2xl font-bold tabular-nums">{fmtSec(recordSeconds)}</span>
-              <p className="text-xs text-muted-foreground mt-0.5">Grabando…</p>
+              <span className={`font-mono text-2xl font-bold tabular-nums transition-colors ${reached30s ? "text-emerald-600 dark:text-emerald-400" : ""}`}>
+                {fmtSec(recordSeconds)}
+              </span>
+              {reached30s ? (
+                <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium mt-0.5 flex items-center justify-center gap-1">
+                  <CheckCircle2 className="w-3 h-3" /> ¡Listo! Detén cuando quieras
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Grabando… ({30 - recordSeconds}s restantes para el mínimo)
+                </p>
+              )}
             </div>
           )}
           <div className="flex gap-2">
             {isRecording ? (
-              <Button onClick={stopRecording} variant="destructive" className="gap-2">
+              <Button
+                onClick={stopRecording}
+                variant={reached30s ? "default" : "destructive"}
+                className={`gap-2 ${reached30s ? "bg-emerald-600 hover:bg-emerald-700 text-white" : ""}`}
+              >
                 <Square className="w-4 h-4" /> Detener
               </Button>
             ) : (
@@ -832,7 +904,8 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
               </Button>
             )}
             {recordedBlob && !isRecording && (
-              <Button variant="outline" size="icon" title="Volver a grabar" onClick={() => { setRecordedBlob(null); setAudioQuality(null); setRecordSeconds(0) }}>
+              <Button variant="outline" size="icon" title="Volver a grabar"
+                onClick={() => { setRecordedBlob(null); setAudioQuality(null); setRecordSeconds(0); setReached30s(false) }}>
                 <RefreshCw className="w-4 h-4" />
               </Button>
             )}
