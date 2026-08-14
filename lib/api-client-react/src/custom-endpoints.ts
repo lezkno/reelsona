@@ -1095,6 +1095,32 @@ export function useWavespeedVoiceStatus(voiceId: number | null, enabled = true) 
   });
 }
 
+/** Rename a WaveSpeed persona (avatar). */
+export function usePatchWavespeedPersona() {
+  const qc = useQueryClient();
+  return useMutation<{ persona: { id: number; name: string } }, Error, { id: number; name: string }>({
+    mutationFn: ({ id, name }) =>
+      customFetch<{ persona: { id: number; name: string } }>(`/api/wavespeed/personas/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      }),
+    onSuccess: ({ persona: updated }) => {
+      qc.setQueryData<{ personas: WavespeedPersonaWithLooks[] }>(
+        WAVESPEED_PERSONAS_KEY,
+        (old) => {
+          if (!old) return old;
+          return {
+            personas: old.personas.map((p) =>
+              p.id === updated.id ? { ...p, name: updated.name } : p,
+            ),
+          };
+        },
+      );
+    },
+  });
+}
+
 /** Update a WaveSpeed look's name or config (e.g. voiceId, selected). */
 export function usePatchWavespeedLook() {
   const qc = useQueryClient();

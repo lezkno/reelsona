@@ -597,7 +597,7 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
 
                 {/* Camera selector — shown when >1 camera detected */}
                 {availableCameras.length > 1 && (
-                  <div className="flex items-center gap-2 w-full max-w-[12rem]">
+                  <div className="flex items-center justify-center gap-2 w-48">
                     <Camera className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
                     <select
                       className="flex-1 text-xs rounded-md border border-input bg-background px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring"
@@ -613,7 +613,7 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
                   </div>
                 )}
 
-                <div className="flex gap-2">
+                <div className="flex items-center justify-center gap-2">
                   <Button onClick={captureWebcamPhoto} className="gap-2">
                     <Camera className="w-4 h-4" /> Capturar
                   </Button>
@@ -724,12 +724,8 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
             </div>
           )}
 
-          <p className="text-xs text-center text-muted-foreground">Esto puede tardar 1–3 minutos.</p>
+          <p className="text-xs text-center text-muted-foreground">Esto puede tardar 1–3 minutos. No cierres esta ventana.</p>
         </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cerrar</Button>
-        </DialogFooter>
       </>
     )
   }

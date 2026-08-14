@@ -535,6 +535,33 @@ router.get("/wavespeed/voices/:id/status", async (req, res) => {
   }
 });
 
+// ── PATCH /wavespeed/personas/:id ────────────────────────────────────────────
+
+router.patch("/wavespeed/personas/:id", async (req, res) => {
+  const userId = requireAuth(req, res);
+  if (!userId) return;
+
+  const personaId = parseInt(req.params.id, 10);
+  if (isNaN(personaId)) { res.status(400).json({ error: "Invalid persona ID" }); return; }
+
+  const { name } = (req.body ?? {}) as { name?: string };
+  if (!name?.trim()) { res.status(400).json({ error: "name is required" }); return; }
+
+  try {
+    const [updated] = await db
+      .update(wavespeedPersonasTable)
+      .set({ name: name.trim(), updatedAt: new Date() })
+      .where(and(eq(wavespeedPersonasTable.id, personaId), eq(wavespeedPersonasTable.userId, userId)))
+      .returning();
+
+    if (!updated) { res.status(404).json({ error: "Persona not found" }); return; }
+    res.json({ persona: { id: updated.id, name: updated.name } });
+  } catch (err: any) {
+    req.log.error({ err }, "[WaveSpeed] Failed to update persona name");
+    res.status(500).json({ error: err.message ?? "Internal error" });
+  }
+});
+
 // ── PATCH /wavespeed/looks/:id ────────────────────────────────────────────────
 
 router.patch("/wavespeed/looks/:id", async (req, res) => {

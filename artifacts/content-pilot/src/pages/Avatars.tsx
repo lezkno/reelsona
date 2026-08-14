@@ -17,6 +17,7 @@ import {
   useUpdateVoice,
   useWavespeedPersonas,
   useDeleteWavespeedPersona,
+  usePatchWavespeedPersona,
   usePatchWavespeedLook,
   useDeleteWavespeedLook,
   useWavespeedPersonaLooksStatus,
@@ -45,7 +46,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from "react"
 import {
   Users, Save, CheckCircle2, Image as ImageIcon, Play, Square,
   Plus, Camera, CameraOff, Mic, RefreshCw, Upload, Loader2, AlertCircle, ChevronDown, Sparkles, Video,
-  Trash2, Lock, ZoomIn, X, Volume2, Search, Pencil, SlidersHorizontal,
+  Trash2, Lock, ZoomIn, X, Volume2, Search, Pencil, SlidersHorizontal, Check,
 } from "lucide-react"
 
 // ── Rotation strategy sentinel ────────────────────────────────────────────────
@@ -2671,6 +2672,7 @@ function WavespeedPersonaDialog({
 }) {
   const { toast } = useToast()
   const deletePersona = useDeleteWavespeedPersona()
+  const patchPersona = usePatchWavespeedPersona()
   const deleteLookMutation = useDeleteWavespeedLook()
   const patchLook = usePatchWavespeedLook()
   const { data: voicesData } = useWavespeedVoices()
@@ -2678,15 +2680,92 @@ function WavespeedPersonaDialog({
   const [deleting, setDeleting] = useState(false)
   const [showOnlySelected, setShowOnlySelected] = useState(false)
 
+  // ── Optimistic display names (updated immediately on save, synced from prop) ─
+  const [displayPersonaName, setDisplayPersonaName] = useState(persona.name)
+  useEffect(() => setDisplayPersonaName(persona.name), [persona.name])
+
+  const [displayLookNames, setDisplayLookNames] = useState<Record<number, string>>(
+    () => Object.fromEntries(persona.looks.map((l) => [l.id, l.name]))
+  )
+  useEffect(() => {
+    setDisplayLookNames((prev) => {
+      const next = { ...prev }
+      persona.looks.forEach((l) => { next[l.id] = l.name })
+      return next
+    })
+  }, [persona.looks])
+
+  // ── Inline editing state ──────────────────────────────────────────────────
+  const [editingPersonaName, setEditingPersonaName] = useState(false)
+  const [personaNameDraft, setPersonaNameDraft] = useState("")
+  const [editingLookId, setEditingLookId] = useState<number | null>(null)
+  const [lookNameDraft, setLookNameDraft] = useState("")
+
+  const startEditPersonaName = () => { setPersonaNameDraft(displayPersonaName); setEditingPersonaName(true) }
+  const cancelEditPersonaName = () => setEditingPersonaName(false)
+  const savePersonaName = async () => {
+    const trimmed = personaNameDraft.trim()
+    if (!trimmed || trimmed === displayPersonaName) { cancelEditPersonaName(); return }
+    setDisplayPersonaName(trimmed)   // optimistic — show instantly
+    setEditingPersonaName(false)
+    try {
+      await patchPersona.mutateAsync({ id: persona.id, name: trimmed })
+    } catch {
+      setDisplayPersonaName(persona.name) // revert on error
+      toast({ title: "Error al guardar el nombre", variant: "destructive" })
+    }
+  }
+
+  const startEditLookName = (look: WavespeedLookRow) => {
+    setLookNameDraft(displayLookNames[look.id] ?? look.name)
+    setEditingLookId(look.id)
+  }
+  const cancelEditLookName = () => setEditingLookId(null)
+  const saveLookName = async (look: WavespeedLookRow) => {
+    const trimmed = lookNameDraft.trim()
+    if (!trimmed || trimmed === (displayLookNames[look.id] ?? look.name)) { cancelEditLookName(); return }
+    setDisplayLookNames((prev) => ({ ...prev, [look.id]: trimmed }))  // optimistic
+    setEditingLookId(null)
+    try {
+      await patchLook.mutateAsync({ id: look.id, name: trimmed })
+    } catch {
+      setDisplayLookNames((prev) => ({ ...prev, [look.id]: look.name })) // revert
+      toast({ title: "Error al guardar el nombre", variant: "destructive" })
+    }
+  }
+
   const readyVoices = (voicesData?.voices ?? []).filter((v) => v.status === "ready")
 
-  // Helper: parse look config
+  // Helper: parse look config (used for non-optimistic fields)
   const getCfg = (look: WavespeedLookRow) => {
     try { return JSON.parse(look.config ?? "{}") as { generationStatus?: string; selected?: boolean; voiceId?: number | null; requestId?: string } }
     catch { return {} }
   }
-  const getSelected = (look: WavespeedLookRow) => getCfg(look).selected === true
-  const getVoiceId = (look: WavespeedLookRow) => getCfg(look).voiceId ?? null
+
+  // ── Optimistic selection state ──────────────────────────────────────────────
+  // Reads from local Set instead of look.config so toggles are instant, bypassing
+  // the setQueryData → wavespeedData → useEffect → prop re-render cycle.
+  const [localSelectedIds, setLocalSelectedIds] = useState<Set<number>>(
+    () => new Set(persona.looks.filter((l) => getCfg(l).selected === true).map((l) => l.id))
+  )
+  useEffect(() => {
+    setLocalSelectedIds(new Set(persona.looks.filter((l) => getCfg(l).selected === true).map((l) => l.id)))
+  }, [persona.looks]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Optimistic voice-override state ────────────────────────────────────────
+  const [localVoiceIds, setLocalVoiceIds] = useState<Record<number, number | null>>(
+    () => Object.fromEntries(persona.looks.map((l) => [l.id, getCfg(l).voiceId ?? null]))
+  )
+  useEffect(() => {
+    setLocalVoiceIds((prev) => {
+      const next = { ...prev }
+      persona.looks.forEach((l) => { next[l.id] = getCfg(l).voiceId ?? null })
+      return next
+    })
+  }, [persona.looks]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const getSelected = (look: WavespeedLookRow) => localSelectedIds.has(look.id)
+  const getVoiceId = (look: WavespeedLookRow) => localVoiceIds[look.id] ?? null
 
   // Poll while any look needs recovery (null imageUrl) or is still pending
   const hasPending = persona.looks.some((l) => {
@@ -2694,13 +2773,10 @@ function WavespeedPersonaDialog({
     return cfg.generationStatus === "pending" || (cfg.generationStatus === "ready" && !l.imageUrl)
   })
   // Always render from persona.looks (kept in sync by setQueryData in usePatchWavespeedLook)
-  // so PATCH-driven config changes (selected, voiceId) are visible immediately.
-  // looksStatus is still used to detect when pending looks finish generating.
   const looksStatus = useWavespeedPersonaLooksStatus(persona.id, hasPending)
   const livePersonaLooks = persona.looks
 
   const allLooks = livePersonaLooks
-  // Defensive: treat a look as ready if generationStatus="ready" OR if it already has an imageUrl
   const readyLooks = allLooks.filter((l) => {
     const cfg = getCfg(l)
     return cfg.generationStatus === "ready" || !!l.imageUrl
@@ -2713,15 +2789,36 @@ function WavespeedPersonaDialog({
   const visibleLooks = showOnlySelected ? readyLooks.filter(getSelected) : readyLooks
 
   const handleToggle = async (look: WavespeedLookRow) => {
-    const isSelected = getSelected(look)
-    try { await patchLook.mutateAsync({ id: look.id, config: { selected: !isSelected } }) }
-    catch { toast({ title: "Error al guardar", variant: "destructive" }) }
+    const wasSelected = localSelectedIds.has(look.id)
+    // Optimistic toggle
+    setLocalSelectedIds((prev) => {
+      const next = new Set(prev)
+      wasSelected ? next.delete(look.id) : next.add(look.id)
+      return next
+    })
+    try {
+      await patchLook.mutateAsync({ id: look.id, config: { selected: !wasSelected } })
+    } catch {
+      // Revert on error
+      setLocalSelectedIds((prev) => {
+        const next = new Set(prev)
+        wasSelected ? next.add(look.id) : next.delete(look.id)
+        return next
+      })
+      toast({ title: "Error al guardar", variant: "destructive" })
+    }
   }
 
   const handleVoiceChange = async (look: WavespeedLookRow, value: string) => {
     const voiceId = value === "__none__" ? null : parseInt(value, 10)
-    try { await patchLook.mutateAsync({ id: look.id, config: { voiceId } }) }
-    catch { toast({ title: "Error al guardar la voz", variant: "destructive" }) }
+    const prev = localVoiceIds[look.id] ?? null
+    setLocalVoiceIds((s) => ({ ...s, [look.id]: voiceId }))  // optimistic
+    try {
+      await patchLook.mutateAsync({ id: look.id, config: { voiceId } })
+    } catch {
+      setLocalVoiceIds((s) => ({ ...s, [look.id]: prev }))  // revert
+      toast({ title: "Error al guardar la voz", variant: "destructive" })
+    }
   }
 
   const handleDeleteLook = async (look: WavespeedLookRow) => {
@@ -2766,14 +2863,44 @@ function WavespeedPersonaDialog({
           <>
             {/* Header */}
             <div className="flex items-start justify-between gap-3 px-6 pt-6 pb-3 flex-shrink-0">
-              <div className="min-w-0">
-                <h2 className="text-base font-semibold flex items-center gap-2 flex-wrap">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
                   <Badge className="bg-violet-600 text-white text-[10px] px-1.5 shrink-0">
                     <Sparkles className="w-2.5 h-2.5 mr-1" /> AI
                   </Badge>
-                  <span className="truncate">{persona.name}</span>
-                </h2>
-                <p className="text-sm text-muted-foreground mt-0.5">
+                  {editingPersonaName ? (
+                    <div className="flex items-center gap-1 flex-1 min-w-0">
+                      <input
+                        autoFocus
+                        value={personaNameDraft}
+                        onChange={(e) => setPersonaNameDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") savePersonaName()
+                          if (e.key === "Escape") cancelEditPersonaName()
+                        }}
+                        className="flex-1 min-w-0 text-base font-semibold bg-transparent border-b-2 border-primary outline-none px-0.5"
+                      />
+                      <button type="button" onClick={savePersonaName}
+                        className="p-0.5 rounded text-primary hover:bg-primary/10 transition-colors">
+                        <Check className="w-3.5 h-3.5" />
+                      </button>
+                      <button type="button" onClick={cancelEditPersonaName}
+                        className="p-0.5 rounded text-muted-foreground hover:bg-muted transition-colors">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5 min-w-0 group/pname">
+                      <h2 className="text-base font-semibold truncate">{displayPersonaName}</h2>
+                      <button type="button" onClick={startEditPersonaName}
+                        className="p-0.5 rounded text-muted-foreground opacity-0 group-hover/pname:opacity-100 hover:bg-muted transition-all flex-shrink-0"
+                        title="Editar nombre del avatar">
+                        <Pencil className="w-3 h-3" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <p className="text-sm text-muted-foreground mt-1">
                   Elige los looks que quieres usar. Al seleccionar un look puedes asignarle una voz.
                 </p>
               </div>
@@ -2850,6 +2977,44 @@ function WavespeedPersonaDialog({
                             <X className="w-3.5 h-3.5" />
                           </button>
                         </div>
+
+                        {/* Editable look name */}
+                        {editingLookId === look.id ? (
+                          <div className="flex items-center gap-1">
+                            <input
+                              autoFocus
+                              value={lookNameDraft}
+                              onChange={(e) => setLookNameDraft(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") saveLookName(look)
+                                if (e.key === "Escape") cancelEditLookName()
+                              }}
+                              className="flex-1 min-w-0 text-xs font-medium bg-transparent border-b border-primary outline-none px-0.5"
+                            />
+                            <button type="button" onClick={() => saveLookName(look)}
+                              className="p-0.5 rounded text-primary hover:bg-primary/10 transition-colors flex-shrink-0">
+                              <Check className="w-3 h-3" />
+                            </button>
+                            <button type="button" onClick={cancelEditLookName}
+                              className="p-0.5 rounded text-muted-foreground hover:bg-muted transition-colors flex-shrink-0">
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="group/lname flex items-center gap-1 min-w-0">
+                            <span className="text-xs font-medium truncate flex-1 text-foreground/80">
+                              {displayLookNames[look.id] ?? look.name}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => startEditLookName(look)}
+                              className="p-0.5 rounded text-muted-foreground opacity-0 group-hover/lname:opacity-100 hover:bg-muted transition-all flex-shrink-0"
+                              title="Editar nombre del look"
+                            >
+                              <Pencil className="w-2.5 h-2.5" />
+                            </button>
+                          </div>
+                        )}
 
                         {/* Voice picker */}
                         <Select
