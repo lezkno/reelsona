@@ -123,6 +123,8 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
   // Webcam
   const [webcamActive, setWebcamActive] = useState(false)
   const [photoSource, setPhotoSource] = useState<"upload" | "webcam">("upload")
+  const [availableCameras, setAvailableCameras] = useState<MediaDeviceInfo[]>([])
+  const [selectedCameraId, setSelectedCameraId] = useState<string | null>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -182,19 +184,49 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
   // Attach the acquired stream to the <video> element after it mounts.
   // startWebcam() only acquires the MediaStream and sets webcamActive=true;
   // this effect runs after React re-renders and the <video> ref is populated.
+  // Also re-attaches when the stream changes (camera switch).
   useEffect(() => {
     if (!webcamActive || !streamRef.current) return
     const vid = videoRef.current
     if (!vid) return
     vid.srcObject = streamRef.current
     vid.play().catch(() => {})
-  }, [webcamActive])
+  }, [webcamActive, streamRef.current]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Webcam helpers ──────────────────────────────────────────────────────────
 
-  const startWebcam = async () => {
+  /** Enumerate video input devices. Called before opening the webcam. */
+  const enumerateCameras = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false })
+      // A brief permissions-prompt stream is needed on first call so labels are populated.
+      const tempStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+      tempStream.getTracks().forEach((t) => t.stop())
+      const devices = await navigator.mediaDevices.enumerateDevices()
+      const videoDevices = devices.filter((d) => d.kind === "videoinput")
+      setAvailableCameras(videoDevices)
+      // Default: prefer the front-facing camera (user-facing)
+      const front = videoDevices.find((d) =>
+        d.label.toLowerCase().includes("front") ||
+        d.label.toLowerCase().includes("facetime") ||
+        d.label.toLowerCase().includes("user")
+      )
+      setSelectedCameraId(front?.deviceId ?? videoDevices[0]?.deviceId ?? null)
+    } catch {
+      // If enumeration fails, we'll just use the default camera
+    }
+  }
+
+  const startWebcam = async (deviceId?: string) => {
+    // Stop any existing stream before starting a new one
+    streamRef.current?.getTracks().forEach((t) => t.stop())
+    streamRef.current = null
+
+    const videoConstraint: MediaTrackConstraints = deviceId
+      ? { deviceId: { exact: deviceId } }
+      : { facingMode: "user" }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraint, audio: false })
       streamRef.current = stream
       // Do NOT touch videoRef here — the <video> element may not be mounted yet.
       // The useEffect above attaches srcObject after React renders the <video>.
@@ -208,6 +240,14 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
     streamRef.current?.getTracks().forEach((t) => t.stop())
     streamRef.current = null
     setWebcamActive(false)
+  }
+
+  /** Switch to a different camera while the webcam is already active. */
+  const switchCamera = async (deviceId: string) => {
+    setSelectedCameraId(deviceId)
+    if (webcamActive) {
+      await startWebcam(deviceId)
+    }
   }
 
   const captureWebcamPhoto = async () => {
@@ -394,7 +434,13 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
           <Button
             variant={photoSource === "webcam" ? "default" : "outline"}
             size="sm"
-            onClick={() => { setPhotoSource("webcam"); if (!webcamActive) startWebcam() }}
+            onClick={async () => {
+              setPhotoSource("webcam")
+              if (!webcamActive) {
+                await enumerateCameras()
+                await startWebcam(selectedCameraId ?? undefined)
+              }
+            }}
           >
             <Camera className="w-3.5 h-3.5 mr-1.5" /> Selfie
           </Button>
@@ -435,29 +481,69 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
           <div className="flex flex-col items-center gap-3">
             {webcamActive ? (
               <>
-                <video ref={videoRef} className="w-64 h-48 rounded-xl object-cover border" autoPlay muted playsInline />
+                {/* Portrait video — 3:4 aspect, matches a selfie/portrait photo */}
+                <div className="relative w-48 rounded-xl overflow-hidden border-2 border-primary shadow-lg" style={{ aspectRatio: "3/4" }}>
+                  <video
+                    ref={videoRef}
+                    className="w-full h-full object-cover"
+                    autoPlay
+                    muted
+                    playsInline
+                  />
+                </div>
+
+                {/* Camera selector — shown when >1 camera detected */}
+                {availableCameras.length > 1 && (
+                  <div className="flex items-center gap-2 w-full max-w-[12rem]">
+                    <Camera className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                    <select
+                      className="flex-1 text-xs rounded-md border border-input bg-background px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring"
+                      value={selectedCameraId ?? ""}
+                      onChange={(e) => switchCamera(e.target.value)}
+                    >
+                      {availableCameras.map((cam, i) => (
+                        <option key={cam.deviceId} value={cam.deviceId}>
+                          {cam.label || `Cámara ${i + 1}`}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
                 <div className="flex gap-2">
                   <Button onClick={captureWebcamPhoto} className="gap-2">
                     <Camera className="w-4 h-4" /> Capturar
                   </Button>
-                  <Button variant="outline" onClick={stopWebcam}>
+                  <Button variant="outline" size="icon" onClick={stopWebcam} title="Cerrar cámara">
                     <CameraOff className="w-4 h-4" />
                   </Button>
                 </div>
               </>
             ) : referencePreviewUrl ? (
-              <div className="relative w-40 mx-auto">
-                <img src={referencePreviewUrl} alt="Selfie" className="w-40 h-52 object-cover rounded-xl border-2 border-primary" />
+              <div className="relative w-48 mx-auto" style={{ aspectRatio: "3/4" }}>
+                <img src={referencePreviewUrl} alt="Selfie" className="w-full h-full object-cover rounded-xl border-2 border-primary" />
                 <button
                   type="button"
-                  onClick={() => { setReferencePreviewUrl(null); setReferenceObjectPath(null); startWebcam() }}
+                  onClick={async () => {
+                    setReferencePreviewUrl(null)
+                    setReferenceObjectPath(null)
+                    await enumerateCameras()
+                    await startWebcam(selectedCameraId ?? undefined)
+                  }}
                   className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-destructive text-white flex items-center justify-center"
                 >
                   <X className="w-3 h-3" />
                 </button>
               </div>
             ) : (
-              <Button variant="outline" onClick={startWebcam} className="gap-2">
+              <Button
+                variant="outline"
+                onClick={async () => {
+                  await enumerateCameras()
+                  await startWebcam(selectedCameraId ?? undefined)
+                }}
+                className="gap-2"
+              >
                 <Camera className="w-4 h-4" /> Activar cámara
               </Button>
             )}
