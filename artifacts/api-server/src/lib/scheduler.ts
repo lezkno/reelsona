@@ -158,6 +158,116 @@ async function getWavespeedContext(
   return null;
 }
 
+// ── Unified avatar rotation pool ──────────────────────────────────────────────
+//
+// A "unified slot" is either a HeyGen avatar (identified by its string ID) or a
+// WaveSpeed look (identified by "ws:{lookId}").  The rotation pointer stored in
+// avatarConfig.lastUsedAvatarId uses the same string format for both types so a
+// single field tracks the position across the whole pool.
+
+type UnifiedSlot =
+  | { type: "heygen"; id: string }
+  | { type: "wavespeed"; id: string /* "ws:{lookId}" */; ctx: WavespeedCtx };
+
+/**
+ * Build the full rotation pool: HeyGen avatars from selectedAvatarIds first,
+ * then WaveSpeed looks that are selected and have a ready voice.
+ *
+ * Pool order is stable (HeyGen → WaveSpeed, personas newest-first, looks in
+ * DB order) so sequential rotation produces a predictable interleaved sequence.
+ */
+async function buildUnifiedPool(
+  userId: number,
+  selectedHeygenIds: string[],
+): Promise<UnifiedSlot[]> {
+  const slots: UnifiedSlot[] = selectedHeygenIds.map((id) => ({ type: "heygen", id }));
+
+  if (!isWavespeedConfigured()) return slots;
+
+  const personas = await db
+    .select({ id: wavespeedPersonasTable.id })
+    .from(wavespeedPersonasTable)
+    .where(eq(wavespeedPersonasTable.userId, userId))
+    .orderBy(desc(wavespeedPersonasTable.createdAt));
+
+  for (const persona of personas) {
+    const looks = await db
+      .select({
+        id: wavespeedLooksTable.id,
+        imageUrl: wavespeedLooksTable.imageUrl,
+        config: wavespeedLooksTable.config,
+      })
+      .from(wavespeedLooksTable)
+      .where(
+        and(
+          eq(wavespeedLooksTable.userId, userId),
+          eq(wavespeedLooksTable.personaId, persona.id),
+          isNotNull(wavespeedLooksTable.imageUrl),
+        ),
+      );
+
+    type LookCfg = { selected?: boolean; voiceId?: number };
+    for (const look of looks) {
+      let cfg: LookCfg;
+      try { cfg = JSON.parse(look.config ?? "{}"); } catch { continue; }
+      if (!cfg.selected || !cfg.voiceId || !look.imageUrl) continue;
+
+      const [voice] = await db
+        .select({ wavespeedVoiceId: wavespeedVoicesTable.wavespeedVoiceId })
+        .from(wavespeedVoicesTable)
+        .where(
+          and(
+            eq(wavespeedVoicesTable.id, cfg.voiceId),
+            eq(wavespeedVoicesTable.userId, userId),
+            eq(wavespeedVoicesTable.status, "ready"),
+            isNotNull(wavespeedVoicesTable.wavespeedVoiceId),
+          ),
+        )
+        .limit(1);
+
+      if (!voice?.wavespeedVoiceId) continue;
+
+      slots.push({
+        type: "wavespeed",
+        id: `ws:${look.id}`,
+        ctx: { personaId: persona.id, lookId: look.id, imageUrl: look.imageUrl!, voiceId: voice.wavespeedVoiceId },
+      });
+    }
+  }
+
+  return slots;
+}
+
+/**
+ * Pick the next slot from a unified pool using the configured rotation strategy.
+ * `lastUsedId` can be either a raw HeyGen avatar ID or "ws:{lookId}".
+ */
+function pickFromUnifiedPool(
+  pool: UnifiedSlot[],
+  lastUsedId: string | null,
+  strategy: string,
+  usageCount: Record<string, number>,
+): UnifiedSlot | null {
+  if (!pool.length) return null;
+  const ids = pool.map((s) => s.id);
+  let pickedId: string;
+
+  if (strategy === "sequential") {
+    const idx = lastUsedId ? ids.indexOf(lastUsedId) : -1;
+    pickedId = ids[(idx + 1) % ids.length];
+  } else if (strategy === "performance") {
+    const sorted = [...ids].sort((a, b) => (usageCount[a] ?? 0) - (usageCount[b] ?? 0));
+    pickedId = sorted[0];
+  } else {
+    // random — avoid immediate repeat when pool > 1
+    const filtered = ids.filter((id) => id !== lastUsedId);
+    const candidates = filtered.length > 0 ? filtered : ids;
+    pickedId = candidates[Math.floor(Math.random() * candidates.length)];
+  }
+
+  return pool.find((s) => s.id === pickedId) ?? pool[0];
+}
+
 /** Sentinel stored in preferred_voice_id meaning "use the avatar's own HeyGen default voice" (legacy, kept for backwards compat). */
 export const AVATAR_DEFAULT_VOICE = "avatar_default";
 
@@ -541,7 +651,9 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
     targetItemIsWaveSpeed = !!targetRow?.wavespeedLookId;
   }
 
-  if (!targetItemIsWaveSpeed && !avatarCfg?.selectedAvatarIds?.length) {
+  // Allow the cycle through if WaveSpeed is configured — buildUnifiedPool will
+  // include WaveSpeed looks even when selectedAvatarIds is empty.
+  if (!targetItemIsWaveSpeed && !avatarCfg?.selectedAvatarIds?.length && !isWavespeedConfigured()) {
     logger.warn({ userId }, "Automation cycle aborted: no avatars configured");
     return { success: false, message: "No avatars configured" };
   }
@@ -652,35 +764,74 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
     let avatarId: string | null = null;
     let voiceId: string | null | undefined = null;
     if (!draft.wavespeedLookId) {
-      // HeyGen path — pick and persist avatar NOW (before the AI call) so a
-      // concurrent cycle can't pick the same avatar.
-      const storedAvatarValid =
-        draft.avatarId && avatarCfg.selectedAvatarIds.includes(draft.avatarId);
-      avatarId = storedAvatarValid
-        ? draft.avatarId!
-        : pickNextAvatar(
-            avatarCfg.selectedAvatarIds,
-            avatarCfg.lastUsedAvatarId,
-            avatarCfg.rotationStrategy,
-            avatarCfg.avatarUsageCount as Record<string, number>
-          );
-      if (!storedAvatarValid && draft.avatarId) {
-        logger.warn(
-          { removedAvatarId: draft.avatarId, newAvatarId: avatarId },
-          "Stored avatarId is no longer in the active selection — re-picking from current list"
+      // No WaveSpeed look pinned. If the draft already has a valid HeyGen avatar
+      // pinned, honour it. Otherwise use unified rotation (HeyGen + WaveSpeed looks)
+      // so the configured rotation strategy applies across both pipeline types.
+      const storedHeygenValid =
+        draft.avatarId && (avatarCfg?.selectedAvatarIds ?? []).includes(draft.avatarId);
+
+      if (storedHeygenValid) {
+        avatarId = draft.avatarId!;
+      } else {
+        const pool = await buildUnifiedPool(userId, avatarCfg?.selectedAvatarIds ?? []);
+        const usageCount = (avatarCfg?.avatarUsageCount as Record<string, number>) ?? {};
+        const picked = pickFromUnifiedPool(
+          pool,
+          avatarCfg?.lastUsedAvatarId ?? null,
+          avatarCfg?.rotationStrategy ?? "sequential",
+          usageCount,
         );
-      }
-      if (!storedAvatarValid) {
-        await db
-          .update(avatarConfigTable)
-          .set({ lastUsedAvatarId: avatarId, updatedAt: new Date() })
-          .where(eq(avatarConfigTable.id, avatarCfg.id));
-        avatarCfg.lastUsedAvatarId = avatarId;
+
+        if (!picked) {
+          // No avatars or WaveSpeed looks available — reset to draft for retry.
+          logger.error({ itemId: draft.id }, "Unified rotation pool is empty — no avatars or WaveSpeed looks configured");
+          await db
+            .update(contentPlanItemsTable)
+            .set({ status: "draft", updatedAt: new Date() })
+            .where(eq(contentPlanItemsTable.id, draft.id));
+          return { success: false, message: "No hay avatares ni looks de WaveSpeed disponibles. Configura al menos uno en la página de Avatares." };
+        }
+
+        if (draft.avatarId) {
+          logger.warn(
+            { removedAvatarId: draft.avatarId, newPicked: picked.id },
+            "Stored avatarId is no longer valid — re-picking via unified rotation"
+          );
+        }
+
+        // Advance rotation pointer (shared across both pipeline types)
+        if (avatarCfg) {
+          await db
+            .update(avatarConfigTable)
+            .set({ lastUsedAvatarId: picked.id, updatedAt: new Date() })
+            .where(eq(avatarConfigTable.id, avatarCfg.id));
+          avatarCfg.lastUsedAvatarId = picked.id;
+        }
+
+        if (picked.type === "wavespeed") {
+          // WaveSpeed look picked via rotation — pin it to the draft so the pipeline
+          // selection below uses the correct pipeline, and retries reuse the same look.
+          draft.wavespeedLookId = picked.ctx.lookId;
+          await db
+            .update(contentPlanItemsTable)
+            .set({ wavespeedLookId: picked.ctx.lookId, avatarId: null, updatedAt: new Date() })
+            .where(eq(contentPlanItemsTable.id, draft.id));
+          logger.info(
+            { itemId: draft.id, lookId: picked.ctx.lookId },
+            "Unified rotation picked WaveSpeed look for draft"
+          );
+        } else {
+          avatarId = picked.id;
+          logger.info(
+            { itemId: draft.id, avatarId },
+            "Unified rotation picked HeyGen avatar for draft"
+          );
+        }
       }
     } else {
       logger.info(
         { itemId: draft.id, wavespeedLookId: draft.wavespeedLookId },
-        "WaveSpeed look pinned on draft — skipping HeyGen avatar reservation"
+        "WaveSpeed look pinned on draft — skipping avatar rotation"
       );
     }
 
@@ -802,51 +953,91 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
       };
     }
   } else {
-    // HeyGen path (manual pick or auto-rotation) — run the HeyGen backfill first.
-    // Backfill missing avatar/voice so scripted items never get stuck.
-    // Also replace stored avatarId if it's no longer in the active selection.
+    // No WaveSpeed look pinned on this item. Two sub-cases:
+    //   (a) avatarId is set AND still in selectedAvatarIds → user explicitly chose a
+    //       HeyGen avatar; honour it and re-resolve voice. No rotation applied.
+    //   (b) avatarId is missing or stale → auto-rotation via unified pool so both
+    //       HeyGen avatars and WaveSpeed looks participate in the same rotation with
+    //       the configured strategy (sequential / random / performance).
     const currentAvatarValid =
-      contentItem.avatarId && avatarCfg.selectedAvatarIds.includes(contentItem.avatarId);
-    if (!currentAvatarValid) {
+      contentItem.avatarId && (avatarCfg?.selectedAvatarIds ?? []).includes(contentItem.avatarId);
+
+    if (currentAvatarValid) {
+      // (a) Manual HeyGen pick — stay on HeyGen, just re-resolve voice.
+      const freshVoiceId = await resolveVoiceId(contentItem.avatarId, heygenApiKey, userId);
+      contentItem.voiceId = freshVoiceId ?? contentItem.voiceId;
+      if (contentItem.avatarId && contentItem.voiceId) {
+        await db
+          .update(contentPlanItemsTable)
+          .set({ avatarId: contentItem.avatarId, voiceId: contentItem.voiceId, updatedAt: new Date() })
+          .where(eq(contentPlanItemsTable.id, contentItem.id));
+      }
+      wavespeedCtx = null;
+    } else {
+      // (b) Unified rotation — build pool and apply strategy.
       if (contentItem.avatarId) {
         logger.warn(
           { removedAvatarId: contentItem.avatarId },
-          "avatarId on scripted item is no longer in active selection — re-picking"
+          "avatarId on scripted item is no longer in active selection — re-picking via unified rotation"
         );
       }
-      contentItem.avatarId = pickNextAvatar(
-        avatarCfg.selectedAvatarIds,
-        avatarCfg.lastUsedAvatarId,
-        avatarCfg.rotationStrategy,
-        (avatarCfg.avatarUsageCount as Record<string, number>) ?? {}
-      );
-      // Advance lastUsedAvatarId so the next cycle picks differently
-      await db
-        .update(avatarConfigTable)
-        .set({ lastUsedAvatarId: contentItem.avatarId, updatedAt: new Date() })
-        .where(eq(avatarConfigTable.id, avatarCfg.id));
-      avatarCfg.lastUsedAvatarId = contentItem.avatarId;
-      // Voice must be re-resolved for the new avatar
-      contentItem.voiceId = null;
-    }
-    // Always re-resolve voice from current overrides at generation time.
-    // The voiceId stored on the item may be stale (set before the user configured
-    // per-avatar overrides). The override map always wins over the cached value.
-    const freshVoiceId = await resolveVoiceId(contentItem.avatarId, heygenApiKey, userId);
-    contentItem.voiceId = freshVoiceId ?? contentItem.voiceId;
-    if (contentItem.avatarId && contentItem.voiceId) {
-      await db
-        .update(contentPlanItemsTable)
-        .set({ avatarId: contentItem.avatarId, voiceId: contentItem.voiceId, updatedAt: new Date() })
-        .where(eq(contentPlanItemsTable.id, contentItem.id));
-    }
 
-    if (contentItem.avatarId) {
-      // User explicitly picked a HeyGen avatar → stay on HeyGen, skip WaveSpeed.
-      wavespeedCtx = null;
-    } else {
-      // No manual selection → auto-rotation: WaveSpeed takes priority if configured.
-      wavespeedCtx = await getWavespeedContext(userId, null);
+      const pool = await buildUnifiedPool(userId, avatarCfg?.selectedAvatarIds ?? []);
+      const usageCount = (avatarCfg?.avatarUsageCount as Record<string, number>) ?? {};
+      const picked = pickFromUnifiedPool(
+        pool,
+        avatarCfg?.lastUsedAvatarId ?? null,
+        avatarCfg?.rotationStrategy ?? "sequential",
+        usageCount,
+      );
+
+      if (!picked) {
+        logger.error({ userId, itemId: contentItem.id }, "Unified rotation pool is empty — no avatars or WaveSpeed looks available");
+        return {
+          success: false,
+          message: "No hay avatares ni looks de WaveSpeed disponibles. Configura al menos uno en la página de Avatares.",
+        };
+      }
+
+      // Advance rotation pointer (shared across both pipeline types)
+      if (avatarCfg) {
+        await db
+          .update(avatarConfigTable)
+          .set({ lastUsedAvatarId: picked.id, updatedAt: new Date() })
+          .where(eq(avatarConfigTable.id, avatarCfg.id));
+        avatarCfg.lastUsedAvatarId = picked.id;
+      }
+
+      if (picked.type === "wavespeed") {
+        // WaveSpeed look picked — pin it to the item so retries reuse the same look.
+        contentItem.wavespeedLookId = picked.ctx.lookId;
+        contentItem.avatarId = null;
+        contentItem.voiceId = null;
+        await db
+          .update(contentPlanItemsTable)
+          .set({ wavespeedLookId: picked.ctx.lookId, avatarId: null, voiceId: null, updatedAt: new Date() })
+          .where(eq(contentPlanItemsTable.id, contentItem.id));
+        wavespeedCtx = picked.ctx;
+        logger.info(
+          { itemId: contentItem.id, lookId: picked.ctx.lookId },
+          "Unified rotation picked WaveSpeed look"
+        );
+      } else {
+        // HeyGen avatar picked.
+        contentItem.avatarId = picked.id;
+        contentItem.voiceId = null;
+        const freshVoiceId = await resolveVoiceId(contentItem.avatarId, heygenApiKey, userId);
+        contentItem.voiceId = freshVoiceId;
+        await db
+          .update(contentPlanItemsTable)
+          .set({ avatarId: contentItem.avatarId, voiceId: contentItem.voiceId, updatedAt: new Date() })
+          .where(eq(contentPlanItemsTable.id, contentItem.id));
+        wavespeedCtx = null;
+        logger.info(
+          { itemId: contentItem.id, avatarId: picked.id },
+          "Unified rotation picked HeyGen avatar"
+        );
+      }
     }
   }
 
