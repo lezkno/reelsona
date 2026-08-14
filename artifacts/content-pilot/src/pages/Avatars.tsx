@@ -3226,13 +3226,13 @@ export default function Avatars() {
     if (!wsEditVoiceId) { stopTuningPreview(); setWsTuningPlayId(null) }
   }, [wsEditVoiceId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Update the playing node in real time as sliders move
+  // Update the playing node in real time as sliders move.
+  // Note: AudioBufferSourceNode couples speed+pitch; this gives audible feedback
+  // but is not fully independent. The actual TTS generation via minimax IS independent.
   useEffect(() => {
     if (wsTuningPlayId !== null && tuningSourceRef.current) {
-      const detuneCents     = wsPitchValue * 100
-      const compensatedRate = wsSpeedValue / Math.pow(2, detuneCents / 1200)
-      tuningSourceRef.current.playbackRate.value = compensatedRate
-      tuningSourceRef.current.detune.value       = detuneCents
+      tuningSourceRef.current.playbackRate.value = wsSpeedValue
+      tuningSourceRef.current.detune.value       = wsPitchValue * 100
     }
   }, [wsSpeedValue, wsPitchValue, wsTuningPlayId])
 
@@ -3251,11 +3251,9 @@ export default function Avatars() {
       const decoded     = await ctx.decodeAudioData(arrayBuffer)
       const source      = ctx.createBufferSource()
       source.buffer     = decoded
-      // semitones → cents (1 semitone = 100 cents exactly)
-      const detuneCents     = wsPitchValue * 100
-      const compensatedRate = wsSpeedValue / Math.pow(2, detuneCents / 1200)
-      source.playbackRate.value = compensatedRate
-      source.detune.value       = detuneCents
+      // Direct values — speed and pitch both audible (preview approximation)
+      source.playbackRate.value = wsSpeedValue
+      source.detune.value       = wsPitchValue * 100
       source.connect(ctx.destination)
       source.onended = () => setWsTuningPlayId(null)
       source.start()
