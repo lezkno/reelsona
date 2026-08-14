@@ -31,6 +31,7 @@ import {
   type WavespeedVoiceRow,
 } from "@workspace/api-client-react"
 import { CreateWavespeedAvatarDialog } from "./CreateWavespeedAvatarDialog"
+import { CloneWavespeedVoiceDialog } from "./CloneWavespeedVoiceDialog"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -4475,16 +4476,12 @@ export default function Avatars() {
         </TabsContent>
       </Tabs>
 
-      {/* ── Clone voice dialog ── */}
-      {showCloneDialog && (
-        <CloneVoiceDialog
-          onClose={() => setShowCloneDialog(false)}
-          onCloned={() => {
-            setShowCloneDialog(false)
-            queryClient.invalidateQueries({ queryKey: getGetHeyGenVoicesQueryKey() })
-          }}
-        />
-      )}
+      {/* ── Clone voice dialog (WaveSpeed) ── */}
+      <CloneWavespeedVoiceDialog
+        open={showCloneDialog}
+        onClose={() => setShowCloneDialog(false)}
+        onCloned={() => setShowCloneDialog(false)}
+      />
 
       {/* ── Assign voice to looks dialog ── */}
       {assignVoice && (

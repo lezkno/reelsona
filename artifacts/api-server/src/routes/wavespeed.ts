@@ -142,17 +142,17 @@ const LOOK_PROMPTS = [
   {
     name: "Profesional",
     prompt:
-      "same person, realistic professional studio portrait, modern clean office background, business casual outfit, confident and trustworthy, vertical 9:16, natural lighting",
+      "same person, RAW DSLR photograph, shot on 85mm f/1.4 prime lens, professional studio portrait, modern clean office background, business casual outfit, confident and trustworthy, vertical 9:16, natural soft lighting, natural skin texture with visible pores, no plastic smoothing, no AI artifacts, no digital retouching, authentic candid expression, photojournalistic quality, film grain",
   },
   {
     name: "Cercano",
     prompt:
-      "same person, realistic warm lifestyle portrait, cozy home office or cafe background, casual polished outfit, approachable and friendly, vertical 9:16, natural lighting",
+      "same person, RAW DSLR photograph, shot on 85mm f/1.4 prime lens, warm lifestyle portrait, cozy home office or cafe background, casual polished outfit, approachable and friendly, vertical 9:16, warm natural window light, natural skin texture with visible pores, no plastic smoothing, no AI artifacts, no digital retouching, authentic candid expression, photojournalistic quality, film grain",
   },
   {
     name: "Dinámico",
     prompt:
-      "same person, realistic creator studio portrait, modern content creator set, subtle colorful lights, stylish outfit, energetic and charismatic, vertical 9:16, natural lighting",
+      "same person, RAW DSLR photograph, shot on 85mm f/1.4 prime lens, creator studio portrait, modern content creator set, subtle colorful background lights, stylish casual outfit, energetic and charismatic, vertical 9:16, mixed practical lighting, natural skin texture with visible pores, no plastic smoothing, no AI artifacts, no digital retouching, authentic candid expression, photojournalistic quality, film grain",
   },
 ];
 
@@ -801,7 +801,7 @@ router.post("/wavespeed/personas/:id/looks/generate", async (req, res) => {
     const unusedPreset = LOOK_PROMPTS.find((lp) => !existingNames.has(lp.name));
 
     const lookPrompt = customPrompt?.trim()
-      ? `Vertical portrait photo, 9:16 aspect ratio. ${posePrefix} Same person, same face and hair. ${customPrompt.trim()}. Photorealistic, sharp detail.`
+      ? `RAW DSLR photograph, shot on 85mm f/1.4 prime lens, vertical portrait, 9:16 aspect ratio. ${posePrefix} Same person, same face and hair. ${customPrompt.trim()}. Natural skin texture with visible pores, no plastic smoothing, no AI artifacts, no digital retouching, authentic candid expression, photojournalistic quality, film grain.`
       : (unusedPreset?.prompt ?? LOOK_PROMPTS[Math.floor(Math.random() * LOOK_PROMPTS.length)].prompt);
 
     const lookName = customName?.trim()
