@@ -28,7 +28,7 @@ router.use("/captioned-objects", async (req, res, next): Promise<void> => {
   // brand-covers/     — branded Reel cover images (fetched by Instagram)
   // voice-audio/ is intentionally NOT listed here — those files are only accessed
   // by HeyGen via short-lived signed GCS URLs, never through this public proxy.
-  const ALLOWED_NAMESPACES = ["captioned-videos/", "brand-covers/"];
+  const ALLOWED_NAMESPACES = ["captioned-videos/", "brand-covers/", "raw-videos/", "thumbnails/"];
   if (
     !objectName ||
     objectName.includes("..") ||

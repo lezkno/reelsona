@@ -89,7 +89,9 @@ async function wavespeedFetch<T>(
 export interface WavespeedJobResult {
   id: string;
   status: "queued" | "processing" | "completed" | "failed";
-  outputs?: Record<string, unknown>;
+  /** WaveSpeed returns outputs as a plain string[] (CloudFront URLs) for most models.
+   *  Typed as unknown to force callers to handle both array and object shapes. */
+  outputs?: unknown;
   error?: string;
 }
 
@@ -142,9 +144,10 @@ export async function submitTalkingHead(
   audioUrl: string,
   apiKey?: string,
 ): Promise<{ requestId: string; status: string }> {
+  // WaveSpeed infinitetalk-fast uses "image" and "audio" (not image_url / audio_url)
   return submitJob(
     WAVESPEED_MODELS.TALKING_HEAD,
-    { image_url: imageUrl, audio_url: audioUrl },
+    { image: imageUrl, audio: audioUrl },
     apiKey,
   );
 }

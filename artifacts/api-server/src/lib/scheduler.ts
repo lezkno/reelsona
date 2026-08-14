@@ -1652,6 +1652,61 @@ async function refreshExpiringTokens(): Promise<void> {
   }
 }
 
+/**
+ * Download a video (and optionally a thumbnail) from a temporary CDN URL and
+ * upload both to Object Storage so the platform URLs stay valid permanently.
+ *
+ * Called immediately when HeyGen or WaveSpeed mark a video "completed".
+ * Falls back to the original CDN URL on any error so generation is never blocked.
+ */
+async function persistVideoAssetsToStorage(
+  videoId: number,
+  videoUrl: string,
+  thumbnailUrl: string | null | undefined,
+): Promise<{ videoUrl: string; thumbnailUrl: string | null }> {
+  const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
+  const domain   = process.env.REPLIT_DEV_DOMAIN;
+
+  if (!bucketId || !domain) {
+    logger.warn({ videoId }, "[PersistAssets] Object Storage not configured — keeping CDN URLs");
+    return { videoUrl, thumbnailUrl: thumbnailUrl ?? null };
+  }
+
+  const bucket = objectStorageClient.bucket(bucketId);
+  let persistentVideoUrl      = videoUrl;
+  let persistentThumbnailUrl  = thumbnailUrl ?? null;
+
+  // ── Video ──────────────────────────────────────────────────────────────────
+  try {
+    const res = await fetch(videoUrl);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const buf = Buffer.from(await res.arrayBuffer());
+    const objectName = `raw-videos/${videoId}.mp4`;
+    await bucket.file(objectName).save(buf, { contentType: "video/mp4" });
+    persistentVideoUrl = `https://${domain}/api/captioned-objects/${objectName}`;
+    logger.info({ videoId, objectName }, "[PersistAssets] Video uploaded to Object Storage");
+  } catch (err) {
+    logger.warn({ videoId, err }, "[PersistAssets] Video upload failed — keeping original URL");
+  }
+
+  // ── Thumbnail ──────────────────────────────────────────────────────────────
+  if (thumbnailUrl) {
+    try {
+      const res = await fetch(thumbnailUrl);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const buf = Buffer.from(await res.arrayBuffer());
+      const objectName = `thumbnails/${videoId}.jpg`;
+      await bucket.file(objectName).save(buf, { contentType: "image/jpeg" });
+      persistentThumbnailUrl = `https://${domain}/api/captioned-objects/${objectName}`;
+      logger.info({ videoId, objectName }, "[PersistAssets] Thumbnail uploaded to Object Storage");
+    } catch (err) {
+      logger.warn({ videoId, err }, "[PersistAssets] Thumbnail upload failed — keeping original URL");
+    }
+  }
+
+  return { videoUrl: persistentVideoUrl, thumbnailUrl: persistentThumbnailUrl };
+}
+
 export async function pollAndPublishVideos(): Promise<void> {
   // ── Recovery: provision payments that failed after the purchase was recorded ──
   // Finds purchases paid > 30 min ago where provisionedAt is still null.
@@ -1966,12 +2021,15 @@ export async function pollAndPublishVideos(): Promise<void> {
 
         if (stage === "tts") {
           if (jobResult.status === "completed") {
-            // Extract audio URL from outputs
-            const outputs = jobResult.outputs ?? {};
-            const audioUrl: string | undefined =
-              (outputs["audio_url"] ?? outputs["audio"] ?? outputs["url"]) as string | undefined;
+            // Extract audio URL from outputs.
+            // WaveSpeed returns outputs as a plain string[] (CloudFront URLs), not a keyed object.
+            // Handle both shapes so a future schema change doesn't silently break this.
+            const rawOutputs = jobResult.outputs;
+            const audioUrl: string | undefined = Array.isArray(rawOutputs)
+              ? (typeof rawOutputs[0] === "string" ? rawOutputs[0] : (rawOutputs[0] as { url?: string })?.url)
+              : (() => { const o = (rawOutputs ?? {}) as Record<string, unknown>; return (o["audio_url"] ?? o["audio"] ?? o["url"]) as string | undefined; })();
             if (!audioUrl) {
-              throw new Error(`TTS completado pero sin audio_url en outputs: ${JSON.stringify(outputs)}`);
+              throw new Error(`TTS completado pero sin audio_url en outputs: ${JSON.stringify(rawOutputs)}`);
             }
 
             // Find imageUrl stored in the TTS job's inputPayload
@@ -2023,11 +2081,13 @@ export async function pollAndPublishVideos(): Promise<void> {
           // queued/processing → keep polling next cycle
         } else if (stage === "th") {
           if (jobResult.status === "completed") {
-            const outputs = jobResult.outputs ?? {};
-            const videoUrl: string | undefined =
-              (outputs["video_url"] ?? outputs["video"] ?? outputs["url"]) as string | undefined;
+            // Same dual-shape handling: outputs may be string[] or keyed object.
+            const rawOutputs = jobResult.outputs;
+            const videoUrl: string | undefined = Array.isArray(rawOutputs)
+              ? (typeof rawOutputs[0] === "string" ? rawOutputs[0] : (rawOutputs[0] as { url?: string })?.url)
+              : (() => { const o = (rawOutputs ?? {}) as Record<string, unknown>; return (o["video_url"] ?? o["video"] ?? o["url"]) as string | undefined; })();
             if (!videoUrl) {
-              throw new Error(`Talking-head completado pero sin video_url en outputs: ${JSON.stringify(outputs)}`);
+              throw new Error(`Talking-head completado pero sin video_url en outputs: ${JSON.stringify(rawOutputs)}`);
             }
 
             await db
@@ -2035,9 +2095,11 @@ export async function pollAndPublishVideos(): Promise<void> {
               .set({ status: "completed", outputUrl: videoUrl, updatedAt: new Date() })
               .where(eq(wavespeedJobsTable.wavespeedRequestId, requestId));
 
+            // Download from WaveSpeed CDN and store in Object Storage for permanent URLs.
+            const persistent = await persistVideoAssetsToStorage(video.id, videoUrl, null);
             await db
               .update(videosTable)
-              .set({ status: "ready", videoUrl, updatedAt: new Date() })
+              .set({ status: "ready", videoUrl: persistent.videoUrl, updatedAt: new Date() })
               .where(eq(videosTable.id, video.id));
 
             await consumeVideoCredits(video.id).catch((err) =>
@@ -2135,12 +2197,17 @@ export async function pollAndPublishVideos(): Promise<void> {
       const pollApiKey = await resolveHeyGenApiKey(video.userId);
       const status = await getVideoStatus(video.heygenVideoId, pollApiKey);
       if (status.status === "completed" && status.video_url) {
+        // Download video + thumbnail from HeyGen CDN immediately and store in Object Storage
+        // so the platform URLs never expire (HeyGen CDN links last ~7 days only).
+        const persistent = await persistVideoAssetsToStorage(
+          video.id, status.video_url, status.thumbnail_url ?? null
+        );
         await db
           .update(videosTable)
           .set({
             status: "ready",
-            videoUrl: status.video_url,
-            thumbnailUrl: status.thumbnail_url,
+            videoUrl: persistent.videoUrl,
+            thumbnailUrl: persistent.thumbnailUrl,
             durationSeconds: status.duration ? Math.round(status.duration) : null,
             // Persist subtitle URL so captions can be re-applied with real word timings later
             heygenSubtitleUrl: status.subtitle_url ?? null,
