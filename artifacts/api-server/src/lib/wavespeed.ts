@@ -17,8 +17,8 @@ const WAVESPEED_BASE = "https://api.wavespeed.ai";
 // ── Model registry ─────────────────────────────────────────────────────────────
 
 export const WAVESPEED_MODELS = {
-  /** Talking-head video: image + audio → video (supports resolution param) */
-  TALKING_HEAD: "wavespeed-ai/infinitetalk",
+  /** Talking-head video: image + audio → video */
+  TALKING_HEAD: "wavespeed-ai/infinitetalk-fast",
   /** Text-to-speech with a cloned or preset voice */
   SPEECH: "minimax/speech-2.6-turbo",
   /** Voice cloning from a reference audio file */
@@ -167,19 +167,17 @@ export async function submitTalkingHead(
   imageUrl: string,
   audioUrl: string,
   opts?: {
-    prompt?:     string;
-    maskImage?:  string;
-    seed?:       number;
-    resolution?: "480p" | "720p";
+    prompt?:    string;
+    maskImage?: string;
+    seed?:      number;
   },
   apiKey?: string,
 ): Promise<{ requestId: string; status: string }> {
-  const prompt     = opts?.prompt     ?? TALKING_HEAD_DEFAULT_PROMPT;
-  const maskImage  = opts?.maskImage;
-  const seed       = opts?.seed       ?? -1;
-  const resolution = opts?.resolution ?? "720p"; // 720p ≈ 720×1280 portrait — best native quality before IG upscale
+  const prompt    = opts?.prompt    ?? TALKING_HEAD_DEFAULT_PROMPT;
+  const maskImage = opts?.maskImage;
+  const seed      = opts?.seed      ?? -1;
 
-  // wavespeed-ai/infinitetalk uses "image" and "audio" (not image_url / audio_url)
+  // WaveSpeed infinitetalk-fast uses "image" and "audio" (not image_url / audio_url)
   return submitJob(
     WAVESPEED_MODELS.TALKING_HEAD,
     {
@@ -187,7 +185,6 @@ export async function submitTalkingHead(
       audio: audioUrl,
       prompt,
       seed,
-      resolution,
       ...(maskImage ? { mask_image: maskImage } : {}),
     },
     apiKey,
