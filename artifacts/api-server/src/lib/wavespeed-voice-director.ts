@@ -130,11 +130,11 @@ const INTENT_MODULATION: Record<
   SegmentIntent,
   { speedDelta: number; emotion: string }
 > = {
-  hook:        { speedDelta: 0.0,   emotion: "happy"    }, // cálido, atractivo
-  problem:     { speedDelta: -0.05, emotion: "sad"      }, // empático, serio
-  explanation: { speedDelta: 0.0,   emotion: "neutral"  }, // claro, informativo
-  solution:    { speedDelta: 0.05,  emotion: "happy"    }, // esperanzador, positivo
-  cta:         { speedDelta: 0.1,   emotion: "surprised" }, // energético, urgente
+  hook:        { speedDelta: 0.0,   emotion: "happy" },
+  problem:     { speedDelta: -0.05, emotion: "happy" },
+  explanation: { speedDelta: 0.0,   emotion: "happy" },
+  solution:    { speedDelta: 0.05,  emotion: "happy" },
+  cta:         { speedDelta: 0.1,   emotion: "happy" },
 };
 
 // ── Pause durations after each intent (seconds) ───────────────────────────────
