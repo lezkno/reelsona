@@ -1,6 +1,10 @@
 import cron from "node-cron";
 import nodePath from "path";
 import nodeFs from "fs";
+import { execFile } from "child_process";
+import { promisify } from "util";
+
+const execFileAsync = promisify(execFile);
 import { db } from "@workspace/db";
 import {
   automationConfigTable,
@@ -1712,22 +1716,54 @@ async function refreshExpiringTokens(): Promise<void> {
  *
  * Non-fatal: returns null on any error so video generation is never blocked.
  */
-async function transcribeAudioToSrt(audioUrl: string, videoId: number): Promise<string | null> {
+/**
+ * Transcribe the audio track of a video file (MP4) to a word-level SRT and
+ * upload it to Object Storage.
+ *
+ * WHY we accept the final talking-head MP4 (not the original TTS MP3):
+ *   InfiniteTalk (WaveSpeed) may add pre-speech silence or apply time-stretch
+ *   before the avatar begins speaking.  Transcribing the TTS audio produces
+ *   timestamps relative to the raw MP3, which then drift behind the actual
+ *   voice in the composed video.  Transcribing the MP4's own audio stream
+ *   ensures word timestamps match the video frame-for-frame.
+ *
+ * Process:
+ *   1. Download the MP4 to a tmp file.
+ *   2. Extract audio as 16 kHz mono WAV (FFmpeg) — small file, Whisper-optimal.
+ *   3. Transcribe with Whisper (word-level verbose_json).
+ *   4. Build SRT and upload to Object Storage.
+ */
+async function transcribeAudioToSrt(videoUrl: string, videoId: number): Promise<string | null> {
+  const tmpVideo = `/tmp/ws-video-${videoId}.mp4`;
+  const tmpAudio = `/tmp/ws-audio-${videoId}.wav`;
   try {
     const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
     if (!bucketId) throw new Error("Object storage not configured");
 
-    // Download TTS audio from WaveSpeed CDN
-    const audioRes = await fetch(audioUrl, { signal: AbortSignal.timeout(60_000) });
-    if (!audioRes.ok) throw new Error(`Audio download failed: HTTP ${audioRes.status}`);
-    const audioBuffer = Buffer.from(await audioRes.arrayBuffer());
+    // 1. Download the talking-head MP4 from Object Storage / CDN
+    const videoRes = await fetch(videoUrl, { signal: AbortSignal.timeout(120_000) });
+    if (!videoRes.ok) throw new Error(`Video download failed: HTTP ${videoRes.status}`);
+    nodeFs.writeFileSync(tmpVideo, Buffer.from(await videoRes.arrayBuffer()));
 
-    // Transcribe with Whisper — word-level granularity for precise per-word timing.
-    // The prompt primes the model with Spanish context so it doesn't mis-recognise
-    // Spanish phonemes as English words (common with accented vowels and ñ/ll/rr).
+    // 2. Extract audio — 16 kHz mono WAV for Whisper.
+    //    This captures any leading silence InfiniteTalk prepended before speech,
+    //    so Whisper timestamps are relative to the video's t=0, not the TTS audio.
+    await execFileAsync("ffmpeg", [
+      "-y", "-i", tmpVideo,
+      "-vn",                  // drop video stream
+      "-acodec", "pcm_s16le", // uncompressed PCM
+      "-ar",  "16000",        // 16 kHz
+      "-ac",  "1",            // mono
+      tmpAudio,
+    ]);
+    const audioBuffer = nodeFs.readFileSync(tmpAudio);
+
+    // 3. Transcribe with Whisper — word-level granularity for precise per-word timing.
+    //    The prompt primes the model with Spanish context so it doesn't mis-recognise
+    //    Spanish phonemes as English words (common with accented vowels and ñ/ll/rr).
     const openai   = makeOpenAIClient({ timeout: 120_000 });
     const transcript = await openai.audio.transcriptions.create({
-      file:                    new File([audioBuffer], "audio.mp3", { type: "audio/mpeg" }),
+      file:                    new File([audioBuffer], "audio.wav", { type: "audio/wav" }),
       // gpt-4o-mini-transcribe is the proxy-supported STT model (whisper-1 not available).
       model:                   "gpt-4o-mini-transcribe",
       language:                "es",
@@ -1771,6 +1807,10 @@ async function transcribeAudioToSrt(audioUrl: string, videoId: number): Promise<
   } catch (err) {
     logger.warn({ videoId, err }, "[WaveSpeed] Whisper transcription failed — captions will use proportional fallback");
     return null;
+  } finally {
+    // Clean up temp files regardless of outcome
+    try { nodeFs.unlinkSync(tmpVideo); } catch {}
+    try { nodeFs.unlinkSync(tmpAudio); } catch {}
   }
 }
 
@@ -2172,18 +2212,6 @@ export async function pollAndPublishVideos(): Promise<void> {
               throw new Error("No se encontró imageUrl para el paso de talking-head");
             }
 
-            // ── Whisper transcription for accurate caption sync ────────────────
-            // Run before submitting talking-head so the SRT is in the DB by the
-            // time the video is marked "ready" and caption processing starts.
-            // Non-fatal: on failure the caption engine falls back to proportional timings.
-            const srtUrl = await transcribeAudioToSrt(audioUrl, video.id);
-            if (srtUrl) {
-              await db
-                .update(videosTable)
-                .set({ heygenSubtitleUrl: srtUrl, updatedAt: new Date() })
-                .where(eq(videosTable.id, video.id));
-            }
-
             // Mark TTS job done
             await db
               .update(wavespeedJobsTable)
@@ -2257,14 +2285,27 @@ export async function pollAndPublishVideos(): Promise<void> {
 
             logger.info({ videoId: video.id, videoUrl }, "[WaveSpeed] Video listo");
 
-            // Caption processing (WaveSpeed has no subtitle_url; engine will generate from script)
+            // ── Whisper transcription from the final MP4 audio track ──────────
+            // MUST run after the talking-head is complete, NOT after TTS.
+            // InfiniteTalk may prepend silence before speech begins; transcribing
+            // the MP4 audio captures that silence so word timestamps are aligned
+            // with what the avatar actually says at each video frame.
+            const srtUrl = await transcribeAudioToSrt(persistent.videoUrl, video.id);
+            if (srtUrl) {
+              await db
+                .update(videosTable)
+                .set({ heygenSubtitleUrl: srtUrl, updatedAt: new Date() })
+                .where(eq(videosTable.id, video.id));
+            }
+
+            // Caption processing (WaveSpeed has no subtitle_url; engine will use the SRT above)
             if (video.captionStatus === null) {
               const [autoCfg] = await db.select({ captionsEnabled: automationConfigTable.captionsEnabled })
                 .from(automationConfigTable)
                 .where(eq(automationConfigTable.userId, video.userId))
                 .limit(1);
               if (autoCfg?.captionsEnabled) {
-                await runCaptionProcessing(video.id, videoUrl, video.contentPlanId ?? null, undefined, null);
+                await runCaptionProcessing(video.id, persistent.videoUrl, video.contentPlanId ?? null, undefined, srtUrl ?? null);
               } else {
                 await db
                   .update(videosTable)
