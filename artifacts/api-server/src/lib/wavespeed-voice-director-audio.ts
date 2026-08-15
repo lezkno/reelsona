@@ -98,9 +98,10 @@ export interface VdAudioPreviewResult {
  * Build the WaveSpeed API inputs object for a single speech segment.
  *
  * • Always sends language_boost so MiniMax applies the correct acoustic model.
- * • Omits speed at 1.0 and pitch at 0 — neutral defaults — to keep the
- *   payload minimal and avoid unnecessary API parameter validation.
- * • emotionHint is an internal label only; never forwarded to the API.
+ * • Omits speed when it is exactly 1.0 (neutral default) to keep payload minimal.
+ * • Forwards emotion directly to the MiniMax API for expressive delivery.
+ *   Valid values: "neutral" | "happy" | "sad" | "angry" | "fearful" | "surprised"
+ * • Pitch is never sent — pitch shift distorts cloned voice identity.
  */
 export function buildSpeechInputs(
   text: string,
@@ -111,9 +112,9 @@ export function buildSpeechInputs(
     text,
     voice_id: voiceId,
     language_boost: params.languageBoost, // "Spanish"
+    emotion: params.emotion,
   };
   if (params.speed !== 1.0) inputs.speed = parseFloat(params.speed.toFixed(2));
-  if (params.pitch !== 0)   inputs.pitch = Math.round(params.pitch);
   return inputs;
 }
 

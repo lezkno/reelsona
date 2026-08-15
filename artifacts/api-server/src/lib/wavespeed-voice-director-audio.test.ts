@@ -28,8 +28,7 @@ import type { WavespeedSegmentParams } from "./wavespeed-voice-director.js";
 function makeParams(overrides: Partial<WavespeedSegmentParams> = {}): WavespeedSegmentParams {
   return {
     speed: 1.0,
-    pitch: 0,
-    emotionHint: "test",
+    emotion: "happy",
     languageBoost: "Spanish",
     ...overrides,
   };
@@ -50,26 +49,9 @@ describe("buildSpeechInputs", () => {
     assert.ok(!("speed" in inputs), "speed should be omitted at 1.0");
   });
 
-  test("omits pitch when it is exactly 0 (neutral default)", () => {
-    const inputs = buildSpeechInputs("Text.", "vid", makeParams({ pitch: 0 }));
-    assert.ok(!("pitch" in inputs), "pitch should be omitted at 0");
-  });
-
   test("includes speed when it differs from 1.0", () => {
     const inputs = buildSpeechInputs("Text.", "vid", makeParams({ speed: 1.1 }));
     assert.equal(inputs["speed"], 1.1);
-  });
-
-  test("includes pitch when it differs from 0", () => {
-    const inputs = buildSpeechInputs("Text.", "vid", makeParams({ pitch: 2 }));
-    assert.equal(inputs["pitch"], 2);
-  });
-
-  test("rounds pitch to integer before sending", () => {
-    const inputs = buildSpeechInputs("Text.", "vid", makeParams({ pitch: 1.7 }));
-    assert.equal(inputs["pitch"], 2);
-    assert.equal(typeof inputs["pitch"], "number");
-    assert.ok(Number.isInteger(inputs["pitch"]), "pitch must be an integer");
   });
 
   test("speed is rounded to 2 decimal places", () => {
@@ -81,15 +63,21 @@ describe("buildSpeechInputs", () => {
     );
   });
 
-  test("negative pitch is included correctly", () => {
-    const inputs = buildSpeechInputs("Text.", "vid", makeParams({ pitch: -3 }));
-    assert.equal(inputs["pitch"], -3);
+  test("always includes emotion in API inputs", () => {
+    const inputs = buildSpeechInputs("Text.", "vid", makeParams({ emotion: "happy" }));
+    assert.equal(inputs["emotion"], "happy");
   });
 
-  test("does not include emotionHint in API inputs (internal use only)", () => {
-    const inputs = buildSpeechInputs("Text.", "vid", makeParams({ emotionHint: "warm" }));
-    assert.ok(!("emotionHint" in inputs), "emotionHint must not be sent to WaveSpeed API");
-    assert.ok(!("emotion_hint" in inputs), "emotion_hint must not be sent to WaveSpeed API");
+  test("forwards the emotion value as-is to the API", () => {
+    for (const emotion of ["neutral", "happy", "sad", "angry", "fearful", "surprised"]) {
+      const inputs = buildSpeechInputs("Text.", "vid", makeParams({ emotion }));
+      assert.equal(inputs["emotion"], emotion, `emotion "${emotion}" not forwarded correctly`);
+    }
+  });
+
+  test("never includes pitch in API inputs", () => {
+    const inputs = buildSpeechInputs("Text.", "vid", makeParams());
+    assert.ok(!("pitch" in inputs), "pitch must never be sent — it distorts cloned voice identity");
   });
 });
 

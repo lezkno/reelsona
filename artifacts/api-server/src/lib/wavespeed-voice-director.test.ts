@@ -146,25 +146,21 @@ describe("resolveSegmentParams", () => {
   test("natural preset + cta intent adds speed delta → 1.1", () => {
     const params = resolveSegmentParams("natural", "cta");
     assert.equal(params.speed, 1.1);
-    assert.equal(params.pitch, 2);
   });
 
-  test("energetico preset + problem intent subtracts delta → speed 1.05, pitch 1", () => {
+  test("energetico preset + problem intent subtracts delta → speed 1.05", () => {
     const params = resolveSegmentParams("energetico", "problem");
-    // energetico base: speed 1.1, pitch 2; problem delta: -0.05, -1
+    // energetico base: speed 1.1; problem delta: -0.05
     assert.equal(params.speed, 1.05);
-    assert.equal(params.pitch, 1);
   });
 
-  test("dramatico preset + cta intent adds delta without exceeding clamp", () => {
+  test("dramatico preset + cta intent adds delta correctly", () => {
     const params = resolveSegmentParams("dramatico", "cta");
-    // dramatico base: speed 0.9, pitch -2; cta delta: +0.1, +2
+    // dramatico base: speed 0.9; cta delta: +0.1
     assert.equal(params.speed, 1.0);
-    assert.equal(params.pitch, 0);
   });
 
   test("speed is clamped to minimum 0.5", () => {
-    // Even the slowest preset + slowest delta should not go below 0.5
     const params = resolveSegmentParams("dramatico", "problem");
     assert.ok(params.speed >= 0.5, `speed ${params.speed} is below minimum 0.5`);
   });
@@ -174,19 +170,19 @@ describe("resolveSegmentParams", () => {
     assert.ok(params.speed <= 1.5, `speed ${params.speed} exceeds maximum 1.5`);
   });
 
-  test("pitch is clamped to range -12 to +12", () => {
-    const params = resolveSegmentParams("energetico", "cta");
-    assert.ok(params.pitch >= -12 && params.pitch <= 12);
+  test("emotion is a non-empty string", () => {
+    const params = resolveSegmentParams("natural", "solution");
+    assert.ok(typeof params.emotion === "string" && params.emotion.length > 0,
+      "emotion should be a non-empty string");
   });
 
-  test("emotionHint combines preset and intent descriptions", () => {
-    const params = resolveSegmentParams("natural", "solution");
-    assert.ok(params.emotionHint.length > 0, "emotionHint should not be empty");
-    // Should contain something from both the intent and the preset
-    assert.ok(
-      params.emotionHint.includes("hopeful") || params.emotionHint.includes("confident"),
-      `emotionHint "${params.emotionHint}" missing solution-specific terms`,
-    );
+  test("all intents produce a valid emotion value", () => {
+    const valid = ["neutral", "happy", "sad", "angry", "fearful", "surprised"];
+    for (const intent of ["hook", "problem", "explanation", "solution", "cta"] as const) {
+      const params = resolveSegmentParams("natural", intent);
+      assert.ok(valid.includes(params.emotion),
+        `intent "${intent}" produced invalid emotion "${params.emotion}"`);
+    }
   });
 });
 
@@ -200,7 +196,7 @@ describe("buildWavespeedTtsScript", () => {
     text,
     intent: "explanation",
     pauseAfter,
-    params: { speed: 1.0, pitch: 0, emotionHint: "test", languageBoost: "Spanish" },
+    params: { speed: 1.0, emotion: "happy", languageBoost: "Spanish" },
   });
 
   test("single segment produces just the text (no trailing pause)", () => {
@@ -264,7 +260,7 @@ describe("analyzeScriptForWavespeed", () => {
     const result = analyzeScriptForWavespeed(SAMPLE_SCRIPT, "energetico");
     for (const seg of result.segments) {
       assert.ok(seg.params.speed >= 0.5 && seg.params.speed <= 1.5, `speed ${seg.params.speed} out of range`);
-      assert.ok(seg.params.pitch >= -12 && seg.params.pitch <= 12, `pitch ${seg.params.pitch} out of range`);
+      assert.ok(typeof seg.params.emotion === "string" && seg.params.emotion.length > 0, "emotion must be a non-empty string");
       assert.equal(seg.params.languageBoost, "Spanish");
     }
   });

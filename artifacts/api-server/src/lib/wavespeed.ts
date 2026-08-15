@@ -293,10 +293,10 @@ export const VOICE_DIRECTOR_PRESETS: Record<VoiceDirectorPresetId, VoiceDirector
   energetico: {
     id: "energetico",
     name: "Enérgico",
-    description: "Ritmo rápido y pitch elevado: ideal para CTAs y contenido motivacional.",
+    description: "Ritmo más rápido: ideal para CTAs y contenido motivacional.",
     params: {
       speed: 1.1,
-      pitch: 2,
+      pitch: 0,
       languageBoost: "Spanish",
       emotionHint: "energetic, upbeat, motivational — llama a la acción con entusiasmo",
     },
@@ -304,10 +304,10 @@ export const VOICE_DIRECTOR_PRESETS: Record<VoiceDirectorPresetId, VoiceDirector
   dramatico: {
     id: "dramatico",
     name: "Dramático",
-    description: "Ritmo pausado y tono más grave: peso y autoridad para mensajes de alto impacto.",
+    description: "Ritmo pausado: peso y autoridad para mensajes de alto impacto.",
     params: {
       speed: 0.9,
-      pitch: -2,
+      pitch: 0,
       languageBoost: "Spanish",
       emotionHint: "serious, powerful, authoritative — habla con convicción y peso",
     },

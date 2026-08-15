@@ -41,10 +41,12 @@ export type SegmentIntent = (typeof SEGMENT_INTENTS)[number];
 export interface WavespeedSegmentParams {
   /** MiniMax speech speed multiplier. Range: 0.5–1.5 */
   speed: number;
-  /** Pitch shift in semitones. Range: -12 to +12 */
-  pitch: number;
-  /** Style/emotion hint — drives future prompt-based SSML or voice style tokens */
-  emotionHint: string;
+  /**
+   * MiniMax emotion value forwarded directly to the speech API.
+   * Valid values: "neutral" | "happy" | "sad" | "angry" | "fearful" | "surprised"
+   * Pitch is always kept at 0 — pitch shift distorts cloned voice identity.
+   */
+  emotion: string;
   /** Always "Spanish" for this pipeline */
   languageBoost: "Spanish";
 }
@@ -118,15 +120,21 @@ const INTENT_KEYWORDS: Record<SegmentIntent, string[]> = {
 // ── Intent modulation (delta on top of base preset) ───────────────────────────
 // Applied per-intent to add emotional texture without overriding the preset entirely.
 
+// Expressiveness comes from two levers:
+//   1. speedDelta  — pacing variation per intent (no pitch: pitch distorts voice identity)
+//   2. emotion     — MiniMax API emotion value forwarded directly to speech synthesis
+//
+// Emotion values accepted by minimax/speech-2.6-turbo:
+//   "neutral" | "happy" | "sad" | "angry" | "fearful" | "surprised"
 const INTENT_MODULATION: Record<
   SegmentIntent,
-  { speedDelta: number; pitchDelta: number; emotionHint: string }
+  { speedDelta: number; emotion: string }
 > = {
-  hook:        { speedDelta: 0.0,   pitchDelta: 0,  emotionHint: "warm, inviting, curious" },
-  problem:     { speedDelta: -0.05, pitchDelta: -1, emotionHint: "serious, empathetic, grounded" },
-  explanation: { speedDelta: 0.0,   pitchDelta: 0,  emotionHint: "clear, calm, instructive" },
-  solution:    { speedDelta: 0.05,  pitchDelta: 1,  emotionHint: "hopeful, revealing, confident" },
-  cta:         { speedDelta: 0.1,   pitchDelta: 2,  emotionHint: "energetic, direct, motivating" },
+  hook:        { speedDelta: 0.0,   emotion: "happy" },
+  problem:     { speedDelta: -0.05, emotion: "happy" },
+  explanation: { speedDelta: 0.0,   emotion: "happy" },
+  solution:    { speedDelta: 0.05,  emotion: "happy" },
+  cta:         { speedDelta: 0.1,   emotion: "happy" },
 };
 
 // ── Pause durations after each intent (seconds) ───────────────────────────────
@@ -215,9 +223,12 @@ export function classifyIntent(
 
 /**
  * Resolves final WavespeedSegmentParams for a segment by combining:
- *   1. The base preset's speed/pitch
- *   2. The per-intent modulation deltas
- *   3. Clamping to valid ranges
+ *   1. The base preset's speed
+ *   2. The per-intent speed delta and emotion value
+ *   3. Speed clamped to 0.5–1.5
+ *
+ * Pitch is always 0 — pitch shift distorts cloned voice identity.
+ * Expressiveness comes from speed variation + the MiniMax emotion field.
  */
 export function resolveSegmentParams(
   presetId: VoiceDirectorPresetId,
@@ -227,15 +238,10 @@ export function resolveSegmentParams(
   const mod = INTENT_MODULATION[intent];
 
   const speed = Math.min(1.5, Math.max(0.5, preset.params.speed + mod.speedDelta));
-  const pitch = Math.min(12,  Math.max(-12, preset.params.pitch + mod.pitchDelta));
-
-  // Combine preset emotion hint with per-intent override for richer context
-  const emotionHint = `${mod.emotionHint} / ${preset.params.emotionHint}`;
 
   return {
     speed: parseFloat(speed.toFixed(2)),
-    pitch,
-    emotionHint,
+    emotion: mod.emotion,
     languageBoost: "Spanish",
   };
 }
