@@ -1,6 +1,6 @@
 import {
   useGetVideos, usePublishVideo, useScheduleVideo, useDeleteVideo, useRetryVideo, useReapplyCaptions,
-  useGetContentItem, useUpdateContentItem,
+  useGetContentItem, useUpdateContentItem, useGetHeyGenAllLooks,
   getGetVideosQueryKey, getGetContentPlanQueryKey,
 } from "@workspace/api-client-react"
 import type { Video } from "@workspace/api-client-react"
@@ -210,6 +210,10 @@ export default function Videos() {
   const [regeneratingCovers, setRegeneratingCovers] = useState<Map<number, string | null>>(new Map())
   const { toast } = useToast()
   const queryClient = useQueryClient()
+
+  // Avatar look images — used as blurred backgrounds while a video is generating
+  const { data: allLooks } = useGetHeyGenAllLooks()
+  const lookImageById = new Map((allLooks ?? []).map((l) => [l.id, l.image_url]))
 
   const { data: videos, isLoading } = useGetVideos(
     { status: 'all' },
@@ -455,6 +459,9 @@ export default function Videos() {
             const hasPlayable = !!(video.captioned_video_url || video.video_url)
             const captionStatus = (video as any).caption_status as string | null
 
+            {/* Look up the avatar preview image for use as blurred background */}
+            const avatarBgUrl = lookImageById.get((video as any).avatar_id ?? '') ?? null
+
             return (
               <Card
                 key={video.id}
@@ -470,8 +477,16 @@ export default function Videos() {
                       alt="Thumbnail"
                       className="w-full h-full object-cover"
                     />
+                  ) : avatarBgUrl ? (
+                    /* Avatar preview as blurred background while generating */
+                    <img
+                      src={avatarBgUrl}
+                      alt=""
+                      aria-hidden="true"
+                      className="w-full h-full object-cover scale-110"
+                    />
                   ) : (
-                    /* No thumbnail yet — dark placeholder so the overlay colours read correctly */
+                    /* Fallback — no avatar image available */
                     <div className="w-full h-full bg-zinc-900" />
                   )}
 
