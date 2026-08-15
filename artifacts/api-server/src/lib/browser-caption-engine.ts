@@ -1026,6 +1026,36 @@ export async function applyCaptionsBrowser(
 
     logger.info("[BrowserEngine] FFmpeg composite done");
 
+    // ── 7b. Upscale to 1080×1920 for Instagram Reels quality ────────────────
+    // Instagram Reels expects 1080×1920 (9:16). Videos below this resolution
+    // are re-compressed by Instagram and look noticeably soft. We upscale here
+    // so that WaveSpeed (396×720) and HeyGen (720×1280) both publish at full
+    // quality. force_original_aspect_ratio=decrease + pad handles the small AR
+    // difference in WaveSpeed frames (11:20 vs 9:16) with minimal black bars.
+    const IG_TARGET_W = 1080;
+    const IG_TARGET_H = 1920;
+    let uploadPath = outputPath;
+    if (videoInfo.width < IG_TARGET_W || videoInfo.height < IG_TARGET_H) {
+      const igPath = path.join(tmpDir, "ig_output.mp4");
+      logger.info(
+        { from: `${videoInfo.width}×${videoInfo.height}`, to: `${IG_TARGET_W}×${IG_TARGET_H}` },
+        "[BrowserEngine] Upscaling to Instagram Reels resolution",
+      );
+      await execFileAsync("ffmpeg", [
+        "-i", outputPath,
+        "-vf", [
+          `scale=${IG_TARGET_W}:${IG_TARGET_H}:force_original_aspect_ratio=decrease:flags=lanczos`,
+          `pad=${IG_TARGET_W}:${IG_TARGET_H}:(ow-iw)/2:(oh-ih)/2:color=black`,
+        ].join(","),
+        "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+        "-c:a", "copy",
+        "-movflags", "+faststart",
+        "-y", igPath,
+      ], { maxBuffer: 500 * 1024 * 1024 });
+      uploadPath = igPath;
+      logger.info({ to: `${IG_TARGET_W}×${IG_TARGET_H}` }, "[BrowserEngine] Instagram upscale done ✓");
+    }
+
     // ── 8. Upload to Object Storage (same GCS pattern as caption-engine.ts) ─
     const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
     if (!bucketId) {
@@ -1036,7 +1066,7 @@ export async function applyCaptionsBrowser(
     const bucket        = objectStorageClient.bucket(bucketId);
     const gcsFile       = bucket.file(gcsObjectName);
 
-    const fileBuffer = await fs.readFile(outputPath);
+    const fileBuffer = await fs.readFile(uploadPath);
     await gcsFile.save(fileBuffer, { contentType: "video/mp4" });
 
     // Serve through the API proxy route (public access prevention is enforced on bucket)
