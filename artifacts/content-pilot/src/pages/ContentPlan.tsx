@@ -398,6 +398,10 @@ export default function ContentPlan() {
       .map((l) => ({ look: l, personaName: p.name }))
   )
   const wavespeedLookById = new Map(wavespeedPickerLooks.map(({ look }) => [look.id, look]))
+  // All looks (regardless of selected status) so completed videos always show their avatar image
+  const wavespeedAllLookById = new Map(
+    wavespeedPersonas.flatMap((p) => p.looks).map((l) => [l.id, l])
+  )
 
   const handleSaveTopic = (id: number, value: string) => {
     const trimmed = value.trim()
@@ -948,7 +952,7 @@ export default function ContentPlan() {
                           <div className="flex-1">
                             <div className="flex items-start gap-3 mb-2">
                               {(() => {
-                                const wsLook = item.wavespeed_look_id ? wavespeedLookById.get(item.wavespeed_look_id) : null
+                                const wsLook = item.wavespeed_look_id ? (wavespeedAllLookById.get(item.wavespeed_look_id) ?? wavespeedLookById.get(item.wavespeed_look_id)) : null
                                 const hgLook = (!wsLook && item.avatar_id) ? lookById.get(item.avatar_id) : null
                                 const imageUrl = wsLook?.imageUrl ?? hgLook?.image_url ?? null
                                 const label = wsLook?.name ?? hgLook?.name ?? null
