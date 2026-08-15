@@ -221,8 +221,15 @@ export async function getAvatarDefaultVoiceId(avatarId: string, apiKey?: string)
         if (!g.default_voice_id) return;
         const looks = await listGroupLooks(g.id, apiKey);
         for (const l of looks as any[]) {
-          if (l.avatar_id) map.set(l.avatar_id, g.default_voice_id);
-          else if (l.id) map.set(`tp:${l.id}`, g.default_voice_id);
+          if (l.avatar_id) {
+            // Index by avatar_id (canonical HeyGen key)
+            map.set(l.avatar_id, g.default_voice_id);
+            // Also index by look.id — selectedAvatarIds stores l.id, which may
+            // differ from l.avatar_id for custom/cloned avatar looks.
+            if (l.id && l.id !== l.avatar_id) map.set(l.id, g.default_voice_id);
+          } else if (l.id) {
+            map.set(`tp:${l.id}`, g.default_voice_id);
+          }
         }
       })
     );

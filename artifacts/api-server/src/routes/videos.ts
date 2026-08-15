@@ -211,46 +211,27 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
     }
 
     // Re-resolve voice at generation time (picks up current voice_overrides, new clones, etc.)
+    // IMPORTANT: if the user stored a specific avatar (item.avatarId is set), NEVER rotate
+    // to a different one — not even when voice resolution fails.  Silently swapping the
+    // avatar defeats the purpose of a manual pick (common for custom/cloned avatars whose
+    // HeyGen group has no default_voice_id configured).
+    // If voice truly cannot be resolved we surface a clear, actionable error.
     const freshVoiceId = await resolveVoiceId(item.avatarId!, heygenApiKey, userId);
+    item.voiceId = freshVoiceId ?? item.voiceId;
 
-    if (!freshVoiceId && !item.voiceId) {
-      if (!avatarCfg.selectedAvatarIds.includes(item.avatarId!)) {
-        // Not in active selection + no voice → stale avatar; rotate to a working one.
-        logger.warn(
-          { itemId: item.id, avatarId: item.avatarId },
-          "[/videos/generate] Stored avatar not in selection and has no voice — rotating",
-        );
-        item.avatarId = pickNextAvatar(
-          avatarCfg.selectedAvatarIds,
-          avatarCfg.lastUsedAvatarId,
-          avatarCfg.rotationStrategy,
-          usageCount,
-        );
-        await db
-          .update(avatarConfigTable)
-          .set({ lastUsedAvatarId: item.avatarId, updatedAt: new Date() })
-          .where(and(eq(avatarConfigTable.id, avatarCfg.id), eq(avatarConfigTable.userId, userId)));
-        item.voiceId = null;
-        const fallbackVoice = await resolveVoiceId(item.avatarId, heygenApiKey, userId);
-        if (!fallbackVoice) {
-          res.status(400).json({ error: "No se encontró ninguna voz disponible en HeyGen. Verifica tu cuenta de HeyGen." });
-          return;
-        }
-        item.voiceId = fallbackVoice;
-      } else {
-        // In active selection but no voice → HeyGen config error
-        res.status(400).json({ error: "No se encontró ninguna voz disponible en HeyGen. Verifica tu cuenta de HeyGen." });
-        return;
-      }
-    } else {
-      if (!avatarCfg.selectedAvatarIds.includes(item.avatarId!) && freshVoiceId) {
-        logger.info(
-          { itemId: item.id, avatarId: item.avatarId },
-          "[/videos/generate] Stored avatar not in selectedAvatarIds but voice resolved — honouring manual pick",
-        );
-      }
-      item.voiceId = freshVoiceId ?? item.voiceId;
+    if (!item.voiceId) {
+      // No voice resolved through any path — tell the user what to fix.
+      res.status(400).json({
+        error:
+          "No se encontró una voz para el avatar seleccionado. Ve a Avatares → Voces y asigna una voz a este avatar antes de generar el video.",
+      });
+      return;
     }
+
+    logger.info(
+      { itemId: item.id, avatarId: item.avatarId, voiceId: item.voiceId },
+      "[/videos/generate] Avatar + voice resolved — honouring stored avatar",
+    );
 
     await db
       .update(contentPlanItemsTable)

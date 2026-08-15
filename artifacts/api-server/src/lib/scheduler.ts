@@ -993,33 +993,31 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
     const resolvedVoiceForStored = contentItem.avatarId
       ? await resolveVoiceId(contentItem.avatarId, heygenApiKey, userId)
       : null;
-    const currentAvatarValid =
-      !!contentItem.avatarId && !!(resolvedVoiceForStored || contentItem.voiceId);
 
-    if (currentAvatarValid) {
-      // (a) Avatar has a usable voice — honour the stored assignment.
-      if (!(avatarCfg?.selectedAvatarIds ?? []).includes(contentItem.avatarId!)) {
-        logger.info(
-          { avatarId: contentItem.avatarId },
-          "avatarId not in selectedAvatarIds but voice resolved — honouring stored avatar",
-        );
-      }
-      contentItem.voiceId = resolvedVoiceForStored ?? contentItem.voiceId;
-      if (contentItem.avatarId && contentItem.voiceId) {
+    if (contentItem.avatarId) {
+      // (a) User explicitly chose this avatar — ALWAYS honour it; never rotate.
+      //
+      // The previous approach used resolveVoiceId as a validity gate and rotated
+      // when voice resolution failed. That silently swapped the avatar the user
+      // picked (e.g. custom/cloned avatars with no global default voice in HeyGen).
+      //
+      // Now: if voice resolves, update it. If not, keep whatever voice was stored.
+      // The generation step will produce a clear error rather than a silent swap.
+      if (resolvedVoiceForStored) {
+        contentItem.voiceId = resolvedVoiceForStored;
         await db
           .update(contentPlanItemsTable)
-          .set({ avatarId: contentItem.avatarId, voiceId: contentItem.voiceId, updatedAt: new Date() })
+          .set({ voiceId: contentItem.voiceId, updatedAt: new Date() })
           .where(eq(contentPlanItemsTable.id, contentItem.id));
+      } else if (!contentItem.voiceId) {
+        logger.warn(
+          { avatarId: contentItem.avatarId, itemId: contentItem.id },
+          "[scheduler scripted] Voice not resolvable for stored avatar — proceeding anyway; generation step will surface the error",
+        );
       }
       wavespeedCtx = null;
     } else {
-      // (b)/(c) Unified rotation — build pool and apply strategy.
-      if (contentItem.avatarId) {
-        logger.warn(
-          { removedAvatarId: contentItem.avatarId },
-          "avatarId voice not resolvable — re-picking via unified rotation",
-        );
-      }
+      // (b)/(c) No avatar stored — unified rotation.
 
       const pool = await buildUnifiedPool(userId, avatarCfg?.selectedAvatarIds ?? []);
       const usageCount = (avatarCfg?.avatarUsageCount as Record<string, number>) ?? {};
