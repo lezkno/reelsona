@@ -130,12 +130,26 @@ function RegenarCoverButton({
 
 // ── Circular video progress overlay ──────────────────────────────────────────
 // Shows a blurred overlay with a blue SVG ring + percentage, matching the
-// reference design. Progress is derived from time elapsed since video creation
-// using an exponential curve that grows quickly at first and then slows down.
-function computeGeneratingProgress(createdAt: string | null | undefined, tau = 90): number {
-  if (!createdAt) return 5;
+// reference design. Progress uses a two-phase curve so it never hard-plateaus
+// for long-running videos (WaveSpeed can take 5-15 minutes):
+//
+//   Phase 1 (fast, tau=80s):   0% → ~70% — feels responsive in the first 3 min.
+//   Phase 2 (slow, tau=600s):  adds 0% → ~23% very slowly — keeps advancing.
+//   Hard cap: 93% (never claims "done").
+//   Plateau oscillation: when ≥ 88%, the value gently waves ±2% so the ring
+//   looks alive instead of frozen.
+function computeGeneratingProgress(createdAt: string | null | undefined): number {
+  if (!createdAt) return 8;
   const elapsed = (Date.now() - new Date(createdAt as string).getTime()) / 1000;
-  return Math.min(90, Math.max(5, Math.round((1 - Math.exp(-elapsed / tau)) * 100)));
+  const fast = 70  * (1 - Math.exp(-elapsed / 80));   // 0 → 70% quickly
+  const slow = 23  * (1 - Math.exp(-elapsed / 600));  // 0 → 23% very slowly
+  const base = Math.min(93, Math.max(8, Math.round(fast + slow)));
+  // Near the top: add a ±2% sine-wave so the number keeps moving visibly
+  if (base >= 88) {
+    const wave = Math.round(Math.sin(elapsed / 15) * 2);
+    return Math.min(93, Math.max(84, base + wave));
+  }
+  return base;
 }
 
 function CircularVideoProgress({
@@ -464,7 +478,7 @@ export default function Videos() {
                   {/* ── Generating overlay (blue ring + %) ──────────────────── */}
                   {video.status === 'generating' && (
                     <CircularVideoProgress
-                      progress={computeGeneratingProgress((video as any).created_at)}
+                      progress={computeGeneratingProgress((video as any).created_at ?? (video as any).updated_at)}
                       label="Generando video…"
                       ringColor="#3b82f6"
                     />
@@ -474,7 +488,7 @@ export default function Videos() {
                   {video.status === 'ready' &&
                    (captionStatus === null || captionStatus === 'processing') && (
                     <CircularVideoProgress
-                      progress={computeGeneratingProgress((video as any).created_at, 60)}
+                      progress={computeGeneratingProgress((video as any).created_at)}
                       label="Aplicando efectos…"
                       ringColor="#a855f7"
                     />
