@@ -128,6 +128,67 @@ function RegenarCoverButton({
   )
 }
 
+// ── Circular video progress overlay ──────────────────────────────────────────
+// Shows a blurred overlay with a blue SVG ring + percentage, matching the
+// reference design. Progress is derived from time elapsed since video creation
+// using an exponential curve that grows quickly at first and then slows down.
+function computeGeneratingProgress(createdAt: string | null | undefined, tau = 90): number {
+  if (!createdAt) return 5;
+  const elapsed = (Date.now() - new Date(createdAt as string).getTime()) / 1000;
+  return Math.min(90, Math.max(5, Math.round((1 - Math.exp(-elapsed / tau)) * 100)));
+}
+
+function CircularVideoProgress({
+  progress,
+  label,
+  ringColor = '#3b82f6',
+}: {
+  progress: number;
+  label: string;
+  ringColor?: string;
+}) {
+  const r = 22;
+  const circ = 2 * Math.PI * r;
+  const pct  = Math.max(0, Math.min(100, progress));
+  const offset = circ * (1 - pct / 100);
+  return (
+    <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-[6px]">
+      {/* Ring + percentage */}
+      <div className="relative flex items-center justify-center w-16 h-16">
+        <svg
+          width="64" height="64"
+          className="absolute inset-0 -rotate-90"
+          aria-hidden="true"
+        >
+          {/* Track */}
+          <circle
+            cx="32" cy="32" r={r}
+            fill="none"
+            stroke="rgba(255,255,255,0.18)"
+            strokeWidth="3.5"
+          />
+          {/* Progress arc */}
+          <circle
+            cx="32" cy="32" r={r}
+            fill="none"
+            stroke={ringColor}
+            strokeWidth="3.5"
+            strokeLinecap="round"
+            strokeDasharray={`${circ}`}
+            strokeDashoffset={`${offset}`}
+          />
+        </svg>
+        <span className="relative z-10 text-white text-sm font-bold tabular-nums">
+          {pct}%
+        </span>
+      </div>
+      <span className="mt-3 text-white/80 text-[11px] font-medium tracking-wide px-4 text-center">
+        {label}
+      </span>
+    </div>
+  );
+}
+
 export default function Videos() {
   // Maps videoId → the thumbnail_cover_url value at the moment "Regenerar portada" was clicked.
   // We detect completion by comparing the CURRENT url to the stored PREVIOUS url, so we never
@@ -396,35 +457,34 @@ export default function Videos() {
                       className="w-full h-full object-cover"
                     />
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center bg-secondary/10 text-secondary">
-                      {video.status === 'generating' ? (
-                        <div className="flex flex-col items-center gap-2">
-                          <div className="w-8 h-8 rounded-full border-2 border-secondary border-t-transparent animate-spin" />
-                          <span className="text-xs font-bold uppercase tracking-wider">Renderizando</span>
-                        </div>
-                      ) : video.status === 'publishing' ? (
-                        <div className="flex flex-col items-center gap-2">
-                          <Loader2 className="w-8 h-8 animate-spin text-blue-400" />
-                          <span className="text-xs font-bold uppercase tracking-wider">Publicando</span>
-                        </div>
-                      ) : (captionStatus === null || captionStatus === 'processing') && video.status === 'ready' ? (
-                        <div className="flex flex-col items-center gap-2">
-                          <div className="w-8 h-8 rounded-full border-2 border-violet-400 border-t-transparent animate-spin" />
-                          <span className="text-xs font-bold uppercase tracking-wider text-violet-400">Aplicando efectos</span>
-                        </div>
-                      ) : (
-                        <Play className="w-12 h-12 opacity-50" />
-                      )}
-                    </div>
+                    /* No thumbnail yet — dark placeholder so the overlay colours read correctly */
+                    <div className="w-full h-full bg-zinc-900" />
                   )}
 
-                  {/* Overlay sobre el thumbnail cuando se están re-aplicando efectos */}
-                  {video.thumbnail_url &&
-                   (captionStatus === null || captionStatus === 'processing') &&
-                   video.status === 'ready' && (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/65 backdrop-blur-sm">
-                      <div className="w-10 h-10 rounded-full border-2 border-white border-t-transparent animate-spin mb-3" />
-                      <span className="text-xs font-bold uppercase tracking-wider text-white">Aplicando efectos…</span>
+                  {/* ── Generating overlay (blue ring + %) ──────────────────── */}
+                  {video.status === 'generating' && (
+                    <CircularVideoProgress
+                      progress={computeGeneratingProgress((video as any).created_at)}
+                      label="Generando video…"
+                      ringColor="#3b82f6"
+                    />
+                  )}
+
+                  {/* ── Applying effects overlay (violet ring + %) ───────────── */}
+                  {video.status === 'ready' &&
+                   (captionStatus === null || captionStatus === 'processing') && (
+                    <CircularVideoProgress
+                      progress={computeGeneratingProgress((video as any).created_at, 60)}
+                      label="Aplicando efectos…"
+                      ringColor="#a855f7"
+                    />
+                  )}
+
+                  {/* ── Publishing overlay ───────────────────────────────────── */}
+                  {video.status === 'publishing' && !video.thumbnail_url && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-[6px]">
+                      <Loader2 className="w-8 h-8 animate-spin text-blue-400 mb-2" />
+                      <span className="text-xs font-bold uppercase tracking-wider text-white/80">Publicando…</span>
                     </div>
                   )}
 

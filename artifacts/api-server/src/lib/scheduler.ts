@@ -1730,7 +1730,8 @@ async function transcribeAudioToSrt(audioUrl: string, videoId: number): Promise<
     const openai   = makeOpenAIClient({ timeout: 120_000 });
     const transcript = await openai.audio.transcriptions.create({
       file:                    new File([audioBuffer], "audio.mp3", { type: "audio/mpeg" }),
-      model:                   "whisper-1",
+      // gpt-4o-mini-transcribe is the proxy-supported STT model (whisper-1 not available).
+      model:                   "gpt-4o-mini-transcribe",
       language:                "es",
       prompt:                  "Guion de video en español. Habla directamente a cámara sobre marketing, negocios o emprendimiento.",
       response_format:         "verbose_json",
