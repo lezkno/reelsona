@@ -36,6 +36,7 @@ import {
   getJobStatus,
 } from "../lib/wavespeed.js";
 import { analyzeScriptForWavespeed }    from "../lib/wavespeed-voice-director.js";
+import { prepareForTts }               from "../lib/spoken-script-normalizer.js";
 import {
   generateVdAudioPreview,
   VD_AUDIO_DIR,
@@ -184,15 +185,20 @@ router.post("/wavespeed/voice-director/preview-audio", async (req: Request, res:
   }
 
   try {
-    const cleanText = text.trim();
-    const analysis  = analyzeScriptForWavespeed(cleanText, presetId as VoiceDirectorPresetId);
+    const originalScript = text.trim();
+
+    // ── Normalize to spoken audio copy ──────────────────────────────────────
+    // Strips emojis, hashtags, markdown, symbols and expands acronyms/currency
+    // so the avatar reads natural spoken Spanish instead of written social copy.
+    const { spokenScript, issues: normalizeIssues } = prepareForTts(originalScript);
+
+    const analysis = analyzeScriptForWavespeed(spokenScript, presetId as VoiceDirectorPresetId);
 
     req.log.info(
-      { userId, preset: presetId, voiceId, segmentCount: analysis.segments.length },
+      { userId, preset: presetId, voiceId, segmentCount: analysis.segments.length, normalizeIssues },
       "[WaveSpeed VoiceDirector] Starting audio preview generation",
     );
 
-    // Resolve API key (isWavespeedConfigured() already confirmed it exists)
     const apiKey = process.env.WAVESPEED_API_KEY!;
 
     const audioResult = await generateVdAudioPreview({
@@ -208,22 +214,19 @@ router.post("/wavespeed/voice-director/preview-audio", async (req: Request, res:
       : null;
 
     req.log.info(
-      {
-        userId,
-        preset:         presetId,
-        allCompleted:   audioResult.allCompleted,
-        anyFailed:      audioResult.anyFailed,
-        audioFilename,
-      },
+      { userId, preset: presetId, allCompleted: audioResult.allCompleted, anyFailed: audioResult.anyFailed, audioFilename },
       "[WaveSpeed VoiceDirector] Audio preview complete",
     );
 
     res.json({
+      originalScript,
+      spokenScript,
+      normalizeIssues,
       ...analysis,
-      jobs:          audioResult.jobs,
+      jobs:         audioResult.jobs,
       audioFilename,
-      allCompleted:  audioResult.allCompleted,
-      anyFailed:     audioResult.anyFailed,
+      allCompleted: audioResult.allCompleted,
+      anyFailed:    audioResult.anyFailed,
       meta: {
         segmentCount: analysis.segments.length,
         creditNote:
@@ -331,13 +334,18 @@ router.post("/wavespeed/voice-director/preview-video", async (req: Request, res:
   }
 
   try {
+    const originalScript = text.trim();
+
+    // ── Normalize to spoken audio copy ──────────────────────────────────────
+    const { spokenScript, issues: normalizeIssues } = prepareForTts(originalScript);
+
     req.log.info(
-      { userId, preset: presetId, voiceId, lookImageUrl },
+      { userId, preset: presetId, voiceId, lookImageUrl, normalizeIssues },
       "[WaveSpeed VoiceDirector] Starting video preview generation",
     );
 
     const result = await generateVdVideoPreview({
-      text:         text.trim(),
+      text:         spokenScript,
       voiceId:      voiceId.trim(),
       lookImageUrl: lookImageUrl.trim(),
       presetId:     presetId as VoiceDirectorPresetId,
@@ -346,18 +354,16 @@ router.post("/wavespeed/voice-director/preview-video", async (req: Request, res:
     });
 
     req.log.info(
-      {
-        userId,
-        videoRequestId: result.videoRequestId,
-        videoStatus:    result.videoStatus,
-        allAudioOk:     result.allAudioCompleted,
-      },
+      { userId, videoRequestId: result.videoRequestId, videoStatus: result.videoStatus, allAudioOk: result.allAudioCompleted },
       "[WaveSpeed VoiceDirector] Video preview request complete",
     );
 
     const segmentCount = result.segments.length;
 
     res.json({
+      originalScript,
+      spokenScript,
+      normalizeIssues,
       ...result,
       meta: {
         segmentCount,

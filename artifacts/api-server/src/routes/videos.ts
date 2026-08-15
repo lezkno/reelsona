@@ -182,32 +182,76 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
       res.status(400).json({ error: "No hay avatares configurados: selecciona al menos uno en la página de Avatares" });
       return;
     }
-    const avatarStillValid =
-      item.avatarId && avatarCfg.selectedAvatarIds.includes(item.avatarId);
-    if (!avatarStillValid) {
+    // Resolve avatar + voice for this manual generation.
+    //
+    // Voice resolution is the authoritative "is this avatar usable?" check.
+    // selectedAvatarIds.includes() alone was not sufficient — public/system HeyGen
+    // avatars are pruned from selectedAvatarIds by pruneDeletedAvatars even when
+    // perfectly valid (they don't appear in the user's private groups).
+    //
+    //  1. avatarId set + voice resolves          → use it (respects manual pick)
+    //  2. avatarId set + voice fails + NOT in selection → stale; rotate
+    //  3. avatarId set + voice fails + IS in selection  → HeyGen config error
+    //  4. avatarId null                               → rotate
+    const usageCount = (avatarCfg.avatarUsageCount as Record<string, number>) ?? {};
+
+    if (!item.avatarId) {
+      // No avatar stored — pick from rotation.
       item.avatarId = pickNextAvatar(
         avatarCfg.selectedAvatarIds,
         avatarCfg.lastUsedAvatarId,
         avatarCfg.rotationStrategy,
-        (avatarCfg.avatarUsageCount as Record<string, number>) ?? {}
+        usageCount,
       );
-      // Advance lastUsedAvatarId so next generation picks a different avatar
       await db
         .update(avatarConfigTable)
         .set({ lastUsedAvatarId: item.avatarId, updatedAt: new Date() })
         .where(and(eq(avatarConfigTable.id, avatarCfg.id), eq(avatarConfigTable.userId, userId)));
-      // Force voice re-resolution for the new avatar
       item.voiceId = null;
     }
-    // Always re-resolve from current voice_overrides at generation time.
-    // The voiceId stored on the item may be stale (set before the user configured
-    // per-avatar overrides, or before they changed them). The override always wins.
+
+    // Re-resolve voice at generation time (picks up current voice_overrides, new clones, etc.)
     const freshVoiceId = await resolveVoiceId(item.avatarId!, heygenApiKey, userId);
+
     if (!freshVoiceId && !item.voiceId) {
-      res.status(400).json({ error: "No se encontró ninguna voz disponible en HeyGen. Verifica tu cuenta de HeyGen." });
-      return;
+      if (!avatarCfg.selectedAvatarIds.includes(item.avatarId!)) {
+        // Not in active selection + no voice → stale avatar; rotate to a working one.
+        logger.warn(
+          { itemId: item.id, avatarId: item.avatarId },
+          "[/videos/generate] Stored avatar not in selection and has no voice — rotating",
+        );
+        item.avatarId = pickNextAvatar(
+          avatarCfg.selectedAvatarIds,
+          avatarCfg.lastUsedAvatarId,
+          avatarCfg.rotationStrategy,
+          usageCount,
+        );
+        await db
+          .update(avatarConfigTable)
+          .set({ lastUsedAvatarId: item.avatarId, updatedAt: new Date() })
+          .where(and(eq(avatarConfigTable.id, avatarCfg.id), eq(avatarConfigTable.userId, userId)));
+        item.voiceId = null;
+        const fallbackVoice = await resolveVoiceId(item.avatarId, heygenApiKey, userId);
+        if (!fallbackVoice) {
+          res.status(400).json({ error: "No se encontró ninguna voz disponible en HeyGen. Verifica tu cuenta de HeyGen." });
+          return;
+        }
+        item.voiceId = fallbackVoice;
+      } else {
+        // In active selection but no voice → HeyGen config error
+        res.status(400).json({ error: "No se encontró ninguna voz disponible en HeyGen. Verifica tu cuenta de HeyGen." });
+        return;
+      }
+    } else {
+      if (!avatarCfg.selectedAvatarIds.includes(item.avatarId!) && freshVoiceId) {
+        logger.info(
+          { itemId: item.id, avatarId: item.avatarId },
+          "[/videos/generate] Stored avatar not in selectedAvatarIds but voice resolved — honouring manual pick",
+        );
+      }
+      item.voiceId = freshVoiceId ?? item.voiceId;
     }
-    item.voiceId = freshVoiceId ?? item.voiceId;
+
     await db
       .update(contentPlanItemsTable)
       .set({ avatarId: item.avatarId, voiceId: item.voiceId, updatedAt: new Date() })

@@ -472,18 +472,28 @@ export function parseSRT(srtContent: string): WordTiming[] {
     const startMs = ms(m[1], m[2], m[3], m[4]);
     const endMs   = ms(m[5], m[6], m[7], m[8]);
     const text    = lines.slice(2).join(" ").trim();
-    // Each SRT entry may contain a single word (HeyGen) or multiple words
-    // Split multi-word entries so each word gets its proportional timing
+    // Each SRT entry may contain a single word (Whisper word-level) or a phrase.
+    // Split multi-word entries so each word gets proportional timing weighted by
+    // character count — longer words take more time, which is more accurate for
+    // Spanish than equal-time splitting (e.g. "sí" vs "constitución").
     const words = text.split(/\s+/).filter(Boolean);
     if (words.length === 0) continue;
-    const msPerWord = (endMs - startMs) / words.length;
-    words.forEach((w, wi) => {
-      out.push({
-        text:    w,
-        startMs: Math.round(startMs + wi * msPerWord),
-        endMs:   Math.round(startMs + (wi + 1) * msPerWord),
+    if (words.length === 1) {
+      out.push({ text: words[0], startMs, endMs });
+    } else {
+      const totalMs    = endMs - startMs;
+      const totalChars = words.reduce((sum, w) => sum + w.length, 0) || 1;
+      let offset = 0;
+      words.forEach((w) => {
+        const wMs = (w.length / totalChars) * totalMs;
+        out.push({
+          text:    w,
+          startMs: Math.round(startMs + offset),
+          endMs:   Math.round(startMs + offset + wMs),
+        });
+        offset += wMs;
       });
-    });
+    }
   }
   return out;
 }
@@ -719,7 +729,10 @@ export async function applyCaptionsBrowser(
         "-i", videoPath,
         "-vf", `scale=${normW}:${normH}:flags=lanczos`,
         "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-        "-c:a", "aac", "-b:a", "192k",
+        // Copy audio unchanged — only the video stream is being scaled so there
+        // is no need to re-encode audio. Copying avoids an unnecessary AAC encode
+        // cycle that would accumulate encoder-delay drift in downstream batch steps.
+        "-c:a", "copy",
         "-movflags", "+faststart",
         "-y", normPath,
       ], { maxBuffer: 500 * 1024 * 1024 });
@@ -967,7 +980,14 @@ export async function applyCaptionsBrowser(
         prevLabel = outLabel;
       });
 
-      const fullFilter = `[0:v]setpts=PTS-STARTPTS[base]; ${filterParts.join("; ")}`;
+      // Reset BOTH video AND audio timestamps from 0 so each segment is
+      // self-contained and the concat demuxer can sequence them cleanly.
+      //
+      // Without [0:a]asetpts=PTS-STARTPTS the fast-seek (-ss before -i) lands on
+      // the nearest keyframe, which may be before batchStart. setpts resets the
+      // video stream to PTS=0 but the audio stream keeps the raw seek-point PTS —
+      // a sub-frame offset that accumulates across batches into audible A/V drift.
+      const fullFilter = `[0:v]setpts=PTS-STARTPTS[base]; [0:a]asetpts=PTS-STARTPTS[aout]; ${filterParts.join("; ")}`;
 
       await execFileAsync("ffmpeg", [
         "-ss", String(batchStart),
@@ -976,12 +996,15 @@ export async function applyCaptionsBrowser(
         ...extraInputs,
         "-filter_complex", fullFilter,
         "-map", "[out]",
-        "-map", "0:a?",
+        "-map", "[aout]",
         "-c:v", "libx264",
         "-preset", "fast",
         "-crf", "21",
         "-c:a", "aac",
         "-b:a", "128k",
+        // Prevent encoder-delay-induced negative timestamps from shifting audio
+        // forward at the start of each segment, which compounds during concat.
+        "-avoid_negative_ts", "make_zero",
         "-y", segOut,
       ], { maxBuffer: 100 * 1024 * 1024 });
 

@@ -12,6 +12,7 @@ import {
   captionConfigTable,
   nicheRadarAccountsTable,
   heygenClonedVoicesTable,
+  avatarLookMetadataTable,
   users,
   purchases,
 } from "@workspace/db";
@@ -573,8 +574,24 @@ async function pruneDeletedAvatars(
   // If the set came back empty it's likely a network/auth failure — don't prune
   if (available.size === 0) return avatarCfg;
 
-  const valid = selected.filter((id) => available.has(id));
-  const removed = selected.filter((id) => !available.has(id));
+  // Load look IDs registered in avatar_look_metadata for this user.
+  // These are avatars the user deliberately configured in the Avatars page and
+  // may include public / system HeyGen avatars that getAllAvailableAvatarIds()
+  // does not enumerate (it only scans the user's own private groups).
+  // Never prune a look that has explicit metadata — it is known and intentional.
+  let knownMetadataIds = new Set<string>();
+  try {
+    const metaRows = await db
+      .select({ lookId: avatarLookMetadataTable.lookId })
+      .from(avatarLookMetadataTable)
+      .where(eq(avatarLookMetadataTable.userId, avatarCfg.userId));
+    knownMetadataIds = new Set(metaRows.map((r) => r.lookId));
+  } catch {
+    // Non-fatal — skip the metadata guard and fall back to pure HeyGen check
+  }
+
+  const valid = selected.filter((id) => available.has(id) || knownMetadataIds.has(id));
+  const removed = selected.filter((id) => !available.has(id) && !knownMetadataIds.has(id));
 
   if (removed.length === 0) return avatarCfg;
 
@@ -775,14 +792,20 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
     let avatarId: string | null = null;
     let voiceId: string | null | undefined = null;
     if (!draft.wavespeedLookId) {
-      // No WaveSpeed look pinned. If the draft already has a valid HeyGen avatar
-      // pinned, honour it. Otherwise use unified rotation (HeyGen + WaveSpeed looks)
-      // so the configured rotation strategy applies across both pipeline types.
-      const storedHeygenValid =
-        draft.avatarId && (avatarCfg?.selectedAvatarIds ?? []).includes(draft.avatarId);
-
-      if (storedHeygenValid) {
-        avatarId = draft.avatarId!;
+      // Honour any explicitly stored HeyGen avatar regardless of selectedAvatarIds.
+      // The old selectedAvatarIds.includes() check caused valid manual picks to be
+      // discarded whenever pruneDeletedAvatars removed the ID (e.g. public/system
+      // avatars not enumerated by getAllAvailableAvatarIds).
+      // Voice validation is deferred to generation time to avoid extra API calls
+      // during the expensive script-generation AI step.
+      if (draft.avatarId) {
+        avatarId = draft.avatarId;
+        if (!(avatarCfg?.selectedAvatarIds ?? []).includes(draft.avatarId)) {
+          logger.info(
+            { avatarId: draft.avatarId },
+            "[scheduler draft] avatarId not in selectedAvatarIds — honouring stored value (voice validated at generation time)",
+          );
+        }
       } else {
         const pool = await buildUnifiedPool(userId, avatarCfg?.selectedAvatarIds ?? []);
         const usageCount = (avatarCfg?.avatarUsageCount as Record<string, number>) ?? {};
@@ -801,13 +824,6 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
             .set({ status: "draft", updatedAt: new Date() })
             .where(eq(contentPlanItemsTable.id, draft.id));
           return { success: false, message: "No hay avatares ni looks de WaveSpeed disponibles. Configura al menos uno en la página de Avatares." };
-        }
-
-        if (draft.avatarId) {
-          logger.warn(
-            { removedAvatarId: draft.avatarId, newPicked: picked.id },
-            "Stored avatarId is no longer valid — re-picking via unified rotation"
-          );
         }
 
         // Advance rotation pointer (shared across both pipeline types)
@@ -964,19 +980,31 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
       };
     }
   } else {
-    // No WaveSpeed look pinned on this item. Two sub-cases:
-    //   (a) avatarId is set AND still in selectedAvatarIds → user explicitly chose a
-    //       HeyGen avatar; honour it and re-resolve voice. No rotation applied.
-    //   (b) avatarId is missing or stale → auto-rotation via unified pool so both
-    //       HeyGen avatars and WaveSpeed looks participate in the same rotation with
-    //       the configured strategy (sequential / random / performance).
+    // No WaveSpeed look pinned on this item. Resolve which HeyGen avatar to use.
+    //
+    // Voice resolution is now the authoritative "is this avatar still usable?" check.
+    // selectedAvatarIds.includes() alone was not sufficient — public/system HeyGen
+    // avatars are pruned from selectedAvatarIds by pruneDeletedAvatars even when
+    // perfectly valid (they don't appear in the user's private groups).
+    //
+    //  (a) avatarId set + voice resolves  → honour it (manual pick or valid rotation)
+    //  (b) avatarId set + voice fails     → stale/deleted → unified rotation
+    //  (c) avatarId null                  → unified rotation
+    const resolvedVoiceForStored = contentItem.avatarId
+      ? await resolveVoiceId(contentItem.avatarId, heygenApiKey, userId)
+      : null;
     const currentAvatarValid =
-      contentItem.avatarId && (avatarCfg?.selectedAvatarIds ?? []).includes(contentItem.avatarId);
+      !!contentItem.avatarId && !!(resolvedVoiceForStored || contentItem.voiceId);
 
     if (currentAvatarValid) {
-      // (a) Manual HeyGen pick — stay on HeyGen, just re-resolve voice.
-      const freshVoiceId = await resolveVoiceId(contentItem.avatarId, heygenApiKey, userId);
-      contentItem.voiceId = freshVoiceId ?? contentItem.voiceId;
+      // (a) Avatar has a usable voice — honour the stored assignment.
+      if (!(avatarCfg?.selectedAvatarIds ?? []).includes(contentItem.avatarId!)) {
+        logger.info(
+          { avatarId: contentItem.avatarId },
+          "avatarId not in selectedAvatarIds but voice resolved — honouring stored avatar",
+        );
+      }
+      contentItem.voiceId = resolvedVoiceForStored ?? contentItem.voiceId;
       if (contentItem.avatarId && contentItem.voiceId) {
         await db
           .update(contentPlanItemsTable)
@@ -985,11 +1013,11 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
       }
       wavespeedCtx = null;
     } else {
-      // (b) Unified rotation — build pool and apply strategy.
+      // (b)/(c) Unified rotation — build pool and apply strategy.
       if (contentItem.avatarId) {
         logger.warn(
           { removedAvatarId: contentItem.avatarId },
-          "avatarId on scripted item is no longer in active selection — re-picking via unified rotation"
+          "avatarId voice not resolvable — re-picking via unified rotation",
         );
       }
 
@@ -1696,12 +1724,15 @@ async function transcribeAudioToSrt(audioUrl: string, videoId: number): Promise<
     if (!audioRes.ok) throw new Error(`Audio download failed: HTTP ${audioRes.status}`);
     const audioBuffer = Buffer.from(await audioRes.arrayBuffer());
 
-    // Transcribe with Whisper — word-level granularity for precise per-word timing
+    // Transcribe with Whisper — word-level granularity for precise per-word timing.
+    // The prompt primes the model with Spanish context so it doesn't mis-recognise
+    // Spanish phonemes as English words (common with accented vowels and ñ/ll/rr).
     const openai   = makeOpenAIClient({ timeout: 120_000 });
     const transcript = await openai.audio.transcriptions.create({
       file:                    new File([audioBuffer], "audio.mp3", { type: "audio/mpeg" }),
       model:                   "whisper-1",
       language:                "es",
+      prompt:                  "Guion de video en español. Habla directamente a cámara sobre marketing, negocios o emprendimiento.",
       response_format:         "verbose_json",
       timestamp_granularities: ["word"],
     } as Parameters<typeof openai.audio.transcriptions.create>[0]);
