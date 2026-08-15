@@ -112,7 +112,7 @@ export function buildSpeechInputs(
     text,
     voice_id: voiceId,
     language_boost: params.languageBoost, // "Spanish"
-    emotion: params.emotion,
+    emotion: "happy",                     // tono alegre fijo en toda la síntesis
   };
   if (params.speed !== 1.0) inputs.speed = parseFloat(params.speed.toFixed(2));
   return inputs;

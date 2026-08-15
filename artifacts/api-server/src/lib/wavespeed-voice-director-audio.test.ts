@@ -63,16 +63,9 @@ describe("buildSpeechInputs", () => {
     );
   });
 
-  test("always includes emotion in API inputs", () => {
-    const inputs = buildSpeechInputs("Text.", "vid", makeParams({ emotion: "happy" }));
-    assert.equal(inputs["emotion"], "happy");
-  });
-
-  test("forwards the emotion value as-is to the API", () => {
-    for (const emotion of ["neutral", "happy", "sad", "angry", "fearful", "surprised"]) {
-      const inputs = buildSpeechInputs("Text.", "vid", makeParams({ emotion }));
-      assert.equal(inputs["emotion"], emotion, `emotion "${emotion}" not forwarded correctly`);
-    }
+  test("always sends emotion=happy regardless of params", () => {
+    const inputs = buildSpeechInputs("Text.", "vid", makeParams({ emotion: "sad" }));
+    assert.equal(inputs["emotion"], "happy", "emotion must always be 'happy' — hardcoded for consistent tone");
   });
 
   test("never includes pitch in API inputs", () => {
