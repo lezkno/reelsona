@@ -1762,47 +1762,33 @@ async function transcribeAudioToSrt(videoUrl: string, videoId: number): Promise<
     //    The prompt primes the model with Spanish context so it doesn't mis-recognise
     //    Spanish phonemes as English words (common with accented vowels and ñ/ll/rr).
     const openai   = makeOpenAIClient({ timeout: 120_000 });
-    const transcript = await openai.audio.transcriptions.create({
-      file:                    new File([audioBuffer], "audio.wav", { type: "audio/wav" }),
-      // gpt-4o-mini-transcribe is the proxy-supported STT model (whisper-1 not available).
-      model:                   "gpt-4o-mini-transcribe",
-      language:                "es",
-      prompt:                  "Guion de video en español. Habla directamente a cámara sobre marketing, negocios o emprendimiento.",
-      response_format:         "verbose_json",
-      timestamp_granularities: ["word"],
-    } as Parameters<typeof openai.audio.transcriptions.create>[0]);
+    // The Replit AI proxy exposes gpt-4o-mini-transcribe but does NOT support
+    // response_format:"verbose_json" or timestamp_granularities.
+    // We use "srt" which the proxy does support and returns phrase-level timestamps —
+    // much better than proportional fallback even without word-level precision.
+    const srtContent = await openai.audio.transcriptions.create({
+      file:            new File([audioBuffer], "audio.wav", { type: "audio/wav" }),
+      model:           "gpt-4o-mini-transcribe",
+      language:        "es",
+      prompt:          "Guion de video en español. Habla directamente a cámara sobre marketing, negocios o emprendimiento.",
+      response_format: "srt",
+    } as Parameters<typeof openai.audio.transcriptions.create>[0]) as unknown as string;
 
-    // verbose_json returns a TranscriptionVerbose shape with `words`
-    const words = (transcript as unknown as { words?: Array<{ word: string; start: number; end: number }> }).words;
-    if (!words?.length) throw new Error("Whisper returned no word timings");
+    if (!srtContent?.trim()) throw new Error("Whisper returned empty SRT");
 
-    // Format milliseconds as SRT timestamp HH:MM:SS,mmm
-    const toSrtTs = (sec: number): string => {
-      const ms  = Math.round(sec * 1000);
-      const h   = Math.floor(ms / 3_600_000);
-      const min = Math.floor((ms % 3_600_000) / 60_000);
-      const s   = Math.floor((ms % 60_000) / 1000);
-      const rem = ms % 1000;
-      return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}:${String(s).padStart(2, "0")},${String(rem).padStart(3, "0")}`;
-    };
-
-    // One SRT block per word — maximum precision for the caption renderer
-    const srt = words
-      .map((w, i) => `${i + 1}\n${toSrtTs(w.start)} --> ${toSrtTs(w.end)}\n${w.word.trim()}`)
-      .join("\n\n");
-
-    // Upload to Object Storage
+    // Upload the SRT directly — the caption engine already knows how to parse it
     const objectName = `subtitles/${videoId}.srt`;
     await objectStorageClient
       .bucket(bucketId)
       .file(objectName)
-      .save(Buffer.from(srt, "utf-8"), { contentType: "text/plain; charset=utf-8" });
+      .save(Buffer.from(srtContent, "utf-8"), { contentType: "text/plain; charset=utf-8" });
 
     const domain = process.env.REPLIT_DEV_DOMAIN;
     if (!domain) throw new Error("REPLIT_DEV_DOMAIN not set");
     const srtUrl = `https://${domain}/api/captioned-objects/${objectName}`;
 
-    logger.info({ videoId, words: words.length, srtUrl }, "[WaveSpeed] Whisper SRT uploaded ✓");
+    const cueCount = (srtContent.match(/^\d+$/gm) ?? []).length;
+    logger.info({ videoId, cueCount, srtUrl }, "[WaveSpeed] Whisper SRT uploaded ✓");
     return srtUrl;
   } catch (err) {
     logger.warn({ videoId, err }, "[WaveSpeed] Whisper transcription failed — captions will use proportional fallback");

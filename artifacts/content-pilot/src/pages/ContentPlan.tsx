@@ -201,8 +201,13 @@ export default function ContentPlan() {
   const generateScript = useGenerateScript()
   const scriptGenerationItemIdRef = useRef<number | null>(null)
 
+  // Optimistic lock: set to the item id the moment the user clicks
+  // "Aprobar y Generar" so controls disable immediately — before any API
+  // round-trip completes.  Cleared once the server confirms (or on error).
+  const [pendingGenerateId, setPendingGenerateId] = useState<number | null>(null)
+
   const anyVideoInFlight = (allItems ?? []).some((i) => i.status === "generating")
-  const generateBlocked = anyVideoInFlight || generateVideo.isPending
+  const generateBlocked = anyVideoInFlight || generateVideo.isPending || pendingGenerateId !== null
 
   // Overdue items: draft/scripted with a past scheduled date
   const now = new Date()
@@ -278,6 +283,10 @@ export default function ContentPlan() {
     const item = scriptModalItem
     const draft = scriptDraft
 
+    // Lock controls immediately — before any API call so the UI responds
+    // at click time rather than after two round-trips.
+    setPendingGenerateId(item.id)
+
     updateItem.mutate(
       { id: item.id, data: { hook: draft.hook, script: draft.script, cta: draft.cta, video_effects_override: localEffects } },
       {
@@ -286,6 +295,16 @@ export default function ContentPlan() {
             { data: { content_plan_id: item.id } },
             {
               onSuccess: () => {
+                // Optimistic cache update: mark the item as "generating" immediately
+                // so the polling interval kicks in and controls stay disabled while
+                // we wait for the server refetch to confirm the real state.
+                queryClient.setQueryData<ContentPlanItem[]>(
+                  getGetContentPlanQueryKey({ limit: 100 }),
+                  (prev) => prev?.map((i) =>
+                    i.id === item.id ? { ...i, status: "generating" as const } : i
+                  )
+                )
+                setPendingGenerateId(null)
                 setScriptModalItem(null)
                 setScriptDraft(null)
                 toast({ title: "Video Generándose", description: "Tu video está siendo creado. Esto puede tardar unos minutos." })
@@ -293,6 +312,7 @@ export default function ContentPlan() {
                 queryClient.invalidateQueries({ queryKey: getGetVideosQueryKey() })
               },
               onError: (err: any) => {
+                setPendingGenerateId(null)
                 const msg = err?.data?.error ?? "No se pudo iniciar la generación del video."
                 toast({ title: "Error al generar video", description: msg, variant: "destructive" })
                 queryClient.invalidateQueries({ queryKey: getGetContentPlanQueryKey() })
@@ -301,6 +321,7 @@ export default function ContentPlan() {
           )
         },
         onError: (err: any) => {
+          setPendingGenerateId(null)
           toast({ title: "Error al guardar guion", description: err?.data?.error ?? "No se pudo guardar el guion.", variant: "destructive" })
         },
       }

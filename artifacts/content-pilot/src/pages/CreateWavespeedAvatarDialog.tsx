@@ -27,6 +27,7 @@ import {
   useWavespeedPersonaLooksStatus,
   useCloneWavespeedVoice,
   useWavespeedVoiceStatus,
+  useWavespeedVoices,
   usePatchWavespeedLook,
   WAVESPEED_PERSONAS_KEY,
   type WavespeedLookRow,
@@ -149,6 +150,10 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
   const [voiceName, setVoiceName] = useState("Mi voz")
   const [assigning, setAssigning] = useState(false)
 
+  // "record" = grab new audio; "existing" = pick an already-cloned voice
+  const [voiceMode, setVoiceMode] = useState<"record" | "existing">("record")
+  const [selectedExistingVoiceId, setSelectedExistingVoiceId] = useState<number | null>(null)
+
   // Webcam
   const [webcamActive, setWebcamActive] = useState(false)
   const [photoSource, setPhotoSource] = useState<"upload" | "webcam">("upload")
@@ -177,6 +182,10 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
   const createPersona = useCreateWavespeedPersona()
   const cloneVoice = useCloneWavespeedVoice()
   const patchLook = usePatchWavespeedLook()
+
+  // Existing cloned voices — used to offer "select existing" option in step 4
+  const { data: voicesData } = useWavespeedVoices()
+  const readyVoices = (voicesData?.voices ?? []).filter((v) => v.status === "ready")
 
   // Polling
   // Poll in "generating" AND "select" — looks may have null imageUrl on first
@@ -473,6 +482,14 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
     } catch (err: any) {
       toast({ title: "Error al clonar la voz", description: err.message, variant: "destructive" })
     }
+  }
+
+  const handleUseExistingVoice = () => {
+    if (!selectedExistingVoiceId) return
+    const voice = readyVoices.find((v) => v.id === selectedExistingVoiceId)
+    if (voice) setVoiceName(voice.displayName)
+    setVoiceDbId(selectedExistingVoiceId)
+    setStep("done")
   }
 
   // ── Final assignment ────────────────────────────────────────────────────────
@@ -830,130 +847,193 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
       <DialogHeader>
         <DialogTitle className="flex items-center gap-2">
           <div className="w-6 h-6 bg-primary rounded-full text-primary-foreground text-xs flex items-center justify-center font-bold">4</div>
-          Clona tu voz
+          Voz del avatar
         </DialogTitle>
         <DialogDescription>
-          Graba al menos 30 segundos leyendo el texto en voz alta. Habla de manera natural y clara.
+          {voiceMode === "existing"
+            ? "Selecciona una de tus voces clonadas para asociarla al nuevo avatar."
+            : "Graba al menos 30 segundos leyendo el texto en voz alta. Habla de manera natural y clara."}
         </DialogDescription>
       </DialogHeader>
 
       <div className="space-y-4">
-        {/* Voice name */}
-        <div>
-          <Label>Nombre de la voz</Label>
-          <Input
-            className="mt-1.5"
-            placeholder="Ej: Mi voz"
-            value={voiceName}
-            onChange={(e) => setVoiceName(e.target.value)}
-            disabled={isRecording || cloneVoice.isPending}
-          />
-        </div>
-
-        {/* Teleprompter — auto-scrolls while recording; locked to prevent manual interference */}
-        <div
-          ref={teleprompterRef}
-          className="rounded-lg border bg-muted/40 px-4 py-3 max-h-28 overflow-hidden select-none"
-        >
-          <p className="text-xs text-muted-foreground leading-relaxed">{TELEPROMPTER}</p>
-        </div>
-
-        {/* Requirements */}
-        <div className="rounded-lg border border-border bg-muted/20 px-3 py-2.5 space-y-1">
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Requisitos</p>
-          {[
-            "Mínimo 30 segundos de voz continua",
-            "Sin música ni ruido de fondo",
-            "Habla directo al micrófono",
-          ].map((r) => (
-            <p key={r} className="text-xs text-muted-foreground flex items-center gap-1.5">
-              <CheckCircle2 className="w-3 h-3 text-emerald-500 shrink-0" />
-              {r}
-            </p>
-          ))}
-        </div>
-
-        {/* Recording controls */}
-        <div className="flex flex-col items-center gap-3">
-          <div className={`w-16 h-16 rounded-full flex items-center justify-center transition-colors
-            ${isRecording && reached30s ? "bg-emerald-500/15 border-2 border-emerald-500" :
-              isRecording ? "bg-red-500/15 border-2 border-red-500 animate-pulse" : "bg-muted"}`}>
-            {isRecording
-              ? <Mic className={`w-7 h-7 ${reached30s ? "text-emerald-500" : "text-red-500"}`} />
-              : <Mic className="w-7 h-7 text-muted-foreground" />}
-          </div>
-          {isRecording && (
-            <div className="text-center">
-              <span className={`font-mono text-2xl font-bold tabular-nums transition-colors ${reached30s ? "text-emerald-600 dark:text-emerald-400" : ""}`}>
-                {fmtSec(recordSeconds)}
-              </span>
-              {reached30s ? (
-                <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium mt-0.5 flex items-center justify-center gap-1">
-                  <CheckCircle2 className="w-3 h-3" /> ¡Listo! Detén cuando quieras
-                </p>
-              ) : (
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Grabando… ({30 - recordSeconds}s restantes para el mínimo)
-                </p>
-              )}
-            </div>
-          )}
-          <div className="flex gap-2">
-            {isRecording ? (
-              <Button
-                onClick={stopRecording}
-                variant={reached30s ? "default" : "destructive"}
-                className={`gap-2 ${reached30s ? "bg-emerald-600 hover:bg-emerald-700 text-white" : ""}`}
-              >
-                <Square className="w-4 h-4" /> Detener
-              </Button>
-            ) : (
-              <Button onClick={startRecording} disabled={!!recordedBlob} className="gap-2">
-                <Mic className="w-4 h-4" /> {recordedBlob ? "Grabado" : "Grabar"}
-              </Button>
-            )}
-            {recordedBlob && !isRecording && (
-              <Button variant="outline" size="icon" title="Volver a grabar"
-                onClick={() => { setRecordedBlob(null); setAudioQuality(null); setRecordSeconds(0); setReached30s(false) }}>
-                <RefreshCw className="w-4 h-4" />
-              </Button>
-            )}
-          </div>
-        </div>
-
-        {/* Audio quality */}
-        {analyzingAudio && (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 className="w-3 h-3 animate-spin" /> Analizando audio…
+        {/* Mode toggle — only shown when the user has at least one ready cloned voice */}
+        {readyVoices.length > 0 && (
+          <div className="flex rounded-lg border overflow-hidden text-sm font-medium">
+            <button
+              className={`flex-1 px-3 py-2 transition-colors ${voiceMode === "record" ? "bg-primary text-primary-foreground" : "hover:bg-muted/60 text-muted-foreground"}`}
+              onClick={() => setVoiceMode("record")}
+            >
+              Grabar nueva voz
+            </button>
+            <button
+              className={`flex-1 px-3 py-2 transition-colors border-l ${voiceMode === "existing" ? "bg-primary text-primary-foreground" : "hover:bg-muted/60 text-muted-foreground"}`}
+              onClick={() => setVoiceMode("existing")}
+            >
+              Usar voz existente
+            </button>
           </div>
         )}
-        {audioQuality && !analyzingAudio && (
-          <div className={`rounded-lg border px-3 py-2.5 space-y-1 text-xs ${audioQuality.hasBlocker ? "border-destructive/40 bg-destructive/5" : "border-emerald-400/40 bg-emerald-50 dark:bg-emerald-950/20"}`}>
-            <p className="font-semibold flex items-center gap-1">
-              {audioQuality.hasBlocker
-                ? <><AlertCircle className="w-3.5 h-3.5 text-destructive" /> Problemas detectados</>
-                : <><CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> Audio listo ({Math.round(audioQuality.duration)}s)</>
-              }
-            </p>
-            {audioQuality.issues.map((iss, i) => (
-              <p key={i} className={`flex items-center gap-1.5 ${iss.level === "error" ? "text-destructive" : "text-amber-600 dark:text-amber-400"}`}>
-                <AlertCircle className="w-3 h-3 shrink-0" /> {iss.message}
-              </p>
-            ))}
+
+        {/* ── Existing voice picker ───────────────────────────────────────── */}
+        {voiceMode === "existing" ? (
+          <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+            {readyVoices.map((v) => {
+              const isSelected = selectedExistingVoiceId === v.id
+              return (
+                <button
+                  key={v.id}
+                  onClick={() => setSelectedExistingVoiceId(v.id)}
+                  className={`w-full flex items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-all
+                    ${isSelected
+                      ? "border-primary bg-primary/5 ring-1 ring-primary"
+                      : "border-border hover:border-primary/40 hover:bg-muted/40"}`}
+                >
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${isSelected ? "bg-primary/15" : "bg-muted"}`}>
+                    <Mic className={`w-4 h-4 ${isSelected ? "text-primary" : "text-muted-foreground"}`} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{v.displayName}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {new Date(v.createdAt).toLocaleDateString("es", { day: "numeric", month: "short", year: "numeric" })}
+                    </p>
+                  </div>
+                  {isSelected && <CheckCircle2 className="w-4 h-4 text-primary shrink-0" />}
+                </button>
+              )
+            })}
           </div>
+        ) : (
+          /* ── Record new voice ────────────────────────────────────────────── */
+          <>
+            {/* Voice name */}
+            <div>
+              <Label>Nombre de la voz</Label>
+              <Input
+                className="mt-1.5"
+                placeholder="Ej: Mi voz"
+                value={voiceName}
+                onChange={(e) => setVoiceName(e.target.value)}
+                disabled={isRecording || cloneVoice.isPending}
+              />
+            </div>
+
+            {/* Teleprompter — auto-scrolls while recording; locked to prevent manual interference */}
+            <div
+              ref={teleprompterRef}
+              className="rounded-lg border bg-muted/40 px-4 py-3 max-h-28 overflow-hidden select-none"
+            >
+              <p className="text-xs text-muted-foreground leading-relaxed">{TELEPROMPTER}</p>
+            </div>
+
+            {/* Requirements */}
+            <div className="rounded-lg border border-border bg-muted/20 px-3 py-2.5 space-y-1">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Requisitos</p>
+              {[
+                "Mínimo 30 segundos de voz continua",
+                "Sin música ni ruido de fondo",
+                "Habla directo al micrófono",
+              ].map((r) => (
+                <p key={r} className="text-xs text-muted-foreground flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3 h-3 text-emerald-500 shrink-0" />
+                  {r}
+                </p>
+              ))}
+            </div>
+
+            {/* Recording controls */}
+            <div className="flex flex-col items-center gap-3">
+              <div className={`w-16 h-16 rounded-full flex items-center justify-center transition-colors
+                ${isRecording && reached30s ? "bg-emerald-500/15 border-2 border-emerald-500" :
+                  isRecording ? "bg-red-500/15 border-2 border-red-500 animate-pulse" : "bg-muted"}`}>
+                {isRecording
+                  ? <Mic className={`w-7 h-7 ${reached30s ? "text-emerald-500" : "text-red-500"}`} />
+                  : <Mic className="w-7 h-7 text-muted-foreground" />}
+              </div>
+              {isRecording && (
+                <div className="text-center">
+                  <span className={`font-mono text-2xl font-bold tabular-nums transition-colors ${reached30s ? "text-emerald-600 dark:text-emerald-400" : ""}`}>
+                    {fmtSec(recordSeconds)}
+                  </span>
+                  {reached30s ? (
+                    <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium mt-0.5 flex items-center justify-center gap-1">
+                      <CheckCircle2 className="w-3 h-3" /> ¡Listo! Detén cuando quieras
+                    </p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Grabando… ({30 - recordSeconds}s restantes para el mínimo)
+                    </p>
+                  )}
+                </div>
+              )}
+              <div className="flex gap-2">
+                {isRecording ? (
+                  <Button
+                    onClick={stopRecording}
+                    variant={reached30s ? "default" : "destructive"}
+                    className={`gap-2 ${reached30s ? "bg-emerald-600 hover:bg-emerald-700 text-white" : ""}`}
+                  >
+                    <Square className="w-4 h-4" /> Detener
+                  </Button>
+                ) : (
+                  <Button onClick={startRecording} disabled={!!recordedBlob} className="gap-2">
+                    <Mic className="w-4 h-4" /> {recordedBlob ? "Grabado" : "Grabar"}
+                  </Button>
+                )}
+                {recordedBlob && !isRecording && (
+                  <Button variant="outline" size="icon" title="Volver a grabar"
+                    onClick={() => { setRecordedBlob(null); setAudioQuality(null); setRecordSeconds(0); setReached30s(false) }}>
+                    <RefreshCw className="w-4 h-4" />
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {/* Audio quality */}
+            {analyzingAudio && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="w-3 h-3 animate-spin" /> Analizando audio…
+              </div>
+            )}
+            {audioQuality && !analyzingAudio && (
+              <div className={`rounded-lg border px-3 py-2.5 space-y-1 text-xs ${audioQuality.hasBlocker ? "border-destructive/40 bg-destructive/5" : "border-emerald-400/40 bg-emerald-50 dark:bg-emerald-950/20"}`}>
+                <p className="font-semibold flex items-center gap-1">
+                  {audioQuality.hasBlocker
+                    ? <><AlertCircle className="w-3.5 h-3.5 text-destructive" /> Problemas detectados</>
+                    : <><CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> Audio listo ({Math.round(audioQuality.duration)}s)</>
+                  }
+                </p>
+                {audioQuality.issues.map((iss, i) => (
+                  <p key={i} className={`flex items-center gap-1.5 ${iss.level === "error" ? "text-destructive" : "text-amber-600 dark:text-amber-400"}`}>
+                    <AlertCircle className="w-3 h-3 shrink-0" /> {iss.message}
+                  </p>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
 
       <DialogFooter>
         <Button variant="outline" onClick={() => setStep("select")}>Atrás</Button>
-        <Button
-          onClick={handleVoiceSubmit}
-          disabled={!recordedBlob || !voiceName.trim() || cloneVoice.isPending || (audioQuality?.hasBlocker ?? false)}
-          className="gap-2"
-        >
-          {cloneVoice.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ChevronRight className="w-3.5 h-3.5" />}
-          {cloneVoice.isPending ? "Enviando…" : "Continuar"}
-        </Button>
+        {voiceMode === "existing" ? (
+          <Button
+            onClick={handleUseExistingVoice}
+            disabled={!selectedExistingVoiceId}
+            className="gap-2"
+          >
+            <ChevronRight className="w-3.5 h-3.5" /> Continuar
+          </Button>
+        ) : (
+          <Button
+            onClick={handleVoiceSubmit}
+            disabled={!recordedBlob || !voiceName.trim() || cloneVoice.isPending || (audioQuality?.hasBlocker ?? false)}
+            className="gap-2"
+          >
+            {cloneVoice.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ChevronRight className="w-3.5 h-3.5" />}
+            {cloneVoice.isPending ? "Enviando…" : "Continuar"}
+          </Button>
+        )}
       </DialogFooter>
     </>
   )
