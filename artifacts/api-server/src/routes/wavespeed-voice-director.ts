@@ -1,32 +1,50 @@
 /**
- * WaveSpeed Voice Director — preview/debug route
+ * WaveSpeed Voice Director — routes
  *
- * POST /api/wavespeed/voice-director/analyze
+ * Routes (all under /api prefix via Express):
  *
- * Receives a script + preset and returns the full segmentation analysis
- * as JSON. NO WaveSpeed or MiniMax calls are made — this is a pure
- * preview/debug endpoint that costs zero credits.
+ *   POST /wavespeed/voice-director/analyze
+ *     Pure segmentation preview — no WaveSpeed calls, zero credits.
+ *     Requires auth + requireToolAccess (applied at mount in routes/index.ts).
  *
- * Protected by:
- *   1. requireAuth   — must be logged in
- *   2. requireToolAccess (applied at router mount in routes/index.ts)
+ *   POST /wavespeed/voice-director/preview-audio
+ *     Generates a real audio preview by submitting minimax/speech-2.6-turbo jobs
+ *     per segment, polling for completion, and concatenating with FFmpeg.
+ *     Requires auth + requireToolAccess. Consumes WaveSpeed credits.
+ *     Returns JSON including per-segment job info and a local audio file path.
+ *
+ *   GET /wavespeed/voice-director/audio/:filename
+ *     Serves a generated preview .mp3 from /tmp/contentpilot-vd-audio/.
+ *     Requires auth only (no tool-access check — user must already have
+ *     generated the file in a previous preview-audio call).
+ *     Filename is a UUID-based name — unguessable without prior API access.
  *
  * SCOPE NOTE
  * ----------
- * This route is exclusively for WaveSpeed/MiniMax. It has no connection to
- * HeyGen voice generation, SSML, resolveVoiceId, or HeyGen video pipelines.
+ * All routes are exclusively for WaveSpeed/MiniMax. No connection to HeyGen
+ * voice generation, SSML, resolveVoiceId, generateVideo, or HeyGen scheduling.
  */
 
 import { Router, type Request, type Response } from "express";
-import { db } from "@workspace/db";
-import { users } from "@workspace/db/schema";
-import { eq } from "drizzle-orm";
-import { VOICE_DIRECTOR_PRESET_IDS, type VoiceDirectorPresetId } from "../lib/wavespeed.js";
-import { analyzeScriptForWavespeed } from "../lib/wavespeed-voice-director.js";
+import { createReadStream, existsSync }         from "node:fs";
+import { basename }                             from "node:path";
+
+import {
+  VOICE_DIRECTOR_PRESET_IDS,
+  type VoiceDirectorPresetId,
+  isWavespeedConfigured,
+} from "../lib/wavespeed.js";
+import { analyzeScriptForWavespeed }    from "../lib/wavespeed-voice-director.js";
+import {
+  generateVdAudioPreview,
+  VD_AUDIO_DIR,
+}                                       from "../lib/wavespeed-voice-director-audio.js";
+
+// ── Router ────────────────────────────────────────────────────────────────────
 
 const router = Router();
 
-// ── Local auth helper (same pattern as wavespeed.ts) ──────────────────────────
+// ── Auth helper (same pattern as wavespeed.ts) ────────────────────────────────
 
 function requireAuth(req: Request, res: Response): number | null {
   const userId = (req.session as any)?.userId as number | undefined;
@@ -40,17 +58,10 @@ function requireAuth(req: Request, res: Response): number | null {
 // ── POST /wavespeed/voice-director/analyze ────────────────────────────────────
 
 /**
- * Body:
- *   { text: string; preset?: "natural" | "energetico" | "dramatico" }
+ * Pure script segmentation — NO WaveSpeed calls, zero credits.
  *
- * Returns:
- *   {
- *     preset: VoiceDirectorPreset;
- *     segments: WavespeedVoiceSegment[];
- *     ttsScript: string;          // MiniMax-ready with <#N#> pause tokens
- *     summary: Record<SegmentIntent, number>;
- *     meta: { charCount, segmentCount, previewOnly: true }
- *   }
+ * Body:   { text: string; preset?: "natural" | "energetico" | "dramatico" }
+ * Returns: { preset, segments, ttsScript, summary, meta: { previewOnly: true } }
  */
 router.post("/wavespeed/voice-director/analyze", async (req: Request, res: Response) => {
   const userId = requireAuth(req, res);
@@ -61,7 +72,6 @@ router.post("/wavespeed/voice-director/analyze", async (req: Request, res: Respo
     preset?: string;
   };
 
-  // Validate text
   if (!text || typeof text !== "string" || text.trim().length === 0) {
     res.status(400).json({ error: "Field 'text' is required and must be a non-empty string" });
     return;
@@ -70,8 +80,6 @@ router.post("/wavespeed/voice-director/analyze", async (req: Request, res: Respo
     res.status(400).json({ error: "Field 'text' must be 5000 characters or fewer" });
     return;
   }
-
-  // Validate preset
   if (!VOICE_DIRECTOR_PRESET_IDS.includes(presetId as VoiceDirectorPresetId)) {
     res.status(400).json({
       error: `Field 'preset' must be one of: ${VOICE_DIRECTOR_PRESET_IDS.join(", ")}`,
@@ -81,33 +89,190 @@ router.post("/wavespeed/voice-director/analyze", async (req: Request, res: Respo
 
   try {
     const analysis = analyzeScriptForWavespeed(text.trim(), presetId as VoiceDirectorPresetId);
+    req.log.info(
+      { userId, preset: presetId, segmentCount: analysis.segments.length },
+      "[WaveSpeed VoiceDirector] Script analyzed (no TTS — free preview)",
+    );
+    res.json({
+      ...analysis,
+      meta: {
+        charCount:   text.trim().length,
+        segmentCount: analysis.segments.length,
+        previewOnly:  true,
+      },
+    });
+  } catch (err: any) {
+    req.log.error({ err }, "[WaveSpeed VoiceDirector] Analyze failed");
+    res.status(500).json({ error: err.message ?? "Internal error" });
+  }
+});
+
+// ── POST /wavespeed/voice-director/preview-audio ──────────────────────────────
+
+/**
+ * Generate a real audio preview using WaveSpeed/MiniMax.
+ * Submits one minimax/speech-2.6-turbo job per segment (parallel),
+ * polls until all complete (≤60 s), downloads, and FFmpeg-concatenates into
+ * a single MP3.
+ *
+ * COSTS WAVESPEED CREDITS — one TTS job per script segment.
+ *
+ * Body:
+ *   {
+ *     text:    string               // script to synthesize (≤ 2000 chars)
+ *     voiceId: string               // WaveSpeed voice id (cloned voice)
+ *     preset?: "natural" | "energetico" | "dramatico"   // default: "natural"
+ *   }
+ *
+ * Returns:
+ *   {
+ *     preset, segments, ttsScript, summary,
+ *     jobs: SegmentJobRecord[],
+ *     audioFilename: string | null,   // basename of the /tmp mp3 — use to GET it
+ *     allCompleted: boolean,
+ *     anyFailed: boolean,
+ *     meta: { segmentCount, creditNote }
+ *   }
+ */
+router.post("/wavespeed/voice-director/preview-audio", async (req: Request, res: Response) => {
+  const userId = requireAuth(req, res);
+  if (!userId) return;
+
+  // Guard: WAVESPEED_API_KEY must be configured
+  if (!isWavespeedConfigured()) {
+    res.status(503).json({
+      error:
+        "WAVESPEED_API_KEY is not configured. Add it to Replit Secrets to enable the WaveSpeed pipeline.",
+    });
+    return;
+  }
+
+  const {
+    text,
+    voiceId,
+    preset: presetId = "natural",
+  } = req.body as {
+    text?:    string;
+    voiceId?: string;
+    preset?:  string;
+  };
+
+  // Validation
+  if (!text || typeof text !== "string" || text.trim().length === 0) {
+    res.status(400).json({ error: "Field 'text' is required and must be a non-empty string" });
+    return;
+  }
+  if (text.trim().length > 2000) {
+    res.status(400).json({
+      error: "Field 'text' must be 2000 characters or fewer for audio preview to avoid long wait times",
+    });
+    return;
+  }
+  if (!voiceId || typeof voiceId !== "string" || voiceId.trim().length === 0) {
+    res.status(400).json({
+      error: "Field 'voiceId' is required — provide the WaveSpeed voice id of a cloned voice",
+    });
+    return;
+  }
+  if (!VOICE_DIRECTOR_PRESET_IDS.includes(presetId as VoiceDirectorPresetId)) {
+    res.status(400).json({
+      error: `Field 'preset' must be one of: ${VOICE_DIRECTOR_PRESET_IDS.join(", ")}`,
+    });
+    return;
+  }
+
+  try {
+    const cleanText = text.trim();
+    const analysis  = analyzeScriptForWavespeed(cleanText, presetId as VoiceDirectorPresetId);
+
+    req.log.info(
+      { userId, preset: presetId, voiceId, segmentCount: analysis.segments.length },
+      "[WaveSpeed VoiceDirector] Starting audio preview generation",
+    );
+
+    // Resolve API key (isWavespeedConfigured() already confirmed it exists)
+    const apiKey = process.env.WAVESPEED_API_KEY!;
+
+    const audioResult = await generateVdAudioPreview({
+      segments: analysis.segments,
+      voiceId:  voiceId.trim(),
+      presetId,
+      apiKey,
+      userId,
+    });
+
+    const audioFilename = audioResult.concatenatedAudioPath
+      ? basename(audioResult.concatenatedAudioPath)
+      : null;
 
     req.log.info(
       {
         userId,
-        preset: presetId,
-        segmentCount: analysis.segments.length,
-        summary: analysis.summary,
+        preset:         presetId,
+        allCompleted:   audioResult.allCompleted,
+        anyFailed:      audioResult.anyFailed,
+        audioFilename,
       },
-      "[WaveSpeed VoiceDirector] Script analyzed (preview only — no TTS generated)",
+      "[WaveSpeed VoiceDirector] Audio preview complete",
     );
 
     res.json({
       ...analysis,
+      jobs:          audioResult.jobs,
+      audioFilename,
+      allCompleted:  audioResult.allCompleted,
+      anyFailed:     audioResult.anyFailed,
       meta: {
-        charCount: text.trim().length,
         segmentCount: analysis.segments.length,
-        /**
-         * Always true — this endpoint is a preview/debug tool.
-         * No WaveSpeed or MiniMax credits were consumed.
-         */
-        previewOnly: true,
+        creditNote:
+          `${analysis.segments.length} minimax/speech-2.6-turbo job(s) submitted. ` +
+          "Credits consumed from your WaveSpeed balance.",
       },
     });
   } catch (err: any) {
-    req.log.error({ err }, "[WaveSpeed VoiceDirector] Analysis failed");
+    req.log.error({ err }, "[WaveSpeed VoiceDirector] Audio preview failed");
     res.status(500).json({ error: err.message ?? "Internal error" });
   }
+});
+
+// ── GET /wavespeed/voice-director/audio/:filename ─────────────────────────────
+
+/**
+ * Serve a generated preview MP3 from /tmp/contentpilot-vd-audio/.
+ *
+ * Auth: session required (checked inline — no requireToolAccess needed
+ * since the user already consumed credits in the preview-audio call).
+ *
+ * The filename contains a UUID — not guessable without a prior API call.
+ * Only .mp3 files are served. Path traversal is prevented by basename() check.
+ */
+router.get("/wavespeed/voice-director/audio/:filename", (req: Request, res: Response) => {
+  const userId = requireAuth(req, res);
+  if (!userId) return;
+
+  const raw      = req.params.filename ?? "";
+  const filename = basename(raw); // strip any path components
+
+  // Only serve .mp3 files with UUID-style names (prevent path traversal and type confusion)
+  if (
+    !filename.endsWith(".mp3") ||
+    filename.includes("..") ||
+    !/^[a-z0-9-]+\.mp3$/i.test(filename)
+  ) {
+    res.status(400).json({ error: "Invalid filename" });
+    return;
+  }
+
+  const fullPath = `${VD_AUDIO_DIR}/${filename}`;
+  if (!existsSync(fullPath)) {
+    res.status(404).json({ error: "Audio file not found or has expired" });
+    return;
+  }
+
+  res.setHeader("Content-Type", "audio/mpeg");
+  res.setHeader("Content-Disposition", `inline; filename="${filename}"`);
+  res.setHeader("Cache-Control", "private, max-age=300"); // 5-min browser cache
+  createReadStream(fullPath).pipe(res);
 });
 
 export default router;
