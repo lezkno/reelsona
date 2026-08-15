@@ -33,12 +33,14 @@ import {
   VOICE_DIRECTOR_PRESET_IDS,
   type VoiceDirectorPresetId,
   isWavespeedConfigured,
+  getJobStatus,
 } from "../lib/wavespeed.js";
 import { analyzeScriptForWavespeed }    from "../lib/wavespeed-voice-director.js";
 import {
   generateVdAudioPreview,
   VD_AUDIO_DIR,
 }                                       from "../lib/wavespeed-voice-director-audio.js";
+import { generateVdVideoPreview }       from "../lib/wavespeed-voice-director-video.js";
 
 // ── Router ────────────────────────────────────────────────────────────────────
 
@@ -246,6 +248,195 @@ router.post("/wavespeed/voice-director/preview-audio", async (req: Request, res:
  * The filename contains a UUID — not guessable without a prior API call.
  * Only .mp3 files are served. Path traversal is prevented by basename() check.
  */
+// ── POST /wavespeed/voice-director/preview-video ──────────────────────────────
+
+/**
+ * Generate a full voice-director video preview (audio + InfiniteTalk).
+ * Exclusively WaveSpeed/MiniMax — no HeyGen code touched.
+ *
+ * Flow:
+ *   1. analyzeScriptForWavespeed → segments with per-intent speed/pitch
+ *   2. minimax/speech-2.6-turbo per segment → concat MP3
+ *   3. Upload MP3 to Object Storage → signed GCS URL
+ *   4. wavespeed-ai/infinitetalk-fast (lookImageUrl + audio) → video
+ *   5. Poll ≤25 s; return requestId if still processing so caller can check later
+ *
+ * COSTS WAVESPEED CREDITS — N speech jobs + 1 video job.
+ *
+ * Body:
+ *   {
+ *     text:         string   // script (≤ 2000 chars)
+ *     voiceId:      string   // WaveSpeed cloned voice id
+ *     lookImageUrl: string   // portrait image URL for InfiniteTalk
+ *     preset?:      "natural" | "energetico" | "dramatico"  // default: "natural"
+ *   }
+ *
+ * Returns:
+ *   {
+ *     preset, segments, ttsScript, summary,
+ *     audioJobs, audioFilename,
+ *     videoRequestId,           // poll this with GET /job/:requestId
+ *     videoStatus,              // "queued"|"processing"|"completed"|"failed"|"not_started"
+ *     videoUrl,                 // non-null when completed
+ *     videoDbJobId,
+ *     allAudioCompleted, anyAudioFailed,
+ *     meta: { segmentCount, pollUrl, creditNote }
+ *   }
+ */
+router.post("/wavespeed/voice-director/preview-video", async (req: Request, res: Response) => {
+  const userId = requireAuth(req, res);
+  if (!userId) return;
+
+  if (!isWavespeedConfigured()) {
+    res.status(503).json({
+      error:
+        "WAVESPEED_API_KEY is not configured. Add it to Replit Secrets to enable the WaveSpeed pipeline.",
+    });
+    return;
+  }
+
+  const {
+    text,
+    voiceId,
+    lookImageUrl,
+    preset: presetId = "natural",
+  } = req.body as {
+    text?:         string;
+    voiceId?:      string;
+    lookImageUrl?: string;
+    preset?:       string;
+  };
+
+  if (!text || typeof text !== "string" || text.trim().length === 0) {
+    res.status(400).json({ error: "Field 'text' is required and must be a non-empty string" });
+    return;
+  }
+  if (text.trim().length > 2000) {
+    res.status(400).json({ error: "Field 'text' must be 2000 characters or fewer" });
+    return;
+  }
+  if (!voiceId || typeof voiceId !== "string" || voiceId.trim().length === 0) {
+    res.status(400).json({ error: "Field 'voiceId' is required — provide a WaveSpeed cloned voice id" });
+    return;
+  }
+  if (!lookImageUrl || typeof lookImageUrl !== "string" || lookImageUrl.trim().length === 0) {
+    res.status(400).json({ error: "Field 'lookImageUrl' is required — provide a portrait image URL" });
+    return;
+  }
+  if (!VOICE_DIRECTOR_PRESET_IDS.includes(presetId as VoiceDirectorPresetId)) {
+    res.status(400).json({
+      error: `Field 'preset' must be one of: ${VOICE_DIRECTOR_PRESET_IDS.join(", ")}`,
+    });
+    return;
+  }
+
+  try {
+    req.log.info(
+      { userId, preset: presetId, voiceId, lookImageUrl },
+      "[WaveSpeed VoiceDirector] Starting video preview generation",
+    );
+
+    const result = await generateVdVideoPreview({
+      text:         text.trim(),
+      voiceId:      voiceId.trim(),
+      lookImageUrl: lookImageUrl.trim(),
+      presetId:     presetId as VoiceDirectorPresetId,
+      apiKey:       process.env.WAVESPEED_API_KEY!,
+      userId,
+    });
+
+    req.log.info(
+      {
+        userId,
+        videoRequestId: result.videoRequestId,
+        videoStatus:    result.videoStatus,
+        allAudioOk:     result.allAudioCompleted,
+      },
+      "[WaveSpeed VoiceDirector] Video preview request complete",
+    );
+
+    const segmentCount = result.segments.length;
+
+    res.json({
+      ...result,
+      meta: {
+        segmentCount,
+        pollUrl: result.videoRequestId
+          ? `/api/wavespeed/voice-director/job/${result.videoRequestId}`
+          : null,
+        creditNote:
+          `${segmentCount} minimax/speech-2.6-turbo job(s) + ` +
+          (result.videoRequestId ? "1 wavespeed-ai/infinitetalk-fast job submitted." : "0 video jobs (audio failed).") +
+          " Credits consumed from your WaveSpeed balance.",
+      },
+    });
+  } catch (err: any) {
+    req.log.error({ err }, "[WaveSpeed VoiceDirector] Video preview failed");
+    res.status(500).json({ error: err.message ?? "Internal error" });
+  }
+});
+
+// ── GET /wavespeed/voice-director/job/:requestId ──────────────────────────────
+
+/**
+ * Check the current status of any WaveSpeed job by its requestId.
+ * Use this to poll a preview-video job that returned status="processing".
+ *
+ * Does NOT resubmit anything — read-only status check.
+ * Requires auth + requireToolAccess (applied at mount).
+ *
+ * Returns:
+ *   {
+ *     requestId: string;
+ *     status: "queued" | "processing" | "completed" | "failed";
+ *     videoUrl: string | null;
+ *     error: string | null;
+ *   }
+ */
+router.get("/wavespeed/voice-director/job/:requestId", async (req: Request, res: Response) => {
+  const userId = requireAuth(req, res);
+  if (!userId) return;
+
+  if (!isWavespeedConfigured()) {
+    res.status(503).json({ error: "WAVESPEED_API_KEY is not configured" });
+    return;
+  }
+
+  const { requestId } = req.params;
+  if (!requestId || typeof requestId !== "string" || requestId.trim().length === 0) {
+    res.status(400).json({ error: "requestId path parameter is required" });
+    return;
+  }
+
+  try {
+    const result = await getJobStatus(requestId.trim(), process.env.WAVESPEED_API_KEY!);
+
+    // Extract URL — works for both audio and video outputs
+    const outputUrl: string | null = (() => {
+      if (!result.outputs) return null;
+      if (Array.isArray(result.outputs)) {
+        const first = (result.outputs as unknown[])[0];
+        return typeof first === "string" ? first : null;
+      }
+      const obj = result.outputs as Record<string, unknown>;
+      const url = obj["video_url"] ?? obj["audio_url"] ?? obj["video"] ?? obj["audio"] ?? obj["url"];
+      return typeof url === "string" ? url : null;
+    })();
+
+    res.json({
+      requestId,
+      status:   result.status,
+      outputUrl,
+      error:    result.error ?? null,
+    });
+  } catch (err: any) {
+    req.log.error({ err, requestId }, "[WaveSpeed VoiceDirector] Job status check failed");
+    res.status(500).json({ error: err.message ?? "Internal error" });
+  }
+});
+
+// ── GET /wavespeed/voice-director/audio/:filename ─────────────────────────────
+
 router.get("/wavespeed/voice-director/audio/:filename", (req: Request, res: Response) => {
   const userId = requireAuth(req, res);
   if (!userId) return;
