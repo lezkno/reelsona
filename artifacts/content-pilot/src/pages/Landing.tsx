@@ -1,5 +1,4 @@
-import { useEffect, useState } from "react";
-import { CheckoutModal } from "./CheckoutModal";
+import { useEffect, useRef, useState } from "react";
 import { PlanCheckoutModal as PlanCheckoutModalLanding, type PlanCheckoutConfig } from "@/components/PlanCheckoutModal";
 import {
   ArrowRight,
@@ -235,8 +234,8 @@ function SectionLabel({ children, purple }: { children: React.ReactNode; purple?
 
 export default function Landing() {
   const [openFaq, setOpenFaq] = useState<number | null>(null);
-  const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [planCheckout, setPlanCheckout] = useState<PlanCheckoutConfig | null>(null);
+  const pricingRef = useRef<HTMLElement>(null);
   useRevealObserver();
 
   return (
@@ -270,7 +269,7 @@ export default function Landing() {
         <div className="flex items-center gap-3">
           <a href={`${BASE}/`} style={{ color: "#555", fontSize: "0.875rem", textDecoration: "none" }}>Acceder</a>
           <button
-            onClick={() => setCheckoutOpen(true)}
+            onClick={() => pricingRef.current?.scrollIntoView({ behavior: "smooth" })}
             style={{
               background: "linear-gradient(135deg,#4F6EF7,#7B5CF6)",
               color: "#fff",
@@ -283,7 +282,7 @@ export default function Landing() {
               boxShadow: "0 0 20px rgba(79,110,247,0.3)",
             }}
           >
-            Empezar $47 →
+            Crear mi clon digital
           </button>
         </div>
       </nav>
@@ -323,15 +322,12 @@ export default function Landing() {
 
               <div className="flex flex-wrap gap-3" style={{ marginBottom: "1.5rem" }}>
                 <button
-                  onClick={() => setCheckoutOpen(true)}
+                  onClick={() => pricingRef.current?.scrollIntoView({ behavior: "smooth" })}
                   className="inline-flex items-center gap-2"
                   style={{ background: "linear-gradient(135deg,#4F6EF7,#7B5CF6)", color: "#fff", border: "none", borderRadius: 12, padding: "1rem 2.1rem", fontSize: "1rem", fontWeight: 700, cursor: "pointer", boxShadow: "0 0 28px rgba(79,110,247,0.35)" }}
                 >
-                  Empezar por $47 <ArrowRight size={16} />
+                  Crear mi clon digital <ArrowRight size={16} />
                 </button>
-                <div style={{ display: "flex", alignItems: "center", fontSize: "0.875rem", color: "#555", fontWeight: 500 }}>
-                  Pago único. Sin suscripciones.
-                </div>
               </div>
 
               <div className="flex flex-wrap gap-5" style={{ color: "#555", fontSize: "0.82rem" }}>
@@ -704,10 +700,10 @@ export default function Landing() {
                 No pagas por producir un video. Pagas por montar una máquina que te devuelve el tiempo mientras tu marca personal sigue creciendo.
               </p>
               <button
-                onClick={() => setCheckoutOpen(true)}
+                onClick={() => pricingRef.current?.scrollIntoView({ behavior: "smooth" })}
                 style={{ background: "linear-gradient(135deg,#4F6EF7,#7B5CF6)", color: "#fff", border: "none", borderRadius: 12, padding: "1rem 2rem", fontSize: "1rem", fontWeight: 700, cursor: "pointer", boxShadow: "0 0 28px rgba(79,110,247,0.35)", display: "inline-flex", alignItems: "center", gap: 8 }}
               >
-                Quiero mi máquina por $47 <ArrowRight size={16} />
+                Crear mi clon digital <ArrowRight size={16} />
               </button>
             </div>
           </div>
@@ -879,10 +875,10 @@ export default function Landing() {
               </div>
 
               <button
-                onClick={() => setCheckoutOpen(true)}
+                onClick={() => pricingRef.current?.scrollIntoView({ behavior: "smooth" })}
                 style={{ background: "linear-gradient(135deg,#4F6EF7,#7B5CF6)", color: "#fff", border: "none", borderRadius: 12, padding: "1.1rem 2rem", fontSize: "1rem", fontWeight: 700, cursor: "pointer", boxShadow: "0 0 28px rgba(79,110,247,0.3)", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, width: "100%" }}
               >
-                Acceder al programa por $47 <ArrowRight size={17} />
+                Crear mi clon digital <ArrowRight size={17} />
               </button>
 
               <div style={{ marginTop: "1.25rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
@@ -901,7 +897,7 @@ export default function Landing() {
       {/* ══════════════════════════════════════
           PLANES DE HERRAMIENTAS
       ══════════════════════════════════════ */}
-      <section style={{ padding: "6rem 1.5rem", backgroundColor: "#080808", borderTop: "1px solid rgba(255,255,255,0.04)" }}>
+      <section ref={pricingRef} style={{ padding: "6rem 1.5rem", backgroundColor: "#080808", borderTop: "1px solid rgba(255,255,255,0.04)" }}>
         <div className="mx-auto" style={{ maxWidth: 1080 }}>
           {/* Section header */}
           <div className="text-center reveal-up" style={{ marginBottom: "3rem" }}>
@@ -1077,18 +1073,14 @@ export default function Landing() {
               Te enseñamos a crear tu avatar de forma efectiva, paso a paso. Después configuras el sistema y lo dejas publicando Reels en automático.
             </p>
             <button
-              onClick={() => setCheckoutOpen(true)}
+              onClick={() => pricingRef.current?.scrollIntoView({ behavior: "smooth" })}
               style={{ background: "linear-gradient(135deg,#4F6EF7,#7B5CF6)", color: "#fff", border: "none", borderRadius: 12, padding: "1.1rem 2.5rem", fontSize: "1.05rem", fontWeight: 700, cursor: "pointer", boxShadow: "0 0 32px rgba(79,110,247,0.32)", display: "inline-flex", alignItems: "center", gap: 8 }}
             >
-              Montar mi sistema por $47 <ArrowRight size={17} />
+              Crear mi clon digital <ArrowRight size={17} />
             </button>
-            <p style={{ marginTop: "0.85rem", color: "#333", fontSize: "0.78rem" }}>Pago único · Acceso inmediato · Sin suscripción</p>
           </div>
         </div>
       </section>
-
-      {/* ── CHECKOUT MODAL (legacy $47 one-time) ── */}
-      <CheckoutModal isOpen={checkoutOpen} onClose={() => setCheckoutOpen(false)} />
 
       {/* ── PLAN CHECKOUT MODAL ── */}
       {planCheckout && (
