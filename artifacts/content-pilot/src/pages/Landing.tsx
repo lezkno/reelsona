@@ -427,6 +427,128 @@ export default function Landing() {
       })()}
 
       {/* ══════════════════════════════════════
+          PLANES DE HERRAMIENTAS
+      ══════════════════════════════════════ */}
+      <section ref={pricingRef} style={{ padding: "6rem 1.5rem", backgroundColor: "#080808", borderTop: "1px solid rgba(255,255,255,0.04)" }}>
+        <div className="mx-auto" style={{ maxWidth: 1080 }}>
+          {/* Section header */}
+          <div className="text-center reveal-up" style={{ marginBottom: "3rem" }}>
+            <div style={{ display: "inline-block", backgroundColor: "rgba(79,110,247,0.1)", border: "1px solid rgba(79,110,247,0.22)", color: "#4F6EF7", fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", borderRadius: 999, padding: "0.25rem 0.75rem", marginBottom: "1rem" }}>
+              Planes de herramientas
+            </div>
+            <h2 style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "clamp(1.8rem,4vw,2.5rem)", fontWeight: 900, letterSpacing: "-0.03em", marginBottom: "0.75rem" }}>
+              Elige tu plan después de entrar
+            </h2>
+            <p style={{ color: "#555", fontSize: "0.95rem", maxWidth: 480, margin: "0 auto" }}>
+              Escoge el plan que mejor se adapte a tu ritmo de producción.
+            </p>
+          </div>
+
+          {/* Plan cards */}
+          <div className="reveal-up stagger-1" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: "1.5rem" }}>
+
+            {/* Basic */}
+            <div style={{ borderRadius: 20, backgroundColor: "#0f0f0f", border: "1px solid rgba(79,110,247,0.2)", padding: "2rem", position: "relative", overflow: "hidden" }}>
+              <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, background: "linear-gradient(90deg,#4F6EF7,#60A5FA)" }} />
+              <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "1rem" }}>
+                <div style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: "rgba(79,110,247,0.12)", border: "1px solid rgba(79,110,247,0.25)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <Zap size={15} color="#4F6EF7" />
+                </div>
+                <p style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontWeight: 800, fontSize: "1rem", color: "#e0e0e0", margin: 0 }}>Basic</p>
+              </div>
+              <div style={{ marginBottom: "1.25rem" }}>
+                <span style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "2.2rem", fontWeight: 900, background: "linear-gradient(135deg,#4F6EF7,#60A5FA)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>$29</span>
+                <span style={{ color: "#444", fontSize: "0.82rem" }}> USD/mes</span>
+              </div>
+              <p style={{ fontSize: "0.78rem", color: "#4F6EF7", fontWeight: 700, marginBottom: "1rem" }}>400 créditos / mes</p>
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.55rem" }}>
+                {["Videos con avatares públicos","Caption Studio","Plan de contenido con IA","1 persona digital"].map((f) => (
+                  <div key={f} style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem" }}>
+                    <CheckCircle2 size={13} color="#4F6EF7" style={{ marginTop: 2, flexShrink: 0 }} />
+                    <span style={{ color: "#777", fontSize: "0.82rem" }}>{f}</span>
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={() => setPlanCheckout({ planSlug: "basic", planName: "Basic", amountCents: 2900, currency: "usd", credits: 400, interval: "month", requireEmail: true })}
+                style={{ marginTop: "1.5rem", width: "100%", background: "rgba(79,110,247,0.12)", color: "#4F6EF7", border: "1px solid rgba(79,110,247,0.3)", borderRadius: 10, padding: "0.75rem", fontSize: "0.85rem", fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+              >
+                Empezar con Basic <ArrowRight size={14} />
+              </button>
+            </div>
+
+            {/* Pro — most popular */}
+            <div style={{ borderRadius: 20, backgroundColor: "#0f0f0f", border: "1px solid rgba(155,92,246,0.35)", padding: "2rem", position: "relative", overflow: "hidden" }}>
+              <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, background: "linear-gradient(90deg,#9B5CF6,#7C3AED)" }} />
+              <div style={{ position: "absolute", top: "1.25rem", right: "1.25rem", backgroundColor: "rgba(155,92,246,0.15)", border: "1px solid rgba(155,92,246,0.3)", color: "#9B5CF6", fontSize: "0.65rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", borderRadius: 999, padding: "0.2rem 0.65rem" }}>Popular</div>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "1rem" }}>
+                <div style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: "rgba(155,92,246,0.12)", border: "1px solid rgba(155,92,246,0.25)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <Sparkles size={15} color="#9B5CF6" />
+                </div>
+                <p style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontWeight: 800, fontSize: "1rem", color: "#e0e0e0", margin: 0 }}>Pro</p>
+              </div>
+              <div style={{ marginBottom: "1.25rem" }}>
+                <span style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "2.2rem", fontWeight: 900, background: "linear-gradient(135deg,#9B5CF6,#7C3AED)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>$97</span>
+                <span style={{ color: "#444", fontSize: "0.82rem" }}> USD/mes</span>
+              </div>
+              <p style={{ fontSize: "0.78rem", color: "#9B5CF6", fontWeight: 700, marginBottom: "1rem" }}>1,500 créditos / mes</p>
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.55rem" }}>
+                {["Avatares personalizados (WaveSpeed)","AutoPilot de publicación","Radar de auditoría de competencia","3 personas digitales","Todo lo de Basic"].map((f) => (
+                  <div key={f} style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem" }}>
+                    <CheckCircle2 size={13} color="#9B5CF6" style={{ marginTop: 2, flexShrink: 0 }} />
+                    <span style={{ color: "#777", fontSize: "0.82rem" }}>{f}</span>
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={() => setPlanCheckout({ planSlug: "pro", planName: "Pro", amountCents: 9700, currency: "usd", credits: 1500, interval: "month", requireEmail: true })}
+                style={{ marginTop: "1.5rem", width: "100%", background: "linear-gradient(135deg,#9B5CF6,#7C3AED)", color: "#fff", border: "none", borderRadius: 10, padding: "0.75rem", fontSize: "0.85rem", fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, boxShadow: "0 0 24px rgba(155,92,246,0.3)" }}
+              >
+                Empezar con Pro <ArrowRight size={14} />
+              </button>
+            </div>
+
+            {/* Founder */}
+            <div style={{ borderRadius: 20, backgroundColor: "#0f0f0f", border: "1px solid rgba(245,158,11,0.3)", padding: "2rem", position: "relative", overflow: "hidden" }}>
+              <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, background: "linear-gradient(90deg,#F59E0B,#D97706)" }} />
+              <div style={{ position: "absolute", bottom: -40, right: -40, width: 160, height: 160, backgroundColor: "rgba(245,158,11,0.06)", borderRadius: "9999px", filter: "blur(40px)" }} />
+              <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "1rem" }}>
+                <div style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.25)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <Crown size={15} color="#F59E0B" />
+                </div>
+                <p style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontWeight: 800, fontSize: "1rem", color: "#e0e0e0", margin: 0 }}>Founder</p>
+              </div>
+              <div style={{ marginBottom: "1.25rem" }}>
+                <span style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "2.2rem", fontWeight: 900, background: "linear-gradient(135deg,#F59E0B,#FBBF24)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>$697</span>
+                <span style={{ color: "#444", fontSize: "0.82rem" }}> USD/año</span>
+              </div>
+              <p style={{ fontSize: "0.78rem", color: "#F59E0B", fontWeight: 700, marginBottom: "1rem" }}>1,500 créditos/mes · 12 meses · Suscripción anual</p>
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.55rem" }}>
+                {["Suscripción anual — $697/año","Todo lo de Pro por 12 meses","Badge exclusivo de Fundador","Acceso anticipado a nuevas funciones","Plazas limitadas — cupo cerrado"].map((f) => (
+                  <div key={f} style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem" }}>
+                    <CheckCircle2 size={13} color="#F59E0B" style={{ marginTop: 2, flexShrink: 0 }} />
+                    <span style={{ color: "#777", fontSize: "0.82rem" }}>{f}</span>
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={() => setPlanCheckout({ planSlug: "founder", planName: "Founder", amountCents: 69700, currency: "usd", credits: 1500, interval: "year", requireEmail: true })}
+                style={{ marginTop: "1.5rem", width: "100%", background: "linear-gradient(135deg,#F59E0B,#D97706)", color: "#fff", border: "none", borderRadius: 10, padding: "0.75rem", fontSize: "0.85rem", fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, boxShadow: "0 0 24px rgba(245,158,11,0.25)" }}
+              >
+                Asegurar mi lugar Founder <ArrowRight size={14} />
+              </button>
+            </div>
+
+          </div>
+
+          {/* Topup note */}
+          <p className="text-center reveal-up stagger-2" style={{ color: "#333", fontSize: "0.78rem", marginTop: "1.5rem" }}>
+            ¿Necesitas más créditos? También puedes comprar packs adicionales desde tu panel de facturación en cualquier momento.
+          </p>
+        </div>
+      </section>
+
+      {/* ══════════════════════════════════════
           PROBLEMA: Before / After
       ══════════════════════════════════════ */}
       <section style={{ backgroundColor: "#0b0b0b", borderTop: "1px solid rgba(255,255,255,0.04)", padding: "6rem 1.5rem" }}>
@@ -827,192 +949,6 @@ export default function Landing() {
               </div>
             </div>
           </div>
-        </div>
-      </section>
-
-      {/* ══════════════════════════════════════
-          PRECIO $47
-      ══════════════════════════════════════ */}
-      <section style={{ padding: "6rem 1.5rem" }}>
-        <div className="mx-auto" style={{ maxWidth: 560 }}>
-          <div className="rounded-2xl reveal-up" style={{ backgroundColor: "#0f0f0f", border: "1px solid rgba(79,110,247,0.28)", padding: "2.5rem", position: "relative", overflow: "hidden" }}>
-            <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: "linear-gradient(90deg,#4F6EF7,#9B5CF6)" }} />
-            <div style={{ position: "absolute", bottom: -60, right: -60, width: 220, height: 220, backgroundColor: "rgba(79,110,247,0.07)", borderRadius: "9999px", filter: "blur(60px)" }} />
-
-            <div style={{ position: "relative", zIndex: 1 }}>
-              {/* Label */}
-              <div style={{ display: "inline-block", backgroundColor: "rgba(79,110,247,0.1)", border: "1px solid rgba(79,110,247,0.22)", color: "#4F6EF7", fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", borderRadius: 999, padding: "0.25rem 0.75rem", marginBottom: "1.25rem" }}>
-                Precio de lanzamiento
-              </div>
-
-              {/* Price + descriptor */}
-              <div style={{ marginBottom: "1.5rem" }}>
-                <div style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "4rem", fontWeight: 900, lineHeight: 1, background: "linear-gradient(135deg,#4F6EF7,#9B5CF6)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>$47 USD</div>
-                <p style={{ color: "#555", fontSize: "0.82rem", marginTop: "0.35rem" }}>Pago único · Sin suscripción mensual</p>
-              </div>
-
-              {/* What you get — two rows */}
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", marginBottom: "1.75rem" }}>
-                {/* Row 1: programa */}
-                <div style={{ display: "flex", gap: "0.85rem", alignItems: "flex-start", backgroundColor: "rgba(79,110,247,0.06)", border: "1px solid rgba(79,110,247,0.18)", borderRadius: 12, padding: "1rem 1.1rem" }}>
-                  <Layers size={18} color="#4F6EF7" style={{ flexShrink: 0, marginTop: 1 }} />
-                  <div>
-                    <p style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontWeight: 700, fontSize: "0.9rem", color: "#e0e0e0", margin: "0 0 0.2rem" }}>Guía Paso a Paso de Implementación</p>
-                    <p style={{ fontSize: "0.78rem", color: "#666", margin: 0 }}>7 módulos · 23 clases paso a paso · Acceso de por vida</p>
-                  </div>
-                </div>
-
-                {/* Row 2: herramientas */}
-                <div style={{ display: "flex", gap: "0.85rem", alignItems: "flex-start", backgroundColor: "rgba(155,92,246,0.06)", border: "1px solid rgba(155,92,246,0.18)", borderRadius: 12, padding: "1rem 1.1rem" }}>
-                  <Zap size={18} color="#9B5CF6" style={{ flexShrink: 0, marginTop: 1 }} />
-                  <div>
-                    <p style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontWeight: 700, fontSize: "0.9rem", color: "#e0e0e0", margin: "0 0 0.2rem" }}>
-                      + 30 días gratis de herramientas de automatización de IG
-                    </p>
-                    <p style={{ fontSize: "0.78rem", color: "#666", margin: 0 }}>Genera guiones, produce videos con avatar, aplica captions y publica en Instagram — todo en automático.</p>
-                  </div>
-                </div>
-              </div>
-
-              <button
-                onClick={() => pricingRef.current?.scrollIntoView({ behavior: "smooth" })}
-                style={{ background: "linear-gradient(135deg,#4F6EF7,#7B5CF6)", color: "#fff", border: "none", borderRadius: 12, padding: "1.1rem 2rem", fontSize: "1rem", fontWeight: 700, cursor: "pointer", boxShadow: "0 0 28px rgba(79,110,247,0.3)", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, width: "100%" }}
-              >
-                Crear mi clon digital <ArrowRight size={17} />
-              </button>
-
-              <div style={{ marginTop: "1.25rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                <div style={{ backgroundColor: "rgba(255,255,255,0.02)", border: "1px solid #1a1a1a", borderRadius: 10, padding: "0.75rem 1rem" }}>
-                  <p style={{ fontSize: "0.72rem", color: "#3a3a3a", lineHeight: 1.65, margin: 0 }}>
-                    <span style={{ color: "#555", fontWeight: 700 }}>Costos externos:</span> Las herramientas de IA tienen sus propios planes y costos, no incluidos en los $47. Te guiamos a configurarlos en el módulo 2.
-                  </p>
-                </div>
-                <p style={{ color: "#2a2a2a", fontSize: "0.72rem", textAlign: "center", margin: 0 }}>Recibirás un email de activación al completar el pago.</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ══════════════════════════════════════
-          PLANES DE HERRAMIENTAS
-      ══════════════════════════════════════ */}
-      <section ref={pricingRef} style={{ padding: "6rem 1.5rem", backgroundColor: "#080808", borderTop: "1px solid rgba(255,255,255,0.04)" }}>
-        <div className="mx-auto" style={{ maxWidth: 1080 }}>
-          {/* Section header */}
-          <div className="text-center reveal-up" style={{ marginBottom: "3rem" }}>
-            <div style={{ display: "inline-block", backgroundColor: "rgba(79,110,247,0.1)", border: "1px solid rgba(79,110,247,0.22)", color: "#4F6EF7", fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", borderRadius: 999, padding: "0.25rem 0.75rem", marginBottom: "1rem" }}>
-              Planes de herramientas
-            </div>
-            <h2 style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "clamp(1.8rem,4vw,2.5rem)", fontWeight: 900, letterSpacing: "-0.03em", marginBottom: "0.75rem" }}>
-              Elige tu plan después de entrar
-            </h2>
-            <p style={{ color: "#555", fontSize: "0.95rem", maxWidth: 480, margin: "0 auto" }}>
-              Los $47 dan acceso al programa + 30 días gratis. Después, escoge el plan que mejor se adapte a tu ritmo de producción.
-            </p>
-          </div>
-
-          {/* Plan cards */}
-          <div className="reveal-up stagger-1" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: "1.5rem" }}>
-
-            {/* Basic */}
-            <div style={{ borderRadius: 20, backgroundColor: "#0f0f0f", border: "1px solid rgba(79,110,247,0.2)", padding: "2rem", position: "relative", overflow: "hidden" }}>
-              <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, background: "linear-gradient(90deg,#4F6EF7,#60A5FA)" }} />
-              <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "1rem" }}>
-                <div style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: "rgba(79,110,247,0.12)", border: "1px solid rgba(79,110,247,0.25)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <Zap size={15} color="#4F6EF7" />
-                </div>
-                <p style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontWeight: 800, fontSize: "1rem", color: "#e0e0e0", margin: 0 }}>Basic</p>
-              </div>
-              <div style={{ marginBottom: "1.25rem" }}>
-                <span style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "2.2rem", fontWeight: 900, background: "linear-gradient(135deg,#4F6EF7,#60A5FA)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>$29</span>
-                <span style={{ color: "#444", fontSize: "0.82rem" }}> USD/mes</span>
-              </div>
-              <p style={{ fontSize: "0.78rem", color: "#4F6EF7", fontWeight: 700, marginBottom: "1rem" }}>400 créditos / mes</p>
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.55rem" }}>
-                {["Videos con avatares públicos","Caption Studio","Plan de contenido con IA","1 persona digital"].map((f) => (
-                  <div key={f} style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem" }}>
-                    <CheckCircle2 size={13} color="#4F6EF7" style={{ marginTop: 2, flexShrink: 0 }} />
-                    <span style={{ color: "#777", fontSize: "0.82rem" }}>{f}</span>
-                  </div>
-                ))}
-              </div>
-              <button
-                onClick={() => setPlanCheckout({ planSlug: "basic", planName: "Basic", amountCents: 2900, currency: "usd", credits: 400, interval: "month", requireEmail: true })}
-                style={{ marginTop: "1.5rem", width: "100%", background: "rgba(79,110,247,0.12)", color: "#4F6EF7", border: "1px solid rgba(79,110,247,0.3)", borderRadius: 10, padding: "0.75rem", fontSize: "0.85rem", fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
-              >
-                Empezar con Basic <ArrowRight size={14} />
-              </button>
-            </div>
-
-            {/* Pro — most popular */}
-            <div style={{ borderRadius: 20, backgroundColor: "#0f0f0f", border: "1px solid rgba(155,92,246,0.35)", padding: "2rem", position: "relative", overflow: "hidden" }}>
-              <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, background: "linear-gradient(90deg,#9B5CF6,#7C3AED)" }} />
-              <div style={{ position: "absolute", top: "1.25rem", right: "1.25rem", backgroundColor: "rgba(155,92,246,0.15)", border: "1px solid rgba(155,92,246,0.3)", color: "#9B5CF6", fontSize: "0.65rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", borderRadius: 999, padding: "0.2rem 0.65rem" }}>Popular</div>
-              <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "1rem" }}>
-                <div style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: "rgba(155,92,246,0.12)", border: "1px solid rgba(155,92,246,0.25)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <Sparkles size={15} color="#9B5CF6" />
-                </div>
-                <p style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontWeight: 800, fontSize: "1rem", color: "#e0e0e0", margin: 0 }}>Pro</p>
-              </div>
-              <div style={{ marginBottom: "1.25rem" }}>
-                <span style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "2.2rem", fontWeight: 900, background: "linear-gradient(135deg,#9B5CF6,#7C3AED)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>$97</span>
-                <span style={{ color: "#444", fontSize: "0.82rem" }}> USD/mes</span>
-              </div>
-              <p style={{ fontSize: "0.78rem", color: "#9B5CF6", fontWeight: 700, marginBottom: "1rem" }}>1,500 créditos / mes</p>
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.55rem" }}>
-                {["Avatares personalizados (WaveSpeed)","AutoPilot de publicación","Radar de auditoría de competencia","3 personas digitales","Todo lo de Basic"].map((f) => (
-                  <div key={f} style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem" }}>
-                    <CheckCircle2 size={13} color="#9B5CF6" style={{ marginTop: 2, flexShrink: 0 }} />
-                    <span style={{ color: "#777", fontSize: "0.82rem" }}>{f}</span>
-                  </div>
-                ))}
-              </div>
-              <button
-                onClick={() => setPlanCheckout({ planSlug: "pro", planName: "Pro", amountCents: 9700, currency: "usd", credits: 1500, interval: "month", requireEmail: true })}
-                style={{ marginTop: "1.5rem", width: "100%", background: "linear-gradient(135deg,#9B5CF6,#7C3AED)", color: "#fff", border: "none", borderRadius: 10, padding: "0.75rem", fontSize: "0.85rem", fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, boxShadow: "0 0 24px rgba(155,92,246,0.3)" }}
-              >
-                Empezar con Pro <ArrowRight size={14} />
-              </button>
-            </div>
-
-            {/* Founder */}
-            <div style={{ borderRadius: 20, backgroundColor: "#0f0f0f", border: "1px solid rgba(245,158,11,0.3)", padding: "2rem", position: "relative", overflow: "hidden" }}>
-              <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, background: "linear-gradient(90deg,#F59E0B,#D97706)" }} />
-              <div style={{ position: "absolute", bottom: -40, right: -40, width: 160, height: 160, backgroundColor: "rgba(245,158,11,0.06)", borderRadius: "9999px", filter: "blur(40px)" }} />
-              <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "1rem" }}>
-                <div style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.25)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <Crown size={15} color="#F59E0B" />
-                </div>
-                <p style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontWeight: 800, fontSize: "1rem", color: "#e0e0e0", margin: 0 }}>Founder</p>
-              </div>
-              <div style={{ marginBottom: "1.25rem" }}>
-                <span style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "2.2rem", fontWeight: 900, background: "linear-gradient(135deg,#F59E0B,#FBBF24)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>$697</span>
-                <span style={{ color: "#444", fontSize: "0.82rem" }}> USD/año</span>
-              </div>
-              <p style={{ fontSize: "0.78rem", color: "#F59E0B", fontWeight: 700, marginBottom: "1rem" }}>1,500 créditos/mes · 12 meses · Suscripción anual</p>
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.55rem" }}>
-                {["Suscripción anual — $697/año","Todo lo de Pro por 12 meses","Badge exclusivo de Fundador","Acceso anticipado a nuevas funciones","Plazas limitadas — cupo cerrado"].map((f) => (
-                  <div key={f} style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem" }}>
-                    <CheckCircle2 size={13} color="#F59E0B" style={{ marginTop: 2, flexShrink: 0 }} />
-                    <span style={{ color: "#777", fontSize: "0.82rem" }}>{f}</span>
-                  </div>
-                ))}
-              </div>
-              <button
-                onClick={() => setPlanCheckout({ planSlug: "founder", planName: "Founder", amountCents: 69700, currency: "usd", credits: 1500, interval: "year", requireEmail: true })}
-                style={{ marginTop: "1.5rem", width: "100%", background: "linear-gradient(135deg,#F59E0B,#D97706)", color: "#fff", border: "none", borderRadius: 10, padding: "0.75rem", fontSize: "0.85rem", fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, boxShadow: "0 0 24px rgba(245,158,11,0.25)" }}
-              >
-                Asegurar mi lugar Founder <ArrowRight size={14} />
-              </button>
-            </div>
-
-          </div>
-
-          {/* Topup note */}
-          <p className="text-center reveal-up stagger-2" style={{ color: "#333", fontSize: "0.78rem", marginTop: "1.5rem" }}>
-            ¿Necesitas más créditos? También puedes comprar packs adicionales desde tu panel de facturación en cualquier momento.
-          </p>
         </div>
       </section>
 
