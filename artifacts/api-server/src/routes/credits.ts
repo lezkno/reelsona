@@ -8,7 +8,7 @@
 
 import { Router } from "express";
 import type { Request, Response } from "express";
-import { getUserCredits, VIDEO_CREDIT_COST, REEL_CREDITS_PER_30S } from "../lib/credits";
+import { getUserCredits, REEL_CREDITS_PER_30S } from "../lib/credits";
 
 const router = Router();
 
@@ -24,7 +24,6 @@ router.get("/credits/balance", async (req: Request, res: Response): Promise<void
         purchasedCredits:    null,
         reservedCredits:     0,
         totalConsumed:       0,
-        videosRemaining:     null,
         isAdmin:             true,
         costTable: {
           reelPer30s: REEL_CREDITS_PER_30S,
@@ -40,9 +39,7 @@ router.get("/credits/balance", async (req: Request, res: Response): Promise<void
       purchasedCredits:    wallet.purchasedCredits,
       reservedCredits:     wallet.reservedCredits,
       totalConsumed:       wallet.totalConsumed,
-      // Approximate videos remaining based on a 30-second Reel cost
-      videosRemaining: Math.floor(wallet.availableCredits / REEL_CREDITS_PER_30S),
-      isAdmin:         false,
+      isAdmin:             false,
       costTable: {
         reelPer30s: REEL_CREDITS_PER_30S,
       },

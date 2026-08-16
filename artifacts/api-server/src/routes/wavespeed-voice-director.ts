@@ -143,10 +143,7 @@ router.post("/wavespeed/voice-director/preview-audio", async (req: Request, res:
 
   // Guard: WAVESPEED_API_KEY must be configured
   if (!isWavespeedConfigured()) {
-    res.status(503).json({
-      error:
-        "WAVESPEED_API_KEY is not configured. Add it to Replit Secrets to enable the WaveSpeed pipeline.",
-    });
+    res.status(503).json({ error: "El servicio de audio no está disponible temporalmente." });
     return;
   }
 
@@ -172,9 +169,7 @@ router.post("/wavespeed/voice-director/preview-audio", async (req: Request, res:
     return;
   }
   if (!voiceId || typeof voiceId !== "string" || voiceId.trim().length === 0) {
-    res.status(400).json({
-      error: "Field 'voiceId' is required — provide the WaveSpeed voice id of a cloned voice",
-    });
+    res.status(400).json({ error: "Field 'voiceId' is required" });
     return;
   }
   if (!VOICE_DIRECTOR_PRESET_IDS.includes(presetId as VoiceDirectorPresetId)) {
@@ -229,9 +224,7 @@ router.post("/wavespeed/voice-director/preview-audio", async (req: Request, res:
       anyFailed:    audioResult.anyFailed,
       meta: {
         segmentCount: analysis.segments.length,
-        creditNote:
-          `${analysis.segments.length} minimax/speech-2.6-turbo job(s) submitted. ` +
-          "Credits consumed from your WaveSpeed balance.",
+        creditNote: `${analysis.segments.length} segment(s) processed. Credits consumed from your balance.`,
       },
     });
   } catch (err: any) {
@@ -291,10 +284,7 @@ router.post("/wavespeed/voice-director/preview-video", async (req: Request, res:
   if (!userId) return;
 
   if (!isWavespeedConfigured()) {
-    res.status(503).json({
-      error:
-        "WAVESPEED_API_KEY is not configured. Add it to Replit Secrets to enable the WaveSpeed pipeline.",
-    });
+    res.status(503).json({ error: "El servicio de generación de video no está disponible temporalmente." });
     return;
   }
 
@@ -319,7 +309,7 @@ router.post("/wavespeed/voice-director/preview-video", async (req: Request, res:
     return;
   }
   if (!voiceId || typeof voiceId !== "string" || voiceId.trim().length === 0) {
-    res.status(400).json({ error: "Field 'voiceId' is required — provide a WaveSpeed cloned voice id" });
+    res.status(400).json({ error: "Field 'voiceId' is required" });
     return;
   }
   if (!lookImageUrl || typeof lookImageUrl !== "string" || lookImageUrl.trim().length === 0) {
@@ -370,10 +360,9 @@ router.post("/wavespeed/voice-director/preview-video", async (req: Request, res:
         pollUrl: result.videoRequestId
           ? `/api/wavespeed/voice-director/job/${result.videoRequestId}`
           : null,
-        creditNote:
-          `${segmentCount} minimax/speech-2.6-turbo job(s) + ` +
-          (result.videoRequestId ? "1 video job submitted." : "0 video jobs (audio failed).") +
-          " Credits consumed from your WaveSpeed balance.",
+        creditNote: `${segmentCount} segment(s) + ` +
+          (result.videoRequestId ? "1 video job processed." : "0 video jobs (audio failed).") +
+          " Credits consumed from your balance.",
       },
     });
   } catch (err: any) {
@@ -404,7 +393,7 @@ router.get("/wavespeed/voice-director/job/:requestId", async (req: Request, res:
   if (!userId) return;
 
   if (!isWavespeedConfigured()) {
-    res.status(503).json({ error: "WAVESPEED_API_KEY is not configured" });
+    res.status(503).json({ error: "El servicio de generación no está disponible temporalmente." });
     return;
   }
 

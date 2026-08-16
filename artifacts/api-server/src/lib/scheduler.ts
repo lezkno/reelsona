@@ -679,9 +679,8 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
     );
     return { success: false, message: "Niche not configured" };
   }
-  // Use the user's own HeyGen API key from their settings (same key used by the manual route).
-  // Falls back to the platform env var so existing users without a stored key are not broken.
-  const heygenApiKey = settings.heygenApiKey ?? process.env.HEYGEN_API_KEY ?? undefined;
+  // All generation flows use the platform-level key exclusively.
+  const heygenApiKey = process.env.HEYGEN_API_KEY ?? undefined;
 
   // Load avatar config scoped to this user
   let [avatarCfg] = await db.select().from(avatarConfigTable)
@@ -1369,7 +1368,7 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
 
     // Release reserved credits so the user can retry without losing their balance.
     if (!isAdmin) {
-      await releaseVideoCredits(videoRow.id, `Generación fallida al enviar a HeyGen: ${error}`).catch((creditErr) =>
+      await releaseVideoCredits(videoRow.id, `Generación fallida al enviar: ${error}`).catch((creditErr) =>
         logger.error({ creditErr, videoId: videoRow.id }, "[Credits] Release falló después de error en generación")
       );
     }
@@ -2529,14 +2528,14 @@ export async function pollAndPublishVideos(): Promise<void> {
           await publishVideoToInstagram(video.id);
         }
       } else if (status.status === "failed") {
-        const heygenError = status.error ?? "Error desconocido en HeyGen";
+        const providerError = status.error ?? "Error desconocido en la generación";
         await db
           .update(videosTable)
-          .set({ status: "failed", errorMessage: heygenError, updatedAt: new Date() })
+          .set({ status: "failed", errorMessage: providerError, updatedAt: new Date() })
           .where(eq(videosTable.id, video.id));
 
-        await releaseVideoCredits(video.id, `HeyGen reportó fallo: ${heygenError}`).catch((err) =>
-          logger.error({ videoId: video.id, err }, "[Credits] Release falló tras fallo en HeyGen")
+        await releaseVideoCredits(video.id, `Fallo en generación: ${providerError}`).catch((err) =>
+          logger.error({ videoId: video.id, err }, "[Credits] Release falló tras fallo en generación")
         );
 
         if (video.contentPlanId) {
@@ -2551,16 +2550,16 @@ export async function pollAndPublishVideos(): Promise<void> {
       let markFailed = false;
 
       if (httpStatus === 401) {
-        userMsg = "API key de HeyGen inválida — conecta tu cuenta en Configuración → Integraciones";
+        userMsg = "Credencial de generación inválida — contacta soporte";
         markFailed = true; // Permanent — won't self-heal on retry
       } else if (httpStatus === 402) {
-        userMsg = "Créditos de HeyGen insuficientes — recarga tu cuenta en heygen.com";
+        userMsg = "Cuota de generación agotada — el servicio está temporalmente no disponible";
         markFailed = true; // Permanent — won't self-heal on retry
       } else if (httpStatus === 429) {
-        userMsg = "Rate limit de HeyGen — el sistema reintentará en el próximo ciclo";
+        userMsg = "Límite de generación alcanzado — el sistema reintentará en el próximo ciclo";
         markFailed = false; // Transient — will retry
       } else if (httpStatus !== undefined && httpStatus >= 500) {
-        userMsg = `Error del servidor HeyGen (${httpStatus}) — el sistema reintentará automáticamente`;
+        userMsg = `Error del servicio de generación (${httpStatus}) — el sistema reintentará automáticamente`;
         markFailed = false; // Transient — will retry
       } else {
         userMsg = err instanceof Error ? err.message : String(err);
@@ -3015,18 +3014,10 @@ async function pollPendingClonedVoices(): Promise<void> {
     byUser.set(voice.userId, list);
   }
 
-  // Load HeyGen API keys for all distinct users in one query
-  const userIds = [...byUser.keys()];
-  const settingsRows = await db
-    .select({ userId: settingsTable.userId, heygenApiKey: settingsTable.heygenApiKey })
-    .from(settingsTable)
-    .where(inArray(settingsTable.userId, userIds));
-  const keyByUser = new Map(settingsRows.map(r => [r.userId, r.heygenApiKey ?? null]));
-
-  // Run the poller once per user group, using that user's own API key
+  // All voice polling uses the platform key exclusively — no per-user BYOK.
   await Promise.allSettled(
     [...byUser.entries()].map(async ([voiceUserId, voices]) => {
-      const apiKey = keyByUser.get(voiceUserId) ?? process.env.HEYGEN_API_KEY ?? undefined;
+      const apiKey = process.env.HEYGEN_API_KEY ?? undefined;
 
       await runVoicePollerCycle({
         fetchPending: async () => voices,
