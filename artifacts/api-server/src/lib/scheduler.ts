@@ -23,7 +23,7 @@ import {
 import { VIDEO_CREDIT_COST, hasEnoughCredits, reserveCredits, consumeVideoCredits, releaseVideoCredits } from "./credits";
 import { provisionUser } from "./provision";
 import { enrichProfileWithApify } from "./apify";
-import { sendEmail } from "./email";
+import { sendEmail, videoFailedEmail } from "./email";
 import { applyCaptions, CAPTION_DIR, type CaptionStyle, CAPTION_PRESETS } from "./caption-engine";
 import { computeUpcomingSlots } from "./schedule";
 import { applyCaptionsBrowser } from "./browser-caption-engine";
@@ -45,6 +45,17 @@ import { generateBrandCover } from "./brand-cover";
 // spam users. Reset on process restart (acceptable — alerts are advisory).
 const lowCreditAlertsSent = new Map<number, number>(); // userId → timestamp ms
 const LOW_CREDIT_ALERT_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24 h
+
+// ── AutoFill in-flight guard ──────────────────────────────────────────────────
+// Prevents a second AutoFill from starting while the previous one is still
+// running for the same user. Cleared in .finally() — resets on process restart.
+const autoFillInFlight = new Set<number>(); // userId
+
+// ── Video failure alert rate-limiter ─────────────────────────────────────────
+// Sends at most one "Reel failed" email per user per hour to avoid spam when
+// multiple items fail in the same automation cycle. Resets on process restart.
+const failureAlertsSent = new Map<number, number>(); // userId → timestamp ms
+const FAILURE_ALERT_COOLDOWN_MS = 60 * 60 * 1000; // 1 h
 
 // ── WaveSpeed context ─────────────────────────────────────────────────────────
 
@@ -702,15 +713,24 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
   // Runs on every scheduled tick (not on manual targetItemId runs) so the
   // calendar always has content for the next 14 days without the user needing
   // to click "Generar Ideas" manually.
-  if (targetItemId === undefined) {
-    try {
-      const filled = await fillEmptyScheduledSlots(userId, automation, settings);
-      if (filled > 0) {
-        logger.info({ filled }, "[AutoFill] Slot fill complete — new drafts added to pipeline");
-      }
-    } catch (fillErr) {
-      logger.warn({ fillErr }, "[AutoFill] Failed to fill slots — continuing normal cycle");
-    }
+  //
+  // Fire-and-forget: AutoFill is a background convenience feature and must never
+  // block the critical path (generate + publish). The in-flight guard prevents
+  // duplicate fills when a slow OpenAI call spans two 5-minute cron cycles.
+  if (targetItemId === undefined && !autoFillInFlight.has(userId)) {
+    autoFillInFlight.add(userId);
+    fillEmptyScheduledSlots(userId, automation, settings)
+      .then((filled) => {
+        if (filled > 0) {
+          logger.info({ filled }, "[AutoFill] Slot fill complete — new drafts added to pipeline");
+        }
+      })
+      .catch((fillErr) => {
+        logger.warn({ fillErr }, "[AutoFill] Failed to fill slots — non-fatal");
+      })
+      .finally(() => {
+        autoFillInFlight.delete(userId);
+      });
   }
 
   // Check if we have a ready content item scheduled for now or overdue.
@@ -1343,6 +1363,9 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
         { userId, itemId: contentItem.id, videoId: videoRow.id },
         "[Credits/429] Item restablecido a 'scripted' — créditos liberados, se reintentará en el próximo ciclo del scheduler",
       );
+    } else {
+      // Permanent failure — alert the user so they can reschedule the slot
+      sendVideoFailedAlert(userId, contentItem.id).catch(() => {});
     }
 
     return { success: false, message: `Video generation failed: ${error}` };
@@ -1860,6 +1883,41 @@ async function persistVideoAssetsToStorage(
   return { videoUrl: persistentVideoUrl, thumbnailUrl: persistentThumbnailUrl };
 }
 
+/**
+ * Send a one-time email when an automated video generation permanently fails.
+ * Rate-limited to one email per user per hour to avoid notification floods.
+ * Always swallows errors so it never disrupts the calling code path.
+ */
+async function sendVideoFailedAlert(userId: number, contentPlanItemId: number | null): Promise<void> {
+  if (!contentPlanItemId) return;
+  const now = Date.now();
+  const lastAlert = failureAlertsSent.get(userId) ?? 0;
+  if (now - lastAlert < FAILURE_ALERT_COOLDOWN_MS) return; // rate-limited
+  failureAlertsSent.set(userId, now);
+
+  try {
+    const [user] = await db
+      .select({ email: users.email, name: users.name })
+      .from(users)
+      .where(eq(users.id, userId));
+    if (!user?.email) return;
+
+    const [item] = await db
+      .select({ topic: contentPlanItemsTable.topic, scheduledAt: contentPlanItemsTable.scheduledAt })
+      .from(contentPlanItemsTable)
+      .where(eq(contentPlanItemsTable.id, contentPlanItemId));
+
+    const name = user.name ?? "";
+    const topic = item?.topic ?? "Sin título";
+    const scheduledAt = item?.scheduledAt ? new Date(item.scheduledAt) : null;
+    const { subject, html, text } = videoFailedEmail(name, topic, scheduledAt);
+    await sendEmail({ to: user.email, subject, html, text });
+    logger.info({ userId, contentPlanItemId }, "[Alert] Video failure email sent");
+  } catch (err) {
+    logger.warn({ userId, contentPlanItemId, err }, "[Alert] Could not send video failure email — non-fatal");
+  }
+}
+
 export async function pollAndPublishVideos(): Promise<void> {
   // ── Recovery: provision payments that failed after the purchase was recorded ──
   // Finds purchases paid > 30 min ago where provisionedAt is still null.
@@ -2360,6 +2418,7 @@ export async function pollAndPublishVideos(): Promise<void> {
       if (video.contentPlanId) {
         await db.update(contentPlanItemsTable).set({ status: "failed", updatedAt: now }).where(eq(contentPlanItemsTable.id, video.contentPlanId));
       }
+      sendVideoFailedAlert(video.userId, video.contentPlanId ?? null).catch(() => {});
       logger.warn({ videoId: video.id, ageMs, attempts: newAttempts }, timeoutMsg);
       await releaseVideoCredits(video.id, `Video timeout: ${timeoutMsg}`).catch((err) =>
         logger.error({ videoId: video.id, err }, "[Credits] Release falló en timeout")
@@ -2461,6 +2520,7 @@ export async function pollAndPublishVideos(): Promise<void> {
         if (video.contentPlanId) {
           await db.update(contentPlanItemsTable).set({ status: "failed", updatedAt: new Date() }).where(eq(contentPlanItemsTable.id, video.contentPlanId));
         }
+        sendVideoFailedAlert(video.userId, video.contentPlanId ?? null).catch(() => {});
       }
     } catch (err: any) {
       // ── Classify HeyGen HTTP errors ──────────────────────────────────────
@@ -2496,6 +2556,7 @@ export async function pollAndPublishVideos(): Promise<void> {
         if (video.contentPlanId) {
           await db.update(contentPlanItemsTable).set({ status: "failed", updatedAt: new Date() }).where(eq(contentPlanItemsTable.id, video.contentPlanId));
         }
+        sendVideoFailedAlert(video.userId, video.contentPlanId ?? null).catch(() => {});
         logger.error({ videoId: video.id, httpStatus }, userMsg);
       } else {
         logger.warn({ videoId: video.id, httpStatus, err }, `Transient polling error (will retry): ${userMsg}`);
