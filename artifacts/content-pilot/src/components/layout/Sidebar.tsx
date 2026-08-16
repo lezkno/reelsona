@@ -14,6 +14,7 @@ import {
   X,
   UserCog,
   BookOpen,
+  CreditCard,
 } from "lucide-react"
 import { useAuthStatus } from "@workspace/api-client-react"
 
@@ -27,6 +28,7 @@ const NAV_ITEMS = [
   { href: "/videos", label: "Videos", icon: Video },
   { href: "/captions", label: "Studio de Efectos", icon: Sparkles },
   { href: "/automation", label: "Automatización", icon: Zap },
+  { href: "/billing", label: "Facturación", icon: CreditCard },
   { href: "/settings", label: "Configuración", icon: Settings },
 ]
 

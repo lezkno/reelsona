@@ -1,5 +1,6 @@
 import {
   useGetAutomation, useUpdateAutomation, getGetAutomationQueryKey, type AutomationConfigInput,
+  useBilling,
 } from "@workspace/api-client-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -38,8 +39,10 @@ export default function Automation() {
   const queryClient = useQueryClient()
   const { toast } = useToast()
 
+  const { data: billingData } = useBilling()
   const [formData, setFormData] = useState<AutomationConfigInput | null>(null)
   const isLocked = !!(config as any)?.processing_locked
+  const isBasicPlan = billingData?.subscription?.planSlug === "basic"
 
 
   useEffect(() => {
@@ -155,6 +158,22 @@ export default function Automation() {
         <p className="text-muted-foreground mt-1 text-sm sm:text-lg">Controla el flujo de trabajo de generación y publicación.</p>
       </div>
 
+      {/* Plan gate — Basic plan cannot use AutoPilot */}
+      {isBasicPlan && (
+        <div className="flex items-center gap-3 rounded-xl border border-violet-500/30 bg-violet-500/5 px-5 py-4">
+          <Lock className="w-5 h-5 shrink-0 text-violet-400" />
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold text-sm text-violet-300">AutoPilot disponible en Plan Pro</p>
+            <p className="text-xs text-violet-400/70 mt-0.5">
+              Upgrade a Pro para publicar en automático, programar horarios y gestionar el flujo completo.
+            </p>
+          </div>
+          <a href="/billing" className="shrink-0 text-xs font-bold text-violet-400 hover:text-violet-300 border border-violet-500/30 rounded-lg px-3 py-1.5 transition-colors">
+            Ver planes →
+          </a>
+        </div>
+      )}
+
       {/* Processing lock banner */}
       {isLocked && (
         <div className="flex items-center gap-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-5 py-4 text-amber-700 dark:text-amber-400">
@@ -169,19 +188,19 @@ export default function Automation() {
       )}
 
       {/* ── Mode selector card ────────────────────────────────────────────────── */}
-      <Card className={`overflow-hidden border-2 transition-all duration-500 ${isLocked ? 'border-amber-500/30 opacity-60' : mc.cardBorder}`}>
+      <Card className={`overflow-hidden border-2 transition-all duration-500 ${isBasicPlan ? 'border-violet-500/20 opacity-60' : isLocked ? 'border-amber-500/30 opacity-60' : mc.cardBorder}`}>
         <div className={`p-5 md:p-8 flex flex-col gap-6 ${isLocked ? 'bg-muted/30' : mc.cardBg}`}>
           {/* Status row */}
           <div className="flex items-center gap-4">
-            <div className={`w-14 h-14 shrink-0 rounded-full flex items-center justify-center transition-colors duration-500 ${isLocked ? 'bg-amber-500/20 text-amber-600' : mc.iconBg}`}>
-              {isLocked ? <Lock className="w-7 h-7" /> : mode === "paused" ? <PauseCircle className="w-7 h-7" /> : mode === "manual" ? <Eye className="w-7 h-7" /> : <Zap className="w-7 h-7" />}
+            <div className={`w-14 h-14 shrink-0 rounded-full flex items-center justify-center transition-colors duration-500 ${isBasicPlan ? 'bg-violet-500/10 text-violet-400' : isLocked ? 'bg-amber-500/20 text-amber-600' : mc.iconBg}`}>
+              {isBasicPlan ? <Lock className="w-7 h-7" /> : isLocked ? <Lock className="w-7 h-7" /> : mode === "paused" ? <PauseCircle className="w-7 h-7" /> : mode === "manual" ? <Eye className="w-7 h-7" /> : <Zap className="w-7 h-7" />}
             </div>
             <div>
               <h2 className="text-xl md:text-2xl font-display font-bold mb-0.5">
-                {isLocked ? "Video procesándose…" : mc.title}
+                {isBasicPlan ? "Plan Pro requerido" : isLocked ? "Video procesándose…" : mc.title}
               </h2>
               <p className="text-sm text-muted-foreground max-w-sm">
-                {isLocked ? "La configuración está bloqueada hasta que el video termine de procesarse." : mc.desc}
+                {isBasicPlan ? "Upgrade a Pro para activar AutoPilot y programar publicaciones automáticas." : isLocked ? "La configuración está bloqueada hasta que el video termine de procesarse." : mc.desc}
               </p>
             </div>
           </div>
@@ -189,7 +208,7 @@ export default function Automation() {
           {/* Three-mode selector */}
           <div className="grid grid-cols-1 xs:grid-cols-3 sm:grid-cols-3 gap-3">
             <button
-              disabled={isLocked}
+              disabled={isLocked || isBasicPlan}
               onClick={() => saveChange({ enabled: false })}
               className={`flex flex-col items-center gap-2 p-3 md:p-4 rounded-xl border-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
                 mode === "paused"
@@ -205,7 +224,7 @@ export default function Automation() {
             </button>
 
             <button
-              disabled={isLocked}
+              disabled={isLocked || isBasicPlan}
               onClick={() => saveChange({ enabled: true, auto_generate_script: true, auto_generate_video: true, auto_publish: false })}
               className={`flex flex-col items-center gap-2 p-3 md:p-4 rounded-xl border-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
                 mode === "manual"
@@ -221,7 +240,7 @@ export default function Automation() {
             </button>
 
             <button
-              disabled={isLocked}
+              disabled={isLocked || isBasicPlan}
               onClick={() => saveChange({ enabled: true, auto_generate_script: true, auto_generate_video: true, auto_publish: true })}
               className={`flex flex-col items-center gap-2 p-3 md:p-4 rounded-xl border-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
                 mode === "auto"
@@ -250,7 +269,7 @@ export default function Automation() {
         )}
       </Card>
 
-      <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 transition-opacity duration-500 ${isLocked || !formData.enabled ? 'opacity-50 pointer-events-none' : ''}`}>
+      <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 transition-opacity duration-500 ${isLocked || isBasicPlan || !formData.enabled ? 'opacity-50 pointer-events-none' : ''}`}>
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><CalendarDays className="w-5 h-5" /> Días de Publicación</CardTitle>

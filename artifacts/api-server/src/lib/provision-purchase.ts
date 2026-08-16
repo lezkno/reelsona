@@ -32,6 +32,7 @@ import { provisionUser } from "./provision";
 import { PLAN_CREDITS, FOUNDER_MAX_SEATS } from "./credits";
 import { logger } from "./logger";
 import { invalidateAccessCache } from "../middleware/requireToolAccess";
+import { invalidatePlanCache } from "../middleware/requirePlanAccess";
 
 /**
  * PostgreSQL advisory lock key for Founder seat allocation.
@@ -433,8 +434,9 @@ async function provisionSubscription({
       }
     });
 
-    // Invalidate access cache after tx commits — entitlement is now live
+    // Invalidate both caches after tx commits — entitlement and plan are now live
     invalidateAccessCache(result.userId);
+    invalidatePlanCache(result.userId);
 
   } else {
     // ── NON-FOUNDER PATH (Basic / Pro) ───────────────────────────────────────

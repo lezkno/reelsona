@@ -27,6 +27,7 @@ import PrivacyPolicy from "@/pages/PrivacyPolicy"
 import TermsAndConditions from "@/pages/TermsAndConditions"
 import CheckoutSuccess from "@/pages/CheckoutSuccess"
 import Landing from "@/pages/Landing"
+import Billing from "@/pages/Billing"
 import { useAuthStatus } from "@workspace/api-client-react"
 import { useEntitlement } from "@/hooks/useEntitlement"
 import ResendActivation from "@/pages/ResendActivation"
@@ -90,6 +91,11 @@ function Router() {
         </Route>
         <Route path="/audit">
           {() => <ToolRoute component={Audit} />}
+        </Route>
+
+        {/* Billing — accessible with tool access */}
+        <Route path="/billing">
+          {() => <ToolRoute component={Billing} />}
         </Route>
 
         {/* HeyGen routes — tool access required */}

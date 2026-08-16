@@ -19,6 +19,7 @@ import { hashPassword } from "./password";
 import { sendEmail, activationEmail, getAppUrl } from "./email";
 import { upsertEntitlement } from "./access";
 import { invalidateAccessCache } from "../middleware/requireToolAccess";
+import { invalidatePlanCache } from "../middleware/requirePlanAccess";
 import { provisionCredits } from "./credits";
 
 export interface ProvisionParams {
@@ -141,8 +142,9 @@ export async function provisionUser(params: ProvisionParams): Promise<ProvisionR
       planSlug: planSlug ?? undefined,
     });
 
-    // Clear the access cache so the user gets access on their next request
+    // Clear both access and plan caches so the user gets correct access on next request
     invalidateAccessCache(userId);
+    invalidatePlanCache(userId);
   }
 
   // ── Grant credits (optional) ───────────────────────────────────────────────

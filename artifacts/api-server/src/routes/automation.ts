@@ -9,6 +9,7 @@ import {
   TriggerAutomationResponse,
 } from "@workspace/api-zod";
 import { runAutomationCycle } from "../lib/scheduler";
+import { requirePlanAccess } from "../middleware/requirePlanAccess";
 
 const router = Router();
 
@@ -59,7 +60,9 @@ router.get("/automation", async (req, res): Promise<void> => {
   res.json(GetAutomationResponse.parse(mapConfig(config, locked)));
 });
 
-router.put("/automation", async (req, res): Promise<void> => {
+const PRO_PLANS = ["pro", "founder"];
+
+router.put("/automation", requirePlanAccess(PRO_PLANS), async (req, res): Promise<void> => {
   const parsed = UpdateAutomationBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -223,7 +226,7 @@ router.get("/automation/recommended-times", async (req, res): Promise<void> => {
   })
 })
 
-router.post("/automation/trigger", async (req, res): Promise<void> => {
+router.post("/automation/trigger", requirePlanAccess(PRO_PLANS), async (req, res): Promise<void> => {
   req.log.info("Manual automation trigger requested");
   const userId = req.session.user!.userId;
   const result = await runAutomationCycle(userId);

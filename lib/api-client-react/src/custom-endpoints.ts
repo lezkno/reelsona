@@ -185,6 +185,59 @@ export function useAdminCredits() {
   });
 }
 
+// ── Billing / subscription ────────────────────────────────────────────────────
+
+export interface BillingPlan {
+  slug:        string;
+  amountCents: number;
+  currency:    string;
+  interval:    string | null;
+  credits:     number;
+  priceId:     string;
+}
+
+export interface BillingTopup {
+  slug:        string;
+  amountCents: number;
+  currency:    string;
+  credits:     number;
+  priceId:     string;
+}
+
+export interface BillingData {
+  subscription: {
+    planSlug:             string;
+    status:               string;
+    currentPeriodStart:   string | null;
+    currentPeriodEnd:     string | null;
+    cancelAtPeriodEnd:    boolean;
+    founderMonthsGranted?:   number;
+    founderMonthsRemaining?: number;
+  } | null;
+  credits: {
+    available:     number;
+    subscription:  number;
+    purchased:     number;
+    reserved:      number;
+    totalConsumed: number;
+  };
+  plans:            BillingPlan[];
+  topups:           BillingTopup[];
+  founderSeatsLeft: number | null;
+  planCreditsTable: Record<string, number>;
+}
+
+export const BILLING_QUERY_KEY = ["billing"] as const;
+
+/** Full billing snapshot: subscription, credits, available plans & topup packs. */
+export function useBilling() {
+  return useQuery<BillingData>({
+    queryKey: BILLING_QUERY_KEY,
+    queryFn:  () => customFetch<BillingData>("/api/billing"),
+    staleTime: 1000 * 60 * 5,
+  });
+}
+
 /** Manually adjust a user's credit balance (admin only). */
 export function useAdjustUserCredits() {
   const qc = useQueryClient();

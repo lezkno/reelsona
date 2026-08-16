@@ -3,40 +3,62 @@ import { useState } from "react"
 import { Link, useLocation } from "wouter"
 import { Sidebar } from "./Sidebar"
 import { WelcomeModal } from "@/components/WelcomeModal"
-import { Menu, AlertTriangle, Clock, LogOut, Coins } from "lucide-react"
+import { Menu, AlertTriangle, Clock, LogOut, Coins, Crown } from "lucide-react"
 import { useEntitlement } from "@/hooks/useEntitlement"
-import { useAuthStatus, useLogout, useCreditsBalance } from "@workspace/api-client-react"
+import { useAuthStatus, useLogout, useCreditsBalance, useBilling } from "@workspace/api-client-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { cn } from "@/lib/utils"
 
 // ── Credits chip ──────────────────────────────────────────────────────────────
 
 function CreditsChip() {
-  const { data } = useCreditsBalance()
+  const { data: credData }   = useCreditsBalance()
+  const { data: billingData } = useBilling()
 
-  if (!data) return null
-  if (data.isAdmin) return null   // admins have unlimited — no chip needed
+  if (!credData) return null
+  if (credData.isAdmin) return null   // admins have unlimited — no chip needed
 
-  const { videosRemaining } = data
-  if (videosRemaining === null) return null
+  const available = billingData?.credits?.available ?? credData.availableCredits ?? 0
 
   const color =
-    videosRemaining === 0 ? "text-destructive bg-destructive/10 border-destructive/20 hover:bg-destructive/20" :
-    videosRemaining <= 3  ? "text-amber-600 bg-amber-50 border-amber-200 dark:bg-amber-950/30 dark:border-amber-800/40 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/40" :
-                            "text-sidebar-foreground/70 bg-sidebar-accent/40 border-sidebar-border hover:bg-sidebar-accent/70"
+    available === 0 ? "text-destructive bg-destructive/10 border-destructive/20 hover:bg-destructive/20" :
+    available <= 50 ? "text-amber-600 bg-amber-50 border-amber-200 dark:bg-amber-950/30 dark:border-amber-800/40 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/40" :
+                      "text-sidebar-foreground/70 bg-sidebar-accent/40 border-sidebar-border hover:bg-sidebar-accent/70"
+
+  const sub       = billingData?.credits?.subscription ?? 0
+  const purchased = billingData?.credits?.purchased ?? 0
+  const tooltip   = purchased > 0
+    ? `${available} créditos — ${sub} suscripción + ${purchased} comprados`
+    : `${available} créditos disponibles`
 
   return (
     <Link
-      href="/settings"
+      href="/billing"
       className={cn(
         "flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-semibold transition-colors",
         color
       )}
-      title="Créditos disponibles — ver en Configuración"
+      title={tooltip}
     >
       <Coins className="w-3.5 h-3.5 shrink-0" />
-      <span>{videosRemaining}</span>
+      <span>{available.toLocaleString()}</span>
     </Link>
+  )
+}
+
+// ── Founder badge ─────────────────────────────────────────────────────────────
+
+function FounderBadge() {
+  const { data } = useBilling()
+  if (data?.subscription?.planSlug !== "founder") return null
+  return (
+    <span
+      title="Plan Founder"
+      className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-amber-500/30 bg-amber-500/10 text-amber-400 text-[10px] font-bold uppercase tracking-wider"
+    >
+      <Crown className="w-2.5 h-2.5" />
+      Founder
+    </span>
   )
 }
 
@@ -83,6 +105,9 @@ function TopBar({ onMenuOpen }: { onMenuOpen: () => void }) {
 
       {/* ── Spacer ── */}
       <div className="flex-1" />
+
+      {/* ── Founder badge ── */}
+      <FounderBadge />
 
       {/* ── Credits chip ── */}
       <CreditsChip />

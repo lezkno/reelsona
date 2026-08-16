@@ -1,13 +1,16 @@
 import { useEffect, useState } from "react";
 import { CheckoutModal } from "./CheckoutModal";
+import { PlanCheckoutModal as PlanCheckoutModalLanding, type PlanCheckoutConfig } from "@/components/PlanCheckoutModal";
 import {
   ArrowRight,
   Bot,
   Brain,
   Calendar,
   Check,
+  CheckCircle2,
   ChevronDown,
   Clock,
+  Crown,
   FilePen,
   Instagram,
   Layers,
@@ -233,6 +236,7 @@ function SectionLabel({ children, purple }: { children: React.ReactNode; purple?
 export default function Landing() {
   const [openFaq, setOpenFaq] = useState<number | null>(null);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [planCheckout, setPlanCheckout] = useState<PlanCheckoutConfig | null>(null);
   useRevealObserver();
 
   return (
@@ -895,6 +899,128 @@ export default function Landing() {
       </section>
 
       {/* ══════════════════════════════════════
+          PLANES DE HERRAMIENTAS
+      ══════════════════════════════════════ */}
+      <section style={{ padding: "6rem 1.5rem", backgroundColor: "#080808", borderTop: "1px solid rgba(255,255,255,0.04)" }}>
+        <div className="mx-auto" style={{ maxWidth: 1080 }}>
+          {/* Section header */}
+          <div className="text-center reveal-up" style={{ marginBottom: "3rem" }}>
+            <div style={{ display: "inline-block", backgroundColor: "rgba(79,110,247,0.1)", border: "1px solid rgba(79,110,247,0.22)", color: "#4F6EF7", fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", borderRadius: 999, padding: "0.25rem 0.75rem", marginBottom: "1rem" }}>
+              Planes de herramientas
+            </div>
+            <h2 style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "clamp(1.8rem,4vw,2.5rem)", fontWeight: 900, letterSpacing: "-0.03em", marginBottom: "0.75rem" }}>
+              Elige tu plan después de entrar
+            </h2>
+            <p style={{ color: "#555", fontSize: "0.95rem", maxWidth: 480, margin: "0 auto" }}>
+              Los $47 dan acceso al programa + 30 días gratis. Después, escoge el plan que mejor se adapte a tu ritmo de producción.
+            </p>
+          </div>
+
+          {/* Plan cards */}
+          <div className="reveal-up stagger-1" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: "1.5rem" }}>
+
+            {/* Basic */}
+            <div style={{ borderRadius: 20, backgroundColor: "#0f0f0f", border: "1px solid rgba(79,110,247,0.2)", padding: "2rem", position: "relative", overflow: "hidden" }}>
+              <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, background: "linear-gradient(90deg,#4F6EF7,#60A5FA)" }} />
+              <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "1rem" }}>
+                <div style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: "rgba(79,110,247,0.12)", border: "1px solid rgba(79,110,247,0.25)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <Zap size={15} color="#4F6EF7" />
+                </div>
+                <p style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontWeight: 800, fontSize: "1rem", color: "#e0e0e0", margin: 0 }}>Basic</p>
+              </div>
+              <div style={{ marginBottom: "1.25rem" }}>
+                <span style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "2.2rem", fontWeight: 900, background: "linear-gradient(135deg,#4F6EF7,#60A5FA)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>$29</span>
+                <span style={{ color: "#444", fontSize: "0.82rem" }}> USD/mes</span>
+              </div>
+              <p style={{ fontSize: "0.78rem", color: "#4F6EF7", fontWeight: 700, marginBottom: "1rem" }}>400 créditos / mes</p>
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.55rem" }}>
+                {["Videos con avatares públicos","Caption Studio","Plan de contenido con IA","1 persona digital"].map((f) => (
+                  <div key={f} style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem" }}>
+                    <CheckCircle2 size={13} color="#4F6EF7" style={{ marginTop: 2, flexShrink: 0 }} />
+                    <span style={{ color: "#777", fontSize: "0.82rem" }}>{f}</span>
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={() => setPlanCheckout({ planSlug: "basic", planName: "Basic", amountCents: 2900, currency: "usd", credits: 400, interval: "month", requireEmail: true })}
+                style={{ marginTop: "1.5rem", width: "100%", background: "rgba(79,110,247,0.12)", color: "#4F6EF7", border: "1px solid rgba(79,110,247,0.3)", borderRadius: 10, padding: "0.75rem", fontSize: "0.85rem", fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+              >
+                Empezar con Basic <ArrowRight size={14} />
+              </button>
+            </div>
+
+            {/* Pro — most popular */}
+            <div style={{ borderRadius: 20, backgroundColor: "#0f0f0f", border: "1px solid rgba(155,92,246,0.35)", padding: "2rem", position: "relative", overflow: "hidden" }}>
+              <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, background: "linear-gradient(90deg,#9B5CF6,#7C3AED)" }} />
+              <div style={{ position: "absolute", top: "1.25rem", right: "1.25rem", backgroundColor: "rgba(155,92,246,0.15)", border: "1px solid rgba(155,92,246,0.3)", color: "#9B5CF6", fontSize: "0.65rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", borderRadius: 999, padding: "0.2rem 0.65rem" }}>Popular</div>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "1rem" }}>
+                <div style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: "rgba(155,92,246,0.12)", border: "1px solid rgba(155,92,246,0.25)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <Sparkles size={15} color="#9B5CF6" />
+                </div>
+                <p style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontWeight: 800, fontSize: "1rem", color: "#e0e0e0", margin: 0 }}>Pro</p>
+              </div>
+              <div style={{ marginBottom: "1.25rem" }}>
+                <span style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "2.2rem", fontWeight: 900, background: "linear-gradient(135deg,#9B5CF6,#7C3AED)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>$97</span>
+                <span style={{ color: "#444", fontSize: "0.82rem" }}> USD/mes</span>
+              </div>
+              <p style={{ fontSize: "0.78rem", color: "#9B5CF6", fontWeight: 700, marginBottom: "1rem" }}>1,500 créditos / mes</p>
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.55rem" }}>
+                {["Avatares personalizados (WaveSpeed)","AutoPilot de publicación","Radar de auditoría de competencia","3 personas digitales","Todo lo de Basic"].map((f) => (
+                  <div key={f} style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem" }}>
+                    <CheckCircle2 size={13} color="#9B5CF6" style={{ marginTop: 2, flexShrink: 0 }} />
+                    <span style={{ color: "#777", fontSize: "0.82rem" }}>{f}</span>
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={() => setPlanCheckout({ planSlug: "pro", planName: "Pro", amountCents: 9700, currency: "usd", credits: 1500, interval: "month", requireEmail: true })}
+                style={{ marginTop: "1.5rem", width: "100%", background: "linear-gradient(135deg,#9B5CF6,#7C3AED)", color: "#fff", border: "none", borderRadius: 10, padding: "0.75rem", fontSize: "0.85rem", fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, boxShadow: "0 0 24px rgba(155,92,246,0.3)" }}
+              >
+                Empezar con Pro <ArrowRight size={14} />
+              </button>
+            </div>
+
+            {/* Founder */}
+            <div style={{ borderRadius: 20, backgroundColor: "#0f0f0f", border: "1px solid rgba(245,158,11,0.3)", padding: "2rem", position: "relative", overflow: "hidden" }}>
+              <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, background: "linear-gradient(90deg,#F59E0B,#D97706)" }} />
+              <div style={{ position: "absolute", bottom: -40, right: -40, width: 160, height: 160, backgroundColor: "rgba(245,158,11,0.06)", borderRadius: "9999px", filter: "blur(40px)" }} />
+              <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "1rem" }}>
+                <div style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.25)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <Crown size={15} color="#F59E0B" />
+                </div>
+                <p style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontWeight: 800, fontSize: "1rem", color: "#e0e0e0", margin: 0 }}>Founder</p>
+              </div>
+              <div style={{ marginBottom: "1.25rem" }}>
+                <span style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "2.2rem", fontWeight: 900, background: "linear-gradient(135deg,#F59E0B,#FBBF24)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>$697</span>
+                <span style={{ color: "#444", fontSize: "0.82rem" }}> USD/año</span>
+              </div>
+              <p style={{ fontSize: "0.78rem", color: "#F59E0B", fontWeight: 700, marginBottom: "1rem" }}>1,500 créditos/mes · 12 meses · Pago único</p>
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.55rem" }}>
+                {["Pago único — sin renovación automática","Todo lo de Pro por 12 meses","Badge exclusivo de Fundador","Acceso anticipado a nuevas funciones","Plazas limitadas — cupo cerrado"].map((f) => (
+                  <div key={f} style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem" }}>
+                    <CheckCircle2 size={13} color="#F59E0B" style={{ marginTop: 2, flexShrink: 0 }} />
+                    <span style={{ color: "#777", fontSize: "0.82rem" }}>{f}</span>
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={() => setPlanCheckout({ planSlug: "founder", planName: "Founder", amountCents: 69700, currency: "usd", credits: 1500, interval: "year", requireEmail: true })}
+                style={{ marginTop: "1.5rem", width: "100%", background: "linear-gradient(135deg,#F59E0B,#D97706)", color: "#fff", border: "none", borderRadius: 10, padding: "0.75rem", fontSize: "0.85rem", fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, boxShadow: "0 0 24px rgba(245,158,11,0.25)" }}
+              >
+                Asegurar mi lugar Founder <ArrowRight size={14} />
+              </button>
+            </div>
+
+          </div>
+
+          {/* Topup note */}
+          <p className="text-center reveal-up stagger-2" style={{ color: "#333", fontSize: "0.78rem", marginTop: "1.5rem" }}>
+            ¿Necesitas más créditos? También puedes comprar packs adicionales desde tu panel de facturación en cualquier momento.
+          </p>
+        </div>
+      </section>
+
+      {/* ══════════════════════════════════════
           FAQ
       ══════════════════════════════════════ */}
       <section style={{ backgroundColor: "#0b0b0b", borderTop: "1px solid rgba(255,255,255,0.04)", padding: "6rem 1.5rem" }}>
@@ -961,8 +1087,16 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* ── CHECKOUT MODAL ── */}
+      {/* ── CHECKOUT MODAL (legacy $47 one-time) ── */}
       <CheckoutModal isOpen={checkoutOpen} onClose={() => setCheckoutOpen(false)} />
+
+      {/* ── PLAN CHECKOUT MODAL ── */}
+      {planCheckout && (
+        <PlanCheckoutModalLanding
+          config={planCheckout}
+          onClose={() => setPlanCheckout(null)}
+        />
+      )}
 
       {/* ── FOOTER ── */}
       <footer style={{ borderTop: "1px solid #131313", padding: "2.5rem 1.5rem", textAlign: "center" }}>

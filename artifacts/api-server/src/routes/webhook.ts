@@ -33,6 +33,7 @@ import { getStripe, getWebhookSecret } from "../lib/stripe";
 import { PLAN_CREDITS } from "../lib/credits";
 import { upsertEntitlement } from "../lib/access";
 import { invalidateAccessCache } from "../middleware/requireToolAccess";
+import { invalidatePlanCache } from "../middleware/requirePlanAccess";
 import { provisionPurchase } from "../lib/provision-purchase";
 import { db } from "@workspace/db";
 import {
@@ -256,6 +257,7 @@ async function handleSubscriptionUpdated(sub: Stripe.Subscription, _stripe: Stri
     planSlug:         planSlug ?? existing.planSlug,
   });
   invalidateAccessCache(existing.userId);
+  invalidatePlanCache(existing.userId);
 
   logger.info({ userId: existing.userId, status }, "[webhook/stripe] Entitlement updated from subscription.updated");
 }
@@ -291,6 +293,7 @@ async function handleSubscriptionDeleted(sub: Stripe.Subscription, _stripe: Stri
     planSlug:         existing.planSlug,
   });
   invalidateAccessCache(existing.userId);
+  invalidatePlanCache(existing.userId);
 
   logger.info({ userId: existing.userId }, "[webhook/stripe] Subscription canceled — entitlement expired");
 }
@@ -488,6 +491,7 @@ async function handleInvoicePaid(invoice: Stripe.Invoice, _stripe: Stripe): Prom
       planSlug:         sub.planSlug,
     });
     invalidateAccessCache(sub.userId);
+    invalidatePlanCache(sub.userId);
     logger.info({ userId: sub.userId, planSlug: sub.planSlug, planCredits, invoiceId }, "[webhook/stripe] Renewal credits granted ✓");
   }
 }
@@ -524,6 +528,7 @@ async function handleInvoicePaymentFailed(invoice: Stripe.Invoice, _stripe: Stri
     planSlug:         sub.planSlug,
   });
   invalidateAccessCache(sub.userId);
+  invalidatePlanCache(sub.userId);
 
   logger.info({ userId: sub.userId }, "[webhook/stripe] Marked past_due from payment failure");
 }

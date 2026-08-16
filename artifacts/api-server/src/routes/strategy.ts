@@ -15,6 +15,7 @@
 import { Router } from "express";
 import { eq, and, inArray } from "drizzle-orm";
 import { db } from "@workspace/db";
+import { requirePlanAccess } from "../middleware/requirePlanAccess";
 import {
   instagramAccountsTable,
   nicheRadarAccountsTable,
@@ -163,7 +164,11 @@ router.post("/strategy/account", async (req, res): Promise<void> => {
   }
 });
 
+// ── Plan gate — all Radar/Market/Strategy endpoints require Pro or Founder ──────
+const PRO_PLANS = ["pro", "founder"];
+
 // ── GET /strategy/radar/status ────────────────────────────────────────────────
+// Note: status check is plan-free — just reports whether Apify env var is set.
 
 router.get("/strategy/radar/status", (_req, res) => {
   res.json({ apify_available: !!process.env.APIFY_TOKEN });
@@ -171,7 +176,7 @@ router.get("/strategy/radar/status", (_req, res) => {
 
 // ── GET /strategy/radar/suggestions ──────────────────────────────────────────
 
-router.get("/strategy/radar/suggestions", async (req, res): Promise<void> => {
+router.get("/strategy/radar/suggestions", requirePlanAccess(PRO_PLANS), async (req, res): Promise<void> => {
   const [settingsRow] = await db.select().from(settingsTable)
     .where(eq(settingsTable.userId, req.session.user!.userId)).limit(1);
   if (!settingsRow?.niche) {
@@ -232,14 +237,14 @@ Devuelve SOLO un JSON:
 
 // ── GET /strategy/radar ───────────────────────────────────────────────────────
 
-router.get("/strategy/radar", async (_req, res): Promise<void> => {
+router.get("/strategy/radar", requirePlanAccess(PRO_PLANS), async (_req, res): Promise<void> => {
   const accounts = await db.select().from(nicheRadarAccountsTable).orderBy(nicheRadarAccountsTable.createdAt);
   res.json({ accounts: accounts.map(serializeAccount) });
 });
 
 // ── POST /strategy/radar ──────────────────────────────────────────────────────
 
-router.post("/strategy/radar", async (req, res): Promise<void> => {
+router.post("/strategy/radar", requirePlanAccess(PRO_PLANS), async (req, res): Promise<void> => {
   const { ig_username, bio, followers, profile_url, relevance_score, source } = req.body ?? {};
   if (!ig_username?.trim()) {
     res.status(400).json({ error: "ig_username is required" });
@@ -290,7 +295,7 @@ router.post("/strategy/radar", async (req, res): Promise<void> => {
 
 // ── POST /strategy/radar/sync-all — sync all stale accounts ──────────────────
 
-router.post("/strategy/radar/sync-all", async (_req, res): Promise<void> => {
+router.post("/strategy/radar/sync-all", requirePlanAccess(PRO_PLANS), async (_req, res): Promise<void> => {
   if (!process.env.APIFY_TOKEN) {
     res.status(503).json({ error: "APIFY_TOKEN not configured" });
     return;
@@ -311,7 +316,7 @@ router.post("/strategy/radar/sync-all", async (_req, res): Promise<void> => {
 
 // ── POST /strategy/radar/:id/sync — manually trigger Apify enrichment ─────────
 
-router.post("/strategy/radar/:id/sync", async (req, res): Promise<void> => {
+router.post("/strategy/radar/:id/sync", requirePlanAccess(PRO_PLANS), async (req, res): Promise<void> => {
   const id = Number(req.params.id);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
 
@@ -356,7 +361,7 @@ router.post("/strategy/radar/:id/sync", async (req, res): Promise<void> => {
 
 // ── PATCH /strategy/radar/:id ─────────────────────────────────────────────────
 
-router.patch("/strategy/radar/:id", async (req, res): Promise<void> => {
+router.patch("/strategy/radar/:id", requirePlanAccess(PRO_PLANS), async (req, res): Promise<void> => {
   const id = Number(req.params.id);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
   const { use_as_reference, relevance_score, bio, followers } = req.body ?? {};
@@ -376,7 +381,7 @@ router.patch("/strategy/radar/:id", async (req, res): Promise<void> => {
 
 // ── DELETE /strategy/radar/:id ────────────────────────────────────────────────
 
-router.delete("/strategy/radar/:id", async (req, res): Promise<void> => {
+router.delete("/strategy/radar/:id", requirePlanAccess(PRO_PLANS), async (req, res): Promise<void> => {
   const id = Number(req.params.id);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
   await db.delete(nicheRadarAccountsTable).where(eq(nicheRadarAccountsTable.id, id));
@@ -385,7 +390,7 @@ router.delete("/strategy/radar/:id", async (req, res): Promise<void> => {
 
 // ── POST /strategy/market — synthesize MarketInsights ────────────────────────
 
-router.post("/strategy/market", async (req, res): Promise<void> => {
+router.post("/strategy/market", requirePlanAccess(PRO_PLANS), async (req, res): Promise<void> => {
   const profile = await getStrategyProfile();
   if (!profile?.account_data) {
     res.status(400).json({ error: "Run the Account audit first (step 1)" });
@@ -429,7 +434,7 @@ router.post("/strategy/market", async (req, res): Promise<void> => {
 
 // ── POST /strategy/strategy — generate ContentStrategy ───────────────────────
 
-router.post("/strategy/strategy", async (req, res): Promise<void> => {
+router.post("/strategy/strategy", requirePlanAccess(PRO_PLANS), async (req, res): Promise<void> => {
   const profile = await getStrategyProfile();
   if (!profile?.account_data) {
     res.status(400).json({ error: "Run the Account audit first (step 1)" });
