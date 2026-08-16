@@ -144,12 +144,13 @@ export function useReapplyCaptions() {
 // ── Credit wallet ─────────────────────────────────────────────────────────────
 
 export interface CreditsBalance {
-  availableCredits: number | null;  // null for admin (unlimited)
-  reservedCredits:  number;
-  totalConsumed:    number;
-  videosRemaining:  number | null;  // null for admin
-  creditCost:       number;
-  isAdmin:          boolean;
+  availableCredits:    number | null;  // null for admin (unlimited)
+  subscriptionCredits: number | null;
+  purchasedCredits:    number | null;
+  reservedCredits:     number;
+  totalConsumed:       number;
+  isAdmin:             boolean;
+  costTable:           { reelPer30s: number };
 }
 
 export const CREDITS_BALANCE_KEY = ["credits", "balance"] as const;
@@ -170,7 +171,6 @@ export interface AdminCreditsWallet {
   availableCredits: number;
   reservedCredits:  number;
   totalConsumed:    number;
-  videosRemaining:  number;
   updatedAt:        string | null;
 }
 
@@ -274,7 +274,6 @@ export interface AdminEntitlement {
   availableCredits:         number | null;
   reservedCredits:          number | null;
   totalConsumed:            number | null;
-  videosRemaining:          number | null;
 }
 
 export interface ProvisionStudentInput {

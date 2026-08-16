@@ -67,15 +67,15 @@ function CreditsCard() {
               <>
                 <div className="flex items-end gap-2 mb-3">
                   <span className="text-4xl font-display font-bold text-foreground">
-                    {data.videosRemaining}
+                    {available}
                   </span>
                   <span className="text-sm text-muted-foreground mb-1.5">
-                    video{data.videosRemaining !== 1 ? "s" : ""} disponible{data.videosRemaining !== 1 ? "s" : ""}
+                    créditos disponibles
                   </span>
                 </div>
                 <Progress value={pct} className="h-1.5 mb-2" />
                 <p className="text-xs text-muted-foreground">
-                  {available} créditos disponibles · {consumed} usados
+                  {data.subscriptionCredits ?? 0} suscripción · {data.purchasedCredits ?? 0} adicionales · {consumed} usados
                 </p>
               </>
             )}

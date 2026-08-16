@@ -197,12 +197,7 @@ router.get("/admin/entitlements", async (req: Request, res: Response): Promise<v
       .leftJoin(userCreditsTable, eq(userCreditsTable.userId, userEntitlements.userId))
       .orderBy(userEntitlements.createdAt);
 
-    const entitlements = rows.map((r) => ({
-      ...r,
-      videosRemaining: r.availableCredits != null
-        ? Math.floor(r.availableCredits / VIDEO_CREDIT_COST)
-        : null,
-    }));
+    const entitlements = rows.map((r) => ({ ...r }));
 
     res.json({ entitlements });
   } catch (err) {
@@ -374,10 +369,7 @@ router.get("/admin/credits", async (req: Request, res: Response): Promise<void> 
       .innerJoin(users, eq(users.id, userCreditsTable.userId))
       .orderBy(userCreditsTable.availableCredits);  // lowest first — easiest to spot who's running out
 
-    const wallets = rows.map((r) => ({
-      ...r,
-      videosRemaining: Math.floor(r.availableCredits / VIDEO_CREDIT_COST),
-    }));
+    const wallets = rows.map((r) => ({ ...r }));
 
     res.json({ wallets });
   } catch (err) {

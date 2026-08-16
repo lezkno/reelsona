@@ -904,9 +904,8 @@ function EntitlementsSection() {
                   </th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Días</th>
                   <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">
-                    <span className="flex items-center justify-end gap-1"><Coins className="w-3.5 h-3.5" /> Videos</span>
+                    <span className="flex items-center justify-end gap-1"><Coins className="w-3.5 h-3.5" /> Créditos</span>
                   </th>
-                  <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Créditos</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Fuente</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Alta</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">
@@ -1010,25 +1009,19 @@ function EntitlementsSection() {
                             })()
                           : <span className="text-muted-foreground/40">—</span>}
                       </td>
-                      {/* Videos restantes */}
+                      {/* Créditos disponibles */}
                       <td className="px-4 py-3.5 text-right">
-                        {ent.videosRemaining == null ? (
+                        {ent.availableCredits == null ? (
                           <span className="text-muted-foreground/30 text-xs">—</span>
                         ) : (
                           <span className={cn(
                             "text-base font-bold",
-                            ent.videosRemaining === 0 ? "text-destructive" :
-                            ent.videosRemaining <= 3   ? "text-amber-500" : "text-emerald-600"
+                            ent.availableCredits === 0 ? "text-destructive" :
+                            ent.availableCredits <= 50  ? "text-amber-500" : "text-emerald-600"
                           )}>
-                            {ent.videosRemaining}
+                            {ent.availableCredits}
                           </span>
                         )}
-                      </td>
-                      {/* Créditos disponibles */}
-                      <td className="px-4 py-3.5 text-right text-xs text-muted-foreground">
-                        {ent.availableCredits != null
-                          ? <span>{ent.availableCredits}</span>
-                          : <span className="text-muted-foreground/30">—</span>}
                       </td>
                       {/* Acciones */}
                       <td className="px-3 py-3.5">
