@@ -4735,11 +4735,13 @@ export default function Avatars() {
                       <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center shrink-0">
                         <Volume2 className="w-4 h-4 text-muted-foreground" />
                       </div>
-                      <div className="flex-1 min-w-0">
+                      {/* Clickable info area — opens public avatar assignment */}
+                      <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setAssignVoice(v)}>
                         <p className="text-sm font-medium truncate">{v.name}</p>
                         <p className="text-xs text-muted-foreground">
                           {v.is_cloned ? "Clonada" : "Pública"}
                           {v.gender === "male" ? " · Masculina" : v.gender === "female" ? " · Femenina" : ""}
+                          {" · Toca para asignar →"}
                         </p>
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
@@ -4751,9 +4753,6 @@ export default function Avatars() {
                               : <Play className="w-3 h-3 fill-current" />}
                           </Button>
                         )}
-                        <Button size="sm" variant="outline" className="gap-1 text-xs h-7 px-2" onClick={() => setAssignVoice(v)}>
-                          <Users className="w-3 h-3" /> Asignar
-                        </Button>
                       </div>
                     </div>
                   ))}
@@ -4784,7 +4783,7 @@ export default function Avatars() {
         <AssignVoiceDialog
           voice={assignVoice}
           lookGroupMap={lookGroupMap}
-          allGroups={[...myGroups, ...publicGroups]}
+          allGroups={assignVoice.is_mine ? [...myGroups, ...publicGroups] : publicGroups}
           voiceOverrides={voiceOverrides}
           onAssign={(lookIds: string[]) => {
             const newOverrides = { ...voiceOverrides }
