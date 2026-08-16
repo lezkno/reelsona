@@ -812,8 +812,8 @@ export default function Landing() {
       <section style={{ padding: "3rem 1.5rem 6rem" }}>
         <div className="mx-auto reveal-up" style={{ maxWidth: 1040 }}>
           <div style={{ borderRadius: 32, overflow: "hidden", position: "relative", border: "1px solid rgba(255,255,255,0.05)" }}>
-            <img src={`${BASE}/relaxed-creator.jpg`} alt="Creator while system works" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", opacity: 0.75 }} />
-            <div style={{ position: "absolute", inset: 0, background: "linear-gradient(90deg,#090909 0%,rgba(9,9,9,0.92) 45%,rgba(9,9,9,0.3) 75%,transparent 100%)" }} />
+            <img src={`${BASE}/relaxed-creator.jpg`} alt="Creator while system works" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", objectPosition: "right top", opacity: 1 }} />
+            <div style={{ position: "absolute", inset: 0, background: "linear-gradient(90deg,#090909 0%,rgba(9,9,9,0.95) 40%,rgba(9,9,9,0.5) 65%,transparent 100%)" }} />
             <div style={{ position: "relative", zIndex: 1, padding: "clamp(2.5rem,6vw,5rem)", maxWidth: 540 }}>
               <h2 style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "clamp(1.75rem,4vw,2.8rem)", fontWeight: 800, letterSpacing: "-0.03em", lineHeight: 1.1, marginBottom: "1.25rem" }}>
                 Mientras tú vives,<br />tu avatar publica.
