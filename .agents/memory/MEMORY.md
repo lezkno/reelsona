@@ -31,6 +31,7 @@
 - [HeyGen avatar sync](avatar-sync.md) — getAllAvailableAvatarIds() (5 min cache) + pruneDeletedAvatars() run at top of every automation cycle; auto-remove on 404 catch; getLookSupportedEngines throws on 404 instead of silently falling back.
 - [HeyGen v3 voice parameters](heygen-v3-voice-params.md) — voice_speed/voice/voice_setting/speed/rate ALL rejected by v3 ("Extra inputs are not permitted"); use SSML <prosody rate pitch> in the script field instead.
 - [Wallet Credits Architecture](wallet-credits-architecture.md) — Phase 1 credit system: user_credits + credit_ledger tables, VIDEO_CREDIT_COST=10, reserve→consume/release lifecycle, provision recovery via purchases.provisioned_at.
+- [Plan limits and look/voice credits](plan-limits-credits.md) — Avatar AI limits by plan; first 3 looks free; 4th+ costs 2 credits; first voice clone free; 2nd+ costs 10 credits; all via reserve→consume/release lifecycle with idempotent functions.
 - [Digital Twin creation pipeline](digital-twin-creation.md) — mr.mimeType="text/plain" in Replit Chromium; FFmpeg compress >20MB before /v3/assets; POST /v3/avatars needs type:"digital_twin" not "video".
 - [WaveSpeed polling endpoint](wavespeed-polling-endpoint.md) — GET /api/v3/predictions/{id}/result (not /outputs/ or /status/); outputs is string[] not {images:[]}; poll must stay enabled in "select" step too.
 - [WaveSpeed video resolution quirks](wavespeed-video-resolution.md) — infinitetalk-fast outputs 352×640 (not 9:16); use probed duration for timings; upscale to ≥720px before caption compositing.
