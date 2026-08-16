@@ -99,6 +99,7 @@ export default function ContentPlan() {
           if (!Array.isArray(data)) return false
           const anyActive = (data as ContentPlanItem[]).some(item =>
             item.status === 'generating' ||
+            item.status === 'scripting' ||   // scheduler started but script not ready yet
             ((item.caption_status === null || item.caption_status === 'processing') &&
               (item.status === 'ready' || item.status === 'published'))
           )

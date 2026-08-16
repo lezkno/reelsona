@@ -762,7 +762,7 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
       .orderBy(contentPlanItemsTable.scheduledAt)
       .limit(1);
 
-    const draft = draftItems[0];
+    let draft = draftItems[0];
     if (!draft) {
       return { success: false, message: "No draft content items available" };
     }
@@ -781,12 +781,17 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
         eq(contentPlanItemsTable.id, draft.id),
         eq(contentPlanItemsTable.status, "draft"),
       ))
-      .returning({ id: contentPlanItemsTable.id });
+      .returning();
 
     if (!claimedDraft[0]) {
       logger.info({ itemId: draft.id }, "Draft already claimed by another cycle — skipping");
       return { success: false, message: "Draft item already being processed by another cycle" };
     }
+
+    // Refresh draft from the RETURNING row — the UPDATE reflects any avatarId /
+    // wavespeedLookId the user wrote between our initial SELECT and this UPDATE,
+    // closing the race window that caused manual avatar picks to be overwritten.
+    draft = claimedDraft[0];
 
     // ── Avatar reservation (BEFORE AI call) ─────────────────────────────────
     // WaveSpeed items: the user already pinned a WaveSpeed look, so skip the
