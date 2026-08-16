@@ -16,7 +16,6 @@ function CreditsChip() {
   const { data: billingData } = useBilling()
 
   if (!credData) return null
-  if (credData.isAdmin) return null   // admins have unlimited — no chip needed
 
   const available = billingData?.credits?.available ?? credData.availableCredits ?? 0
 
