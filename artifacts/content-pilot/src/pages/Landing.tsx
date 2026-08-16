@@ -437,10 +437,10 @@ export default function Landing() {
               Planes de herramientas
             </div>
             <h2 style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "clamp(1.8rem,4vw,2.5rem)", fontWeight: 900, letterSpacing: "-0.03em", marginBottom: "0.75rem" }}>
-              Elige tu plan después de entrar
+              Elige tu plan y empieza hoy
             </h2>
             <p style={{ color: "#555", fontSize: "0.95rem", maxWidth: 480, margin: "0 auto" }}>
-              Escoge el plan que mejor se adapte a tu ritmo de producción.
+              Escoge el plan que mejor se adapte a tu ritmo de producción y activa tu acceso de inmediato.
             </p>
           </div>
 
