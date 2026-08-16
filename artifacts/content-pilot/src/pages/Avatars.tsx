@@ -4320,7 +4320,7 @@ export default function Avatars() {
                           }
                         </p>
                       </div>
-                      {/* Play preview — available for every ready voice */}
+                      {/* Play preview — only control kept for cloned voices */}
                       {v.status === "ready" && v.wavespeedVoiceId && (
                         <Button
                           size="sm" variant="ghost"
@@ -4343,73 +4343,7 @@ export default function Avatars() {
                               : <Play className="w-3.5 h-3.5 fill-current" />}
                         </Button>
                       )}
-                      {/* Tuning button — only for ready voices */}
-                      {v.status === "ready" && (
-                        <Button
-                          size="sm" variant="ghost"
-                          className={`w-8 h-8 p-0 shrink-0 ${wsEditVoiceId === v.id ? "text-primary bg-primary/10" : ""}`}
-                          title="Ajustar velocidad y tono"
-                          onClick={() => {
-                            if (wsEditVoiceId === v.id) { setWsEditVoiceId(null) }
-                            else {
-                              setWsSpeedValue(v.speed ?? 1.0)
-                              setWsPitchValue(v.pitch ?? 0)
-                              setWsEditVoiceId(v.id)
-                            }
-                          }}
-                        >
-                          <SlidersHorizontal className="w-3.5 h-3.5" />
-                        </Button>
-                      )}
-                      <Button
-                        size="sm" variant="ghost"
-                        className="w-8 h-8 p-0 text-destructive hover:text-destructive shrink-0"
-                        onClick={async () => {
-                          try { await deleteWavespeedVoice.mutateAsync(v.id) }
-                          catch { toast({ title: "Error al eliminar la voz", variant: "destructive" }) }
-                        }}
-                        disabled={deleteWavespeedVoice.isPending}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
                     </div>
-                    {wsEditVoiceId === v.id && (
-                      <div className="px-4 pb-3 pt-1 border-t border-border/50 bg-muted/20 space-y-4">
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between">
-                            <p className="text-xs font-semibold">Velocidad</p>
-                            <span className="text-xs font-bold text-primary tabular-nums bg-primary/10 px-2 py-0.5 rounded">
-                              {wsSpeedValue.toFixed(2)}× {wsSpeedValue < 0.8 ? "· lento" : wsSpeedValue > 1.2 ? "· rápido" : wsSpeedValue === 1.0 ? "· normal" : ""}
-                            </span>
-                          </div>
-                          <Slider value={[wsSpeedValue]} min={0.5} max={1.5} step={0.05} onValueChange={([val]) => setWsSpeedValue(val)} />
-                          <div className="flex justify-between text-[10px] text-muted-foreground">
-                            <span>0.5× lento</span><span>1.5× rápido</span>
-                          </div>
-                        </div>
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between">
-                            <p className="text-xs font-semibold">Tono (pitch)</p>
-                            <span className="text-xs font-bold text-primary tabular-nums bg-primary/10 px-2 py-0.5 rounded">
-                              {wsPitchValue > 0 ? "+" : ""}{wsPitchValue} st {wsPitchValue < -4 ? "· grave" : wsPitchValue > 4 ? "· agudo" : wsPitchValue === 0 ? "· normal" : ""}
-                            </span>
-                          </div>
-                          <Slider value={[wsPitchValue]} min={-12} max={12} step={1} onValueChange={([val]) => setWsPitchValue(val)} />
-                          <div className="flex justify-between text-[10px] text-muted-foreground">
-                            <span>−12 grave</span><span>+12 agudo</span>
-                          </div>
-                        </div>
-                        <p className="text-[10px] text-muted-foreground leading-snug rounded-lg bg-muted/40 px-3 py-2">
-                          💡 Ajusta los valores, <strong>Guarda</strong> y pulsa <strong>▶</strong> en la fila de la voz para escuchar el resultado con la nueva configuración.
-                        </p>
-                        <div className="flex gap-2 justify-end">
-                          <Button size="sm" variant="ghost" onClick={() => setWsEditVoiceId(null)}>Cancelar</Button>
-                          <Button size="sm" onClick={() => handleWsSave(v.id)} disabled={updateWsVoiceMut.isPending} className="gap-1.5">
-                            {updateWsVoiceMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />} Guardar
-                          </Button>
-                        </div>
-                      </div>
-                    )}
                   </div>
                 ))}
               </div>
