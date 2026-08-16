@@ -71,7 +71,7 @@ const PLAN_META: Record<string, { label: string; color: string; accent: string; 
     icon:    <Crown className="w-5 h-5" />,
     features: [
       "1,500 créditos/mes por 12 meses",
-      "Pago único — sin renovación automática",
+      "Suscripción anual — $697/año",
       "Todo lo de Pro incluido",
       "Badge de Fundador",
       "Acceso anticipado a nuevas funciones",

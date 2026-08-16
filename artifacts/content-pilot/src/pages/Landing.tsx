@@ -994,9 +994,9 @@ export default function Landing() {
                 <span style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "2.2rem", fontWeight: 900, background: "linear-gradient(135deg,#F59E0B,#FBBF24)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>$697</span>
                 <span style={{ color: "#444", fontSize: "0.82rem" }}> USD/año</span>
               </div>
-              <p style={{ fontSize: "0.78rem", color: "#F59E0B", fontWeight: 700, marginBottom: "1rem" }}>1,500 créditos/mes · 12 meses · Pago único</p>
+              <p style={{ fontSize: "0.78rem", color: "#F59E0B", fontWeight: 700, marginBottom: "1rem" }}>1,500 créditos/mes · 12 meses · Suscripción anual</p>
               <div style={{ display: "flex", flexDirection: "column", gap: "0.55rem" }}>
-                {["Pago único — sin renovación automática","Todo lo de Pro por 12 meses","Badge exclusivo de Fundador","Acceso anticipado a nuevas funciones","Plazas limitadas — cupo cerrado"].map((f) => (
+                {["Suscripción anual — $697/año","Todo lo de Pro por 12 meses","Badge exclusivo de Fundador","Acceso anticipado a nuevas funciones","Plazas limitadas — cupo cerrado"].map((f) => (
                   <div key={f} style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem" }}>
                     <CheckCircle2 size={13} color="#F59E0B" style={{ marginTop: 2, flexShrink: 0 }} />
                     <span style={{ color: "#777", fontSize: "0.82rem" }}>{f}</span>
