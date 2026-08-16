@@ -30,6 +30,8 @@ import {
   reserveCredits,
   consumeVideoCredits,
   releaseVideoCredits,
+  consumeVoiceCredits,
+  releaseVoiceCredits,
   computeReelCreditCost,
   estimateDurationFromScript,
   provisionSubscriptionCredits,
@@ -3022,12 +3024,22 @@ async function pollPendingClonedVoices(): Promise<void> {
       await runVoicePollerCycle({
         fetchPending: async () => voices,
         getStatus: (cloneId) => getVoiceCloneStatus(cloneId, apiKey),
-        updateVoice: (id, patch) =>
-          db
+        updateVoice: async (id, patch) => {
+          await db
             .update(heygenClonedVoicesTable)
             .set({ ...patch, updatedAt: now })
-            .where(eq(heygenClonedVoicesTable.id, id))
-            .then(() => undefined),
+            .where(eq(heygenClonedVoicesTable.id, id));
+          // Credit lifecycle: consume reservation on success, release on failure
+          if (patch.status === "ready") {
+            await consumeVoiceCredits(id, "heygen").catch((err) =>
+              logger.warn({ err, id }, "[VoicePoller] consumeVoiceCredits failed"),
+            );
+          } else if (patch.status === "failed") {
+            await releaseVoiceCredits(id, "heygen", "Voz HeyGen fallida").catch((err) =>
+              logger.warn({ err, id }, "[VoicePoller] releaseVoiceCredits failed"),
+            );
+          }
+        },
         onVoiceReady: async ({ userId, finalVoiceId }) => {
           const [user] = await db
             .select({ email: users.email, username: users.username, fullName: users.fullName })

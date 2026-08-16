@@ -2686,9 +2686,11 @@ function WavespeedPersonaCard({
     }
   })
 
+  const isPlanBlocked = persona.planEnabled === false
+
   return (
     <Card
-      className="overflow-hidden cursor-pointer transition-all duration-300 hover:border-primary/50 hover:shadow-lg"
+      className={`overflow-hidden cursor-pointer transition-all duration-300 hover:border-primary/50 hover:shadow-lg${isPlanBlocked ? " opacity-60 grayscale" : ""}`}
       onClick={onClick}
     >
       <div className="aspect-square bg-muted relative">
@@ -2703,6 +2705,12 @@ function WavespeedPersonaCard({
           <Sparkles className="w-2.5 h-2.5" />
           AI
         </Badge>
+        {isPlanBlocked && (
+          <Badge className="absolute top-2 right-2 gap-1 bg-amber-500 text-white shadow text-[10px] px-1.5">
+            <Lock className="w-2.5 h-2.5" />
+            Pro
+          </Badge>
+        )}
         {activeLooks.length > 0 && (
           <Badge className="absolute bottom-2 left-2 gap-1 bg-primary text-primary-foreground shadow">
             <CheckCircle2 className="w-3 h-3" />
@@ -3487,6 +3495,9 @@ export default function Avatars() {
   // ── WaveSpeed personas ────────────────────────────────────────────────────
   const { data: wavespeedData, refetch: refetchWavespeed } = useWavespeedPersonas()
   const wavespeedPersonas = wavespeedData?.personas ?? []
+  // Plan limit enforcement for Avatar AI creation button
+  const avatarPlanLimit = wavespeedData?.planLimit ?? 0
+  const atAvatarLimit = avatarPlanLimit > 0 && wavespeedPersonas.length >= avatarPlanLimit
 
   // Count of WaveSpeed looks currently selected for rotation across ALL personas.
   const wavespeedSelectedCount = useMemo(() => {
@@ -4323,11 +4334,28 @@ export default function Avatars() {
         {/* ── Mi Avatar tab ── */}
         <TabsContent value="my" className="space-y-6">
           <div className="flex items-center justify-between gap-3 flex-wrap">
-            <p className="text-sm text-muted-foreground">
-              Tus avatares AI generados con tu cara.
-            </p>
+            <div className="flex flex-col gap-0.5">
+              <p className="text-sm text-muted-foreground">
+                Tus avatares AI generados con tu cara.
+              </p>
+              {avatarPlanLimit > 0 && (
+                <p className="text-xs text-muted-foreground/60">
+                  {wavespeedPersonas.length}/{avatarPlanLimit} Avatar{avatarPlanLimit !== 1 ? "es" : ""} AI
+                  {wavespeedData?.planSlug && wavespeedData.planSlug !== "admin"
+                    ? ` · Plan ${wavespeedData.planSlug.charAt(0).toUpperCase() + wavespeedData.planSlug.slice(1)}`
+                    : ""}
+                </p>
+              )}
+            </div>
             <div className="flex gap-2">
-              <Button variant="outline" size="sm" className="gap-1.5 border-violet-400/60 text-violet-700 dark:text-violet-300 hover:bg-violet-50 dark:hover:bg-violet-950/30" onClick={() => setShowWavespeedWizard(true)}>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 border-violet-400/60 text-violet-700 dark:text-violet-300 hover:bg-violet-50 dark:hover:bg-violet-950/30 disabled:opacity-50"
+                disabled={atAvatarLimit}
+                title={atAvatarLimit ? "Límite de Avatares AI alcanzado en tu plan actual" : undefined}
+                onClick={() => setShowWavespeedWizard(true)}
+              >
                 <Sparkles className="w-4 h-4" />
                 Nuevo Avatar AI
               </Button>

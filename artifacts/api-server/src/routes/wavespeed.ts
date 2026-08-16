@@ -2,11 +2,11 @@
  * WaveSpeed routes — persona creation wizard + voice cloning
  *
  * GET  /wavespeed/status                        — health check (no API call)
- * POST /wavespeed/personas                      — create persona + submit 5 look-gen jobs
- * GET  /wavespeed/personas                      — list personas with their looks
+ * POST /wavespeed/personas                      — create persona + submit 3 look-gen jobs (plan-limited)
+ * GET  /wavespeed/personas                      — list personas with their looks + planEnabled flag
  * GET  /wavespeed/personas/:id/looks/status     — poll look generation, update imageUrls in DB
  * DELETE /wavespeed/personas/:id                — delete persona (cascade looks)
- * POST /wavespeed/voices/clone                  — upload audio + submit WaveSpeed clone job
+ * POST /wavespeed/voices/clone                  — upload audio + submit WaveSpeed clone job (first free)
  * GET  /wavespeed/voices                        — list user's WaveSpeed voices
  * GET  /wavespeed/voices/:id/status             — poll voice clone status, update DB when ready
  * PATCH /wavespeed/looks/:id                    — update look name/config (voiceId, selected flag)
@@ -23,7 +23,7 @@ import { writeFile, readFile, unlink } from "fs/promises";
 import { tmpdir } from "os";
 import { join as pathJoin } from "path";
 const execFileAsync = promisify(execFile);
-import { eq, and, isNotNull } from "drizzle-orm";
+import { eq, and, isNotNull, count as drizzleCount } from "drizzle-orm";
 import { db } from "@workspace/db";
 import {
   wavespeedPersonasTable,
@@ -31,6 +31,27 @@ import {
   wavespeedVoicesTable,
   wavespeedJobsTable,
 } from "@workspace/db";
+import {
+  getUserPlanSlug,
+  getAvatarLimit,
+  countUserPersonas,
+  countNonFailedWsVoices,
+  computePersonaPlanEnabled,
+  FREE_LOOKS_PER_PERSONA,
+  FREE_VOICE_CLONES,
+} from "../lib/planLimits";
+import {
+  hasEnoughCredits,
+  getUserCredits,
+  LOOK_CREDIT_COST,
+  EXTRA_VOICE_CREDIT_COST,
+  reserveLookCredits,
+  consumeLookCredits,
+  releaseLookCredits,
+  reserveVoiceCredits,
+  consumeVoiceCredits,
+  releaseVoiceCredits,
+} from "../lib/credits";
 import {
   isWavespeedConfigured,
   WAVESPEED_MODELS,
@@ -194,6 +215,21 @@ router.post("/wavespeed/personas", async (req, res) => {
   }
 
   try {
+    // ── Plan limit enforcement ─────────────────────────────────────────────────
+    // Admins bypass all plan limits.
+    const isAdmin = req.session.user?.role === "admin";
+    if (!isAdmin) {
+      const planSlug  = await getUserPlanSlug(userId);
+      const limit     = getAvatarLimit(planSlug);
+      const current   = await countUserPersonas(userId);
+      if (current >= limit) {
+        const message = !planSlug
+          ? "Necesitas un plan activo para crear Avatares AI."
+          : `Has alcanzado el límite de Avatares AI de tu plan (${limit}). Actualiza tu plan para crear más.`;
+        res.status(403).json({ error: "avatar_limit_reached", message, planSlug, limit, current });
+        return;
+      }
+    }
     // ── Object ownership enforcement ──────────────────────────────────────────
     // 1. Validate the path is canonical (within PRIVATE_OBJECT_DIR) and exists.
     // 2. Claim-on-first-use: if no ACL policy yet, bind the object to this user.
@@ -222,7 +258,7 @@ router.post("/wavespeed/personas", async (req, res) => {
       .values({ userId, name: name.trim(), referenceObjectPath })
       .returning();
 
-    // Submit 5 image-edit jobs in parallel
+    // Submit 3 look-gen jobs in parallel — first 3 looks are always free
     const lookJobs = await Promise.allSettled(
       LOOK_PROMPTS.map((lp) => submitImageEdit(referenceImageUrl, lp.prompt)),
     );
@@ -283,10 +319,23 @@ router.get("/wavespeed/personas", async (req, res) => {
   if (!userId) return;
 
   try {
+    // Fetch personas sorted by creation date (oldest first) — order is used to decide
+    // which personas are "enabled" when the user's plan limit is lower than their total count.
     const personas = await db
       .select()
       .from(wavespeedPersonasTable)
-      .where(eq(wavespeedPersonasTable.userId, userId));
+      .where(eq(wavespeedPersonasTable.userId, userId))
+      .orderBy(wavespeedPersonasTable.createdAt);
+
+    // Determine plan limits
+    const isAdmin   = req.session.user?.role === "admin";
+    const planSlug  = isAdmin ? "admin" : await getUserPlanSlug(userId);
+    const planLimit = isAdmin ? 999 : getAvatarLimit(planSlug);
+
+    // The first N personas (by createdAt ASC) are considered "enabled" by the plan.
+    // If plan = basic (limit 1) and the user has 3 personas from a downgrade, only
+    // persona #1 is enabled; personas #2 and #3 are blocked until they upgrade.
+    const planEnabledMap = computePersonaPlanEnabled(personas, planLimit);
 
     const result = await Promise.all(
       personas.map(async (p) => {
@@ -299,11 +348,11 @@ router.get("/wavespeed/personas", async (req, res) => {
               eq(wavespeedLooksTable.userId, userId),
             ),
           );
-        return { ...p, looks };
+        return { ...p, looks, planEnabled: planEnabledMap.get(p.id) ?? true };
       }),
     );
 
-    res.json({ personas: result });
+    res.json({ personas: result, planSlug, planLimit });
   } catch (err: any) {
     req.log.error({ err }, "[WaveSpeed] Failed to list personas");
     res.status(500).json({ error: err.message ?? "Internal error" });
@@ -383,6 +432,10 @@ router.get("/wavespeed/personas/:id/looks/status", async (req, res) => {
               .update(wavespeedLooksTable)
               .set({ imageUrl, config: newConfig, updatedAt: new Date() })
               .where(eq(wavespeedLooksTable.id, look.id));
+            // Settle paid-look credit reservation — no-op if the look was free
+            consumeLookCredits(look.id).catch((err) =>
+              req.log.warn({ err, lookId: look.id }, "[WaveSpeed] consumeLookCredits failed"),
+            );
             return { ...look, imageUrl, config: newConfig };
           } else if (result.status === "failed") {
             req.log.error({ lookId: look.id, error: result.error }, "[WaveSpeed] Look job failed");
@@ -393,6 +446,10 @@ router.get("/wavespeed/personas/:id/looks/status", async (req, res) => {
               .update(wavespeedLooksTable)
               .set({ config: newConfig, updatedAt: new Date() })
               .where(eq(wavespeedLooksTable.id, look.id));
+            // Release paid-look credit reservation so the user can retry — no-op if free
+            releaseLookCredits(look.id, "Look fallido").catch((err) =>
+              req.log.warn({ err, lookId: look.id }, "[WaveSpeed] releaseLookCredits failed"),
+            );
             return { ...look, config: newConfig };
           }
         } catch (pollErr: any) {
@@ -465,6 +522,27 @@ router.post("/wavespeed/voices/clone", upload.single("audio"), async (req, res) 
     return;
   }
 
+  // ── Credit gate for paid voice clones (2nd+ clone per user) ──────────────
+  // The first WaveSpeed voice clone per user is always free.
+  // Admins bypass all credit requirements.
+  const isAdminVoice = req.session.user?.role === "admin";
+  const nonFailedVoiceCount = isAdminVoice ? 0 : await countNonFailedWsVoices(userId);
+  const needsVoiceCredits = !isAdminVoice && nonFailedVoiceCount >= FREE_VOICE_CLONES;
+
+  if (needsVoiceCredits) {
+    const enough = await hasEnoughCredits(userId, EXTRA_VOICE_CREDIT_COST);
+    if (!enough) {
+      const wallet = await getUserCredits(userId);
+      res.status(402).json({
+        error:     "insufficient_credits",
+        message:   `Necesitas ${EXTRA_VOICE_CREDIT_COST} créditos para clonar una voz adicional. Tienes ${wallet.availableCredits} disponibles.`,
+        required:  EXTRA_VOICE_CREDIT_COST,
+        available: wallet.availableCredits,
+      });
+      return;
+    }
+  }
+
   try {
     // Convert whatever the browser recorded (webm, ogg…) to 16-kHz mono WAV.
     // WaveSpeed's minimax voice-clone API rejects webm/ogg by extension (code 2013)
@@ -495,6 +573,17 @@ router.post("/wavespeed/voices/clone", upload.single("audio"), async (req, res) 
         sourceAudioObjectName,           // for regenerating play URLs later
       })
       .returning();
+
+    // Reserve credits for paid voice clones — fire-and-forget after row creation so the
+    // response is not blocked.  Reservation failure is logged; on the rare race where
+    // it fails the user gets a free extra clone (acceptable edge case).
+    if (needsVoiceCredits) {
+      reserveVoiceCredits(
+        userId, EXTRA_VOICE_CREDIT_COST, voiceRow.id, "wavespeed", "Voz clonada adicional",
+      ).catch((err) =>
+        req.log.warn({ err, voiceId: voiceRow.id }, "[WaveSpeed] Voice credit reservation failed"),
+      );
+    }
 
     res.json({ voiceId: voiceRow.id, displayName: voiceRow.displayName, status: voiceRow.status });
   } catch (err: any) {
@@ -592,6 +681,10 @@ router.get("/wavespeed/voices/:id/status", async (req, res) => {
         .where(and(eq(wavespeedVoicesTable.id, voiceId), eq(wavespeedVoicesTable.userId, userId)))
         .returning();
       updated = u;
+      // Settle paid-voice credit reservation — no-op for the first (free) clone
+      consumeVoiceCredits(voiceId, "wavespeed").catch((err) =>
+        req.log.warn({ err, voiceId }, "[WaveSpeed] consumeVoiceCredits failed"),
+      );
     } else if (result.status === "failed") {
       const [u] = await db
         .update(wavespeedVoicesTable)
@@ -599,6 +692,10 @@ router.get("/wavespeed/voices/:id/status", async (req, res) => {
         .where(and(eq(wavespeedVoicesTable.id, voiceId), eq(wavespeedVoicesTable.userId, userId)))
         .returning();
       updated = u;
+      // Release paid-voice credit reservation so the user can retry — no-op for free clones
+      releaseVoiceCredits(voiceId, "wavespeed", "Voz fallida").catch((err) =>
+        req.log.warn({ err, voiceId }, "[WaveSpeed] releaseVoiceCredits failed"),
+      );
     }
 
     res.json(updated);
@@ -767,6 +864,31 @@ router.post("/wavespeed/personas/:id/looks/generate", async (req, res) => {
 
     if (!persona) { res.status(404).json({ error: "Persona not found" }); return; }
 
+    // ── Credit gate for paid looks (4th+ look per persona) ────────────────────
+    // The first FREE_LOOKS_PER_PERSONA (3) looks generated on persona creation are always free.
+    // Admins bypass all credit requirements.
+    const isAdmin = req.session.user?.role === "admin";
+    const [lookCountRow] = await db
+      .select({ cnt: drizzleCount() })
+      .from(wavespeedLooksTable)
+      .where(and(eq(wavespeedLooksTable.personaId, personaId), eq(wavespeedLooksTable.userId, userId)));
+    const lookCount = Number(lookCountRow?.cnt ?? 0);
+    const needsLookCredits = !isAdmin && lookCount >= FREE_LOOKS_PER_PERSONA;
+
+    if (needsLookCredits) {
+      const enough = await hasEnoughCredits(userId, LOOK_CREDIT_COST);
+      if (!enough) {
+        const wallet = await getUserCredits(userId);
+        res.status(402).json({
+          error:     "insufficient_credits",
+          message:   `Necesitas ${LOOK_CREDIT_COST} créditos para generar un look adicional. Tienes ${wallet.availableCredits} disponibles.`,
+          required:  LOOK_CREDIT_COST,
+          available: wallet.availableCredits,
+        });
+        return;
+      }
+    }
+
     // Determine reference image:
     // 1. Use baseLookId's imageUrl if provided (user picked an existing look as reference)
     // 2. Fall back to the persona's original reference photo
@@ -821,6 +943,19 @@ router.post("/wavespeed/personas/:id/looks/generate", async (req, res) => {
       .insert(wavespeedLooksTable)
       .values({ userId, personaId, name: lookName, config })
       .returning();
+
+    // Reserve credits for paid looks (4th+ look per persona).
+    // Done after DB row creation so we have the look ID for the ledger entry.
+    // If reservation fails (concurrent race depletes balance), clean up the look row.
+    if (needsLookCredits) {
+      try {
+        await reserveLookCredits(userId, LOOK_CREDIT_COST, look.id, "Look adicional");
+      } catch (creditErr: any) {
+        await db.delete(wavespeedLooksTable).where(eq(wavespeedLooksTable.id, look.id)).catch(() => {});
+        res.status(402).json({ error: "insufficient_credits", message: creditErr.message ?? "Créditos insuficientes" });
+        return;
+      }
+    }
 
     await db.insert(wavespeedJobsTable).values({
       userId,

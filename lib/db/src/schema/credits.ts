@@ -79,6 +79,15 @@ export const creditLedgerTable = pgTable("credit_ledger", {
   purchasedAmount:     integer("purchased_amount"),
   /** Video this movement is associated with (nullable). */
   videoId:         integer("video_id").references(() => videosTable.id, { onDelete: "set null" }),
+  /** WaveSpeed look this movement is associated with (nullable). */
+  lookId:          integer("look_id"),
+  /** Voice clone row ID this movement is associated with (nullable). */
+  voiceCloneId:    integer("voice_clone_id"),
+  /**
+   * Disambiguates voiceCloneId when two providers share the same integer ID space.
+   * Values: 'wavespeed' | 'heygen'
+   */
+  voiceCloneType:  varchar("voice_clone_type", { length: 16 }),
   /** For consume/release rows: the id of the original reserve entry. */
   relatedLedgerId: integer("related_ledger_id"), // intentional: no FK to avoid self-reference complexity
   description:     text("description"),

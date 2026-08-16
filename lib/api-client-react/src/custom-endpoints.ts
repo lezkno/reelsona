@@ -1036,6 +1036,12 @@ export interface WavespeedPersonaWithLooks {
   createdAt: string;
   updatedAt: string;
   looks: WavespeedLookRow[];
+  /**
+   * Whether this persona is enabled by the user's current plan.
+   * Personas beyond the plan limit are false (blocked) after a downgrade.
+   * Older personas (by createdAt) take priority; re-upgrading restores access.
+   */
+  planEnabled?: boolean;
 }
 
 export interface WavespeedVoiceRow {
@@ -1062,12 +1068,22 @@ export interface WavespeedVoiceRow {
 
 export const WAVESPEED_PERSONAS_KEY = ["wavespeed", "personas"] as const;
 
-/** List the authenticated user's WaveSpeed personas with their looks. */
+/** List the authenticated user's WaveSpeed personas with their looks, plus plan-limit metadata. */
 export function useWavespeedPersonas() {
-  return useQuery<{ personas: WavespeedPersonaWithLooks[] }>({
+  return useQuery<{
+    personas: WavespeedPersonaWithLooks[];
+    /** Active plan slug (e.g. "basic", "pro", "founder") or null for no active plan. */
+    planSlug: string | null;
+    /** Maximum number of WaveSpeed personas allowed by the current plan. */
+    planLimit: number;
+  }>({
     queryKey: WAVESPEED_PERSONAS_KEY,
     queryFn: () =>
-      customFetch<{ personas: WavespeedPersonaWithLooks[] }>("/api/wavespeed/personas"),
+      customFetch<{
+        personas: WavespeedPersonaWithLooks[];
+        planSlug: string | null;
+        planLimit: number;
+      }>("/api/wavespeed/personas"),
     staleTime: 1000 * 60,
   });
 }

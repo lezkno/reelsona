@@ -1,0 +1,84 @@
+BLOQUE 2 — Límites de avatares, looks y voces
+Trabaja sobre el estado actual ya corregido del Bloque 1. No cambies precios, créditos de planes, Stripe, Founder, landing, Billing, B-roll ni portadas en este bloque.
+1. Límites de Avatar AI propio por plan
+Aplicar en backend, no solo en UI:
+Basic: máximo 1 Avatar AI propio
+Pro: máximo 3
+Founder: máximo 3
+Antes de crear un nuevo avatar propio, obtener el plan activo del usuario y contar sus avatares propios existentes.
+Si excede el límite, responder con error genérico de producto, por ejemplo:
+Has alcanzado el límite de Avatares AI de tu plan.
+No mencionar proveedor, modelo ni infraestructura.
+2. 3 looks iniciales incluidos
+Cada Avatar AI propio nuevo recibe exactamente 3 looks iniciales sin consumir créditos.
+Mantener únicamente estos 3:
+Profesional
+Cercano
+Dinámico
+Corregir cualquier comentario/documentación interna que todavía diga 5 looks.
+3. Looks adicionales
+Desde el cuarto look en adelante:
+2 créditos por look.
+Antes de lanzar la generación:
+comprobar saldo → reservar 2 créditos → generar → consumir al completar → devolver si falla.
+Reutilizar la infraestructura existente del wallet. No crear un segundo sistema financiero.
+Debe ser idempotente y no puede cobrar dos veces por el mismo job.
+4. Voz clonada
+La primera voz clonada del usuario está incluida y cuesta 0 créditos.
+Cada voz clonada adicional:
+10 créditos.
+Antes de generar una voz adicional:
+comprobar saldo → reservar 10 créditos → generar → consumir al completar → devolver si falla.
+Si la primera voz falla, sigue contando como no creada; el siguiente intento continúa siendo gratuito.
+5. Downgrade Pro/Founder → Basic
+No borrar avatares, looks ni voces.
+Si el usuario tiene 2 o 3 avatares propios y su plan pasa a Basic:
+conservar todos los registros y assets;
+permitir usar solo 1 Avatar AI propio;
+los demás quedan bloqueados/inactivos;
+si vuelve a Pro, recupera acceso a ellos inmediatamente.
+No destruir ni regenerar assets.
+Implementar esto de forma que cualquier endpoint de generación valide que el avatar solicitado está habilitado por el plan actual.
+6. UI
+Mostrar límites de forma genérica:
+Basic: 1 Avatar AI
+Pro/Founder: Hasta 3 Avatares AI
+Para un avatar bloqueado tras downgrade:
+Disponible con Pro
+No mencionar proveedores ni modelos.
+7. Seguridad
+Validar ownership de avatar/look/voz en cada operación.
+Un usuario nunca puede generar, modificar o seleccionar assets de otro usuario aunque conozca el ID.
+8. No modificar en este bloque
+No tocar:
+Stripe upgrade/downgrade billing;
+cron Founder;
+B-roll;
+portadas;
+landing;
+Billing comercial;
+precios;
+Basic 400 / Pro 1500 / Founder 1500;
+50 créditos/30 s.
+9. Pruebas obligatorias
+Verificar:
+Basic crea avatar 1 → permitido.
+Basic intenta avatar 2 → bloqueado.
+Pro crea avatar 1, 2 y 3 → permitido.
+Pro intenta avatar 4 → bloqueado.
+Founder mismo límite que Pro.
+Avatar nuevo genera exactamente 3 looks gratis.
+Look 4 cuesta 2 créditos.
+Fallo en look devuelve los 2 créditos.
+Primera voz clonada cuesta 0.
+Segunda voz cuesta 10.
+Fallo en segunda voz devuelve 10.
+Tras downgrade a Basic, solo 1 avatar puede usarse y los demás permanecen guardados.
+ningún mensaje visible menciona proveedor/modelo.
+build/tests pasan.
+Al terminar:
+commit;
+push a main;
+indicar SHA;
+listar archivos modificados;
+no empezar otro bloque.

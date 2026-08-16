@@ -641,6 +641,440 @@ export async function adjustCredits(
   logger.info({ userId, amount, description }, "[Credits] Adjusted");
 }
 
+// ── Look credit lifecycle ─────────────────────────────────────────────────────
+// Mirrors the video credit lifecycle but keyed by lookId.
+// The 3 looks generated on persona creation are always free; only the 4th+ look
+// triggers a reservation (LOOK_CREDIT_COST = 2 credits each).
+
+/**
+ * Reserve credits for an additional look about to be generated.
+ * Call after creating the look DB row (so lookId is known) but before responding to the client.
+ * Throws if the user does not have enough available credits.
+ */
+export async function reserveLookCredits(
+  userId:      number,
+  amount:      number,
+  lookId:      number,
+  description: string,
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    const [wallet] = await tx
+      .select()
+      .from(userCreditsTable)
+      .where(eq(userCreditsTable.userId, userId))
+      .for("update")
+      .limit(1);
+
+    const available = wallet?.availableCredits ?? 0;
+    if (available < amount) {
+      throw new Error(`Saldo insuficiente: ${available} créditos disponibles, se requieren ${amount}`);
+    }
+
+    const subCr  = wallet?.subscriptionCredits ?? 0;
+    const purCr  = wallet?.purchasedCredits    ?? 0;
+    const fromSub = Math.min(subCr, amount);
+    const fromPur = amount - fromSub;
+    const pool = fromSub > 0 && fromPur > 0 ? "mixed" : fromSub > 0 ? "subscription" : "purchased";
+
+    await tx
+      .update(userCreditsTable)
+      .set({
+        availableCredits:    available - amount,
+        subscriptionCredits: subCr - fromSub,
+        purchasedCredits:    purCr - fromPur,
+        reservedCredits:     (wallet?.reservedCredits ?? 0) + amount,
+        updatedAt:           new Date(),
+      })
+      .where(eq(userCreditsTable.userId, userId));
+
+    await tx.insert(creditLedgerTable).values({
+      userId,
+      type:               "reserve",
+      amount:             -amount,
+      balanceBefore:      available,
+      balanceAfter:       available - amount,
+      pool,
+      subscriptionAmount: fromSub > 0 ? fromSub : undefined,
+      purchasedAmount:    fromPur > 0 ? fromPur : undefined,
+      lookId,
+      description,
+    });
+  });
+
+  logger.info({ userId, amount, lookId }, "[Credits] Look reserve");
+}
+
+/**
+ * Consume the look reservation when generation completes successfully.
+ * Idempotent: safe to call more than once.
+ */
+export async function consumeLookCredits(lookId: number): Promise<void> {
+  await db.transaction(async (tx) => {
+    const [reservation] = await tx
+      .select()
+      .from(creditLedgerTable)
+      .where(and(eq(creditLedgerTable.lookId, lookId), eq(creditLedgerTable.type, "reserve")))
+      .for("update")
+      .limit(1);
+
+    if (!reservation) {
+      logger.debug({ lookId }, "[Credits] No look reserve — skipping consume");
+      return;
+    }
+
+    const [alreadySettled] = await tx
+      .select({ id: creditLedgerTable.id })
+      .from(creditLedgerTable)
+      .where(
+        and(
+          eq(creditLedgerTable.relatedLedgerId, reservation.id),
+          inArray(creditLedgerTable.type, ["consume", "release"]),
+        ),
+      )
+      .limit(1);
+    if (alreadySettled) return;
+
+    const amount = Math.abs(reservation.amount);
+    const userId = reservation.userId;
+
+    const [wallet] = await tx
+      .select()
+      .from(userCreditsTable)
+      .where(eq(userCreditsTable.userId, userId))
+      .for("update")
+      .limit(1);
+    if (!wallet) return;
+
+    await tx
+      .update(userCreditsTable)
+      .set({
+        reservedCredits: Math.max(0, wallet.reservedCredits - amount),
+        totalConsumed:   wallet.totalConsumed + amount,
+        updatedAt:       new Date(),
+      })
+      .where(eq(userCreditsTable.userId, userId));
+
+    await tx.insert(creditLedgerTable).values({
+      userId,
+      type:               "consume",
+      amount:             -amount,
+      balanceBefore:      wallet.availableCredits,
+      balanceAfter:       wallet.availableCredits,
+      pool:               reservation.pool ?? undefined,
+      subscriptionAmount: reservation.subscriptionAmount ?? undefined,
+      purchasedAmount:    reservation.purchasedAmount    ?? undefined,
+      lookId,
+      relatedLedgerId:    reservation.id,
+      description:        `Look ${lookId} completado`,
+    });
+  });
+
+  logger.info({ lookId }, "[Credits] Look consumed");
+}
+
+/**
+ * Release the look reservation when generation fails.
+ * Returns the reserved credits to the correct pool(s). Idempotent.
+ */
+export async function releaseLookCredits(lookId: number, reason: string): Promise<void> {
+  await db.transaction(async (tx) => {
+    const [reservation] = await tx
+      .select()
+      .from(creditLedgerTable)
+      .where(and(eq(creditLedgerTable.lookId, lookId), eq(creditLedgerTable.type, "reserve")))
+      .for("update")
+      .limit(1);
+
+    if (!reservation) {
+      logger.debug({ lookId }, "[Credits] No look reserve — skipping release");
+      return;
+    }
+
+    const [alreadySettled] = await tx
+      .select({ id: creditLedgerTable.id })
+      .from(creditLedgerTable)
+      .where(
+        and(
+          eq(creditLedgerTable.relatedLedgerId, reservation.id),
+          inArray(creditLedgerTable.type, ["consume", "release"]),
+        ),
+      )
+      .limit(1);
+    if (alreadySettled) return;
+
+    const amount = Math.abs(reservation.amount);
+    const userId = reservation.userId;
+
+    const [wallet] = await tx
+      .select()
+      .from(userCreditsTable)
+      .where(eq(userCreditsTable.userId, userId))
+      .for("update")
+      .limit(1);
+    if (!wallet) return;
+
+    const fromSub = reservation.subscriptionAmount ?? 0;
+    const fromPur = reservation.purchasedAmount    ?? 0;
+    const restoreToSub = fromSub > 0 ? fromSub : reservation.pool === "subscription" ? amount : 0;
+    const restoreToPur = fromPur > 0 ? fromPur : amount - restoreToSub;
+
+    await tx
+      .update(userCreditsTable)
+      .set({
+        availableCredits:    wallet.availableCredits + amount,
+        subscriptionCredits: wallet.subscriptionCredits + restoreToSub,
+        purchasedCredits:    wallet.purchasedCredits    + restoreToPur,
+        reservedCredits:     Math.max(0, wallet.reservedCredits - amount),
+        updatedAt:           new Date(),
+      })
+      .where(eq(userCreditsTable.userId, userId));
+
+    await tx.insert(creditLedgerTable).values({
+      userId,
+      type:               "release",
+      amount,
+      balanceBefore:      wallet.availableCredits,
+      balanceAfter:       wallet.availableCredits + amount,
+      pool:               reservation.pool ?? undefined,
+      subscriptionAmount: fromSub > 0 ? fromSub : undefined,
+      purchasedAmount:    fromPur > 0 ? fromPur : undefined,
+      lookId,
+      relatedLedgerId:    reservation.id,
+      description:        reason,
+    });
+  });
+
+  logger.info({ lookId, reason }, "[Credits] Look released");
+}
+
+// ── Voice clone credit lifecycle ──────────────────────────────────────────────
+// The first clone (per user, across all providers) is free.
+// The 2nd+ clone costs EXTRA_VOICE_CREDIT_COST = 10 credits each.
+// voiceCloneType: 'wavespeed' | 'heygen' — disambiguates integer ID spaces.
+
+/**
+ * Reserve credits for an additional voice clone (2nd+ clone).
+ * Throws if the user does not have enough available credits.
+ */
+export async function reserveVoiceCredits(
+  userId:         number,
+  amount:         number,
+  voiceCloneId:   number,
+  voiceCloneType: "wavespeed" | "heygen",
+  description:    string,
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    const [wallet] = await tx
+      .select()
+      .from(userCreditsTable)
+      .where(eq(userCreditsTable.userId, userId))
+      .for("update")
+      .limit(1);
+
+    const available = wallet?.availableCredits ?? 0;
+    if (available < amount) {
+      throw new Error(`Saldo insuficiente: ${available} créditos disponibles, se requieren ${amount}`);
+    }
+
+    const subCr  = wallet?.subscriptionCredits ?? 0;
+    const purCr  = wallet?.purchasedCredits    ?? 0;
+    const fromSub = Math.min(subCr, amount);
+    const fromPur = amount - fromSub;
+    const pool = fromSub > 0 && fromPur > 0 ? "mixed" : fromSub > 0 ? "subscription" : "purchased";
+
+    await tx
+      .update(userCreditsTable)
+      .set({
+        availableCredits:    available - amount,
+        subscriptionCredits: subCr - fromSub,
+        purchasedCredits:    purCr - fromPur,
+        reservedCredits:     (wallet?.reservedCredits ?? 0) + amount,
+        updatedAt:           new Date(),
+      })
+      .where(eq(userCreditsTable.userId, userId));
+
+    await tx.insert(creditLedgerTable).values({
+      userId,
+      type:               "reserve",
+      amount:             -amount,
+      balanceBefore:      available,
+      balanceAfter:       available - amount,
+      pool,
+      subscriptionAmount: fromSub > 0 ? fromSub : undefined,
+      purchasedAmount:    fromPur > 0 ? fromPur : undefined,
+      voiceCloneId,
+      voiceCloneType,
+      description,
+    });
+  });
+
+  logger.info({ userId, amount, voiceCloneId, voiceCloneType }, "[Credits] Voice reserve");
+}
+
+/**
+ * Consume the voice clone reservation when cloning completes successfully.
+ * Idempotent: safe to call more than once.
+ */
+export async function consumeVoiceCredits(
+  voiceCloneId:   number,
+  voiceCloneType: "wavespeed" | "heygen",
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    const [reservation] = await tx
+      .select()
+      .from(creditLedgerTable)
+      .where(
+        and(
+          eq(creditLedgerTable.voiceCloneId,   voiceCloneId),
+          eq(creditLedgerTable.voiceCloneType,  voiceCloneType),
+          eq(creditLedgerTable.type,            "reserve"),
+        ),
+      )
+      .for("update")
+      .limit(1);
+
+    if (!reservation) {
+      logger.debug({ voiceCloneId, voiceCloneType }, "[Credits] No voice reserve — skipping consume");
+      return;
+    }
+
+    const [alreadySettled] = await tx
+      .select({ id: creditLedgerTable.id })
+      .from(creditLedgerTable)
+      .where(
+        and(
+          eq(creditLedgerTable.relatedLedgerId, reservation.id),
+          inArray(creditLedgerTable.type, ["consume", "release"]),
+        ),
+      )
+      .limit(1);
+    if (alreadySettled) return;
+
+    const amount = Math.abs(reservation.amount);
+    const userId = reservation.userId;
+
+    const [wallet] = await tx
+      .select()
+      .from(userCreditsTable)
+      .where(eq(userCreditsTable.userId, userId))
+      .for("update")
+      .limit(1);
+    if (!wallet) return;
+
+    await tx
+      .update(userCreditsTable)
+      .set({
+        reservedCredits: Math.max(0, wallet.reservedCredits - amount),
+        totalConsumed:   wallet.totalConsumed + amount,
+        updatedAt:       new Date(),
+      })
+      .where(eq(userCreditsTable.userId, userId));
+
+    await tx.insert(creditLedgerTable).values({
+      userId,
+      type:               "consume",
+      amount:             -amount,
+      balanceBefore:      wallet.availableCredits,
+      balanceAfter:       wallet.availableCredits,
+      pool:               reservation.pool ?? undefined,
+      subscriptionAmount: reservation.subscriptionAmount ?? undefined,
+      purchasedAmount:    reservation.purchasedAmount    ?? undefined,
+      voiceCloneId,
+      voiceCloneType,
+      relatedLedgerId:    reservation.id,
+      description:        `Voz ${voiceCloneType}-${voiceCloneId} lista`,
+    });
+  });
+
+  logger.info({ voiceCloneId, voiceCloneType }, "[Credits] Voice consumed");
+}
+
+/**
+ * Release the voice clone reservation when cloning fails.
+ * Returns the reserved credits to the correct pool(s). Idempotent.
+ */
+export async function releaseVoiceCredits(
+  voiceCloneId:   number,
+  voiceCloneType: "wavespeed" | "heygen",
+  reason:         string,
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    const [reservation] = await tx
+      .select()
+      .from(creditLedgerTable)
+      .where(
+        and(
+          eq(creditLedgerTable.voiceCloneId,   voiceCloneId),
+          eq(creditLedgerTable.voiceCloneType,  voiceCloneType),
+          eq(creditLedgerTable.type,            "reserve"),
+        ),
+      )
+      .for("update")
+      .limit(1);
+
+    if (!reservation) {
+      logger.debug({ voiceCloneId, voiceCloneType }, "[Credits] No voice reserve — skipping release");
+      return;
+    }
+
+    const [alreadySettled] = await tx
+      .select({ id: creditLedgerTable.id })
+      .from(creditLedgerTable)
+      .where(
+        and(
+          eq(creditLedgerTable.relatedLedgerId, reservation.id),
+          inArray(creditLedgerTable.type, ["consume", "release"]),
+        ),
+      )
+      .limit(1);
+    if (alreadySettled) return;
+
+    const amount = Math.abs(reservation.amount);
+    const userId = reservation.userId;
+
+    const [wallet] = await tx
+      .select()
+      .from(userCreditsTable)
+      .where(eq(userCreditsTable.userId, userId))
+      .for("update")
+      .limit(1);
+    if (!wallet) return;
+
+    const fromSub = reservation.subscriptionAmount ?? 0;
+    const fromPur = reservation.purchasedAmount    ?? 0;
+    const restoreToSub = fromSub > 0 ? fromSub : reservation.pool === "subscription" ? amount : 0;
+    const restoreToPur = fromPur > 0 ? fromPur : amount - restoreToSub;
+
+    await tx
+      .update(userCreditsTable)
+      .set({
+        availableCredits:    wallet.availableCredits + amount,
+        subscriptionCredits: wallet.subscriptionCredits + restoreToSub,
+        purchasedCredits:    wallet.purchasedCredits    + restoreToPur,
+        reservedCredits:     Math.max(0, wallet.reservedCredits - amount),
+        updatedAt:           new Date(),
+      })
+      .where(eq(userCreditsTable.userId, userId));
+
+    await tx.insert(creditLedgerTable).values({
+      userId,
+      type:               "release",
+      amount,
+      balanceBefore:      wallet.availableCredits,
+      balanceAfter:       wallet.availableCredits + amount,
+      pool:               reservation.pool ?? undefined,
+      subscriptionAmount: fromSub > 0 ? fromSub : undefined,
+      purchasedAmount:    fromPur > 0 ? fromPur : undefined,
+      voiceCloneId,
+      voiceCloneType,
+      relatedLedgerId:    reservation.id,
+      description:        reason,
+    });
+  });
+
+  logger.info({ voiceCloneId, voiceCloneType, reason }, "[Credits] Voice released");
+}
+
 // ── Recovery ──────────────────────────────────────────────────────────────────
 
 /** Placeholder — orphan cleanup handled inline in the polling loop (scheduler.ts). */

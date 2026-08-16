@@ -3,7 +3,7 @@ import { randomUUID, createHash } from "crypto";
 import multer from "multer";
 import { db } from "@workspace/db";
 import { avatarConfigTable, settingsTable, heygenClonedVoicesTable, avatarLookMetadataTable } from "@workspace/db";
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, inArray, count as drizzleCount, ne } from "drizzle-orm";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import os from "os";
@@ -12,6 +12,13 @@ import path from "path";
 import axios from "axios";
 import { objectStorageClient, getSignedObjectUrl } from "../lib/objectStorage";
 import { logger } from "../lib/logger";
+import {
+  hasEnoughCredits,
+  getUserCredits,
+  EXTRA_VOICE_CREDIT_COST,
+  reserveVoiceCredits,
+} from "../lib/credits";
+import { FREE_VOICE_CLONES } from "../lib/planLimits";
 
 const execFileAsync = promisify(execFile);
 
@@ -251,6 +258,32 @@ router.post("/heygen/voices/clone", voiceUpload.single("audio"), async (req, res
     if (!req.file) {
       res.status(400).json({ error: "Se requiere un archivo de audio" }); return;
     }
+
+    // ── Credit gate for paid voice clones (2nd+ clone per user) ──────────────
+    const isAdminHgVoice = req.session.user!.role === "admin";
+    let needsHgVoiceCredits = false;
+    if (!isAdminHgVoice) {
+      const [hgVoiceCntRow] = await db
+        .select({ cnt: drizzleCount() })
+        .from(heygenClonedVoicesTable)
+        .where(and(eq(heygenClonedVoicesTable.userId, userId), ne(heygenClonedVoicesTable.status, "failed")));
+      const nonFailedHgCount = Number(hgVoiceCntRow?.cnt ?? 0);
+      needsHgVoiceCredits = nonFailedHgCount >= FREE_VOICE_CLONES;
+      if (needsHgVoiceCredits) {
+        const enough = await hasEnoughCredits(userId, EXTRA_VOICE_CREDIT_COST);
+        if (!enough) {
+          const wallet = await getUserCredits(userId);
+          res.status(402).json({
+            error:     "insufficient_credits",
+            message:   `Necesitas ${EXTRA_VOICE_CREDIT_COST} créditos para clonar una voz adicional. Tienes ${wallet.availableCredits} disponibles.`,
+            required:  EXTRA_VOICE_CREDIT_COST,
+            available: wallet.availableCredits,
+          });
+          return;
+        }
+      }
+    }
+
     const apiKey = await getUserHeyGenKey(userId);
     const rawSpeed = req.body?.speed;
     const speed = rawSpeed != null ? parseFloat(rawSpeed) : null;
@@ -268,13 +301,21 @@ router.post("/heygen/voices/clone", voiceUpload.single("audio"), async (req, res
     const audioUrl = await uploadAudioForCloning(audioBuffer, userId);
 
     const voiceId = await cloneVoice(audioUrl, name.trim(), apiKey);
-    await db.insert(heygenClonedVoicesTable).values({
+    const [hgVoiceRow] = await db.insert(heygenClonedVoicesTable).values({
       userId,
       voiceId,
       displayName: name.trim(),
       status: "pending",
       speed: speed != null && !isNaN(speed) ? speed : null,
-    });
+    }).returning({ id: heygenClonedVoicesTable.id });
+
+    // Reserve credits for paid voice clones (2nd+ clone) — fire-and-forget
+    if (needsHgVoiceCredits && hgVoiceRow?.id) {
+      reserveVoiceCredits(userId, EXTRA_VOICE_CREDIT_COST, hgVoiceRow.id, "heygen", "Voz clonada adicional").catch((err) =>
+        logger.warn({ err, hgVoiceId: hgVoiceRow.id }, "[HeyGen] Voice credit reservation failed"),
+      );
+    }
+
     res.json({ voice_id: voiceId, display_name: name.trim(), status: "pending" });
   } catch (err: any) {
     const msg = err?.message ?? "Error al clonar la voz";
