@@ -3363,6 +3363,24 @@ export default function Avatars() {
   const patchWsLookAssign = usePatchWavespeedLook()
   const [wsAssignSaving, setWsAssignSaving] = useState<number | null>(null)
 
+  // voiceId → active looks that have that voice assigned
+  const wsVoiceAssignedLooks = useMemo(() => {
+    const map = new Map<number, WavespeedLookRow[]>()
+    for (const persona of wavespeedPersonas) {
+      for (const look of persona.looks) {
+        try {
+          const cfg = JSON.parse(look.config ?? "{}") as { selected?: boolean; voiceId?: number | null }
+          if (cfg.selected && cfg.voiceId != null) {
+            const list = map.get(cfg.voiceId) ?? []
+            list.push(look)
+            map.set(cfg.voiceId, list)
+          }
+        } catch { /* skip */ }
+      }
+    }
+    return map
+  }, [wavespeedPersonas])
+
   const getLookVoiceId = (look: WavespeedLookRow): number | null => {
     try { return (JSON.parse(look.config ?? "{}") as { voiceId?: number | null }).voiceId ?? null }
     catch { return null }
@@ -3610,6 +3628,23 @@ export default function Avatars() {
     isLoading: isLoadingPublic,
   } = usePublicHeyGenAvatarGroups()
   const publicGroups: V3Group[] = publicPages?.pages.flatMap(p => p.groups) ?? []
+
+  // voiceId → selected HeyGen groups that have that voice assigned
+  const heygenVoiceAssignedGroups = useMemo(() => {
+    const map = new Map<string, V3Group[]>()
+    const allGroupsById = new Map([...myGroups, ...publicGroups].map(g => [g.id, g]))
+    for (const [lookId, voiceId] of Object.entries(voiceOverrides)) {
+      if (!selectedIds.has(lookId)) continue
+      const groupId = lookGroupMap[lookId]
+      if (!groupId) continue
+      const group = allGroupsById.get(groupId)
+      if (!group) continue
+      const list = map.get(voiceId) ?? []
+      if (!list.some(g => g.id === groupId)) list.push(group)
+      map.set(voiceId, list)
+    }
+    return map
+  }, [voiceOverrides, lookGroupMap, selectedIds, myGroups, publicGroups])
 
   // ── Spanish voices (for look-level picker) ────────────────────────────────
   // Exclude pending/failed cloned voices — they can't be used for generation yet.
@@ -4453,8 +4488,11 @@ export default function Avatars() {
               <div className="space-y-2">
                 {wavespeedVoices
                   .filter(v => !voiceSearch || v.displayName.toLowerCase().includes(voiceSearch.toLowerCase()))
-                  .map(v => (
-                  <div key={v.id} className="rounded-xl border bg-card overflow-hidden">
+                  .map(v => {
+                    const wsAssignedLooks = wsVoiceAssignedLooks.get(v.id) ?? []
+                    const wsIsAssigned = v.status === "ready" && wsAssignedLooks.length > 0
+                    return (
+                    <div key={v.id} className={`rounded-xl border overflow-hidden transition-colors ${wsIsAssigned ? "border-violet-400 bg-violet-50/50 dark:bg-violet-950/20" : "bg-card"}`}>
                     <div className="flex items-center gap-3 p-3 hover:bg-muted/40 transition-colors">
                       <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${
                         v.status === "pending" ? "bg-amber-500/10" : v.status === "failed" ? "bg-destructive/10" : "bg-violet-500/10"
@@ -4529,8 +4567,28 @@ export default function Avatars() {
                         <Trash2 className="w-3.5 h-3.5" />
                       </Button>
                     </div>
+                    {wsIsAssigned && (
+                      <div className="flex items-center gap-1.5 px-3 pb-2.5">
+                        <span className="text-[10px] text-violet-600 font-semibold uppercase tracking-wide mr-1">En uso:</span>
+                        {wsAssignedLooks.slice(0, 6).map(look =>
+                          look.imageUrl ? (
+                            <img key={look.id} src={look.imageUrl} alt={look.name} title={look.name}
+                              className="w-6 h-6 rounded-full object-cover border-2 border-violet-400 shrink-0 -ml-1 first:ml-0" />
+                          ) : (
+                            <div key={look.id} title={look.name}
+                              className="w-6 h-6 rounded-full bg-violet-200 dark:bg-violet-900 border-2 border-violet-400 flex items-center justify-center shrink-0 -ml-1 first:ml-0">
+                              <Users className="w-3 h-3 text-violet-600" />
+                            </div>
+                          )
+                        )}
+                        {wsAssignedLooks.length > 6 && (
+                          <span className="text-[10px] text-violet-600 font-medium ml-1">+{wsAssignedLooks.length - 6}</span>
+                        )}
+                      </div>
+                    )}
                   </div>
-                ))}
+                  )
+                  })}
               </div>
             </div>
           )}
@@ -4566,8 +4624,11 @@ export default function Avatars() {
                 <Mic className="w-4 h-4 text-primary" /> Mis voces clonadas
               </h3>
               <div className="space-y-2">
-                {allVoices.filter(v => v.is_mine && (!voiceSearch || v.name.toLowerCase().includes(voiceSearch.toLowerCase()))).map(v => (
-                  <div key={v.voice_id} className="rounded-xl border bg-card overflow-hidden">
+                {allVoices.filter(v => v.is_mine && (!voiceSearch || v.name.toLowerCase().includes(voiceSearch.toLowerCase()))).map(v => {
+                  const hgAssignedGroups = heygenVoiceAssignedGroups.get(v.voice_id) ?? []
+                  const hgIsAssigned = hgAssignedGroups.length > 0
+                  return (
+                  <div key={v.voice_id} className={`rounded-xl border overflow-hidden transition-colors ${hgIsAssigned ? "border-primary/50 bg-primary/5" : "bg-card"}`}>
                     <div className="flex items-center gap-3 p-3 hover:bg-muted/40 transition-colors">
                       <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${v.status === "pending" ? "bg-amber-500/10" : v.status === "failed" ? "bg-destructive/10" : "bg-primary/10"}`}>
                         {v.status === "pending"
@@ -4742,8 +4803,28 @@ export default function Avatars() {
                         </div>
                       </div>
                     )}
+                    {hgIsAssigned && (
+                      <div className="flex items-center gap-1.5 px-3 pb-2.5">
+                        <span className="text-[10px] text-primary font-semibold uppercase tracking-wide mr-1">En uso:</span>
+                        {hgAssignedGroups.slice(0, 6).map(g =>
+                          g.preview_image_url ? (
+                            <img key={g.id} src={g.preview_image_url} alt={g.name} title={g.name}
+                              className="w-6 h-6 rounded-full object-cover border-2 border-primary/50 shrink-0 -ml-1 first:ml-0" />
+                          ) : (
+                            <div key={g.id} title={g.name}
+                              className="w-6 h-6 rounded-full bg-primary/10 border-2 border-primary/30 flex items-center justify-center shrink-0 -ml-1 first:ml-0">
+                              <Users className="w-3 h-3 text-primary" />
+                            </div>
+                          )
+                        )}
+                        {hgAssignedGroups.length > 6 && (
+                          <span className="text-[10px] text-primary font-medium ml-1">+{hgAssignedGroups.length - 6}</span>
+                        )}
+                      </div>
+                    )}
                   </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
           )}
@@ -4831,32 +4912,57 @@ export default function Avatars() {
               })
               return (
                 <div className="space-y-2">
-                  {filtered.slice(0, 50).map(v => (
-                    <div key={v.voice_id} className="flex items-center gap-3 p-3 rounded-xl border bg-card hover:bg-muted/40 transition-colors">
-                      <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center shrink-0">
-                        <Volume2 className="w-4 h-4 text-muted-foreground" />
+                  {filtered.slice(0, 50).map(v => {
+                    const pubAssignedGroups = heygenVoiceAssignedGroups.get(v.voice_id) ?? []
+                    const pubIsAssigned = pubAssignedGroups.length > 0
+                    return (
+                    <div key={v.voice_id} className={`rounded-xl border overflow-hidden transition-colors ${pubIsAssigned ? "border-primary/50 bg-primary/5" : "bg-card"}`}>
+                      <div className="flex items-center gap-3 p-3 hover:bg-muted/40 transition-colors">
+                        <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center shrink-0">
+                          <Volume2 className="w-4 h-4 text-muted-foreground" />
+                        </div>
+                        {/* Clickable info area — opens public avatar assignment */}
+                        <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setAssignVoice(v)}>
+                          <p className="text-sm font-medium truncate">{v.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {v.is_cloned ? "Clonada" : "Pública"}
+                            {v.gender === "male" ? " · Masculina" : v.gender === "female" ? " · Femenina" : ""}
+                            {pubIsAssigned ? " · Asignada" : " · Toca para asignar →"}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {v.preview_audio_url && (
+                            <Button size="sm" variant="ghost" className="w-8 h-8 p-0"
+                              onClick={() => handlePlayPreview(v.voice_id, v.preview_audio_url!)}>
+                              {playingVoiceId === v.voice_id
+                                ? <Square className="w-3 h-3 fill-current" />
+                                : <Play className="w-3 h-3 fill-current" />}
+                            </Button>
+                          )}
+                        </div>
                       </div>
-                      {/* Clickable info area — opens public avatar assignment */}
-                      <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setAssignVoice(v)}>
-                        <p className="text-sm font-medium truncate">{v.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {v.is_cloned ? "Clonada" : "Pública"}
-                          {v.gender === "male" ? " · Masculina" : v.gender === "female" ? " · Femenina" : ""}
-                          {" · Toca para asignar →"}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-1 shrink-0">
-                        {v.preview_audio_url && (
-                          <Button size="sm" variant="ghost" className="w-8 h-8 p-0"
-                            onClick={() => handlePlayPreview(v.voice_id, v.preview_audio_url!)}>
-                            {playingVoiceId === v.voice_id
-                              ? <Square className="w-3 h-3 fill-current" />
-                              : <Play className="w-3 h-3 fill-current" />}
-                          </Button>
-                        )}
-                      </div>
+                      {pubIsAssigned && (
+                        <div className="flex items-center gap-1.5 px-3 pb-2.5">
+                          <span className="text-[10px] text-primary font-semibold uppercase tracking-wide mr-1">En uso:</span>
+                          {pubAssignedGroups.slice(0, 6).map(g =>
+                            g.preview_image_url ? (
+                              <img key={g.id} src={g.preview_image_url} alt={g.name} title={g.name}
+                                className="w-6 h-6 rounded-full object-cover border-2 border-primary/50 shrink-0 -ml-1 first:ml-0" />
+                            ) : (
+                              <div key={g.id} title={g.name}
+                                className="w-6 h-6 rounded-full bg-primary/10 border-2 border-primary/30 flex items-center justify-center shrink-0 -ml-1 first:ml-0">
+                                <Users className="w-3 h-3 text-primary" />
+                              </div>
+                            )
+                          )}
+                          {pubAssignedGroups.length > 6 && (
+                            <span className="text-[10px] text-primary font-medium ml-1">+{pubAssignedGroups.length - 6}</span>
+                          )}
+                        </div>
+                      )}
                     </div>
-                  ))}
+                    )
+                  })}
                   {filtered.length === 0 && (
                     <p className="text-sm text-muted-foreground text-center py-8">No hay voces que coincidan con los filtros</p>
                   )}
