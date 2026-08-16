@@ -4320,7 +4320,7 @@ export default function Avatars() {
                           }
                         </p>
                       </div>
-                      {/* Play preview — only control kept for cloned voices */}
+                      {/* Play preview */}
                       {v.status === "ready" && v.wavespeedVoiceId && (
                         <Button
                           size="sm" variant="ghost"
@@ -4343,6 +4343,18 @@ export default function Avatars() {
                               : <Play className="w-3.5 h-3.5 fill-current" />}
                         </Button>
                       )}
+                      {/* Delete */}
+                      <Button
+                        size="sm" variant="ghost"
+                        className="w-8 h-8 p-0 text-destructive hover:text-destructive shrink-0"
+                        onClick={async () => {
+                          try { await deleteWavespeedVoice.mutateAsync(v.id) }
+                          catch { toast({ title: "Error al eliminar la voz", variant: "destructive" }) }
+                        }}
+                        disabled={deleteWavespeedVoice.isPending}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
                     </div>
                   </div>
                 ))}
