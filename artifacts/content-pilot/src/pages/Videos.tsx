@@ -166,7 +166,7 @@ function CircularVideoProgress({
   const pct  = Math.max(0, Math.min(100, progress));
   const offset = circ * (1 - pct / 100);
   return (
-    <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-[6px]">
+    <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/30 backdrop-blur-[2px]">
       {/* Ring + percentage */}
       <div className="relative flex items-center justify-center w-16 h-16">
         <svg
@@ -511,7 +511,7 @@ export default function Videos() {
 
                   {/* ── Publishing overlay ───────────────────────────────────── */}
                   {video.status === 'publishing' && !video.thumbnail_url && (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-[6px]">
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/30 backdrop-blur-[2px]">
                       <Loader2 className="w-8 h-8 animate-spin text-blue-400 mb-2" />
                       <span className="text-xs font-bold uppercase tracking-wider text-white/80">Publicando…</span>
                     </div>
