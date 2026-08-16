@@ -211,21 +211,6 @@ export default function Dashboard() {
               </CardContent>
             </Card>
 
-            {isAdmin && dashboard.active_students_count != null && (
-              <Card>
-                <CardContent className="p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-600">
-                      <Activity className="w-5 h-5" />
-                    </div>
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Alumnos Activos</p>
-                    <h3 className="text-3xl font-display font-bold mt-1">{dashboard.active_students_count}</h3>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
 
             <Card>
               <CardContent className="p-6">

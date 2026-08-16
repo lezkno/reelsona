@@ -669,7 +669,7 @@ function ProvisionStudentDialog() {
           setResult({ created: data.created, emailSent: data.emailSent, warning: data.warning })
           if (!data.warning) {
             toast({
-              title: data.created ? "Alumno dado de alta" : "Acceso actualizado",
+              title: data.created ? "Usuario dado de alta" : "Acceso actualizado",
               description: data.emailSent
                 ? `Email de activación enviado a ${form.email}`
                 : "No se pudo enviar el email de activación",
@@ -699,14 +699,14 @@ function ProvisionStudentDialog() {
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogTrigger asChild>
         <Button size="sm" className="gap-2">
-          <GraduationCap className="w-4 h-4" /> Dar acceso a alumno
+          <GraduationCap className="w-4 h-4" /> Dar acceso a usuario
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Dar acceso a alumno</DialogTitle>
+          <DialogTitle>Dar acceso a usuario</DialogTitle>
           <DialogDescription>
-            Crea o actualiza el acceso de un estudiante. Se enviará un email de activación con un enlace para elegir contraseña.
+            Crea o actualiza el acceso de un usuario. Se enviará un email de activación con un enlace para elegir contraseña.
           </DialogDescription>
         </DialogHeader>
 
@@ -721,7 +721,7 @@ function ProvisionStudentDialog() {
                 : <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />}
               <div className="space-y-1">
                 <p className="text-sm font-semibold">
-                  {result.created ? "Alumno creado" : "Acceso actualizado"}
+                  {result.created ? "Usuario creado" : "Acceso actualizado"}
                 </p>
                 {result.emailSent
                   ? <p className="text-sm text-muted-foreground">Email de activación enviado a <strong>{form.email}</strong>.</p>
@@ -732,7 +732,7 @@ function ProvisionStudentDialog() {
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => { reset() }}>Dar de alta otro alumno</Button>
+              <Button variant="outline" onClick={() => { reset() }}>Dar de alta otro usuario</Button>
               <Button onClick={() => { reset(); setOpen(false) }}>Cerrar</Button>
             </DialogFooter>
           </div>
@@ -753,7 +753,7 @@ function ProvisionStudentDialog() {
               <Input
                 id="ps-email"
                 type="email"
-                placeholder="alumno@ejemplo.com"
+                placeholder="usuario@ejemplo.com"
                 value={form.email}
                 onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
                 required
@@ -842,11 +842,11 @@ function EntitlementsSection() {
             <GraduationCap className="w-5 h-5 text-emerald-600" />
           </div>
           <div>
-            <h2 className="text-xl font-bold text-foreground">Acceso de alumnos</h2>
+            <h2 className="text-xl font-bold text-foreground">Acceso de usuarios</h2>
             <p className="text-sm text-muted-foreground">
               {isLoading
                 ? "Cargando…"
-                : `${entitlements.length} alumno${entitlements.length !== 1 ? "s" : ""} con entitlement`}
+                : `${entitlements.length} usuario${entitlements.length !== 1 ? "s" : ""} con entitlement`}
             </p>
           </div>
         </div>
@@ -863,7 +863,7 @@ function EntitlementsSection() {
                 Exportar CSV
               </Button>
             </TooltipTrigger>
-            <TooltipContent className="text-xs">Descargar lista de alumnos como archivo CSV</TooltipContent>
+            <TooltipContent className="text-xs">Descargar lista de usuarios como archivo CSV</TooltipContent>
           </Tooltip>
         )}
       </div>
@@ -880,8 +880,8 @@ function EntitlementsSection() {
         {!isLoading && !error && entitlements.length === 0 && (
           <div className="py-12 text-center space-y-2">
             <GraduationCap className="w-8 h-8 mx-auto text-muted-foreground/40" />
-            <p className="text-sm text-muted-foreground">Aún no hay alumnos dados de alta.</p>
-            <p className="text-xs text-muted-foreground">Usa el botón "Dar acceso a alumno" para empezar.</p>
+            <p className="text-sm text-muted-foreground">Aún no hay usuarios dados de alta.</p>
+            <p className="text-xs text-muted-foreground">Usa el botón "Dar acceso a usuario" para empezar.</p>
           </div>
         )}
         {!isLoading && !error && entitlements.length > 0 && (
@@ -889,7 +889,7 @@ function EntitlementsSection() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/40">
-                  <th className="text-left px-5 py-3 font-medium text-muted-foreground whitespace-nowrap">Alumno</th>
+                  <th className="text-left px-5 py-3 font-medium text-muted-foreground whitespace-nowrap">Usuario</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">
                     <span className="flex items-center gap-1"><Mail className="w-3.5 h-3.5" /> Email</span>
                   </th>
@@ -924,7 +924,7 @@ function EntitlementsSection() {
                       key={ent.userId}
                       className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors"
                     >
-                      {/* Alumno */}
+                      {/* Usuario */}
                       <td className="px-5 py-3.5">
                         <div className="flex items-center gap-2.5">
                           <div className={cn(

@@ -6,9 +6,8 @@ import {
   videosTable,
   contentPlanItemsTable,
   avatarConfigTable,
-  userEntitlements,
 } from "@workspace/db";
-import { and, or, eq, count, sql, gt, isNull } from "drizzle-orm";
+import { and, eq, count, sql } from "drizzle-orm";
 import { GetDashboardResponse } from "@workspace/api-zod";
 
 const router = Router();
@@ -50,28 +49,6 @@ router.get("/dashboard", async (req, res): Promise<void> => {
     .orderBy(sql`${videosTable.publishedAt} DESC`)
     .limit(1);
 
-  // Admin-only: count students with active tool access
-  let activeStudentsCount: number | null = null;
-  if (req.session.user!.role === "admin") {
-    const now = new Date();
-    const [activeStudents] = await db
-      .select({ count: count() })
-      .from(userEntitlements)
-      .where(
-        and(
-          or(
-            eq(userEntitlements.toolAccessStatus, "active"),
-            eq(userEntitlements.toolAccessStatus, "trialing"),
-          ),
-          or(
-            isNull(userEntitlements.toolAccessEndsAt),
-            gt(userEntitlements.toolAccessEndsAt, now),
-          ),
-        ),
-      );
-    activeStudentsCount = activeStudents?.count ?? 0;
-  }
-
   const summary = {
     account_connected: !!igAccount,
     instagram_username: igAccount?.username ?? null,
@@ -84,7 +61,6 @@ router.get("/dashboard", async (req, res): Promise<void> => {
     content_items_ready: readyItems?.count ?? 0,
     avatar_count: avatarCfg?.selectedAvatarIds?.length ?? 0,
     last_published_at: lastPublished[0]?.publishedAt?.toISOString() ?? null,
-    active_students_count: activeStudentsCount,
   };
 
   res.json(GetDashboardResponse.parse(summary));

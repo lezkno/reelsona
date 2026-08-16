@@ -261,7 +261,7 @@ router.get("/admin/entitlements/export.csv", async (req: Request, res: Response)
 
     const today = new Date().toISOString().slice(0, 10);
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
-    res.setHeader("Content-Disposition", `attachment; filename="alumnos-${today}.csv"`);
+    res.setHeader("Content-Disposition", `attachment; filename="usuarios-${today}.csv"`);
     res.send("\uFEFF" + header + csvRows); // BOM for Excel compatibility
   } catch (err) {
     console.error("[admin/entitlements/export.csv]", err);
