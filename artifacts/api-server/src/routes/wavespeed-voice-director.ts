@@ -447,7 +447,8 @@ router.get("/wavespeed/voice-director/audio/:filename", (req: Request, res: Resp
   const userId = requireAuth(req, res);
   if (!userId) return;
 
-  const raw      = req.params.filename ?? "";
+  const rawParam = req.params.filename;
+  const raw      = (Array.isArray(rawParam) ? rawParam[0] : rawParam) ?? "";
   const filename = basename(raw); // strip any path components
 
   // Only serve .mp3 files with UUID-style names (prevent path traversal and type confusion)

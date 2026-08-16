@@ -19,15 +19,33 @@ import {
   avatarLookMetadataTable,
   users,
   purchases,
+  subscriptionsTable,
+  invoiceCreditGrantsTable,
+  userCreditsTable,
+  creditLedgerTable,
 } from "@workspace/db";
-import { VIDEO_CREDIT_COST, hasEnoughCredits, reserveCredits, consumeVideoCredits, releaseVideoCredits } from "./credits";
+import {
+  VIDEO_CREDIT_COST,
+  hasEnoughCredits,
+  reserveCredits,
+  consumeVideoCredits,
+  releaseVideoCredits,
+  computeWavespeedCost,
+  computeHeygenCost,
+  estimateDurationFromScript,
+  provisionSubscriptionCredits,
+  PLAN_CREDITS,
+  FOUNDER_MAX_MONTHS,
+} from "./credits";
 import { provisionUser } from "./provision";
+import { provisionPurchase } from "./provision-purchase";
+import { getStripe } from "./stripe";
 import { enrichProfileWithApify } from "./apify";
 import { sendEmail, videoFailedEmail } from "./email";
 import { applyCaptions, CAPTION_DIR, type CaptionStyle, CAPTION_PRESETS } from "./caption-engine";
 import { computeUpcomingSlots } from "./schedule";
 import { applyCaptionsBrowser } from "./browser-caption-engine";
-import { eq, and, lte, gte, lt, inArray, isNull, isNotNull, or, desc } from "drizzle-orm";
+import { eq, and, lte, gte, lt, inArray, isNull, isNotNull, or, desc, sql } from "drizzle-orm";
 import { logger } from "./logger";
 import { generateScript, regenerateCaption, generateContentTopics } from "./ai-scripts";
 import { getLatestAuditCache } from "./audit-cache";
@@ -257,7 +275,7 @@ async function buildUnifiedPool(
       slots.push({
         type: "wavespeed",
         id: `ws:${look.id}`,
-        ctx: { personaId: persona.id, lookId: look.id, imageUrl: look.imageUrl!, voiceId: voice.wavespeedVoiceId },
+        ctx: { personaId: persona.id, lookId: look.id, imageUrl: look.imageUrl!, voiceId: voice.wavespeedVoiceId, speed: null, pitch: null },
       });
     }
   }
@@ -1137,6 +1155,14 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
     return { success: false, message: "Content item is already being processed" };
   }
 
+  // ── Dynamic credit cost estimate ──────────────────────────────────────────
+  // Estimate the video cost from the script length + engine type before
+  // reserving. WaveSpeed: 100 cr / 30 s; HeyGen: 150 cr / 30 s.
+  const estimatedDurationSec = estimateDurationFromScript(contentItem.script);
+  const estimatedCreditCost  = wavespeedCtx
+    ? computeWavespeedCost(estimatedDurationSec)
+    : computeHeygenCost(estimatedDurationSec);
+
   // ── Credit check ──────────────────────────────────────────────────────────
   // Admin users bypass the credit check. Regular users must have enough credits
   // before we create the video row. If insufficient: reset item to 'scripted'
@@ -1148,14 +1174,14 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
     .limit(1);
   const isAdmin = userForCredits?.role === "admin";
   if (!isAdmin) {
-    const enough = await hasEnoughCredits(userId, VIDEO_CREDIT_COST);
+    const enough = await hasEnoughCredits(userId, estimatedCreditCost);
     if (!enough) {
       await db
         .update(contentPlanItemsTable)
         .set({ status: "scripted", updatedAt: new Date() })
         .where(eq(contentPlanItemsTable.id, contentItem.id));
       logger.warn(
-        { userId, itemId: contentItem.id, required: VIDEO_CREDIT_COST },
+        { userId, itemId: contentItem.id, required: estimatedCreditCost, estimatedDurationSec },
         "[Credits] Saldo insuficiente — item restablecido a 'scripted'",
       );
 
@@ -1183,7 +1209,7 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
 
       return {
         success: false,
-        message: `Saldo de créditos insuficiente (se requieren ${VIDEO_CREDIT_COST} créditos). El item se reintentará cuando haya saldo.`,
+        message: `Saldo de créditos insuficiente (se requieren ~${estimatedCreditCost} créditos para ~${estimatedDurationSec}s de video). El item se reintentará cuando haya saldo.`,
       };
     }
   }
@@ -1216,9 +1242,9 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
   if (!isAdmin) {
     await reserveCredits(
       userId,
-      VIDEO_CREDIT_COST,
+      estimatedCreditCost,
       videoRow.id,
-      `Generación de video ${videoRow.id}: ${contentItem.topic ?? "sin tema"}`,
+      `Generación de video ${videoRow.id}: ~${estimatedDurationSec}s ${wavespeedCtx ? "WaveSpeed" : "HeyGen"} — ${contentItem.topic ?? "sin tema"}`,
     ).catch((creditErr) => {
       logger.error({ creditErr, videoId: videoRow.id }, "[Credits] Reserve falló — abortando generación (no se enviará a HeyGen)");
       throw creditErr;
@@ -1897,7 +1923,7 @@ async function sendVideoFailedAlert(userId: number, contentPlanItemId: number | 
 
   try {
     const [user] = await db
-      .select({ email: users.email, name: users.name })
+      .select({ email: users.email, name: users.fullName })
       .from(users)
       .where(eq(users.id, userId));
     if (!user?.email) return;
@@ -1936,32 +1962,31 @@ export async function pollAndPublishVideos(): Promise<void> {
       )
       .limit(5);
 
-    for (const purchase of unprovisionedPurchases) {
-      logger.warn(
-        { purchaseId: purchase.id, email: purchase.email },
-        "[ProvisionRecovery] Re-intentando provision fallida para pago exitoso",
-      );
-      try {
-        const result = await provisionUser({
-          email:          purchase.email,
-          name:           purchase.fullName ?? purchase.email,
-          toolAccessDays: purchase.toolAccessDays,
-          courseAccess:   true,
-          source:         "stripe_recovery",
-        });
-        await db
-          .update(purchases)
-          .set({ userId: result.userId, provisionedAt: new Date(), updatedAt: new Date() })
-          .where(eq(purchases.id, purchase.id));
-        logger.info(
-          { purchaseId: purchase.id, userId: result.userId },
-          "[ProvisionRecovery] Provision recuperada exitosamente",
+    // Use type-aware provisioning so:
+    //   - topups never create accounts or grant tool-access
+    //   - subscriptions create the subscription row and grant cycle credits
+    //   - legacy program purchases get standard provisionUser behavior
+    let stripe: ReturnType<typeof getStripe> | null = null;
+    try { stripe = getStripe(); } catch { /* Stripe not configured — skip recovery */ }
+
+    if (stripe) {
+      for (const purchase of unprovisionedPurchases) {
+        logger.warn(
+          { purchaseId: purchase.id, email: purchase.email, purchaseType: purchase.purchaseType },
+          "[ProvisionRecovery] Re-intentando provision fallida para pago exitoso",
         );
-      } catch (provErr: any) {
-        logger.error(
-          { purchaseId: purchase.id, err: provErr?.message },
-          "[ProvisionRecovery] Reintento fallido — se reintentará en el próximo ciclo",
-        );
+        const ok = await provisionPurchase(purchase, stripe);
+        if (ok) {
+          logger.info(
+            { purchaseId: purchase.id },
+            "[ProvisionRecovery] Provision recuperada exitosamente",
+          );
+        } else {
+          logger.error(
+            { purchaseId: purchase.id },
+            "[ProvisionRecovery] Reintento fallido — se reintentará en el próximo ciclo",
+          );
+        }
       }
     }
   } catch (recoveryErr) {
@@ -2354,7 +2379,7 @@ export async function pollAndPublishVideos(): Promise<void> {
                 .where(eq(automationConfigTable.userId, video.userId))
                 .limit(1);
               if (autoCfg?.captionsEnabled) {
-                await runCaptionProcessing(video.id, persistent.videoUrl, video.contentPlanId ?? null, undefined, srtUrl ?? null);
+                await runCaptionProcessing(video.id, persistent.videoUrl, video.contentPlanId ?? null, srtUrl ?? null, undefined);
               } else {
                 await db
                   .update(videosTable)
@@ -2738,7 +2763,10 @@ async function _publishVideoToInstagramInner(videoId: number, videoUrl?: string)
         .from(settingsTable)
         .where(eq(settingsTable.userId, video.userId))
         .limit(1);
-      if (automationRow?.autoCoverEnabled && brandSettings?.brandPrimaryColor) {
+      // autoCoverEnabled is force-disabled pending plan-gate rollout (Task #276).
+      // Replace this constant with the DB flag once billing UI is shipped.
+      const FORCE_AUTO_COVER_DISABLED = true;
+      if (!FORCE_AUTO_COVER_DISABLED && automationRow?.autoCoverEnabled && brandSettings?.brandPrimaryColor) {
         // Resolve the best hook text to use on the cover
         let coverText = video.topic ?? "Reel";
         if (video.contentPlanId) {
@@ -3132,6 +3160,147 @@ export function startScheduler(): void {
   cron.schedule("0 3 * * 1", async () => {
     logger.info("[RadarSync] Weekly radar sync started");
     await syncAllStaleRadarAccounts();
+  });
+
+  // 1st of each month at 04:00 AM: grant 1,500 subscription credits to all
+  // active Founder subscribers whose monthly grant count < FOUNDER_MAX_MONTHS
+  // and whose last grant was ≥ 28 days ago (guards against double-runs).
+  cron.schedule("0 4 1 * *", async () => {
+    logger.info("[FounderGrant] Monthly Founder credit grant started");
+    try {
+      const twentyEightDaysAgo = new Date(Date.now() - 28 * 24 * 60 * 60 * 1000);
+      const activeFounders = await db
+        .select()
+        .from(subscriptionsTable)
+        .where(
+          and(
+            eq(subscriptionsTable.planSlug, "founder"),
+            inArray(subscriptionsTable.status, ["active", "trialing"]),
+          )
+        );
+
+      let granted = 0;
+      for (const sub of activeFounders) {
+        // Each Founder gets a fully atomic grant: lock subscription row → re-read
+        // counter → check limit + cooldown → insert durable idempotency claim →
+        // update wallet → increment counter. One transaction, crash-safe at every step.
+        try {
+          const planCredits = PLAN_CREDITS["founder"] ?? 1500;
+          let didGrant = false;
+
+          await db.transaction(async (tx) => {
+            // Lock the subscription row to prevent concurrent cron runs and
+            // overlap with invoice.paid from racing on the same counter.
+            const [lockedSub] = await tx
+              .select()
+              .from(subscriptionsTable)
+              .where(eq(subscriptionsTable.id, sub.id))
+              .for("update")
+              .limit(1);
+
+            if (!lockedSub) return;
+
+            const grantedSoFar = lockedSub.founderMonthsGranted ?? 0;
+
+            // Re-check limit with fresh (locked) value
+            if (grantedSoFar >= FOUNDER_MAX_MONTHS) {
+              logger.info({ userId: sub.userId, months: grantedSoFar }, "[FounderGrant] Max months reached (locked re-read) — skipping");
+              return;
+            }
+
+            // Re-check cooldown with fresh (locked) value
+            if (lockedSub.founderLastGrantAt && lockedSub.founderLastGrantAt > twentyEightDaysAgo) {
+              logger.info({ userId: sub.userId }, "[FounderGrant] Last grant < 28 days ago (locked re-read) — skipping");
+              return;
+            }
+
+            const grantMonthNumber = grantedSoFar + 1;
+
+            // Durable idempotency key — unique per subscription per grant month.
+            // A crash-retry will attempt the same INSERT → ON CONFLICT DO NOTHING → skip.
+            const idempotencyKey = `cron_founder_${sub.id}_month${grantMonthNumber}`;
+            const claimed = await tx
+              .insert(invoiceCreditGrantsTable)
+              .values({
+                stripeInvoiceId: idempotencyKey,
+                userId:          sub.userId,
+                planSlug:        "founder",
+                creditsGranted:  planCredits,
+              })
+              .onConflictDoNothing()
+              .returning({ id: invoiceCreditGrantsTable.id });
+
+            if (claimed.length === 0) {
+              logger.info({ userId: sub.userId, grantMonthNumber, idempotencyKey }, "[FounderGrant] Already claimed this month — skipping");
+              return;
+            }
+
+            // Wallet lock — prevents concurrent topup/reservation from producing lost updates
+            const [existing] = await tx
+              .select().from(userCreditsTable).where(eq(userCreditsTable.userId, sub.userId))
+              .for("update").limit(1);
+
+            const prevSubCredits   = existing?.subscriptionCredits ?? 0;
+            const purchasedCredits = existing?.purchasedCredits    ?? 0;
+            // Query unsettled reserved-from-sub (renewal safety — see pool model in credits.ts).
+            // newSub = planCredits - reservedFromSub ensures release cannot push sub above planCredits.
+            const reservedResultS  = await tx.execute(sql`
+              SELECT COALESCE(SUM(COALESCE(subscription_amount, 0)), 0) AS rsub
+              FROM credit_ledger r
+              WHERE r.user_id = ${sub.userId}
+                AND r.type = 'reserve'
+                AND NOT EXISTS (
+                  SELECT 1 FROM credit_ledger s
+                  WHERE s.related_ledger_id = r.id AND s.type IN ('consume', 'release')
+                )
+            `);
+            const reservedFromSubS = Number((reservedResultS.rows[0] as Record<string, unknown>)?.rsub ?? 0);
+            const newSubCreditsS   = planCredits - reservedFromSubS;
+            const newAvailable     = newSubCreditsS + purchasedCredits;
+            const balanceBefore    = existing?.availableCredits    ?? 0;
+
+            if (existing) {
+              await tx.update(userCreditsTable)
+                .set({ subscriptionCredits: newSubCreditsS, availableCredits: newAvailable, updatedAt: new Date() })
+                .where(eq(userCreditsTable.userId, sub.userId));
+            } else {
+              await tx.insert(userCreditsTable).values({
+                userId: sub.userId, availableCredits: planCredits, subscriptionCredits: planCredits,
+                purchasedCredits: 0, reservedCredits: 0, totalConsumed: 0,
+              });
+            }
+
+            await tx.insert(creditLedgerTable).values({
+              userId:             sub.userId,
+              type:               "provision",
+              amount:             planCredits - prevSubCredits,
+              balanceBefore,
+              balanceAfter:       newAvailable,
+              pool:               "subscription",
+              subscriptionAmount: newSubCreditsS,
+              description:        `Founder mensual #${grantMonthNumber}: ${planCredits} créditos`,
+            });
+
+            // Atomically increment counter in the same tx (cannot diverge from credit grant)
+            await tx.update(subscriptionsTable)
+              .set({ founderMonthsGranted: grantMonthNumber, founderLastGrantAt: new Date(), updatedAt: new Date() })
+              .where(eq(subscriptionsTable.id, sub.id));
+
+            didGrant = true;
+          });
+
+          if (didGrant) {
+            granted++;
+            logger.info({ userId: sub.userId, grantMonthNumber: (sub.founderMonthsGranted ?? 0) + 1, planCredits }, "[FounderGrant] Credits granted");
+          }
+        } catch (subErr) {
+          logger.error({ err: subErr, userId: sub.userId }, "[FounderGrant] Failed to grant credits for subscriber");
+        }
+      }
+      logger.info({ granted, total: activeFounders.length }, "[FounderGrant] Monthly grant complete");
+    } catch (err) {
+      logger.error({ err }, "[FounderGrant] Monthly Founder grant error");
+    }
   });
 
   logger.info("Automation scheduler started");

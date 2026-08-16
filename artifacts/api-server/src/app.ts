@@ -15,6 +15,7 @@ import checkoutRouter from "./routes/checkout";
 import configRouter from "./routes/config";
 import webhookRouter from "./routes/webhook";
 import creditsRouter from "./routes/credits";
+import billingRouter from "./routes/billing";
 import router from "./routes";
 
 const PgSession = connectPgSimple(session);
@@ -107,8 +108,9 @@ app.use("/api", requireAuth);
 // Admin user management (requires auth, handled by requireAuth above)
 app.use("/api", usersRouter);
 
-// Credit balance — requires auth but NOT tool access (users can check balance even when expired)
+// Credit balance and billing info — requires auth but NOT tool access
 app.use("/api", creditsRouter);
+app.use("/api", billingRouter);
 
 // Tool-access guard — blocks expired/unlicensed users from tool routes.
 // Admins always pass. Course, auth, admin, dashboard paths are exempt.

@@ -14,6 +14,17 @@ export const purchases = pgTable("purchases", {
   toolAccessDays:      integer("tool_access_days").notNull().default(30),
   userId:              integer("user_id").references(() => users.id, { onDelete: "set null" }),
   /**
+   * Purchase type:
+   *  'program'      — legacy one-time program purchase (old system)
+   *  'subscription' — subscription checkout (basic/pro/founder)
+   *  'topup'        — one-time credit top-up purchase
+   */
+  purchaseType:        varchar("purchase_type", { length: 32 }).notNull().default("program"),
+  /** The plan slug for subscription purchases (basic/pro/founder), null for topups. */
+  planSlug:            varchar("plan_slug", { length: 32 }),
+  /** Credits granted by this purchase (used for topups). */
+  creditsPurchased:    integer("credits_purchased"),
+  /**
    * Set to NOW() when provisionUser() completes successfully.
    * NULL means provision is pending or failed — the scheduler recovery sweep
    * will retry it automatically until it succeeds.

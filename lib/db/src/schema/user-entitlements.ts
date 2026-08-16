@@ -9,6 +9,11 @@ export const userEntitlements = pgTable("user_entitlements", {
   toolAccessStartsAt:   timestamp("tool_access_starts_at"),
   toolAccessEndsAt:     timestamp("tool_access_ends_at"),
   source:               varchar("source", { length: 64 }),
+  /**
+   * The plan associated with this entitlement.
+   * Values: 'basic' | 'pro' | 'founder' | null (legacy/manual provisions)
+   */
+  planSlug:             varchar("plan_slug", { length: 32 }),
   createdAt:            timestamp("created_at").notNull().defaultNow(),
   updatedAt:            timestamp("updated_at").notNull().defaultNow(),
 });

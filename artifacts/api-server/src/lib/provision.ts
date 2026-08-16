@@ -4,9 +4,11 @@
  * Called by:
  *   - POST /api/admin/provision   (manual/admin)
  *   - POST /api/webhooks/stripe   (automated, post-payment)
+ *   - Subscription lifecycle (webhook.ts)
  *
- * Creates or updates a user account, upserts the entitlement, grants credits,
- * and sends the activation email. Does NOT touch purchases — callers manage that table.
+ * Creates or updates a user account, upserts the entitlement, optionally grants
+ * credits, and sends the activation email if the user is new.
+ * Does NOT touch purchases — callers manage that table.
  */
 
 import { randomBytes } from "crypto";
@@ -17,14 +19,28 @@ import { hashPassword } from "./password";
 import { sendEmail, activationEmail, getAppUrl } from "./email";
 import { upsertEntitlement } from "./access";
 import { invalidateAccessCache } from "../middleware/requireToolAccess";
-import { provisionCredits, CREDITS_PER_DAY } from "./credits";
+import { provisionCredits } from "./credits";
 
 export interface ProvisionParams {
   email:          string;
   name:           string;
-  toolAccessDays: number;
+  /** Legacy: number of days of tool access to grant (used by admin/manual). */
+  toolAccessDays?: number;
+  /** Explicit end date — takes precedence over toolAccessDays if provided. */
+  toolAccessEndsAt?: Date | null;
   courseAccess?:  boolean;
   source?:        string;
+  /** If provided, sets the planSlug on the entitlement row. */
+  planSlug?:      string | null;
+  /** Credits to grant at provision time. 0 = skip credit grant. */
+  creditsToGrant?: number;
+  /**
+   * When true, skip the entitlement upsert.
+   * Used by Founder provisioning which sets the entitlement inside an advisory-locked
+   * transaction AFTER the seat cap is confirmed, so no entitlement persists if the cap
+   * check fails.
+   */
+  skipEntitlement?: boolean;
 }
 
 export interface ProvisionResult {
@@ -38,9 +54,12 @@ export async function provisionUser(params: ProvisionParams): Promise<ProvisionR
   const {
     email,
     name,
-    toolAccessDays,
-    courseAccess = true,
-    source       = "manual",
+    toolAccessDays   = 365,
+    toolAccessEndsAt: explicitEndsAt,
+    courseAccess     = true,
+    source           = "manual",
+    planSlug         = null,
+    creditsToGrant   = 0,
   } = params;
 
   const username = email.trim().toLowerCase();
@@ -90,63 +109,73 @@ export async function provisionUser(params: ProvisionParams): Promise<ProvisionR
   }
 
   // ── Upsert entitlement ────────────────────────────────────────────────────
-  // When re-provisioning an existing user, preserve their remaining days:
-  // add the new days on top of the later of (current end, today).
-  // This ensures renewals extend access instead of truncating it.
+  // Skip when skipEntitlement=true — Founder provisioning does this inside
+  // an advisory-locked transaction AFTER seat cap verification, so no access
+  // is granted if the seat check fails.
   const now = new Date();
+  let toolAccessEndsAtFinal: Date | null = null;
 
-  const [existingEnt] = await db
-    .select({ toolAccessEndsAt: userEntitlements.toolAccessEndsAt })
-    .from(userEntitlements)
-    .where(eq(userEntitlements.userId, userId))
-    .limit(1);
+  if (!params.skipEntitlement) {
+    if (explicitEndsAt !== undefined) {
+      toolAccessEndsAtFinal = explicitEndsAt;
+    } else {
+      const [existingEnt] = await db
+        .select({ toolAccessEndsAt: userEntitlements.toolAccessEndsAt })
+        .from(userEntitlements)
+        .where(eq(userEntitlements.userId, userId))
+        .limit(1);
 
-  // Base date = existing end (if still in the future) OR now (if expired / no record)
-  const base = existingEnt?.toolAccessEndsAt && existingEnt.toolAccessEndsAt > now
-    ? existingEnt.toolAccessEndsAt
-    : now;
+      const base = existingEnt?.toolAccessEndsAt && existingEnt.toolAccessEndsAt > now
+        ? existingEnt.toolAccessEndsAt
+        : now;
+      toolAccessEndsAtFinal = new Date(base.getTime() + toolAccessDays * 24 * 60 * 60 * 1000);
+    }
 
-  const toolAccessEndsAt = new Date(base.getTime() + toolAccessDays * 24 * 60 * 60 * 1000);
-
-  await upsertEntitlement({
-    userId,
-    courseAccess,
-    toolAccessStatus:   "active",
-    toolAccessStartsAt: now,
-    toolAccessEndsAt,
-    source,
-  });
-
-  // Clear the access cache so the user gets access on their next request
-  // without waiting for the 90-second TTL to expire.
-  invalidateAccessCache(userId);
-
-  // ── Grant credits ─────────────────────────────────────────────────────────
-  // Credits accumulate on re-provision so re-purchasing extends the balance.
-  const creditsToGrant = toolAccessDays * CREDITS_PER_DAY;
-  try {
-    await provisionCredits(
+    await upsertEntitlement({
       userId,
-      creditsToGrant,
-      `${source}: ${toolAccessDays} días de acceso`,
-    );
-  } catch (creditErr: any) {
-    console.error(`[provision] Credit grant failed for userId=${userId}:`, creditErr?.message);
-    // Non-fatal: user still gets access. Credits can be granted manually if needed.
+      courseAccess,
+      toolAccessStatus:   "active",
+      toolAccessStartsAt: now,
+      toolAccessEndsAt:   toolAccessEndsAtFinal,
+      source,
+      planSlug: planSlug ?? undefined,
+    });
+
+    // Clear the access cache so the user gets access on their next request
+    invalidateAccessCache(userId);
   }
 
-  // ── Send activation email ─────────────────────────────────────────────────
-  const activateUrl = `${getAppUrl()}/activate?token=${activationToken}`;
+  // ── Grant credits (optional) ───────────────────────────────────────────────
+  if (creditsToGrant > 0) {
+    try {
+      await provisionCredits(
+        userId,
+        creditsToGrant,
+        `${source}: provision ${creditsToGrant} créditos`,
+      );
+    } catch (creditErr: any) {
+      console.error(`[provision] Credit grant failed for userId=${userId}:`, creditErr?.message);
+      // Non-fatal: user still gets access. Credits can be granted manually.
+    }
+  }
+
+  // ── Send activation email (new users only) ────────────────────────────────
   let emailSent = false;
   let warning: string | undefined;
 
-  try {
-    const tpl = activationEmail(name || username, activateUrl, toolAccessDays);
-    await sendEmail({ to: username, ...tpl });
-    emailSent = true;
-  } catch (emailErr: any) {
-    warning = `Usuario provisionado pero el email no pudo enviarse: ${emailErr?.message ?? "error desconocido"}`;
-    console.error(`[provision] Email failed for ${username}:`, emailErr?.message);
+  if (created) {
+    const activateUrl = `${getAppUrl()}/activate?token=${activationToken}`;
+    try {
+      const displayDays = toolAccessDays;
+      const tpl = activationEmail(name || username, activateUrl, displayDays);
+      await sendEmail({ to: username, ...tpl });
+      emailSent = true;
+    } catch (emailErr: any) {
+      warning = `Usuario provisionado pero el email no pudo enviarse: ${emailErr?.message ?? "error desconocido"}`;
+      console.error(`[provision] Email failed for ${username}:`, emailErr?.message);
+    }
+  } else {
+    emailSent = false; // Re-provisions don't re-send activation
   }
 
   return { userId, created, emailSent, ...(warning ? { warning } : {}) };

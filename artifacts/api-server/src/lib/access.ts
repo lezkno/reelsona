@@ -97,6 +97,7 @@ export async function upsertEntitlement(params: {
   toolAccessStartsAt?: Date | null;
   toolAccessEndsAt?:   Date | null;
   source?:             string;
+  planSlug?:           string | null;
 }): Promise<void> {
   await db
     .insert(userEntitlements)
@@ -107,6 +108,7 @@ export async function upsertEntitlement(params: {
       toolAccessStartsAt: params.toolAccessStartsAt ?? null,
       toolAccessEndsAt:   params.toolAccessEndsAt   ?? null,
       source:             params.source ?? "manual",
+      planSlug:           params.planSlug ?? null,
       updatedAt:          new Date(),
     })
     .onConflictDoUpdate({
@@ -117,6 +119,7 @@ export async function upsertEntitlement(params: {
         toolAccessStartsAt: params.toolAccessStartsAt ?? null,
         toolAccessEndsAt:   params.toolAccessEndsAt   ?? null,
         source:             params.source ?? "manual",
+        planSlug:           params.planSlug ?? null,
         updatedAt:          new Date(),
       },
     });

@@ -8,7 +8,7 @@
 
 import { Router } from "express";
 import type { Request, Response } from "express";
-import { getUserCredits, VIDEO_CREDIT_COST } from "../lib/credits";
+import { getUserCredits, VIDEO_CREDIT_COST, WAVESPEED_CREDITS_PER_30S, HEYGEN_CREDITS_PER_30S } from "../lib/credits";
 
 const router = Router();
 
@@ -19,24 +19,35 @@ router.get("/credits/balance", async (req: Request, res: Response): Promise<void
     if (role === "admin") {
       // Admins bypass credit checks entirely — return unlimited indicator
       res.json({
-        availableCredits: null,
-        reservedCredits:  0,
-        totalConsumed:    0,
-        videosRemaining:  null,
-        creditCost:       VIDEO_CREDIT_COST,
-        isAdmin:          true,
+        availableCredits:    null,
+        subscriptionCredits: null,
+        purchasedCredits:    null,
+        reservedCredits:     0,
+        totalConsumed:       0,
+        videosRemaining:     null,
+        isAdmin:             true,
+        costTable: {
+          wavespeedPer30s: WAVESPEED_CREDITS_PER_30S,
+          heygenPer30s:    HEYGEN_CREDITS_PER_30S,
+        },
       });
       return;
     }
 
     const wallet = await getUserCredits(userId);
     res.json({
-      availableCredits: wallet.availableCredits,
-      reservedCredits:  wallet.reservedCredits,
-      totalConsumed:    wallet.totalConsumed,
-      videosRemaining:  Math.floor(wallet.availableCredits / VIDEO_CREDIT_COST),
-      creditCost:       VIDEO_CREDIT_COST,
-      isAdmin:          false,
+      availableCredits:    wallet.availableCredits,
+      subscriptionCredits: wallet.subscriptionCredits,
+      purchasedCredits:    wallet.purchasedCredits,
+      reservedCredits:     wallet.reservedCredits,
+      totalConsumed:       wallet.totalConsumed,
+      // Approximate videos remaining using WaveSpeed 30 s cost as a reference unit
+      videosRemaining: Math.floor(wallet.availableCredits / WAVESPEED_CREDITS_PER_30S),
+      isAdmin:         false,
+      costTable: {
+        wavespeedPer30s: WAVESPEED_CREDITS_PER_30S,
+        heygenPer30s:    HEYGEN_CREDITS_PER_30S,
+      },
     });
   } catch (err) {
     console.error("[credits/balance]", err);

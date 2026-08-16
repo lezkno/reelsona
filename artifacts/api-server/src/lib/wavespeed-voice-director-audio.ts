@@ -299,7 +299,7 @@ async function submitSegmentJob(
           text: segment.text,
           voiceId,
           speed: segment.params.speed,
-          pitch: segment.params.pitch,
+          pitch: 0, // Always 0 — pitch shift distorts cloned voice identity
           languageBoost: segment.params.languageBoost,
           source: "voice_director_preview",
         }),

@@ -13,12 +13,13 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import { randomBytes } from "crypto";
 import { db } from "@workspace/db";
-import { users, userEntitlements, videosTable, settingsTable, captionConfigTable, userCreditsTable } from "@workspace/db";
+import { users, userEntitlements, videosTable, settingsTable, captionConfigTable, userCreditsTable, stripePriceConfigsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
-import { adjustCredits, VIDEO_CREDIT_COST } from "../lib/credits";
+import { adjustCredits, VIDEO_CREDIT_COST, PLAN_CREDITS, FOUNDER_MAX_SEATS } from "../lib/credits";
 import { sendEmail, activationEmail, getAppUrl } from "../lib/email";
 import { provisionUser } from "../lib/provision";
 import { runCaptionProcessing } from "../lib/scheduler";
+import { getStripe, invalidatePriceCache } from "../lib/stripe";
 
 const router = Router();
 
@@ -424,6 +425,166 @@ router.post("/admin/credits/:userId/adjust", async (req: Request, res: Response)
     }
     console.error("[admin/credits/:userId/adjust]", err);
     res.status(500).json({ error: "Error interno del servidor" });
+  }
+});
+
+// ── POST /api/admin/stripe/setup ──────────────────────────────────────────────
+/**
+ * Idempotent Stripe product + price setup.
+ *
+ * Creates all plan and topup products/prices in Stripe and upserts the
+ * stripe_price_configs table so checkout sessions can look up real price IDs.
+ *
+ * Plans created:
+ *   basic    — $29/mo, 400 credits
+ *   pro      — $97/mo, 1500 credits
+ *   founder  — $697/year (one-time year), 1500 credits (first month grant via cron)
+ *
+ * Topups created:
+ *   topup-300  — $19, 300 credits
+ *   topup-600  — $35, 600 credits
+ *   topup-1200 — $59, 1200 credits
+ *
+ * Call this once after deployment whenever Stripe config changes.
+ * Safe to re-run — existing Stripe IDs are reused if already stored.
+ *
+ * Auth: Bearer ADMIN_PASSWORD or admin session.
+ */
+router.post("/admin/stripe/setup", async (req: Request, res: Response): Promise<void> => {
+  if (!isAdminRequest(req)) {
+    res.status(403).json({ error: "Acceso denegado" });
+    return;
+  }
+
+  let stripe: ReturnType<typeof getStripe>;
+  try {
+    stripe = getStripe();
+  } catch (err: any) {
+    res.status(503).json({ error: "Stripe no está configurado: " + err.message });
+    return;
+  }
+
+  interface PlanDef {
+    planSlug:     string;
+    name:         string;
+    description:  string;
+    amountCents:  number;
+    currency:     string;
+    interval:     string | null;   // 'month' | 'year' | null (one-time)
+    creditAmount: number;
+    isRecurring:  boolean;
+  }
+
+  const plans: PlanDef[] = [
+    { planSlug: "basic",      name: "Reelsona Basic",         description: "400 créditos/mes — 1 avatar",                          amountCents: 2900,  currency: "usd", interval: "month", creditAmount: 400,  isRecurring: true  },
+    { planSlug: "pro",        name: "Reelsona Pro",           description: "1500 créditos/mes — 3 avatares",                       amountCents: 9700,  currency: "usd", interval: "month", creditAmount: 1500, isRecurring: true  },
+    { planSlug: "founder",    name: "Reelsona Founder",       description: `Acceso fundador anual (max ${FOUNDER_MAX_SEATS} plazas)`, amountCents: 69700, currency: "usd", interval: "year",  creditAmount: 1500, isRecurring: true  },
+    { planSlug: "topup-300",  name: "Créditos +300",          description: "300 créditos de uso",                                  amountCents: 1900,  currency: "usd", interval: null,    creditAmount: 300,  isRecurring: false },
+    { planSlug: "topup-600",  name: "Créditos +600",          description: "600 créditos de uso",                                  amountCents: 3500,  currency: "usd", interval: null,    creditAmount: 600,  isRecurring: false },
+    { planSlug: "topup-1200", name: "Créditos +1200",         description: "1200 créditos de uso",                                 amountCents: 5900,  currency: "usd", interval: null,    creditAmount: 1200, isRecurring: false },
+  ];
+
+  const results: Array<{ planSlug: string; stripePriceId: string; stripeProductId: string; created: boolean }> = [];
+  const errors:  Array<{ planSlug: string; error: string }> = [];
+
+  for (const plan of plans) {
+    try {
+      // Check if we already have this slug in DB (idempotency)
+      const [existing] = await db
+        .select()
+        .from(stripePriceConfigsTable)
+        .where(eq(stripePriceConfigsTable.planSlug, plan.planSlug))
+        .limit(1);
+
+      if (existing) {
+        results.push({ planSlug: plan.planSlug, stripePriceId: existing.stripePriceId, stripeProductId: existing.stripeProductId, created: false });
+        continue;
+      }
+
+      // Create Stripe product
+      const product = await stripe.products.create({
+        name:        plan.name,
+        description: plan.description,
+        metadata:    { plan_slug: plan.planSlug, credit_amount: String(plan.creditAmount) },
+      });
+
+      // Create Stripe price
+      let price: Awaited<ReturnType<typeof stripe.prices.create>>;
+      if (plan.isRecurring && plan.interval) {
+        price = await stripe.prices.create({
+          product:    product.id,
+          unit_amount: plan.amountCents,
+          currency:   plan.currency,
+          recurring:  { interval: plan.interval as "month" | "year" },
+          metadata:   { plan_slug: plan.planSlug, credit_amount: String(plan.creditAmount) },
+        });
+      } else {
+        price = await stripe.prices.create({
+          product:    product.id,
+          unit_amount: plan.amountCents,
+          currency:   plan.currency,
+          metadata:   { plan_slug: plan.planSlug, credit_amount: String(plan.creditAmount) },
+        });
+      }
+
+      // Upsert into our DB
+      await db
+        .insert(stripePriceConfigsTable)
+        .values({
+          planSlug:        plan.planSlug,
+          stripePriceId:   price.id,
+          stripeProductId: product.id,
+          amountCents:     plan.amountCents,
+          currency:        plan.currency,
+          interval:        plan.interval ?? undefined,
+          creditAmount:    plan.creditAmount,
+          isRecurring:     plan.isRecurring,
+        })
+        .onConflictDoUpdate({
+          target: stripePriceConfigsTable.planSlug,
+          set: {
+            stripePriceId:   price.id,
+            stripeProductId: product.id,
+            amountCents:     plan.amountCents,
+            interval:        plan.interval ?? undefined,
+            creditAmount:    plan.creditAmount,
+            isRecurring:     plan.isRecurring,
+            updatedAt:       new Date(),
+          },
+        });
+
+      results.push({ planSlug: plan.planSlug, stripePriceId: price.id, stripeProductId: product.id, created: true });
+      console.log(`[admin/stripe/setup] Created ${plan.planSlug}: product=${product.id} price=${price.id}`);
+    } catch (err: any) {
+      console.error(`[admin/stripe/setup] Failed for ${plan.planSlug}:`, err.message);
+      errors.push({ planSlug: plan.planSlug, error: err.message });
+    }
+  }
+
+  // Invalidate price config cache so new values are picked up immediately
+  invalidatePriceCache();
+
+  const allOk = errors.length === 0;
+  res.status(allOk ? 200 : 207).json({
+    ok:      allOk,
+    results,
+    errors:  errors.length > 0 ? errors : undefined,
+    summary: `${results.length} planes configurados, ${errors.length} errores`,
+  });
+});
+
+// ── GET /api/admin/stripe/prices ──────────────────────────────────────────────
+/** Returns the current stripe_price_configs table contents. */
+router.get("/admin/stripe/prices", async (req: Request, res: Response): Promise<void> => {
+  if (!isAdminRequest(req)) {
+    res.status(403).json({ error: "Acceso denegado" });
+    return;
+  }
+  try {
+    const rows = await db.select().from(stripePriceConfigsTable);
+    res.json({ ok: true, prices: rows });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
   }
 });
 
