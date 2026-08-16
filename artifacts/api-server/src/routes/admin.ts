@@ -341,7 +341,8 @@ router.post("/admin/reprocess-video", async (req: Request, res: Response): Promi
     .where(eq(videosTable.id, videoId));
 
   // Fire and forget — logs appear in the server console
-  runCaptionProcessing(video.id, video.videoUrl, video.contentPlanId ?? null, null, video.durationSeconds ?? null)
+  // skipBroll=true: admin reprocess is a reapply — don't regenerate B-roll images
+  runCaptionProcessing(video.id, video.videoUrl, video.contentPlanId ?? null, null, video.durationSeconds ?? null, true)
     .catch(err => console.error("[admin/reprocess-video] Error:", err));
 
   res.json({ ok: true, message: `Reprocesando video ${videoId} con efectos ${JSON.stringify(videoEffects)}` });

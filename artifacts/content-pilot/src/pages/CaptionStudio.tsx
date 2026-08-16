@@ -1484,7 +1484,7 @@ export default function CaptionStudio() {
 
   const [local, setLocal] = useState<Partial<CaptionConfig>>({})
   const [captionsEnabled, setCaptionsEnabled] = useState(false)
-  const [autoCoverEnabled, setAutoCoverEnabled] = useState(false)
+  // autoCoverEnabled removed — brand cover AI is discontinued
   const [videoEffects, setVideoEffects] = useState<VideoEffects>({ zoom: false, ai_broll: false, text_cards: false })
   const [dirty, setDirty] = useState(false)
   const [savingPresetId, setSavingPresetId] = useState<string | null>(null)
@@ -1592,7 +1592,6 @@ export default function CaptionStudio() {
   useEffect(() => {
     if (automation) {
       setCaptionsEnabled(automation.captions_enabled ?? false)
-      setAutoCoverEnabled((automation as any).auto_cover_enabled ?? false)
     }
   }, [automation])
 
@@ -1796,25 +1795,6 @@ export default function CaptionStudio() {
     // If the user removed the last template, turn rotation off automatically
     if (next.size === 0) setRotationEnabled(false)
     saveRotation(next, rotationStrategy)
-  }
-
-  const handleToggleAutoCover = (enabled: boolean) => {
-    setAutoCoverEnabled(enabled)
-    updateAutomation.mutate({ data: { auto_cover_enabled: enabled } as any }, {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getGetAutomationQueryKey() })
-        toast({
-          title: enabled ? "Portada automática activada" : "Portada automática desactivada",
-          description: enabled
-            ? "Se generará y adjuntará una portada con tu identidad visual antes de publicar cada Reel."
-            : "Los Reels se publicarán sin portada personalizada.",
-        })
-      },
-      onError: () => {
-        setAutoCoverEnabled(!enabled)
-        toast({ title: "Error", description: "No se pudo actualizar.", variant: "destructive" })
-      },
-    })
   }
 
   const handleToggle = (enabled: boolean) => {

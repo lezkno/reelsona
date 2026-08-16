@@ -11,19 +11,17 @@ import { format } from "date-fns"
 import { es } from "date-fns/locale"
 import {
   FileText, UserSquare2, Captions, Send, CheckCircle2,
-  Clock, AlertTriangle, Loader2, Play, Eye, Sparkles, Image as CoverIcon,
+  Clock, AlertTriangle, Loader2, Play, Eye, Sparkles,
 } from "lucide-react"
 
 // ── Step definitions ─────────────────────────────────────────────────────────
-// "cover" is conditional — only injected into visibleSteps when auto_cover_enabled.
 const BASE_STEPS = [
-  { key: "script",  label: "Guion",           desc: "La IA escribe el guion y el hook",                         icon: FileText,    estimatedMs: 60_000  },
-  { key: "video",   label: "Video con Avatar", desc: "La IA crea el video con tu avatar",                        icon: UserSquare2, estimatedMs: 600_000 },
-  { key: "caption", label: "Studio de Efectos", desc: "Se aplican captions y efectos visuales al video",        icon: Captions,    estimatedMs: 150_000 },
-  { key: "copy",    label: "Descripción e IG", desc: "La IA genera descripción y hashtags",                     icon: Sparkles,    estimatedMs: 15_000  },
-  { key: "review",  label: "Revisión Manual",  desc: "Aprueba el video antes de publicarlo",                    icon: Eye,         estimatedMs: 0       },
-  { key: "cover",   label: "Portada IA",       desc: "gpt-image-1 genera la portada del Reel con tu foto",     icon: CoverIcon,   estimatedMs: 30_000  },
-  { key: "publish", label: "Publicar en IG",   desc: "Se sube y publica el Reel en Instagram",                  icon: Send,        estimatedMs: 120_000 },
+  { key: "script",  label: "Guion",            desc: "La IA escribe el guion y el hook",                  icon: FileText,    estimatedMs: 60_000  },
+  { key: "video",   label: "Video con Avatar",  desc: "La IA crea el video con tu avatar",                 icon: UserSquare2, estimatedMs: 600_000 },
+  { key: "caption", label: "Studio de Efectos", desc: "Se aplican captions y efectos visuales al video",  icon: Captions,    estimatedMs: 150_000 },
+  { key: "copy",    label: "Descripción e IG",  desc: "La IA genera descripción y hashtags",              icon: Sparkles,    estimatedMs: 15_000  },
+  { key: "review",  label: "Revisión Manual",   desc: "Aprueba el video antes de publicarlo",             icon: Eye,         estimatedMs: 0       },
+  { key: "publish", label: "Publicar en IG",    desc: "Se sube y publica el Reel en Instagram",           icon: Send,        estimatedMs: 120_000 },
 ] as const
 
 type StepKey = typeof BASE_STEPS[number]["key"]
@@ -257,23 +255,16 @@ export default function PipelineTimeline() {
   const { step, percent } = getProgress(item)
   const willAutoPublish = automation?.enabled && automation?.auto_publish
   const captionsEnabled = automation?.captions_enabled ?? true
-  const autoCoverEnabled = !!(automation?.auto_cover_enabled)
   const isManual = !willAutoPublish
 
   // Build the visible steps for this mode.
-  // "cover" is only injected when auto_cover_enabled is on in Studio de Efectos.
-  //   auto   + captions + cover:    script video caption copy         cover publish  (6)
-  //   auto   + captions - cover:    script video caption copy               publish  (5)
-  //   auto   - captions + cover:    script video         copy         cover publish  (5)
-  //   auto   - captions - cover:    script video         copy               publish  (4)
-  //   manual + captions + cover:    script video caption copy review  cover publish  (7)
-  //   manual + captions - cover:    script video caption copy review        publish  (6)
-  //   manual - captions + cover:    script video         copy review  cover publish  (6)
-  //   manual - captions - cover:    script video         copy review        publish  (5)
+  //   auto   + captions:   script video caption copy         publish  (5)
+  //   auto   - captions:   script video         copy               publish  (4)
+  //   manual + captions:   script video caption copy review  publish  (6)
+  //   manual - captions:   script video         copy review  publish  (5)
   const visibleSteps = BASE_STEPS.filter((s) => {
     if (s.key === "caption" && !captionsEnabled) return false
     if (s.key === "review"  && !isManual)        return false
-    if (s.key === "cover"   && !autoCoverEnabled) return false
     return true
   })
 
@@ -345,21 +336,14 @@ export default function PipelineTimeline() {
                 item.status !== "draft" && item.status !== "failed"
               const isReview     = s.key === "review"
               const isCopy       = s.key === "copy"
-              const isCover      = s.key === "cover"
               const reviewActive = isReview && current && isAwaitingReview
               const copyActive   = isCopy && mode === "copy_generating"
-              // Cover is active during publishing (it runs at the start of the
-              // publish step, before the Instagram container is created).
-              // It is done once the video reaches "published".
-              const coverDone   = isCover && item.status === "published"
-              const coverActive = isCover && mode === "publishing" && !coverDone
 
-              // For cover, override the index-based done/current flags
-              const effectiveDone    = isCover ? coverDone    : done
-              const effectiveCurrent = isCover ? coverActive  : current
+              const effectiveDone    = done
+              const effectiveCurrent = current
 
               // Spinner only for steps that are actively processing
-              const showSpinner = (isCover ? coverActive : current) && isActivelyProcessing
+              const showSpinner = current && isActivelyProcessing
 
               // Per-step elapsed bar
               const stepElapsed = getStepElapsedPercent(s.key as StepKey, item, mode, nowMs)
@@ -389,12 +373,6 @@ export default function PipelineTimeline() {
               if (isCopy && done && item.copy_status === "failed")
                 statusLabel = "Omitido (error)"
 
-              // Cover: active at publish time, estimated ~30 s
-              if (isCover && coverActive)
-                statusLabel = "Generando portada..."
-              if (isCover && !effectiveDone && !coverActive)
-                statusLabel = "~30 seg"
-
               if (s.key === "publish" && current)
                 statusLabel = mode === "publishing"
                   ? (stepElapsed ? fmtRemaining(stepElapsed.remainingSec) : "Subiendo a Instagram...")
@@ -403,7 +381,7 @@ export default function PipelineTimeline() {
               if (isReview && current)
                 statusLabel = "Tocá para revisar"
 
-              if (!effectiveDone && !effectiveCurrent && !isCover)
+              if (!effectiveDone && !effectiveCurrent)
                 statusLabel = s.key === "video"   ? "~5-15 min" :
                               s.key === "script"  ? "~1-3 min"  :
                               s.key === "caption" ? "~1-3 min"  :
@@ -418,19 +396,12 @@ export default function PipelineTimeline() {
                     ? "border-primary bg-background shadow-sm"
                     : "bg-muted/30 border-transparent"
 
-              const coverCardClass = coverActive
-                ? "border-amber-400/60 bg-amber-50/50 dark:bg-amber-950/20 shadow-sm ring-1 ring-amber-400/30"
-                : coverDone
-                  ? "bg-primary/10 border-primary/30"
-                  : "bg-muted/30 border-transparent"
-
               const cardClass = isReview
                 ? reviewActive
                   ? "bg-violet-700 border-violet-600 shadow-md shadow-violet-700/30 cursor-pointer ring-2 ring-violet-400/60 ring-offset-1 hover:bg-violet-600 transition-colors"
                   : done
                     ? "bg-violet-100 dark:bg-violet-900/30 border-violet-300/50 dark:border-violet-700/40"
                     : "bg-muted/30 border-transparent"
-                : isCover  ? coverCardClass
                 : isCopy   ? copyCardClass
                 : effectiveDone    ? "bg-primary/10 border-primary/30"
                 : effectiveCurrent ? "border-primary bg-background shadow-sm"
@@ -438,15 +409,12 @@ export default function PipelineTimeline() {
 
               const textClass   = reviewActive ? "text-white"
                                 : copyActive   ? "text-violet-700 dark:text-violet-300"
-                                : coverActive  ? "text-amber-700 dark:text-amber-300"
                                 : (effectiveDone || effectiveCurrent ? "text-foreground" : "text-muted-foreground")
               const descClass   = reviewActive ? "text-violet-200"
                                 : copyActive   ? "text-violet-500/80 dark:text-violet-400/80"
-                                : coverActive  ? "text-amber-600/80 dark:text-amber-400/80"
                                 : "text-muted-foreground"
               const statusClass = reviewActive ? "text-violet-200 font-medium"
                                 : copyActive   ? "text-violet-500 dark:text-violet-400 font-medium"
-                                : coverActive  ? "text-amber-600 dark:text-amber-400 font-medium"
                                 : "text-muted-foreground/70"
 
               return (
@@ -459,13 +427,13 @@ export default function PipelineTimeline() {
                     {item.status === "failed" && i === 0 ? (
                       <AlertTriangle className="w-4 h-4 text-destructive" />
                     ) : effectiveDone ? (
-                      <CheckCircle2 className={`w-4 h-4 ${isReview ? "text-violet-500 dark:text-violet-400" : isCopy ? "text-violet-500 dark:text-violet-400" : "text-primary"}`} />
+                      <CheckCircle2 className={`w-4 h-4 ${isReview || isCopy ? "text-violet-500 dark:text-violet-400" : "text-primary"}`} />
                     ) : showSpinner ? (
-                      <Loader2 className={`w-4 h-4 animate-spin ${copyActive ? "text-violet-500" : coverActive ? "text-amber-500" : "text-primary"}`} />
+                      <Loader2 className={`w-4 h-4 animate-spin ${copyActive ? "text-violet-500" : "text-primary"}`} />
                     ) : reviewActive ? (
                       <Play className="w-4 h-4 text-white" />
                     ) : effectiveCurrent ? (
-                      <Clock className={`w-4 h-4 ${coverActive ? "text-amber-500" : "text-primary"}`} />
+                      <Clock className="w-4 h-4 text-primary" />
                     ) : (
                       <Icon className="w-4 h-4 text-muted-foreground" />
                     )}

@@ -91,7 +91,7 @@ router.put("/automation", requirePlanAccess(PRO_PLANS), async (req, res): Promis
   if (d.auto_generate_video !== undefined) updates.autoGenerateVideo = d.auto_generate_video;
   if (d.auto_publish !== undefined) updates.autoPublish = d.auto_publish;
   if (d.captions_enabled !== undefined) updates.captionsEnabled = d.captions_enabled;
-  if (d.auto_cover_enabled !== undefined) updates.autoCoverEnabled = d.auto_cover_enabled;
+  // auto_cover_enabled removed — brand cover AI is disabled permanently
 
   let config;
   if (existing) {

@@ -16,10 +16,10 @@ import {
   ScheduleVideoBody,
   ScheduleVideoResponse,
 } from "@workspace/api-zod";
-import { generateVideo, fetchAvatarPreviewImage } from "../lib/heygen";
+import { generateVideo } from "../lib/heygen";
 import { reserveCredits, releaseVideoCredits, estimateDurationFromScript, computeReelCreditCost, hasEnoughCredits } from "../lib/credits";
 import { publishVideoToInstagram, pickNextAvatar, resolveVoiceId, runCaptionProcessing, runAutomationCycle } from "../lib/scheduler";
-import { generateBrandCover } from "../lib/brand-cover";
+// brand-cover import removed — AI cover generation is discontinued
 import { logger } from "../lib/logger";
 
 const router = Router();
@@ -543,87 +543,17 @@ router.post("/videos/:id/reapply-captions", async (req, res): Promise<void> => {
     .where(and(eq(videosTable.id, id), eq(videosTable.userId, userId)));
 
   // Fire-and-forget
-  runCaptionProcessing(id, video.videoUrl, video.contentPlanId ?? null, null, video.durationSeconds ?? null)
+  // skipBroll=true: do not regenerate B-roll images on a reapply path — no persisted
+  // assets exist to reuse and silent AI spend on reapply is not acceptable.
+  runCaptionProcessing(id, video.videoUrl, video.contentPlanId ?? null, null, video.durationSeconds ?? null, true)
     .catch((err) => console.error("[ReapplyCaptions] Failed for video", id, err));
 
   res.json({ success: true, message: "Re-procesando efectos en segundo plano" });
 });
 
-router.post("/videos/:id/regenerate-cover", async (req, res): Promise<void> => {
-  const userId = req.session.user!.userId;
-  const id = Number(req.params.id);
-  if (!id || isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
-
-  const [video] = await db.select().from(videosTable)
-    .where(and(eq(videosTable.id, id), eq(videosTable.userId, userId))).limit(1);
-  if (!video) { res.status(404).json({ error: "Video not found" }); return; }
-
-  const [settings] = await db
-    .select({
-      brandPrimaryColor: settingsTable.brandPrimaryColor,
-      brandAccentColor: settingsTable.brandAccentColor,
-      brandLogoUrl: settingsTable.brandLogoUrl,
-    })
-    .from(settingsTable)
-    .where(eq(settingsTable.userId, userId))
-    .limit(1);
-
-  if (!settings?.brandPrimaryColor) {
-    res.status(400).json({ error: "Configurá primero los colores de marca en Ajustes → Identidad Visual" });
-    return;
-  }
-
-  // Resolve hook text from the linked content plan item if available
-  let hookText = video.topic ?? "Reel";
-  if (video.contentPlanId) {
-    const [item] = await db
-      .select({ hook: contentPlanItemsTable.hook, topic: contentPlanItemsTable.topic })
-      .from(contentPlanItemsTable)
-      .where(eq(contentPlanItemsTable.id, video.contentPlanId))
-      .limit(1);
-    hookText = item?.hook ?? item?.topic ?? hookText;
-  }
-
-  // Respond 202 immediately — gpt-image-1 can take up to 60 s
-  res.status(202).json({ message: "Regenerando portada en segundo plano" });
-
-  // Fire-and-forget: resolve avatar photo → generate cover → persist
-  ;(async () => {
-    try {
-      // Resolve avatar preview image — prefer user key, fall back to platform key
-      const heygenKey = process.env.HEYGEN_API_KEY ?? undefined;
-      let avatarImageUrl: string | null = null;
-      if (video.avatarId) {
-        avatarImageUrl = await fetchAvatarPreviewImage(video.avatarId, heygenKey);
-        logger.info(
-          { videoId: id, avatarId: video.avatarId, found: !!avatarImageUrl },
-          "[RegenerateCover] Avatar image resolved",
-        );
-      }
-
-      // Clear the old cover URL so frontend polling detects the transition
-      await db.update(videosTable)
-        .set({ thumbnailCoverUrl: null, updatedAt: new Date() })
-        .where(eq(videosTable.id, id));
-
-      const coverUrl = await generateBrandCover(
-        video.id,
-        hookText,
-        settings.brandPrimaryColor!,
-        settings.brandAccentColor ?? null,
-        avatarImageUrl,                   // avatar portrait → images.edit reference 1
-        settings.brandLogoUrl ?? null,    // brand logo      → images.edit reference 2
-      );
-      if (coverUrl) {
-        await db.update(videosTable)
-          .set({ thumbnailCoverUrl: coverUrl, updatedAt: new Date() })
-          .where(eq(videosTable.id, id));
-        logger.info({ videoId: id, coverUrl: coverUrl.slice(0, 80) }, "[RegenerateCover] Cover saved");
-      }
-    } catch (err) {
-      logger.error({ videoId: id, err }, "[RegenerateCover] Failed");
-    }
-  })();
+router.post("/videos/:id/regenerate-cover", (_req, res): void => {
+  // AI cover generation has been permanently discontinued.
+  res.status(404).json({ error: "Esta funcionalidad ya no está disponible." });
 });
 
 router.delete("/videos/:id", async (req, res): Promise<void> => {

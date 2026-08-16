@@ -13,12 +13,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
-import { ExternalLink, Play, Clock, AlertTriangle, CheckCircle2, Instagram, CalendarClock, Send, Trash2, CheckSquare, Square, X, RotateCcw, Loader2, Eye, Wand2, Image as CoverIcon, Download } from "lucide-react"
+import { ExternalLink, Play, Clock, AlertTriangle, CheckCircle2, Instagram, CalendarClock, Send, Trash2, CheckSquare, Square, X, RotateCcw, Loader2, Eye, Wand2, Download } from "lucide-react"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
 import { useToast } from "@/hooks/use-toast"
 import { useQueryClient } from "@tanstack/react-query"
-import { useState, useCallback, useEffect, type Dispatch, type SetStateAction } from "react"
+import { useState, useCallback, useEffect } from "react"
 
 // ── Video preview modal with caption/hashtag editing ─────────────────────────
 function VideoPreviewModal({ video, onClose }: { video: Video | null; onClose: () => void }) {
@@ -72,59 +72,6 @@ function VideoPreviewModal({ video, onClose }: { video: Video | null; onClose: (
       onRegenerateCaption={contentItem ? handleRegenerateCaption : undefined}
       dismissLabel="Cerrar"
     />
-  )
-}
-
-// ── Regenerate cover button ───────────────────────────────────────────────────
-// regeneratingCovers maps videoId → the thumbnail_cover_url value AT THE TIME
-// the button was clicked. We only fire "done" when the URL actually changes to
-// a NEW non-null value — this prevents false positives when a previous cover
-// URL was already stored (the old one is truthy but we shouldn't stop polling).
-function RegenarCoverButton({
-  video,
-  regeneratingCovers,
-  setRegeneratingCovers,
-}: {
-  video: any
-  regeneratingCovers: Map<number, string | null>
-  setRegeneratingCovers: Dispatch<SetStateAction<Map<number, string | null>>>
-}) {
-  const { toast } = useToast()
-  const isRegenerating = regeneratingCovers.has(video.id)
-  const base = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? ""
-
-  const handleClick = async () => {
-    // Capture the CURRENT cover URL so the effect can detect when it changes
-    const prevUrl: string | null = (video as any).thumbnail_cover_url ?? null
-    setRegeneratingCovers(prev => new Map([...prev, [video.id, prevUrl]]))
-    try {
-      const res = await fetch(`${base}/api/videos/${video.id}/regenerate-cover`, {
-        method: "POST",
-        credentials: "include",
-      })
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
-        throw new Error(body?.error ?? "Error al regenerar portada")
-      }
-    } catch (err: any) {
-      setRegeneratingCovers(prev => { const next = new Map(prev); next.delete(video.id); return next })
-      toast({ title: "Error", description: err?.message ?? "No se pudo regenerar la portada", variant: "destructive" })
-    }
-  }
-
-  return (
-    <Button
-      size="sm"
-      variant="outline"
-      className="w-full text-xs gap-1.5"
-      disabled={isRegenerating}
-      onClick={handleClick}
-    >
-      {isRegenerating
-        ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-        : <CoverIcon className="w-3.5 h-3.5" />}
-      {isRegenerating ? "Generando portada…" : "Regenerar portada"}
-    </Button>
   )
 }
 
@@ -204,10 +151,6 @@ function CircularVideoProgress({
 }
 
 export default function Videos() {
-  // Maps videoId → the thumbnail_cover_url value at the moment "Regenerar portada" was clicked.
-  // We detect completion by comparing the CURRENT url to the stored PREVIOUS url, so we never
-  // fire a false-positive when a cover from a prior run is already saved (non-null old value).
-  const [regeneratingCovers, setRegeneratingCovers] = useState<Map<number, string | null>>(new Map())
   const { toast } = useToast()
   const queryClient = useQueryClient()
 
@@ -223,7 +166,6 @@ export default function Videos() {
         // OR while a cover regeneration is in flight.
         refetchInterval: (query: any) => {
           const data = query?.state?.data
-          if (regeneratingCovers.size > 0) return 5000
           if (!Array.isArray(data)) return 10000
           const anyActive = data.some((v: any) =>
             v.status === 'generating' ||
@@ -238,27 +180,6 @@ export default function Videos() {
       } as any,
     }
   )
-
-  // Stop polling when a video's cover URL has actually changed to a NEW non-null value.
-  // Using Map lets us compare against the URL that existed at click time, preventing the
-  // false-positive where a leftover cover from a previous run immediately fires "done".
-  useEffect(() => {
-    if (regeneratingCovers.size === 0 || !videos) return
-    const done = videos.filter((v: any) => {
-      if (!regeneratingCovers.has(v.id)) return false
-      const prevUrl = regeneratingCovers.get(v.id)
-      // "Done" only when we have a truthy new URL that is different from what was there before
-      return v.thumbnail_cover_url && v.thumbnail_cover_url !== prevUrl
-    })
-    if (done.length > 0) {
-      setRegeneratingCovers(prev => {
-        const next = new Map(prev)
-        done.forEach((v: any) => next.delete(v.id))
-        return next
-      })
-      toast({ title: "Portada generada", description: "La portada del Reel se regeneró correctamente." })
-    }
-  }, [videos, regeneratingCovers, toast])
 
   const publishVideo = usePublishVideo()
   const scheduleVideo = useScheduleVideo()

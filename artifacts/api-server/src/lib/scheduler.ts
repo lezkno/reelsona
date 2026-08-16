@@ -51,14 +51,14 @@ import { logger } from "./logger";
 import { generateScript, regenerateCaption, generateContentTopics } from "./ai-scripts";
 import { getLatestAuditCache } from "./audit-cache";
 import { getStrategyProfile, toStrategyContext } from "./strategy-profile";
-import { generateVideo, getVideoStatus, listVoices, getAvatarDefaultVoiceId, fetchAvatarPreviewImage, getAllAvailableAvatarIds, invalidateAvatarIdsCache, getVoiceCloneStatus } from "./heygen";
+import { generateVideo, getVideoStatus, listVoices, getAvatarDefaultVoiceId, getAllAvailableAvatarIds, invalidateAvatarIdsCache, getVoiceCloneStatus } from "./heygen";
 import { isWavespeedConfigured, submitSpeech, submitTalkingHead, getJobStatus as getWavespeedJobStatus, WAVESPEED_MODELS } from "./wavespeed";
 import { wavespeedPersonasTable, wavespeedLooksTable, wavespeedVoicesTable, wavespeedJobsTable } from "@workspace/db";
 import { getUserPlanSlug, getAvatarLimit, computePersonaPlanEnabled, PlanBlockedError } from "./planLimits";
 import { createReelContainer, checkContainerStatus, publishContainer, getPermalink, refreshInstagramToken } from "./instagram-api";
 import { getSignedCaptionedVideoUrl, objectStorageClient } from "./objectStorage";
 import { makeOpenAIClient } from "./openai-client";
-import { generateBrandCover } from "./brand-cover";
+// brand-cover removed — AI cover generation is discontinued
 
 // ── Low-credit alert rate-limiter ─────────────────────────────────────────────
 // Tracks the last time a low-credit alert was sent per userId so we never
@@ -1454,7 +1454,9 @@ export async function runCaptionProcessing(
   videoUrl: string,
   contentPlanId: number | null,
   subtitleUrl?: string | null,
-  durationSeconds?: number | null
+  durationSeconds?: number | null,
+  /** When true, forces ai_broll=false so B-roll is NOT regenerated on reapply paths. */
+  skipBroll = false,
 ): Promise<void> {
   // Look up the video's stored effects AND the persisted HeyGen subtitle URL
   const [videoRow] = await db
@@ -1481,6 +1483,10 @@ export async function runCaptionProcessing(
   // Live account settings win so toggling an effect in Studio de Efectos takes
   // effect immediately without re-creating the video.
   const videoEffects  = { ...frozenEffects, ...liveEffects };
+
+  // On reapply paths (skipBroll=true) suppress B-roll generation: no persisted assets
+  // exist to reuse, and silently spending AI credits on a reapply is not acceptable.
+  if (skipBroll) videoEffects.ai_broll = false;
 
   logger.info(
     { videoId, frozenEffects, liveEffects, videoEffects, contentPlanId },
@@ -2111,8 +2117,8 @@ export async function pollAndPublishVideos(): Promise<void> {
     if (!v.videoUrl) continue;
     if (automation?.captionsEnabled) {
       // Captions are still on — run (or re-run) caption processing.
-      // Wrap in a 12-minute timeout so a hung AI call (e.g. gpt-image-1 with
-      // no response) never blocks the entire polling loop indefinitely.
+      // Wrap in a 12-minute timeout so a hung AI image call
+      // never blocks the entire polling loop indefinitely.
       logger.info({ videoId: v.id }, "[CaptionEngine] Recovery: re-processing stuck caption");
       const RECOVERY_TIMEOUT_MS = 12 * 60 * 1000;
       await Promise.race([
@@ -2787,76 +2793,6 @@ async function _publishVideoToInstagramInner(videoId: number, videoUrl?: string)
     caption = [item?.caption, item?.hashtags].filter(Boolean).join("\n\n");
   }
 
-  // Generate a branded cover image when auto_cover_enabled is set and brand colors exist.
-  // If thumbnailCoverUrl is already saved (from a prior attempt), reuse it instead of
-  // re-calling gpt-image-1 — avoids unnecessary API cost on publish retry.
-  // Falls back gracefully: if the flag is off or generation fails, publish without a cover.
-  let brandCoverUrl: string | null = video.thumbnailCoverUrl ?? null;
-  if (!brandCoverUrl) {
-    try {
-      const [automationRow] = await db
-        .select({ autoCoverEnabled: automationConfigTable.autoCoverEnabled })
-        .from(automationConfigTable)
-        .where(eq(automationConfigTable.userId, video.userId))
-        .limit(1);
-      const [brandSettings] = await db
-        .select({
-          brandPrimaryColor: settingsTable.brandPrimaryColor,
-          brandAccentColor: settingsTable.brandAccentColor,
-          brandLogoUrl: settingsTable.brandLogoUrl,
-        })
-        .from(settingsTable)
-        .where(eq(settingsTable.userId, video.userId))
-        .limit(1);
-      // autoCoverEnabled is force-disabled pending plan-gate rollout (Task #276).
-      // Replace this constant with the DB flag once billing UI is shipped.
-      const FORCE_AUTO_COVER_DISABLED = true;
-      if (!FORCE_AUTO_COVER_DISABLED && automationRow?.autoCoverEnabled && brandSettings?.brandPrimaryColor) {
-        // Resolve the best hook text to use on the cover
-        let coverText = video.topic ?? "Reel";
-        if (video.contentPlanId) {
-          const [itemForCover] = await db
-            .select({ hook: contentPlanItemsTable.hook, topic: contentPlanItemsTable.topic })
-            .from(contentPlanItemsTable)
-            .where(eq(contentPlanItemsTable.id, video.contentPlanId))
-            .limit(1);
-          coverText = itemForCover?.hook ?? itemForCover?.topic ?? coverText;
-        }
-        // Resolve avatar preview photo — clean portrait used as gpt-image-1 reference.
-        let avatarImageUrl: string | null = null;
-        if (video.avatarId) {
-          const heygenKey = process.env.HEYGEN_API_KEY ?? undefined;
-          avatarImageUrl = await fetchAvatarPreviewImage(video.avatarId, heygenKey);
-          logger.info(
-            { videoId, avatarId: video.avatarId, found: !!avatarImageUrl },
-            "[Publish] Avatar preview image resolved",
-          );
-        }
-
-        brandCoverUrl = await generateBrandCover(
-          videoId,
-          coverText,
-          brandSettings.brandPrimaryColor,
-          brandSettings.brandAccentColor ?? null,
-          avatarImageUrl,                      // avatar portrait → images.edit reference 1
-          brandSettings.brandLogoUrl ?? null,  // brand logo    → images.edit reference 2
-        );
-        if (brandCoverUrl) {
-          // Persist so retry runs don't regenerate (saves AI cost)
-          await db
-            .update(videosTable)
-            .set({ thumbnailCoverUrl: brandCoverUrl, updatedAt: new Date() })
-            .where(eq(videosTable.id, videoId));
-          logger.info({ videoId, coverUrl: brandCoverUrl.slice(0, 80) }, "[Publish] Brand cover generated and saved");
-        }
-      }
-    } catch (err) {
-      logger.warn({ videoId, err }, "[Publish] Brand cover generation failed — continuing without cover");
-    }
-  } else {
-    logger.info({ videoId }, "[Publish] Reusing saved thumbnail cover URL");
-  }
-
   // Create container (or resume existing one from a previous attempt)
   let containerId: string;
   if (video.igContainerId) {
@@ -2864,7 +2800,7 @@ async function _publishVideoToInstagramInner(videoId: number, videoUrl?: string)
     containerId = video.igContainerId;
     logger.info({ videoId, containerId }, "[Publish] Resuming existing Instagram container");
   } else {
-    containerId = await createReelContainer(igAccount.accessToken, igAccount.igUserId, url, caption, brandCoverUrl);
+    containerId = await createReelContainer(igAccount.accessToken, igAccount.igUserId, url, caption, null);
     // Persist the container ID BEFORE polling so a crash/restart can resume
     await db
       .update(videosTable)

@@ -1277,7 +1277,7 @@ export default function ContentPlan() {
               <div className="grid grid-cols-3 gap-2">
                 {([
                   { key: "zoom" as const,     label: "Zoom",      desc: "Ken Burns" },
-                  { key: "ai_broll" as const, label: "B-roll IA", desc: "gpt-image-1" },
+                  { key: "ai_broll" as const, label: "B-roll IA", desc: "Imágenes fotorrealistas IA" },
                 ] as const).map(({ key, label, desc }) => (
                   <div key={key} className="flex items-center justify-between gap-2 rounded-lg border bg-background px-3 py-2">
                     <div className="min-w-0">

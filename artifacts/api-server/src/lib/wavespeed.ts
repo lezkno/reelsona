@@ -25,6 +25,8 @@ export const WAVESPEED_MODELS = {
   VOICE_CLONE: "minimax/voice-clone",
   /** Image editing / composition */
   IMAGE_EDIT: "bytedance/seedream-v5.0-pro/edit",
+  /** Text-to-image generation (B-roll backgrounds) — ~$0.04/image */
+  TEXT_TO_IMAGE: "bytedance/seedream-v4.5",
 } as const;
 
 export type WavespeedModel = (typeof WAVESPEED_MODELS)[keyof typeof WAVESPEED_MODELS];
