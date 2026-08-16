@@ -54,6 +54,7 @@ import { getStrategyProfile, toStrategyContext } from "./strategy-profile";
 import { generateVideo, getVideoStatus, listVoices, getAvatarDefaultVoiceId, fetchAvatarPreviewImage, getAllAvailableAvatarIds, invalidateAvatarIdsCache, getVoiceCloneStatus } from "./heygen";
 import { isWavespeedConfigured, submitSpeech, submitTalkingHead, getJobStatus as getWavespeedJobStatus, WAVESPEED_MODELS } from "./wavespeed";
 import { wavespeedPersonasTable, wavespeedLooksTable, wavespeedVoicesTable, wavespeedJobsTable } from "@workspace/db";
+import { getUserPlanSlug, getAvatarLimit, computePersonaPlanEnabled, PlanBlockedError } from "./planLimits";
 import { createReelContainer, checkContainerStatus, publishContainer, getPermalink, refreshInstagramToken } from "./instagram-api";
 import { getSignedCaptionedVideoUrl, objectStorageClient } from "./objectStorage";
 import { makeOpenAIClient } from "./openai-client";
@@ -111,14 +112,38 @@ async function getWavespeedContext(
 ): Promise<WavespeedCtx | null> {
   if (!isWavespeedConfigured()) return null;
 
-  // Fetch all personas, newest first so the most recently configured one wins.
-  const personas = await db
+  // Fetch all personas oldest-first so we can compute plan-enabled status.
+  // (The oldest personas take priority when plan limit < total count.)
+  const personasAsc = await db
     .select({ id: wavespeedPersonasTable.id, lastUsedLookId: wavespeedPersonasTable.lastUsedLookId })
     .from(wavespeedPersonasTable)
     .where(eq(wavespeedPersonasTable.userId, userId))
-    .orderBy(desc(wavespeedPersonasTable.createdAt));
+    .orderBy(wavespeedPersonasTable.createdAt); // ASC — oldest first
 
-  if (personas.length === 0) return null;
+  if (personasAsc.length === 0) return null;
+
+  // Determine plan-enabled set: the first N personas (by createdAt) are enabled.
+  const planSlug      = await getUserPlanSlug(userId);
+  const planLimit     = getAvatarLimit(planSlug);
+  const planEnabledMap = computePersonaPlanEnabled(personasAsc, planLimit);
+  const enabledIds    = new Set(personasAsc.filter((p) => planEnabledMap.get(p.id)).map((p) => p.id));
+
+  // If a look is pinned on the content item, verify its persona is still plan-enabled.
+  // Throw PlanBlockedError so the caller can surface a clear user-facing message
+  // instead of the generic "look unavailable" one — and crucially, no job is submitted.
+  if (preferredLookId != null) {
+    const [lookRow] = await db
+      .select({ personaId: wavespeedLooksTable.personaId })
+      .from(wavespeedLooksTable)
+      .where(and(eq(wavespeedLooksTable.id, preferredLookId), eq(wavespeedLooksTable.userId, userId)))
+      .limit(1);
+    if (lookRow && lookRow.personaId != null && !enabledIds.has(lookRow.personaId)) {
+      throw new PlanBlockedError();
+    }
+  }
+
+  // Rotation: newest-first (reverse of ASC), but only among plan-enabled personas.
+  const personas = [...personasAsc].reverse().filter((p) => enabledIds.has(p.id));
 
   for (const persona of personas) {
     // Load all looks for this persona that have a generated image
@@ -230,11 +255,20 @@ async function buildUnifiedPool(
 
   if (!isWavespeedConfigured()) return slots;
 
-  const personas = await db
+  // Fetch oldest-first for plan-enabled computation; reverse to newest-first for stable
+  // pool order (HeyGen → WaveSpeed, personas newest-first, looks in DB order).
+  const personasAsc = await db
     .select({ id: wavespeedPersonasTable.id })
     .from(wavespeedPersonasTable)
     .where(eq(wavespeedPersonasTable.userId, userId))
-    .orderBy(desc(wavespeedPersonasTable.createdAt));
+    .orderBy(wavespeedPersonasTable.createdAt); // ASC
+
+  const bupPlanSlug      = await getUserPlanSlug(userId);
+  const bupPlanLimit     = getAvatarLimit(bupPlanSlug);
+  const bupPlanEnabledMap = computePersonaPlanEnabled(personasAsc, bupPlanLimit);
+
+  // Only plan-enabled personas contribute their looks to the rotation pool.
+  const personas = [...personasAsc].reverse().filter((p) => bupPlanEnabledMap.get(p.id));
 
   for (const persona of personas) {
     const looks = await db
@@ -1013,7 +1047,20 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
 
   if (contentItem.wavespeedLookId) {
     // User manually pinned a WaveSpeed look — force WaveSpeed, bypass HeyGen backfill.
-    wavespeedCtx = await getWavespeedContext(userId, contentItem.wavespeedLookId);
+    try {
+      wavespeedCtx = await getWavespeedContext(userId, contentItem.wavespeedLookId);
+    } catch (ctxErr: any) {
+      // Plan-blocked: the look's persona is not available on the user's current plan.
+      // Abort immediately — do NOT submit any job or consume any credits.
+      if (ctxErr instanceof PlanBlockedError) {
+        logger.warn(
+          { itemId: contentItem.id, wavespeedLookId: contentItem.wavespeedLookId },
+          "[runAutomationCycle] WaveSpeed look belongs to plan-blocked persona — aborting",
+        );
+        return { success: false, message: ctxErr.message };
+      }
+      throw ctxErr;
+    }
     if (!wavespeedCtx) {
       // The pinned look is unavailable (no voice assigned, no image, or persona deleted).
       // Do NOT fall back to HeyGen silently — the user made an explicit choice.

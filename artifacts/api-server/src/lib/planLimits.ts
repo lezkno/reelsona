@@ -13,7 +13,12 @@
  */
 
 import { db } from "@workspace/db";
-import { subscriptionsTable, wavespeedPersonasTable, wavespeedVoicesTable } from "@workspace/db";
+import {
+  subscriptionsTable,
+  wavespeedPersonasTable,
+  wavespeedVoicesTable,
+  heygenClonedVoicesTable,
+} from "@workspace/db";
 import { and, eq, inArray, ne, count as drizzleCount } from "drizzle-orm";
 
 // ── Limit constants ───────────────────────────────────────────────────────────
@@ -120,8 +125,29 @@ export function computePersonaPlanEnabled(
 }
 
 /**
- * Count how many non-failed WaveSpeed voice clones the user has.
- * (failed voices don't count against the limit so a user can retry for free.)
+ * Error thrown when a WaveSpeed persona is blocked because the user's current plan
+ * does not allow that many avatars (e.g. downgraded from Pro → Basic).
+ * Callers can catch this specifically to surface a user-friendly message without
+ * crashing the automation cycle.
+ */
+export class PlanBlockedError extends Error {
+  readonly code = "PERSONA_PLAN_BLOCKED" as const;
+  constructor(message = "Este Avatar AI no está disponible con tu plan actual.") {
+    super(message);
+    this.name = "PlanBlockedError";
+  }
+}
+
+// ── Voice clone counting ───────────────────────────────────────────────────────
+//
+// The free-voice rule is GLOBAL across all providers: the user gets exactly ONE
+// free voice clone total (WaveSpeed + HeyGen combined).  Subsequent clones from
+// either provider cost EXTRA_VOICE_CREDIT_COST credits each.
+// Failed clones never count — the user can retry for free.
+
+/**
+ * Count non-failed WaveSpeed voice clones only.
+ * Kept for internal use; prefer countNonFailedVoiceClones for credit-gate logic.
  */
 export async function countNonFailedWsVoices(userId: number): Promise<number> {
   const [row] = await db
@@ -134,4 +160,28 @@ export async function countNonFailedWsVoices(userId: number): Promise<number> {
       ),
     );
   return Number(row?.cnt ?? 0);
+}
+
+/**
+ * Count ALL non-failed voice clones for the user across BOTH WaveSpeed and HeyGen.
+ * This is the authoritative counter for the "first voice free" credit rule.
+ *
+ *   total = 0  → next clone is FREE
+ *   total ≥ 1  → next clone costs EXTRA_VOICE_CREDIT_COST credits
+ *
+ * A failed clone never counts: if the user's only clone attempt failed they keep
+ * their free slot.
+ */
+export async function countNonFailedVoiceClones(userId: number): Promise<number> {
+  const [wsRow] = await db
+    .select({ cnt: drizzleCount() })
+    .from(wavespeedVoicesTable)
+    .where(and(eq(wavespeedVoicesTable.userId, userId), ne(wavespeedVoicesTable.status, "failed")));
+
+  const [hgRow] = await db
+    .select({ cnt: drizzleCount() })
+    .from(heygenClonedVoicesTable)
+    .where(and(eq(heygenClonedVoicesTable.userId, userId), ne(heygenClonedVoicesTable.status, "failed")));
+
+  return Number(wsRow?.cnt ?? 0) + Number(hgRow?.cnt ?? 0);
 }

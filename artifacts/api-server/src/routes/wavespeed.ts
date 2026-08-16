@@ -23,7 +23,7 @@ import { writeFile, readFile, unlink } from "fs/promises";
 import { tmpdir } from "os";
 import { join as pathJoin } from "path";
 const execFileAsync = promisify(execFile);
-import { eq, and, isNotNull, count as drizzleCount } from "drizzle-orm";
+import { eq, and, isNotNull, count as drizzleCount, sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import {
   wavespeedPersonasTable,
@@ -35,7 +35,7 @@ import {
   getUserPlanSlug,
   getAvatarLimit,
   countUserPersonas,
-  countNonFailedWsVoices,
+  countNonFailedVoiceClones,
   computePersonaPlanEnabled,
   FREE_LOOKS_PER_PERSONA,
   FREE_VOICE_CLONES,
@@ -216,17 +216,24 @@ router.post("/wavespeed/personas", async (req, res) => {
 
   try {
     // ── Plan limit enforcement ─────────────────────────────────────────────────
-    // Admins bypass all plan limits.
+    // Admins bypass all plan limits. Non-admins are checked TWICE:
+    //   1) Here (fast path, no lock) — rejects the vast majority of over-limit attempts.
+    //   2) Inside the atomic insert transaction (below) — guards against two simultaneous
+    //      requests that both pass this check before either inserts a row.
     const isAdmin = req.session.user?.role === "admin";
+    // Lifted to outer scope so the atomic-insert block can reference them.
+    let planSlug: string | null = null;
+    let planLimit               = 0; // safe sentinel; only used when !isAdmin
+
     if (!isAdmin) {
-      const planSlug  = await getUserPlanSlug(userId);
-      const limit     = getAvatarLimit(planSlug);
-      const current   = await countUserPersonas(userId);
-      if (current >= limit) {
+      planSlug  = await getUserPlanSlug(userId);
+      planLimit = getAvatarLimit(planSlug);
+      const current = await countUserPersonas(userId);
+      if (current >= planLimit) {
         const message = !planSlug
           ? "Necesitas un plan activo para crear Avatares AI."
-          : `Has alcanzado el límite de Avatares AI de tu plan (${limit}). Actualiza tu plan para crear más.`;
-        res.status(403).json({ error: "avatar_limit_reached", message, planSlug, limit, current });
+          : `Has alcanzado el límite de Avatares AI de tu plan (${planLimit}). Actualiza tu plan para crear más.`;
+        res.status(403).json({ error: "avatar_limit_reached", message, planSlug, limit: planLimit, current });
         return;
       }
     }
@@ -252,11 +259,44 @@ router.post("/wavespeed/personas", async (req, res) => {
     const gcsName = gcsObjectNameFromPath(referenceObjectPath);
     const referenceImageUrl = await getSignedObjectUrl(gcsName, 4 * 3600);
 
-    // Create persona row — store the reference path so we can generate more looks later
-    const [persona] = await db
-      .insert(wavespeedPersonasTable)
-      .values({ userId, name: name.trim(), referenceObjectPath })
-      .returning();
+    // ── Atomic persona creation with concurrency guard ─────────────────────────
+    // Two simultaneous requests from the same user could both pass the initial count
+    // check above and then both insert a row, exceeding the plan limit.
+    // pg_advisory_xact_lock serialises per-user creation at the DB level so only
+    // one transaction at a time can hold the lock for this userId.
+    type PersonaRow = { id: number; name: string; referenceObjectPath: string | null };
+    let persona: PersonaRow | undefined;
+    try {
+      await db.transaction(async (tx) => {
+        if (!isAdmin) {
+          // Lock key: userId-scoped (multiplied to avoid key collisions with other locks)
+          await tx.execute(sql`SELECT pg_advisory_xact_lock(${userId}::bigint * 31 + 7)`);
+          const [lockRow] = await tx
+            .select({ cnt: drizzleCount() })
+            .from(wavespeedPersonasTable)
+            .where(eq(wavespeedPersonasTable.userId, userId));
+          const lockedCount = Number(lockRow?.cnt ?? 0);
+          if (lockedCount >= planLimit) {
+            const err: any = new Error(
+              `Has alcanzado el límite de Avatares AI de tu plan (${planLimit}). Actualiza tu plan para crear más.`,
+            );
+            err.code = "AVATAR_LIMIT_CONCURRENT";
+            throw err;
+          }
+        }
+        [persona] = await tx
+          .insert(wavespeedPersonasTable)
+          .values({ userId, name: name.trim(), referenceObjectPath })
+          .returning();
+      });
+    } catch (txErr: any) {
+      if (txErr.code === "AVATAR_LIMIT_CONCURRENT") {
+        res.status(403).json({ error: "avatar_limit_reached", message: txErr.message, planSlug, limit: planLimit });
+        return;
+      }
+      throw txErr;
+    }
+    if (!persona) throw new Error("Persona creation failed unexpectedly");
 
     // Submit 3 look-gen jobs in parallel — first 3 looks are always free
     const lookJobs = await Promise.allSettled(
@@ -526,7 +566,9 @@ router.post("/wavespeed/voices/clone", upload.single("audio"), async (req, res) 
   // The first WaveSpeed voice clone per user is always free.
   // Admins bypass all credit requirements.
   const isAdminVoice = req.session.user?.role === "admin";
-  const nonFailedVoiceCount = isAdminVoice ? 0 : await countNonFailedWsVoices(userId);
+  // Count ALL non-failed voice clones across both WaveSpeed and HeyGen — the "first
+  // voice free" rule is GLOBAL per user, not per provider.
+  const nonFailedVoiceCount = isAdminVoice ? 0 : await countNonFailedVoiceClones(userId);
   const needsVoiceCredits = !isAdminVoice && nonFailedVoiceCount >= FREE_VOICE_CLONES;
 
   if (needsVoiceCredits) {

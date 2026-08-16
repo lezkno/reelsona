@@ -3,7 +3,7 @@ import { randomUUID, createHash } from "crypto";
 import multer from "multer";
 import { db } from "@workspace/db";
 import { avatarConfigTable, settingsTable, heygenClonedVoicesTable, avatarLookMetadataTable } from "@workspace/db";
-import { eq, and, inArray, count as drizzleCount, ne } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import os from "os";
@@ -18,7 +18,7 @@ import {
   EXTRA_VOICE_CREDIT_COST,
   reserveVoiceCredits,
 } from "../lib/credits";
-import { FREE_VOICE_CLONES } from "../lib/planLimits";
+import { FREE_VOICE_CLONES, countNonFailedVoiceClones } from "../lib/planLimits";
 
 const execFileAsync = promisify(execFile);
 
@@ -259,16 +259,14 @@ router.post("/heygen/voices/clone", voiceUpload.single("audio"), async (req, res
       res.status(400).json({ error: "Se requiere un archivo de audio" }); return;
     }
 
-    // ── Credit gate for paid voice clones (2nd+ clone per user) ──────────────
+    // ── Credit gate for paid voice clones (2nd+ clone per user, GLOBAL across providers) ──
+    // The "first voice free" rule counts ALL non-failed clones (WaveSpeed + HeyGen).
+    // If the user already cloned a WaveSpeed voice, their next HeyGen clone costs credits.
     const isAdminHgVoice = req.session.user!.role === "admin";
     let needsHgVoiceCredits = false;
     if (!isAdminHgVoice) {
-      const [hgVoiceCntRow] = await db
-        .select({ cnt: drizzleCount() })
-        .from(heygenClonedVoicesTable)
-        .where(and(eq(heygenClonedVoicesTable.userId, userId), ne(heygenClonedVoicesTable.status, "failed")));
-      const nonFailedHgCount = Number(hgVoiceCntRow?.cnt ?? 0);
-      needsHgVoiceCredits = nonFailedHgCount >= FREE_VOICE_CLONES;
+      const totalVoiceCount = await countNonFailedVoiceClones(userId);
+      needsHgVoiceCredits = totalVoiceCount >= FREE_VOICE_CLONES;
       if (needsHgVoiceCredits) {
         const enough = await hasEnoughCredits(userId, EXTRA_VOICE_CREDIT_COST);
         if (!enough) {
