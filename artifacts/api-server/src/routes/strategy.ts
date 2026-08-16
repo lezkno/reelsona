@@ -60,6 +60,9 @@ function serializeAccount(a: typeof nicheRadarAccountsTable.$inferSelect) {
   };
 }
 
+// ── Plan gate — all Radar/Market/Strategy write endpoints require Pro or Founder ─
+const PRO_PLANS = ["pro", "founder"];
+
 // ── GET /strategy/profile ─────────────────────────────────────────────────────
 
 router.get("/strategy/profile", async (_req, res): Promise<void> => {
@@ -74,7 +77,7 @@ router.get("/strategy/profile", async (_req, res): Promise<void> => {
 
 // ── POST /strategy/account — run IG audit and save account_data ───────────────
 
-router.post("/strategy/account", async (req, res): Promise<void> => {
+router.post("/strategy/account", requirePlanAccess(PRO_PLANS), async (req, res): Promise<void> => {
   const userId = req.session.user!.userId;
   const [account] = await db.select().from(instagramAccountsTable)
     .where(eq(instagramAccountsTable.userId, userId)).limit(1);
@@ -163,9 +166,6 @@ router.post("/strategy/account", async (req, res): Promise<void> => {
     res.status(500).json({ error: err?.message ?? "Audit failed" });
   }
 });
-
-// ── Plan gate — all Radar/Market/Strategy endpoints require Pro or Founder ──────
-const PRO_PLANS = ["pro", "founder"];
 
 // ── GET /strategy/radar/status ────────────────────────────────────────────────
 // Note: status check is plan-free — just reports whether Apify env var is set.

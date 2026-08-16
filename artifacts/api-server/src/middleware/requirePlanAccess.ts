@@ -18,7 +18,7 @@
 import type { RequestHandler } from "express";
 import { db } from "@workspace/db";
 import { subscriptionsTable } from "@workspace/db/schema";
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, inArray, desc } from "drizzle-orm";
 
 // ── Cache ─────────────────────────────────────────────────────────────────────
 
@@ -99,6 +99,7 @@ export function requirePlanAccess(allowedPlans: string[]): RequestHandler {
             inArray(subscriptionsTable.status, [...ACTIVE_STATUSES]),
           ),
         )
+        .orderBy(desc(subscriptionsTable.currentPeriodStart))
         .limit(1);
 
       const planSlug = row?.planSlug ?? null;
