@@ -1421,6 +1421,147 @@ function AssignVoiceDialog({
   )
 }
 
+// ── WsAssignVoiceDialog ───────────────────────────────────────────────────────
+
+function WsAssignVoiceDialog({
+  voice,
+  personas,
+  onApply,
+  onClose,
+}: {
+  voice: WavespeedVoiceRow
+  personas: Array<{ id: number; name: string; looks: WavespeedLookRow[] }>
+  onApply: (updates: Array<{ lookId: number; voiceId: number | null }>) => Promise<void>
+  onClose: () => void
+}) {
+  const parseCfg = (l: WavespeedLookRow) => {
+    try { return JSON.parse(l.config ?? "{}") as { selected?: boolean; voiceId?: number | null } }
+    catch { return {} as { selected?: boolean; voiceId?: number | null } }
+  }
+
+  const activePersonas = useMemo(
+    () =>
+      personas
+        .map(p => ({ ...p, activeLooks: p.looks.filter(l => parseCfg(l).selected === true) }))
+        .filter(p => p.activeLooks.length > 0),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [personas]
+  )
+
+  const [checkedIds, setCheckedIds] = useState<Set<number>>(() => {
+    const pre = new Set<number>()
+    for (const p of activePersonas) {
+      if (p.activeLooks.some(l => parseCfg(l).voiceId === voice.id)) pre.add(p.id)
+    }
+    return pre
+  })
+
+  const [saving, setSaving] = useState(false)
+
+  const togglePersona = (id: number) =>
+    setCheckedIds(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+
+  const handleApply = async () => {
+    setSaving(true)
+    const updates: Array<{ lookId: number; voiceId: number | null }> = []
+    for (const p of activePersonas) {
+      const checked = checkedIds.has(p.id)
+      for (const look of p.activeLooks) {
+        const cur = parseCfg(look).voiceId ?? null
+        if (checked && cur !== voice.id) updates.push({ lookId: look.id, voiceId: voice.id })
+        else if (!checked && cur === voice.id) updates.push({ lookId: look.id, voiceId: null })
+      }
+    }
+    await onApply(updates)
+    setSaving(false)
+  }
+
+  const totalLooks = Array.from(checkedIds).reduce(
+    (sum, pid) => sum + (activePersonas.find(p => p.id === pid)?.activeLooks.length ?? 0),
+    0
+  )
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Mic className="w-5 h-5 text-violet-500" /> Asignar "{voice.displayName}"
+          </DialogTitle>
+          <DialogDescription>
+            Elige los avatares que usarán esta voz. Se aplicará a todos sus looks activos.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="py-2 max-h-80 overflow-y-auto space-y-1.5">
+          {activePersonas.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-6">
+              No tenés avatares activos en la rotación todavía.
+            </p>
+          ) : (
+            activePersonas.map(persona => {
+              const allHaveVoice = persona.activeLooks.every(l => parseCfg(l).voiceId === voice.id)
+              const someHaveVoice = !allHaveVoice && persona.activeLooks.some(l => parseCfg(l).voiceId === voice.id)
+              const hasOtherVoice = persona.activeLooks.some(l => {
+                const v = parseCfg(l).voiceId ?? null
+                return v !== null && v !== voice.id
+              })
+              const thumb = persona.activeLooks[0]?.imageUrl
+              return (
+                <label
+                  key={persona.id}
+                  className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-muted/50 cursor-pointer transition-colors"
+                >
+                  <input
+                    type="checkbox"
+                    checked={checkedIds.has(persona.id)}
+                    onChange={() => togglePersona(persona.id)}
+                    className="w-4 h-4 rounded border-border accent-primary shrink-0"
+                  />
+                  <div className="w-10 h-10 rounded-lg overflow-hidden bg-muted shrink-0">
+                    {thumb ? (
+                      <img src={thumb} alt={persona.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <Users className="w-4 h-4 text-muted-foreground" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{persona.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {persona.activeLooks.length} look{persona.activeLooks.length !== 1 ? "s" : ""}
+                      {allHaveVoice && " · voz ya asignada"}
+                      {someHaveVoice && " · asignada en algunos"}
+                      {hasOtherVoice && !someHaveVoice && " · reemplazará la voz actual"}
+                    </p>
+                  </div>
+                  {allHaveVoice && <CheckCircle2 className="w-4 h-4 text-primary shrink-0" />}
+                </label>
+              )
+            })
+          )}
+        </div>
+
+        <DialogFooter className="flex gap-2">
+          <Button variant="outline" onClick={onClose} disabled={saving}>Cancelar</Button>
+          <Button onClick={handleApply} disabled={checkedIds.size === 0 || saving} className="gap-1.5">
+            {saving
+              ? <Loader2 className="w-4 h-4 animate-spin" />
+              : <CheckCircle2 className="w-4 h-4" />}
+            Aplicar a {checkedIds.size} avatar{checkedIds.size !== 1 ? "es" : ""}
+            {totalLooks > 0 && ` · ${totalLooks} looks`}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 // ── AvatarCreationDialog ──────────────────────────────────────────────────────
 
 type CreationMode = "video" | "photo" | "prompt"
@@ -3227,6 +3368,11 @@ export default function Avatars() {
     catch { return null }
   }
 
+  const getLookSelected = (look: WavespeedLookRow): boolean => {
+    try { return (JSON.parse(look.config ?? "{}") as { selected?: boolean }).selected === true }
+    catch { return false }
+  }
+
   const handleWsVoiceAssign = async (look: WavespeedLookRow, targetVoiceId: number | null) => {
     setWsAssignSaving(look.id)
     try {
@@ -4389,74 +4535,29 @@ export default function Avatars() {
             </div>
           )}
 
-          {/* WaveSpeed voice → avatar assignment sheet */}
-          <Sheet open={!!wsVoiceAssignTarget} onOpenChange={(open) => { if (!open) setWsVoiceAssignTarget(null) }}>
-            <SheetContent side="bottom" className="max-h-[80vh] overflow-y-auto rounded-t-2xl">
-              <SheetHeader className="pb-3">
-                <SheetTitle className="flex items-center gap-2 text-base">
-                  <Mic className="w-4 h-4 text-violet-500" />
-                  Asignar "{wsVoiceAssignTarget?.displayName}"
-                </SheetTitle>
-                <SheetDescription className="text-xs">
-                  Seleccioná los avatares que usarán esta voz. Podés cambiarla en cualquier momento.
-                </SheetDescription>
-              </SheetHeader>
-
-              {wavespeedPersonas.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-8">
-                  No tenés avatares Avatar AI creados todavía.
-                </p>
-              ) : (
-                <div className="space-y-5 pt-2">
-                  {wavespeedPersonas.map(persona => (
-                    <div key={persona.id}>
-                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 px-1">
-                        {persona.name}
-                      </p>
-                      <div className="space-y-2">
-                        {persona.looks.map(look => {
-                          const currentVoiceId = getLookVoiceId(look)
-                          const isAssigned = wsVoiceAssignTarget ? currentVoiceId === wsVoiceAssignTarget.id : false
-                          const isSaving = wsAssignSaving === look.id
-                          return (
-                            <div key={look.id} className={`flex items-center gap-3 p-3 rounded-xl border transition-colors ${isAssigned ? "border-violet-400 bg-violet-50 dark:bg-violet-950/30" : "border-border bg-card"}`}>
-                              {/* Look thumbnail */}
-                              {look.imageUrl ? (
-                                <img src={look.imageUrl} alt={look.name} className="w-10 h-10 rounded-full object-cover shrink-0 border" />
-                              ) : (
-                                <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center shrink-0">
-                                  <Users className="w-4 h-4 text-muted-foreground" />
-                                </div>
-                              )}
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium truncate">{look.name}</p>
-                                <p className="text-xs text-muted-foreground">
-                                  {isAssigned ? "Usa esta voz" : currentVoiceId ? "Tiene otra voz asignada" : "Sin voz asignada"}
-                                </p>
-                              </div>
-                              <Button
-                                size="sm"
-                                variant={isAssigned ? "default" : "outline"}
-                                className={`shrink-0 gap-1.5 ${isAssigned ? "bg-violet-600 hover:bg-violet-700 text-white" : ""}`}
-                                disabled={isSaving}
-                                onClick={() => wsVoiceAssignTarget && handleWsVoiceAssign(look, isAssigned ? null : wsVoiceAssignTarget.id)}
-                              >
-                                {isSaving
-                                  ? <Loader2 className="w-3 h-3 animate-spin" />
-                                  : isAssigned
-                                    ? <><Check className="w-3 h-3" /> Asignada</>
-                                    : "Asignar"}
-                              </Button>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </SheetContent>
-          </Sheet>
+          {/* WaveSpeed voice → avatar assignment dialog */}
+          {wsVoiceAssignTarget && (
+            <WsAssignVoiceDialog
+              voice={wsVoiceAssignTarget}
+              personas={wavespeedPersonas}
+              onApply={async (updates) => {
+                await Promise.all(
+                  updates.map(({ lookId, voiceId }) =>
+                    patchWsLookAssign.mutateAsync({ id: lookId, config: { voiceId } })
+                  )
+                )
+                void refetchWavespeed()
+                setWsVoiceAssignTarget(null)
+                toast({
+                  title: "Voz asignada",
+                  description: updates.length > 0
+                    ? `${updates.length} look${updates.length !== 1 ? "s" : ""} actualizados.`
+                    : "Sin cambios.",
+                })
+              }}
+              onClose={() => setWsVoiceAssignTarget(null)}
+            />
+          )}
 
           {/* My cloned voices */}
           {allVoices.filter(v => v.is_mine).length > 0 && (
@@ -4783,7 +4884,12 @@ export default function Avatars() {
         <AssignVoiceDialog
           voice={assignVoice}
           lookGroupMap={lookGroupMap}
-          allGroups={assignVoice.is_mine ? [...myGroups, ...publicGroups] : publicGroups}
+          allGroups={(() => {
+            const base = assignVoice.is_mine ? [...myGroups, ...publicGroups] : publicGroups
+            return base.filter(g =>
+              Object.entries(lookGroupMap).some(([lid, gid]) => gid === g.id && selectedIds.has(lid))
+            )
+          })()}
           voiceOverrides={voiceOverrides}
           onAssign={(lookIds: string[]) => {
             const newOverrides = { ...voiceOverrides }
