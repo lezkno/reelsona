@@ -260,7 +260,7 @@ router.post("/content/plan/generate", async (req, res): Promise<void> => {
   // Load strategy profile (primary context) + audit cache (fallback)
   const [auditInsights, strategyProfile] = await Promise.all([
     getLatestAuditCache().catch(() => null),
-    getStrategyProfile().catch(() => null),
+    getStrategyProfile(userId).catch(() => null),
   ]);
   const strategyContext = strategyProfile ? toStrategyContext(strategyProfile) : undefined;
 
@@ -325,7 +325,7 @@ router.post("/content", async (req, res): Promise<void> => {
       .where(eq(contentPlanItemsTable.userId, userId)).limit(20);
     const [auditInsights, strategyProfile] = await Promise.all([
       getLatestAuditCache().catch(() => null),
-      getStrategyProfile().catch(() => null),
+      getStrategyProfile(userId).catch(() => null),
     ]);
     const strategyCtx = strategyProfile ? toStrategyContext(strategyProfile) : undefined;
     const generated = await generateContentTopics(niche, keywords, tone, language, 1, 1, existingItems.map((i) => i.topic), auditInsights ?? undefined, strategyCtx ?? undefined);
@@ -404,7 +404,7 @@ router.post("/content/:id/suggest-topic", async (req, res): Promise<void> => {
 
   const [auditInsights, strategyProfile] = await Promise.all([
     getLatestAuditCache().catch(() => null),
-    getStrategyProfile().catch(() => null),
+    getStrategyProfile(userId).catch(() => null),
   ]);
   const strategyCtxSuggest = strategyProfile ? toStrategyContext(strategyProfile) : undefined;
   const [generated] = await generateContentTopics(niche, keywords, tone, language, 1, 1, existingTopics, auditInsights ?? undefined, strategyCtxSuggest ?? undefined);
@@ -698,7 +698,7 @@ router.post("/content/plan/reschedule-overdue", async (req, res): Promise<void> 
 router.post("/content/plan/reanalyze", async (req, res): Promise<void> => {
   const userId = req.session.user!.userId;
   try {
-    const strategyProfile = await getStrategyProfile();
+    const strategyProfile = await getStrategyProfile(userId);
     if (!strategyProfile?.content_strategy) {
       res.status(400).json({ error: "No hay estrategia generada. Completa el paso de Estrategia en la auditoría primero." });
       return;

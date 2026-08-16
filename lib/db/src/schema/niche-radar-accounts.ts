@@ -7,6 +7,8 @@ import { createInsertSchema, createSelectSchema } from "drizzle-zod";
  */
 export const nicheRadarAccountsTable = pgTable("niche_radar_accounts", {
   id:             serial("id").primaryKey(),
+  /** Owner of this radar account */
+  userId:         integer("user_id"),
   igUsername:     text("ig_username").notNull(),
   profileUrl:     text("profile_url"),
   bio:            text("bio"),

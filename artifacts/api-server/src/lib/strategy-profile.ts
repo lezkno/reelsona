@@ -1,6 +1,6 @@
 /**
  * Helpers for reading and writing the persistent strategic profile.
- * The table holds ONE row (single-user SaaS model) — we upsert on every save.
+ * Each user has their own profile row, scoped by userId.
  */
 import { db } from "@workspace/db";
 import { auditProfilesTable } from "@workspace/db";
@@ -31,22 +31,30 @@ function mapRow(row: typeof auditProfilesTable.$inferSelect): StrategyProfileDat
   };
 }
 
-export async function getStrategyProfile(): Promise<StrategyProfileData | null> {
+export async function getStrategyProfile(userId: number): Promise<StrategyProfileData | null> {
   const [row] = await db
     .select()
     .from(auditProfilesTable)
+    .where(eq(auditProfilesTable.userId, userId))
     .orderBy(desc(auditProfilesTable.updatedAt))
     .limit(1);
   return row ? mapRow(row) : null;
 }
 
-export async function upsertStrategyProfile(updates: {
-  account_data?:     AccountData;
-  market_insights?:  MarketInsights;
-  content_strategy?: ContentStrategy;
-  step?: string;
-}): Promise<StrategyProfileData> {
-  const [existingRow] = await db.select().from(auditProfilesTable).limit(1);
+export async function upsertStrategyProfile(
+  userId: number,
+  updates: {
+    account_data?:     AccountData;
+    market_insights?:  MarketInsights;
+    content_strategy?: ContentStrategy;
+    step?: string;
+  }
+): Promise<StrategyProfileData> {
+  const [existingRow] = await db
+    .select()
+    .from(auditProfilesTable)
+    .where(eq(auditProfilesTable.userId, userId))
+    .limit(1);
 
   const currentSteps: string[] = existingRow?.stepsCompleted ?? [];
   const newSteps = updates.step && !currentSteps.includes(updates.step)
@@ -72,6 +80,7 @@ export async function upsertStrategyProfile(updates: {
     const [inserted] = await db
       .insert(auditProfilesTable)
       .values({
+        userId,
         accountData:     updates.account_data     ?? null,
         marketInsights:  updates.market_insights  ?? null,
         contentStrategy: updates.content_strategy ?? null,

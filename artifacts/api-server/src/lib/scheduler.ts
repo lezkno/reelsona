@@ -385,7 +385,7 @@ async function fillEmptyScheduledSlots(
   // Load strategy profile (primary) + audit cache (fallback)
   const [auditInsights, strategyProfile] = await Promise.all([
     getLatestAuditCache().catch(() => null),
-    getStrategyProfile().catch(() => null),
+    getStrategyProfile(userId).catch(() => null),
   ]);
   const strategyContext = strategyProfile ? toStrategyContext(strategyProfile) : undefined;
 
@@ -3313,7 +3313,7 @@ export function startScheduler(): void {
  *
  * Returns counts for logging: { synced, failed, total }.
  */
-export async function syncAllStaleRadarAccounts(): Promise<{ synced: number; failed: number; total: number }> {
+export async function syncAllStaleRadarAccounts(userId?: number): Promise<{ synced: number; failed: number; total: number }> {
   if (!process.env.APIFY_TOKEN) {
     logger.warn("[RadarSync] APIFY_TOKEN not set — skipping radar sync");
     return { synced: 0, failed: 0, total: 0 };
@@ -3321,14 +3321,18 @@ export async function syncAllStaleRadarAccounts(): Promise<{ synced: number; fai
 
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
+  const staleness = or(
+    isNull(nicheRadarAccountsTable.lastSyncedAt),
+    lt(nicheRadarAccountsTable.lastSyncedAt, sevenDaysAgo)
+  );
+
   const staleAccounts = await db
     .select()
     .from(nicheRadarAccountsTable)
     .where(
-      or(
-        isNull(nicheRadarAccountsTable.lastSyncedAt),
-        lt(nicheRadarAccountsTable.lastSyncedAt, sevenDaysAgo)
-      )
+      userId !== undefined
+        ? and(eq(nicheRadarAccountsTable.userId, userId), staleness)
+        : staleness
     );
 
   if (staleAccounts.length === 0) {

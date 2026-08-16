@@ -65,9 +65,10 @@ const PRO_PLANS = ["pro", "founder"];
 
 // ── GET /strategy/profile ─────────────────────────────────────────────────────
 
-router.get("/strategy/profile", async (_req, res): Promise<void> => {
+router.get("/strategy/profile", async (req, res): Promise<void> => {
+  const userId = req.session.user!.userId;
   try {
-    const profile = await getStrategyProfile();
+    const profile = await getStrategyProfile(userId);
     res.json({ profile });
   } catch (err) {
     logger.error({ err }, "Failed to load strategy profile");
@@ -155,7 +156,7 @@ router.post("/strategy/account", requirePlanAccess(PRO_PLANS), async (req, res):
       fetched_at:           new Date().toISOString(),
     };
 
-    const profile = await upsertStrategyProfile({
+    const profile = await upsertStrategyProfile(userId, {
       account_data: accountData,
       step: "account",
     });
@@ -177,8 +178,9 @@ router.get("/strategy/radar/status", (_req, res) => {
 // ── GET /strategy/radar/suggestions ──────────────────────────────────────────
 
 router.get("/strategy/radar/suggestions", requirePlanAccess(PRO_PLANS), async (req, res): Promise<void> => {
+  const userId = req.session.user!.userId;
   const [settingsRow] = await db.select().from(settingsTable)
-    .where(eq(settingsTable.userId, req.session.user!.userId)).limit(1);
+    .where(eq(settingsTable.userId, userId)).limit(1);
   if (!settingsRow?.niche) {
     res.json({ suggestions: [] });
     return;
@@ -186,7 +188,8 @@ router.get("/strategy/radar/suggestions", requirePlanAccess(PRO_PLANS), async (r
   try {
     // Fetch already-saved accounts so the AI never repeats them
     const existing = await db.select({ igUsername: nicheRadarAccountsTable.igUsername })
-      .from(nicheRadarAccountsTable);
+      .from(nicheRadarAccountsTable)
+      .where(eq(nicheRadarAccountsTable.userId, userId));
     const excludeList = existing.map((r) => r.igUsername);
 
     const client = makeOpenAIClient();
@@ -237,8 +240,11 @@ Devuelve SOLO un JSON:
 
 // ── GET /strategy/radar ───────────────────────────────────────────────────────
 
-router.get("/strategy/radar", requirePlanAccess(PRO_PLANS), async (_req, res): Promise<void> => {
-  const accounts = await db.select().from(nicheRadarAccountsTable).orderBy(nicheRadarAccountsTable.createdAt);
+router.get("/strategy/radar", requirePlanAccess(PRO_PLANS), async (req, res): Promise<void> => {
+  const userId = req.session.user!.userId;
+  const accounts = await db.select().from(nicheRadarAccountsTable)
+    .where(eq(nicheRadarAccountsTable.userId, userId))
+    .orderBy(nicheRadarAccountsTable.createdAt);
   res.json({ accounts: accounts.map(serializeAccount) });
 });
 
@@ -251,10 +257,11 @@ router.post("/strategy/radar", requirePlanAccess(PRO_PLANS), async (req, res): P
     return;
   }
   const username = ig_username.trim().toLowerCase();
+  const userId = req.session.user!.userId;
   const [existing] = await db
     .select()
     .from(nicheRadarAccountsTable)
-    .where(eq(nicheRadarAccountsTable.igUsername, username))
+    .where(and(eq(nicheRadarAccountsTable.igUsername, username), eq(nicheRadarAccountsTable.userId, userId)))
     .limit(1);
   if (existing) {
     res.status(409).json({ error: "Account already in radar", account: serializeAccount(existing) });
@@ -263,6 +270,7 @@ router.post("/strategy/radar", requirePlanAccess(PRO_PLANS), async (req, res): P
   const [inserted] = await db
     .insert(nicheRadarAccountsTable)
     .values({
+      userId,
       igUsername:     username,
       profileUrl:     profile_url ?? null,
       bio:            bio ?? null,
@@ -295,14 +303,15 @@ router.post("/strategy/radar", requirePlanAccess(PRO_PLANS), async (req, res): P
 
 // ── POST /strategy/radar/sync-all — sync all stale accounts ──────────────────
 
-router.post("/strategy/radar/sync-all", requirePlanAccess(PRO_PLANS), async (_req, res): Promise<void> => {
+router.post("/strategy/radar/sync-all", requirePlanAccess(PRO_PLANS), async (req, res): Promise<void> => {
+  const userId = req.session.user!.userId;
   if (!process.env.APIFY_TOKEN) {
     res.status(503).json({ error: "APIFY_TOKEN not configured" });
     return;
   }
 
   try {
-    const result = await syncAllStaleRadarAccounts();
+    const result = await syncAllStaleRadarAccounts(userId);
     if (result.total === 0) {
       res.json({ synced: 0, failed: 0, total: 0, message: "All accounts are up to date" });
     } else {
@@ -325,10 +334,11 @@ router.post("/strategy/radar/:id/sync", requirePlanAccess(PRO_PLANS), async (req
     return;
   }
 
+  const userId = req.session.user!.userId;
   const [account] = await db
     .select()
     .from(nicheRadarAccountsTable)
-    .where(eq(nicheRadarAccountsTable.id, id))
+    .where(and(eq(nicheRadarAccountsTable.id, id), eq(nicheRadarAccountsTable.userId, userId)))
     .limit(1);
   if (!account) { res.status(404).json({ error: "Not found" }); return; }
 
@@ -364,6 +374,7 @@ router.post("/strategy/radar/:id/sync", requirePlanAccess(PRO_PLANS), async (req
 router.patch("/strategy/radar/:id", requirePlanAccess(PRO_PLANS), async (req, res): Promise<void> => {
   const id = Number(req.params.id);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const userId = req.session.user!.userId;
   const { use_as_reference, relevance_score, bio, followers } = req.body ?? {};
   const patch: Partial<typeof nicheRadarAccountsTable.$inferInsert> = {};
   if (use_as_reference !== undefined) patch.useAsReference = Boolean(use_as_reference);
@@ -373,7 +384,7 @@ router.patch("/strategy/radar/:id", requirePlanAccess(PRO_PLANS), async (req, re
   const [updated] = await db
     .update(nicheRadarAccountsTable)
     .set(patch)
-    .where(eq(nicheRadarAccountsTable.id, id))
+    .where(and(eq(nicheRadarAccountsTable.id, id), eq(nicheRadarAccountsTable.userId, userId)))
     .returning();
   if (!updated) { res.status(404).json({ error: "Not found" }); return; }
   res.json({ account: serializeAccount(updated) });
@@ -384,24 +395,28 @@ router.patch("/strategy/radar/:id", requirePlanAccess(PRO_PLANS), async (req, re
 router.delete("/strategy/radar/:id", requirePlanAccess(PRO_PLANS), async (req, res): Promise<void> => {
   const id = Number(req.params.id);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
-  await db.delete(nicheRadarAccountsTable).where(eq(nicheRadarAccountsTable.id, id));
+  const userId = req.session.user!.userId;
+  await db.delete(nicheRadarAccountsTable).where(
+    and(eq(nicheRadarAccountsTable.id, id), eq(nicheRadarAccountsTable.userId, userId))
+  );
   res.json({ success: true });
 });
 
 // ── POST /strategy/market — synthesize MarketInsights ────────────────────────
 
 router.post("/strategy/market", requirePlanAccess(PRO_PLANS), async (req, res): Promise<void> => {
-  const profile = await getStrategyProfile();
+  const userId = req.session.user!.userId;
+  const profile = await getStrategyProfile(userId);
   if (!profile?.account_data) {
     res.status(400).json({ error: "Run the Account audit first (step 1)" });
     return;
   }
   const [settingsRow] = await db.select().from(settingsTable)
-    .where(eq(settingsTable.userId, req.session.user!.userId)).limit(1);
+    .where(eq(settingsTable.userId, userId)).limit(1);
   const radarAccounts = await db
     .select()
     .from(nicheRadarAccountsTable)
-    .where(eq(nicheRadarAccountsTable.useAsReference, true));
+    .where(and(eq(nicheRadarAccountsTable.userId, userId), eq(nicheRadarAccountsTable.useAsReference, true)));
 
   try {
     const marketInsights = await synthesizeMarketStudy({
@@ -421,7 +436,7 @@ router.post("/strategy/market", requirePlanAccess(PRO_PLANS), async (req, res): 
       })),
     });
 
-    const updated = await upsertStrategyProfile({
+    const updated = await upsertStrategyProfile(userId, {
       market_insights: marketInsights,
       step: "market",
     });
@@ -435,7 +450,8 @@ router.post("/strategy/market", requirePlanAccess(PRO_PLANS), async (req, res): 
 // ── POST /strategy/strategy — generate ContentStrategy ───────────────────────
 
 router.post("/strategy/strategy", requirePlanAccess(PRO_PLANS), async (req, res): Promise<void> => {
-  const profile = await getStrategyProfile();
+  const userId = req.session.user!.userId;
+  const profile = await getStrategyProfile(userId);
   if (!profile?.account_data) {
     res.status(400).json({ error: "Run the Account audit first (step 1)" });
     return;
@@ -445,11 +461,11 @@ router.post("/strategy/strategy", requirePlanAccess(PRO_PLANS), async (req, res)
     return;
   }
   const [settingsRow] = await db.select().from(settingsTable)
-    .where(eq(settingsTable.userId, req.session.user!.userId)).limit(1);
+    .where(eq(settingsTable.userId, userId)).limit(1);
   const radarAccounts = await db
     .select()
     .from(nicheRadarAccountsTable)
-    .where(eq(nicheRadarAccountsTable.useAsReference, true));
+    .where(and(eq(nicheRadarAccountsTable.userId, userId), eq(nicheRadarAccountsTable.useAsReference, true)));
 
   try {
     const contentStrategy = await generateContentStrategy({
@@ -468,7 +484,7 @@ router.post("/strategy/strategy", requirePlanAccess(PRO_PLANS), async (req, res)
       })),
     });
 
-    const updated = await upsertStrategyProfile({
+    const updated = await upsertStrategyProfile(userId, {
       content_strategy: contentStrategy,
       step: "strategy",
     });
@@ -488,7 +504,7 @@ router.post("/strategy/strategy", requirePlanAccess(PRO_PLANS), async (req, res)
           const drafts = await db
             .select({ id: contentPlanItemsTable.id, topic: contentPlanItemsTable.topic })
             .from(contentPlanItemsTable)
-            .where(eq(contentPlanItemsTable.status, "draft"));
+            .where(and(eq(contentPlanItemsTable.userId, userId), eq(contentPlanItemsTable.status, "draft")));
 
           if (drafts.length === 0) return;
 
@@ -502,7 +518,7 @@ router.post("/strategy/strategy", requirePlanAccess(PRO_PLANS), async (req, res)
 
           // Stale-job check: abort if a newer strategy has been saved while the
           // AI call was in flight, so that older results never overwrite fresher ones.
-          const current = await getStrategyProfile();
+          const current = await getStrategyProfile(userId);
           if (current?.updated_at !== strategyVersion) {
             logger.info(
               { strategyVersion, currentVersion: current?.updated_at },

@@ -1,12 +1,14 @@
-import { pgTable, serial, jsonb, text, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, jsonb, text, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 
 /**
- * Persistent strategic profile — single row, upserted as the user completes
+ * Persistent strategic profile — one row per user, upserted as the user completes
  * each Audit step (Cuenta → Radar → Mercado → Estrategia).
  */
 export const auditProfilesTable = pgTable("audit_profiles", {
   id:              serial("id").primaryKey(),
+  /** Owner of this profile row */
+  userId:          integer("user_id"),
   /** AccountData JSON — filled by the "Cuenta" step */
   accountData:     jsonb("account_data"),
   /** MarketInsights JSON — filled by the "Mercado" step */
