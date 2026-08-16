@@ -3363,24 +3363,6 @@ export default function Avatars() {
   const patchWsLookAssign = usePatchWavespeedLook()
   const [wsAssignSaving, setWsAssignSaving] = useState<number | null>(null)
 
-  // voiceId → active looks that have that voice assigned
-  const wsVoiceAssignedLooks = useMemo(() => {
-    const map = new Map<number, WavespeedLookRow[]>()
-    for (const persona of wavespeedPersonas) {
-      for (const look of persona.looks) {
-        try {
-          const cfg = JSON.parse(look.config ?? "{}") as { selected?: boolean; voiceId?: number | null }
-          if (cfg.selected && cfg.voiceId != null) {
-            const list = map.get(cfg.voiceId) ?? []
-            list.push(look)
-            map.set(cfg.voiceId, list)
-          }
-        } catch { /* skip */ }
-      }
-    }
-    return map
-  }, [wavespeedPersonas])
-
   const getLookVoiceId = (look: WavespeedLookRow): number | null => {
     try { return (JSON.parse(look.config ?? "{}") as { voiceId?: number | null }).voiceId ?? null }
     catch { return null }
@@ -3515,6 +3497,25 @@ export default function Avatars() {
       }).length
     }, 0)
   }, [wavespeedPersonas])
+
+  // voiceId → active looks that have that voice assigned
+  const wsVoiceAssignedLooks = useMemo(() => {
+    const map = new Map<number, WavespeedLookRow[]>()
+    for (const persona of wavespeedPersonas) {
+      for (const look of persona.looks) {
+        try {
+          const cfg = JSON.parse(look.config ?? "{}") as { selected?: boolean; voiceId?: number | null }
+          if (cfg.selected && cfg.voiceId != null) {
+            const list = map.get(cfg.voiceId) ?? []
+            list.push(look)
+            map.set(cfg.voiceId, list)
+          }
+        } catch { /* skip */ }
+      }
+    }
+    return map
+  }, [wavespeedPersonas])
+
   const [showWavespeedWizard, setShowWavespeedWizard] = useState(false)
   const [openWavespeedPersona, setOpenWavespeedPersona] = useState<WavespeedPersonaWithLooks | null>(null)
   const [showCreateLookForPersona, setShowCreateLookForPersona] = useState(false)

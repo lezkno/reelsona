@@ -25,6 +25,7 @@ import { useLocation } from "wouter"
 
 const statusConfig: Record<string, { label: string, variant: string, icon: any }> = {
   draft: { label: "Borrador", variant: "outline", icon: Edit3 },
+  scripting: { label: "Generando guion…", variant: "warning", icon: Clock },
   scripted: { label: "Guion Listo", variant: "secondary", icon: CheckCircle2 },
   generating: { label: "Generando Video", variant: "warning", icon: Clock },
   ready: { label: "Video Listo", variant: "success", icon: Video },
@@ -833,7 +834,7 @@ export default function ContentPlan() {
                       )}
                     </div>
                     {group.items.map((item) => {
-                      const conf = statusConfig[item.status]
+                      const conf = statusConfig[item.status] ?? statusConfig.draft
                       const Icon = conf.icon
                       const canRegenerate = item.status === "draft" || item.status === "scripted"
 
