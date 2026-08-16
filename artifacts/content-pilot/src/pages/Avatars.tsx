@@ -41,6 +41,7 @@ import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Slider } from "@/components/ui/slider"
@@ -3216,7 +3217,29 @@ export default function Avatars() {
     }
   }, [clonePlayingId, toast])
 
-  // ── WaveSpeed voice tuning (speed 0.5–1.5, pitch in semitones -12 to +12) ─
+  // ── WaveSpeed voice → avatar assignment sheet ────────────────────────────
+  const [wsVoiceAssignTarget, setWsVoiceAssignTarget] = useState<WavespeedVoiceRow | null>(null)
+  const patchWsLookAssign = usePatchWavespeedLook()
+  const [wsAssignSaving, setWsAssignSaving] = useState<number | null>(null)
+
+  const getLookVoiceId = (look: WavespeedLookRow): number | null => {
+    try { return (JSON.parse(look.config ?? "{}") as { voiceId?: number | null }).voiceId ?? null }
+    catch { return null }
+  }
+
+  const handleWsVoiceAssign = async (look: WavespeedLookRow, targetVoiceId: number | null) => {
+    setWsAssignSaving(look.id)
+    try {
+      await patchWsLookAssign.mutateAsync({ id: look.id, config: { voiceId: targetVoiceId } })
+      void refetchWavespeed()
+    } catch {
+      toast({ title: "Error al asignar la voz", variant: "destructive" })
+    } finally {
+      setWsAssignSaving(null)
+    }
+  }
+
+  // ── WaveSpeed voice tuning (kept for internal use) ───────────────────────
   const [wsEditVoiceId, setWsEditVoiceId] = useState<number | null>(null)
   const [wsSpeedValue,  setWsSpeedValue]  = useState(1.0)
   const [wsPitchValue,  setWsPitchValue]  = useState(0)
@@ -4297,7 +4320,11 @@ export default function Avatars() {
                             : <Mic className="w-4 h-4 text-violet-500" />
                         }
                       </div>
-                      <div className="flex-1 min-w-0">
+                      {/* Clickable info area — opens avatar assignment sheet for ready voices */}
+                      <div
+                        className={`flex-1 min-w-0 ${v.status === "ready" ? "cursor-pointer" : ""}`}
+                        onClick={() => v.status === "ready" && setWsVoiceAssignTarget(v)}
+                      >
                         <div className="flex items-center gap-2 min-w-0">
                           <p className="text-sm font-medium truncate">{v.displayName}</p>
                           {v.status === "pending" && (
@@ -4316,7 +4343,7 @@ export default function Avatars() {
                             ? "Clonando voz con AI…"
                             : v.status === "failed"
                               ? (v.errorMessage ?? "El procesamiento falló — intenta clonar de nuevo")
-                              : "Voz clonada · Avatar AI"
+                              : "Toca para asignar a avatares →"
                           }
                         </p>
                       </div>
@@ -4361,6 +4388,75 @@ export default function Avatars() {
               </div>
             </div>
           )}
+
+          {/* WaveSpeed voice → avatar assignment sheet */}
+          <Sheet open={!!wsVoiceAssignTarget} onOpenChange={(open) => { if (!open) setWsVoiceAssignTarget(null) }}>
+            <SheetContent side="bottom" className="max-h-[80vh] overflow-y-auto rounded-t-2xl">
+              <SheetHeader className="pb-3">
+                <SheetTitle className="flex items-center gap-2 text-base">
+                  <Mic className="w-4 h-4 text-violet-500" />
+                  Asignar "{wsVoiceAssignTarget?.displayName}"
+                </SheetTitle>
+                <SheetDescription className="text-xs">
+                  Seleccioná los avatares que usarán esta voz. Podés cambiarla en cualquier momento.
+                </SheetDescription>
+              </SheetHeader>
+
+              {wavespeedPersonas.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-8">
+                  No tenés avatares Avatar AI creados todavía.
+                </p>
+              ) : (
+                <div className="space-y-5 pt-2">
+                  {wavespeedPersonas.map(persona => (
+                    <div key={persona.id}>
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 px-1">
+                        {persona.name}
+                      </p>
+                      <div className="space-y-2">
+                        {persona.looks.map(look => {
+                          const currentVoiceId = getLookVoiceId(look)
+                          const isAssigned = wsVoiceAssignTarget ? currentVoiceId === wsVoiceAssignTarget.id : false
+                          const isSaving = wsAssignSaving === look.id
+                          return (
+                            <div key={look.id} className={`flex items-center gap-3 p-3 rounded-xl border transition-colors ${isAssigned ? "border-violet-400 bg-violet-50 dark:bg-violet-950/30" : "border-border bg-card"}`}>
+                              {/* Look thumbnail */}
+                              {look.imageUrl ? (
+                                <img src={look.imageUrl} alt={look.name} className="w-10 h-10 rounded-full object-cover shrink-0 border" />
+                              ) : (
+                                <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center shrink-0">
+                                  <Users className="w-4 h-4 text-muted-foreground" />
+                                </div>
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium truncate">{look.name}</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {isAssigned ? "Usa esta voz" : currentVoiceId ? "Tiene otra voz asignada" : "Sin voz asignada"}
+                                </p>
+                              </div>
+                              <Button
+                                size="sm"
+                                variant={isAssigned ? "default" : "outline"}
+                                className={`shrink-0 gap-1.5 ${isAssigned ? "bg-violet-600 hover:bg-violet-700 text-white" : ""}`}
+                                disabled={isSaving}
+                                onClick={() => wsVoiceAssignTarget && handleWsVoiceAssign(look, isAssigned ? null : wsVoiceAssignTarget.id)}
+                              >
+                                {isSaving
+                                  ? <Loader2 className="w-3 h-3 animate-spin" />
+                                  : isAssigned
+                                    ? <><Check className="w-3 h-3" /> Asignada</>
+                                    : "Asignar"}
+                              </Button>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </SheetContent>
+          </Sheet>
 
           {/* My cloned voices */}
           {allVoices.filter(v => v.is_mine).length > 0 && (
