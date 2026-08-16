@@ -261,7 +261,7 @@ router.post("/wavespeed/voice-director/preview-audio", async (req: Request, res:
  *   1. analyzeScriptForWavespeed → segments with per-intent speed/pitch
  *   2. minimax/speech-2.6-turbo per segment → concat MP3
  *   3. Upload MP3 to Object Storage → signed GCS URL
- *   4. wavespeed-ai/infinitetalk-fast (lookImageUrl + audio) → video
+ *   4. wavespeed-ai/infinitetalk (lookImageUrl + audio) → video
  *   5. Poll ≤25 s; return requestId if still processing so caller can check later
  *
  * COSTS WAVESPEED CREDITS — N speech jobs + 1 video job.
@@ -372,7 +372,7 @@ router.post("/wavespeed/voice-director/preview-video", async (req: Request, res:
           : null,
         creditNote:
           `${segmentCount} minimax/speech-2.6-turbo job(s) + ` +
-          (result.videoRequestId ? "1 wavespeed-ai/infinitetalk-fast job submitted." : "0 video jobs (audio failed).") +
+          (result.videoRequestId ? "1 video job submitted." : "0 video jobs (audio failed).") +
           " Credits consumed from your WaveSpeed balance.",
       },
     });

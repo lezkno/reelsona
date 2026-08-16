@@ -8,7 +8,7 @@
  *      (minimax/speech-2.6-turbo, per-segment speed/pitch, FFmpeg concat)
  *   2. Upload of the concatenated MP3 to Object Storage (signed GET URL
  *      for WaveSpeed to download — bypasses the mTLS proxy)
- *   3. Talking-head video via wavespeed-ai/infinitetalk-fast
+ *   3. Talking-head video via wavespeed-ai/infinitetalk
  *      (look image + audio → lip-synced vertical presenter video)
  *
  * SCOPE

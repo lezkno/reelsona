@@ -1,0 +1,85 @@
+BLOQUE 1 — Correcciones críticas del pipeline y monetización
+Trabaja únicamente sobre el estado actual sincronizado de Reelsona. No rediseñes planes, precios ni créditos. No cambies nada fuera de este bloque salvo que sea estrictamente necesario para compilar.
+1. Motor de Avatar AI propio
+En artifacts/api-server/src/lib/wavespeed.ts cambia el motor de producción:
+wavespeed-ai/infinitetalk-fast
+por:
+wavespeed-ai/infinitetalk
+Actualiza también comentarios/documentación interna que todavía diga infinitetalk-fast.
+No muestres el nombre del proveedor ni del modelo al usuario.
+2. Unificar costo de generación de Reel
+En credits.ts elimina la lógica comercial separada de:
+WAVESPEED_CREDITS_PER_30S = 100
+y
+HEYGEN_CREDITS_PER_30S = 150
+Sustituirla por una única regla pública:
+REEL_CREDITS_PER_30S = 50
+Crear:
+computeReelCreditCost(durationSec)
+Fórmula:
+ceil(durationSec * 50 / 30)
+Mantener un mínimo de 15 créditos por generación.
+Ejemplos esperados:
+15 s → 25 cr
+30 s → 50 cr
+45 s → 75 cr
+60 s → 100 cr
+Tanto Avatar AI propio como avatar público deben usar esta misma función.
+El proveedor real usado internamente NO debe alterar el costo de créditos que ve el cliente.
+Mantener sin cambios:
+Basic = 400 créditos
+Pro = 1,500 créditos
+Founder = 1,500 créditos/mes.
+3. Generación manual con avatar público
+Actualmente /videos/generate puede llamar al proveedor directamente sin reservar créditos.
+Debe pasar obligatoriamente por el mismo ciclo:
+calcular costo → comprobar saldo → reservar → generar → consumir al completar → devolver si falla.
+No debe existir ningún camino de generación de video que evite el wallet.
+Reutiliza la arquitectura existente reserveCredits / consumeVideoCredits / releaseVideoCredits. No dupliques otra lógica financiera.
+4. Eliminar BYOK del flujo de usuario
+En /videos/generate elimina la preferencia por settingsTable.heygenApiKey.
+El usuario no debe conectar ni suministrar API keys externas.
+Eliminar mensajes como:
+“No hay una API key de HeyGen configurada. Conecta tu cuenta…”
+Sustituir errores visibles por mensajes genéricos, por ejemplo:
+“El servicio de generación no está disponible temporalmente.”
+Las credenciales de proveedores son exclusivamente internas de Reelsona.
+5. No exponer proveedores en API pública
+No devolver al frontend:
+WAVESPEED_MODELS
+nombres de proveedores
+API keys
+nombres de modelos
+mensajes de Replit Secrets.
+/wavespeed/status debe ser admin-only o devolver solamente algo genérico como:
+{ configured: true }
+sin lista de modelos ni nombres técnicos.
+6. No cambies todavía
+En este bloque NO modificar:
+Stripe
+upgrade/downgrade
+Founder cron
+landing
+Billing
+looks
+voces
+portadas
+B-roll.
+Eso se hará en bloques siguientes.
+7. Pruebas obligatorias
+Verificar:
+Avatar AI propio 30 s reserva 50 créditos.
+Avatar público 30 s reserva 50 créditos.
+60 s reserva 100 créditos.
+saldo insuficiente impide enviar trabajo al proveedor.
+fallo del proveedor devuelve los créditos.
+éxito consume la reserva una sola vez.
+ninguna generación manual evade el wallet.
+ningún error visible menciona proveedor/modelo.
+TypeScript/build/tests pasan.
+Al terminar:
+haz commit;
+push a main;
+dime el SHA;
+enumera exactamente los archivos modificados;
+no empieces otro bloque.

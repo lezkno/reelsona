@@ -170,14 +170,7 @@ const LOOK_PROMPTS = [
 // ── GET /wavespeed/status ─────────────────────────────────────────────────────
 
 router.get("/wavespeed/status", (req, res) => {
-  const configured = isWavespeedConfigured();
-  res.json({
-    configured,
-    models: Object.values(WAVESPEED_MODELS),
-    note: configured
-      ? "WAVESPEED_API_KEY is set — pipeline ready"
-      : "WAVESPEED_API_KEY is not configured — add it to Replit Secrets to enable the WaveSpeed pipeline",
-  });
+  res.json({ configured: isWavespeedConfigured() });
 });
 
 // ── POST /wavespeed/personas ──────────────────────────────────────────────────

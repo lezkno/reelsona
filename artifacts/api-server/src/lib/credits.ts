@@ -14,8 +14,8 @@
  * All write operations run inside a transaction and are idempotent.
  *
  * Credit cost table (verification):
- *   WaveSpeed (100 cr / 30 s):  15 s → 50 cr  |  30 s → 100 cr  |  45 s → 150 cr  |  60 s → 200 cr
- *   HeyGen   (150 cr / 30 s):  15 s → 75 cr  |  30 s → 150 cr  |  45 s → 225 cr  |  60 s → 300 cr
+ *   Reel (50 cr / 30 s):  15 s → 25 cr  |  30 s → 50 cr  |  45 s → 75 cr  |  60 s → 100 cr
+ *   Minimum cost: 15 credits per generation regardless of duration.
  */
 
 import { db } from "@workspace/db";
@@ -25,10 +25,16 @@ import { logger } from "./logger";
 
 // ── Cost constants ────────────────────────────────────────────────────────────
 
-/** Credits per 30-second WaveSpeed Reel segment (personalised avatar). */
-export const WAVESPEED_CREDITS_PER_30S = 100;
-/** Credits per 30-second HeyGen public-avatar Reel segment. */
-export const HEYGEN_CREDITS_PER_30S   = 150;
+/**
+ * Unified credit cost per 30-second Reel, regardless of the underlying provider.
+ * The provider used internally never affects the credit cost shown to the user.
+ */
+export const REEL_CREDITS_PER_30S = 50;
+
+/** @deprecated Use REEL_CREDITS_PER_30S. Kept for backward compatibility. */
+export const WAVESPEED_CREDITS_PER_30S = REEL_CREDITS_PER_30S;
+/** @deprecated Use REEL_CREDITS_PER_30S. Kept for backward compatibility. */
+export const HEYGEN_CREDITS_PER_30S   = REEL_CREDITS_PER_30S;
 
 /** Flat credit cost per Seedream look generation (first 3 looks/persona included in plan). */
 export const LOOK_CREDIT_COST  = 2;
@@ -48,19 +54,29 @@ export const FOUNDER_MAX_SEATS = 10;
 export const FOUNDER_MAX_MONTHS = 12;
 
 /**
- * Estimate the credit cost for a WaveSpeed Reel.
- * durationSec: estimated or probed video duration in seconds.
+ * Compute the credit cost for a Reel generation.
+ * Unified formula for all providers — the underlying engine never affects the
+ * cost visible to the user.
+ * Minimum: 15 credits per generation.
+ *
+ * @example
+ *   computeReelCreditCost(15) → 25
+ *   computeReelCreditCost(30) → 50
+ *   computeReelCreditCost(45) → 75
+ *   computeReelCreditCost(60) → 100
  */
-export function computeWavespeedCost(durationSec: number): number {
-  return Math.ceil(durationSec * WAVESPEED_CREDITS_PER_30S / 30);
+export function computeReelCreditCost(durationSec: number): number {
+  return Math.max(15, Math.ceil(durationSec * REEL_CREDITS_PER_30S / 30));
 }
 
-/**
- * Estimate the credit cost for a HeyGen public-avatar Reel.
- * durationSec: estimated or probed video duration in seconds.
- */
+/** @deprecated Use computeReelCreditCost. */
+export function computeWavespeedCost(durationSec: number): number {
+  return computeReelCreditCost(durationSec);
+}
+
+/** @deprecated Use computeReelCreditCost. */
 export function computeHeygenCost(durationSec: number): number {
-  return Math.ceil(durationSec * HEYGEN_CREDITS_PER_30S / 30);
+  return computeReelCreditCost(durationSec);
 }
 
 /**
@@ -74,10 +90,11 @@ export function estimateDurationFromScript(script: string): number {
 
 // ── Backward-compat constant (used by legacy routes/admin) ───────────────────
 /**
- * @deprecated Use computeWavespeedCost / computeHeygenCost instead.
+ * @deprecated Use computeReelCreditCost instead.
  * Kept for backward compatibility with admin credit adjustment route.
+ * Represents the cost of a 30-second Reel.
  */
-export const VIDEO_CREDIT_COST = 100; // Matches WaveSpeed 30 s as a sensible default display
+export const VIDEO_CREDIT_COST = REEL_CREDITS_PER_30S;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

@@ -6,10 +6,10 @@
  * callers must poll getJobStatus() until status is "completed" or "failed".
  *
  * Supported models (current phase):
- *   wavespeed-ai/infinitetalk             — talking-head video generation (480p / 720p)
- *   minimax/speech-2.6-turbo             — text-to-speech synthesis
- *   minimax/voice-clone                  — voice cloning from audio
- *   bytedance/seedream-v5.0-pro/edit     — image editing / composition
+ *   wavespeed-ai/infinitetalk            — talking-head video generation (480p / 720p)
+ *   minimax/speech-2.6-turbo            — text-to-speech synthesis
+ *   minimax/voice-clone                 — voice cloning from audio
+ *   bytedance/seedream-v5.0-pro/edit    — image editing / composition
  */
 
 const WAVESPEED_BASE = "https://api.wavespeed.ai";
@@ -18,7 +18,7 @@ const WAVESPEED_BASE = "https://api.wavespeed.ai";
 
 export const WAVESPEED_MODELS = {
   /** Talking-head video: image + audio → video */
-  TALKING_HEAD: "wavespeed-ai/infinitetalk-fast",
+  TALKING_HEAD: "wavespeed-ai/infinitetalk",
   /** Text-to-speech with a cloned or preset voice */
   SPEECH: "minimax/speech-2.6-turbo",
   /** Voice cloning from a reference audio file */
@@ -135,7 +135,7 @@ export async function getJobStatus(
 // ── Model-specific helpers ────────────────────────────────────────────────────
 
 /**
- * Default motion prompt for infinitetalk-fast.
+ * Default motion prompt for the talking-head model.
  *
  * The model accepts a free-text `prompt` that steers pose, expression, and
  * body behaviour.  Without it the avatar tends to stay nearly static; with
@@ -150,7 +150,7 @@ export const TALKING_HEAD_DEFAULT_PROMPT =
   "Professional content creator speaking directly to camera.";
 
 /**
- * Submit a talking-head video job (wavespeed-ai/infinitetalk-fast).
+ * Submit a talking-head video job.
  *
  * Documented parameters:
  *   image      — portrait image URL (required)
@@ -177,7 +177,7 @@ export async function submitTalkingHead(
   const maskImage = opts?.maskImage;
   const seed      = opts?.seed      ?? -1;
 
-  // WaveSpeed infinitetalk-fast uses "image" and "audio" (not image_url / audio_url)
+  // WaveSpeed infinitetalk uses "image" and "audio" (not image_url / audio_url)
   return submitJob(
     WAVESPEED_MODELS.TALKING_HEAD,
     {

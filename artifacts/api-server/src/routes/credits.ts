@@ -8,7 +8,7 @@
 
 import { Router } from "express";
 import type { Request, Response } from "express";
-import { getUserCredits, VIDEO_CREDIT_COST, WAVESPEED_CREDITS_PER_30S, HEYGEN_CREDITS_PER_30S } from "../lib/credits";
+import { getUserCredits, VIDEO_CREDIT_COST, REEL_CREDITS_PER_30S } from "../lib/credits";
 
 const router = Router();
 
@@ -27,8 +27,7 @@ router.get("/credits/balance", async (req: Request, res: Response): Promise<void
         videosRemaining:     null,
         isAdmin:             true,
         costTable: {
-          wavespeedPer30s: WAVESPEED_CREDITS_PER_30S,
-          heygenPer30s:    HEYGEN_CREDITS_PER_30S,
+          reelPer30s: REEL_CREDITS_PER_30S,
         },
       });
       return;
@@ -41,12 +40,11 @@ router.get("/credits/balance", async (req: Request, res: Response): Promise<void
       purchasedCredits:    wallet.purchasedCredits,
       reservedCredits:     wallet.reservedCredits,
       totalConsumed:       wallet.totalConsumed,
-      // Approximate videos remaining using WaveSpeed 30 s cost as a reference unit
-      videosRemaining: Math.floor(wallet.availableCredits / WAVESPEED_CREDITS_PER_30S),
+      // Approximate videos remaining based on a 30-second Reel cost
+      videosRemaining: Math.floor(wallet.availableCredits / REEL_CREDITS_PER_30S),
       isAdmin:         false,
       costTable: {
-        wavespeedPer30s: WAVESPEED_CREDITS_PER_30S,
-        heygenPer30s:    HEYGEN_CREDITS_PER_30S,
+        reelPer30s: REEL_CREDITS_PER_30S,
       },
     });
   } catch (err) {

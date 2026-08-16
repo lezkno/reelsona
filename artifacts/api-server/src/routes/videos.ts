@@ -17,6 +17,7 @@ import {
   ScheduleVideoResponse,
 } from "@workspace/api-zod";
 import { generateVideo, fetchAvatarPreviewImage } from "../lib/heygen";
+import { reserveCredits, releaseVideoCredits, estimateDurationFromScript, computeReelCreditCost, hasEnoughCredits } from "../lib/credits";
 import { publishVideoToInstagram, pickNextAvatar, resolveVoiceId, runCaptionProcessing, runAutomationCycle } from "../lib/scheduler";
 import { generateBrandCover } from "../lib/brand-cover";
 import { logger } from "../lib/logger";
@@ -161,15 +162,15 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
     return;
   }
 
-  // Resolve the user's HeyGen API key and video effects from their settings row
+  // Resolve video effects and language from user settings
   const [userSettings] = await db
-    .select({ heygenApiKey: settingsTable.heygenApiKey, videoEffects: settingsTable.videoEffects, language: settingsTable.language })
+    .select({ videoEffects: settingsTable.videoEffects, language: settingsTable.language })
     .from(settingsTable)
     .where(eq(settingsTable.userId, userId))
     .limit(1);
-  const heygenApiKey = userSettings?.heygenApiKey ?? process.env.HEYGEN_API_KEY ?? undefined;
+  const heygenApiKey = process.env.HEYGEN_API_KEY;
   if (!heygenApiKey) {
-    res.status(400).json({ error: "No hay una API key de HeyGen configurada. Conecta tu cuenta en Configuración → Integraciones." });
+    res.status(503).json({ error: "El servicio de generación no está disponible temporalmente." });
     return;
   }
 
@@ -251,6 +252,22 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
     return;
   }
 
+  // ── Credit check (HeyGen path) ────────────────────────────────────────────
+  const isAdminUser = req.session.user!.role === "admin";
+  const estimatedDurationSec = estimateDurationFromScript(item.script!);
+  const estimatedCreditCost  = computeReelCreditCost(estimatedDurationSec);
+  if (!isAdminUser) {
+    const enough = await hasEnoughCredits(userId, estimatedCreditCost);
+    if (!enough) {
+      await db
+        .update(contentPlanItemsTable)
+        .set({ status: "scripted", updatedAt: new Date() })
+        .where(and(eq(contentPlanItemsTable.id, item.id), eq(contentPlanItemsTable.userId, userId)));
+      res.status(402).json({ error: "Créditos insuficientes para generar este video. Recarga tu saldo para continuar." });
+      return;
+    }
+  }
+
   // Manual videos request captions whenever Caption Studio is configured,
   // regardless of the automation captionsEnabled toggle (which only controls
   // the automatic pipeline). null = captions requested; "disabled" = skip.
@@ -288,6 +305,20 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
     .update(contentPlanItemsTable)
     .set({ videoId: videoRow.id, updatedAt: new Date() })
     .where(and(eq(contentPlanItemsTable.id, item.id), eq(contentPlanItemsTable.userId, userId)));
+
+  // Reserve credits before dispatching to the generation provider
+  if (!isAdminUser) {
+    try {
+      await reserveCredits(userId, estimatedCreditCost, videoRow.id, `Reserva generación video ${videoRow.id}`);
+    } catch {
+      await db.update(videosTable).set({ status: "failed", errorMessage: "Error al reservar créditos", updatedAt: new Date() })
+        .where(and(eq(videosTable.id, videoRow.id), eq(videosTable.userId, userId)));
+      await db.update(contentPlanItemsTable).set({ status: "scripted", updatedAt: new Date() })
+        .where(and(eq(contentPlanItemsTable.id, item.id), eq(contentPlanItemsTable.userId, userId)));
+      res.status(402).json({ error: "Créditos insuficientes para generar este video. Recarga tu saldo para continuar." });
+      return;
+    }
+  }
 
   // Resolve voice speed/pitch so the manual route matches the scheduler's audio params
   let manualVoiceSpeed: number | undefined;
@@ -333,6 +364,12 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
         .where(and(eq(videosTable.id, videoRow.id), eq(videosTable.userId, userId)));
       await db.update(contentPlanItemsTable).set({ status: "failed", updatedAt: new Date() })
         .where(and(eq(contentPlanItemsTable.id, item.id), eq(contentPlanItemsTable.userId, userId)));
+      // Release reserved credits on immediate submission failure
+      if (!isAdminUser) {
+        releaseVideoCredits(videoRow.id, `Fallo al enviar al proveedor: ${error}`).catch((creditErr) =>
+          logger.error({ videoId: videoRow.id, creditErr }, "[Credits] release failed after submission error"),
+        );
+      }
     });
 
   res.status(202).json(GenerateVideoResponse.parse(mapVideo(videoRow)));
@@ -526,7 +563,6 @@ router.post("/videos/:id/regenerate-cover", async (req, res): Promise<void> => {
       brandPrimaryColor: settingsTable.brandPrimaryColor,
       brandAccentColor: settingsTable.brandAccentColor,
       brandLogoUrl: settingsTable.brandLogoUrl,
-      heygenApiKey: settingsTable.heygenApiKey,
     })
     .from(settingsTable)
     .where(eq(settingsTable.userId, userId))
@@ -555,7 +591,7 @@ router.post("/videos/:id/regenerate-cover", async (req, res): Promise<void> => {
   ;(async () => {
     try {
       // Resolve avatar preview image — prefer user key, fall back to platform key
-      const heygenKey = settings.heygenApiKey ?? process.env.HEYGEN_API_KEY ?? undefined;
+      const heygenKey = process.env.HEYGEN_API_KEY ?? undefined;
       let avatarImageUrl: string | null = null;
       if (video.avatarId) {
         avatarImageUrl = await fetchAvatarPreviewImage(video.avatarId, heygenKey);

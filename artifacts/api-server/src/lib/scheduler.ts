@@ -30,8 +30,7 @@ import {
   reserveCredits,
   consumeVideoCredits,
   releaseVideoCredits,
-  computeWavespeedCost,
-  computeHeygenCost,
+  computeReelCreditCost,
   estimateDurationFromScript,
   provisionSubscriptionCredits,
   PLAN_CREDITS,
@@ -1159,9 +1158,7 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
   // Estimate the video cost from the script length + engine type before
   // reserving. WaveSpeed: 100 cr / 30 s; HeyGen: 150 cr / 30 s.
   const estimatedDurationSec = estimateDurationFromScript(contentItem.script);
-  const estimatedCreditCost  = wavespeedCtx
-    ? computeWavespeedCost(estimatedDurationSec)
-    : computeHeygenCost(estimatedDurationSec);
+  const estimatedCreditCost = computeReelCreditCost(estimatedDurationSec);
 
   // ── Credit check ──────────────────────────────────────────────────────────
   // Admin users bypass the credit check. Regular users must have enough credits
