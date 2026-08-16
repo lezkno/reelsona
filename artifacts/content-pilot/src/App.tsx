@@ -26,6 +26,7 @@ import AccessExpired from "@/pages/AccessExpired"
 import PrivacyPolicy from "@/pages/PrivacyPolicy"
 import TermsAndConditions from "@/pages/TermsAndConditions"
 import CheckoutSuccess from "@/pages/CheckoutSuccess"
+import CheckoutCancel from "@/pages/CheckoutCancel"
 import Landing from "@/pages/Landing"
 import Billing from "@/pages/Billing"
 import { useAuthStatus } from "@workspace/api-client-react"
@@ -165,6 +166,7 @@ function App() {
             <Route path="/reset-password" component={ResetPassword} />
             <Route path="/resend-activation" component={ResendActivation} />
             <Route path="/checkout/success" component={CheckoutSuccess} />
+            <Route path="/checkout/cancel" component={CheckoutCancel} />
             <Route>
               <AuthGuard>
                 <Router />
