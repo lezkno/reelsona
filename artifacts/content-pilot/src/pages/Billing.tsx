@@ -771,26 +771,6 @@ export default function Billing() {
         </Card>
       )}
 
-      {/* No-plan alert — shown to non-admin users without an active subscription */}
-      {!isAdmin && !hasActiveSub && (
-        <Card className="border-amber-500/25 bg-amber-50/60 dark:bg-amber-950/20">
-          <CardContent className="p-5 flex flex-col sm:flex-row sm:items-center gap-4">
-            <div className="flex-1 min-w-0 space-y-0.5">
-              <p className="font-semibold text-base">Tu cuenta está sin un plan activo</p>
-              <p className="text-sm text-muted-foreground">
-                Tus proyectos, videos, avatares y créditos adicionales siguen guardados.
-                Activa un plan para volver a crear, analizar y publicar contenido.
-              </p>
-            </div>
-            <Button
-              className="shrink-0 gap-1.5"
-              onClick={() => plansRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
-            >
-              Activar un plan <ArrowRight className="w-4 h-4" />
-            </Button>
-          </CardContent>
-        </Card>
-      )}
 
       {/* Top row: subscription + credits */}
       {!isAdmin && (
