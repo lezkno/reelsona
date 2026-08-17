@@ -859,7 +859,6 @@ export default function ContentPlan() {
                                     variant="outline"
                                     size="sm"
                                     className="w-full h-7 gap-1 text-xs border-primary/30 text-primary hover:bg-primary hover:text-primary-foreground"
-                                    disabled={generateBlocked}
                                     onClick={() => handleProcessNow(item.id)}
                                   >
                                     <Zap className="w-3 h-3" />
@@ -1144,7 +1143,7 @@ export default function ContentPlan() {
 
                           <div className="flex items-center gap-2 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                             {item.status === 'scripted' && (
-                              <Button size="sm" className="gap-1" onClick={() => handleGenerateVideo(item.id)} disabled={generateBlocked || generateVideo.isPending}>
+                              <Button size="sm" className="gap-1" onClick={() => handleGenerateVideo(item.id)} disabled={generateVideo.isPending}>
                                 <Video className="w-3.5 h-3.5" /> Generar Video
                               </Button>
                             )}
