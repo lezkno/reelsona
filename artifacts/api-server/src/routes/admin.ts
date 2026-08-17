@@ -14,12 +14,15 @@ import type { Request, Response } from "express";
 import { randomBytes } from "crypto";
 import { db } from "@workspace/db";
 import { users, userEntitlements, videosTable, settingsTable, captionConfigTable, userCreditsTable, stripePriceConfigsTable } from "@workspace/db";
+import { subscriptionsTable } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
-import { adjustCredits, VIDEO_CREDIT_COST, PLAN_CREDITS, FOUNDER_MAX_SEATS } from "../lib/credits";
+import { adjustCredits, provisionSubscriptionCredits, VIDEO_CREDIT_COST, PLAN_CREDITS, FOUNDER_MAX_SEATS } from "../lib/credits";
 import { sendEmail, activationEmail, getAppUrl } from "../lib/email";
 import { provisionUser } from "../lib/provision";
 import { runCaptionProcessing } from "../lib/scheduler";
 import { getStripe, invalidatePriceCache } from "../lib/stripe";
+import { invalidateAccessCache } from "../middleware/requireToolAccess";
+import { invalidatePlanCache } from "../middleware/requirePlanAccess";
 
 const router = Router();
 
@@ -578,6 +581,115 @@ router.get("/admin/stripe/prices", async (req: Request, res: Response): Promise<
     res.json({ ok: true, prices: rows });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/admin/users/:userId/set-plan ────────────────────────────────────
+/**
+ * Assign (or remove) a subscription plan for any user without payment.
+ * The system acts exactly as if the user bought the plan:
+ *   - Subscription row is upserted with status=active, fresh period dates.
+ *   - Monthly plan credits are provisioned via provisionSubscriptionCredits
+ *     (replaces the subscription pool — does NOT accumulate).
+ *   - For Founder: founderMonthsGranted/founderAnchorAt are initialised so
+ *     the monthly cron takes over from the next cycle onwards.
+ *   - planSlug "none" cancels the subscription without touching credits.
+ */
+router.post("/admin/users/:userId/set-plan", async (req: Request, res: Response): Promise<void> => {
+  if (!isAdminRequest(req)) { res.status(403).json({ error: "Acceso denegado" }); return; }
+
+  const userId = parseInt(req.params.userId as string, 10);
+  if (!Number.isFinite(userId) || userId < 1) {
+    res.status(400).json({ error: "userId inválido" }); return;
+  }
+
+  const { planSlug } = req.body as { planSlug?: string };
+  const VALID_PLANS = ["basic", "pro", "founder", "none"] as const;
+  if (!VALID_PLANS.includes(planSlug as (typeof VALID_PLANS)[number])) {
+    res.status(400).json({ error: "planSlug inválido. Usa: basic, pro, founder o none." }); return;
+  }
+
+  const [user] = await db.select({ id: users.id, username: users.username })
+    .from(users).where(eq(users.id, userId)).limit(1);
+  if (!user) { res.status(404).json({ error: "Usuario no encontrado" }); return; }
+
+  try {
+    const now = new Date();
+    const [existingSub] = await db.select().from(subscriptionsTable)
+      .where(eq(subscriptionsTable.userId, userId)).limit(1);
+
+    // ── Removing the plan ────────────────────────────────────────────────────
+    if (planSlug === "none") {
+      if (existingSub) {
+        await db.update(subscriptionsTable)
+          .set({ status: "canceled", cancelAtPeriodEnd: false, pendingPlanSlug: null, stripeScheduleId: null, updatedAt: now })
+          .where(eq(subscriptionsTable.userId, userId));
+      }
+      invalidateAccessCache(userId);
+      invalidatePlanCache(userId);
+      res.json({ ok: true, planSlug: "none", creditsGranted: 0 });
+      return;
+    }
+
+    // ── Assigning a plan ────────────────────────────────────────────────────
+    const periodStart = now;
+    const periodEnd   = new Date(now);
+    if (planSlug === "founder") {
+      periodEnd.setFullYear(periodEnd.getFullYear() + 1);   // annual
+    } else {
+      periodEnd.setMonth(periodEnd.getMonth() + 1);          // monthly
+    }
+
+    const baseFields = {
+      planSlug:          planSlug as string,
+      status:            "active",
+      currentPeriodStart: periodStart,
+      currentPeriodEnd:   periodEnd,
+      cancelAtPeriodEnd:  false,
+      pendingPlanSlug:    null,
+      stripeScheduleId:   null,
+      updatedAt:          now,
+    } as const;
+
+    const founderFields = planSlug === "founder" ? {
+      // Set founderMonthsGranted=1 so the scheduler picks up from month 2.
+      // founderAnchorAt anchors all future monthly grant dates.
+      founderMonthsGranted: 1,
+      founderAnchorAt:      now,
+      founderLastGrantAt:   now,
+    } : {};
+
+    if (existingSub) {
+      await db.update(subscriptionsTable)
+        .set({ ...baseFields, ...founderFields })
+        .where(eq(subscriptionsTable.userId, userId));
+    } else {
+      await db.insert(subscriptionsTable).values({
+        userId,
+        ...baseFields,
+        ...founderFields,
+      });
+    }
+
+    // Grant credits exactly as if the plan was purchased
+    const credits = PLAN_CREDITS[planSlug!] ?? 0;
+    if (credits > 0) {
+      await provisionSubscriptionCredits(
+        userId,
+        credits,
+        `Plan ${planSlug} asignado manualmente por admin`,
+      );
+    }
+
+    invalidateAccessCache(userId);
+    invalidatePlanCache(userId);
+
+    console.log(`[admin/set-plan] user=${userId} (${user.username}) → ${planSlug}, credits=${credits}`);
+    res.json({ ok: true, planSlug, creditsGranted: credits });
+
+  } catch (err: unknown) {
+    console.error("[admin/set-plan]", err);
+    res.status(500).json({ error: "Error interno del servidor" });
   }
 });
 

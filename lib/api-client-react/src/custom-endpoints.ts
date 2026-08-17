@@ -333,6 +333,26 @@ export function useCancelSubscription() {
   });
 }
 
+/** Admin: assign (or remove) a subscription plan for any user without payment. Provisions plan credits immediately. */
+export function useAdminSetUserPlan() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ userId, planSlug }: { userId: number; planSlug: string }) =>
+      customFetch<{ ok: boolean; planSlug: string; creditsGranted: number }>(
+        `/api/admin/users/${userId}/set-plan`,
+        {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          body:    JSON.stringify({ planSlug }),
+        }
+      ),
+    onSuccess: () => {
+      // Refresh entitlements so the admin can see the updated tool-access status
+      qc.invalidateQueries({ queryKey: ["admin", "entitlements"] });
+    },
+  });
+}
+
 /** Manually adjust a user's credit balance (admin only). */
 export function useAdjustUserCredits() {
   const qc = useQueryClient();

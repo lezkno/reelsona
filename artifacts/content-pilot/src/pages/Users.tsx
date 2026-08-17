@@ -4,7 +4,7 @@ import {
   Pencil, Mail, Phone, StickyNote, KeyRound,
   CheckCircle2, XCircle, Clock, GraduationCap,
   RefreshCw, AlertCircle, Info, BookOpen, Wrench,
-  CalendarDays, Download, Coins, PlusCircle, MinusCircle,
+  CalendarDays, Download, Coins, PlusCircle, MinusCircle, Crown,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -34,7 +34,7 @@ import {
   useAdminUsers, useCreateAdminUser, useUpdateAdminUser,
   useDeleteAdminUser, useAuthStatus,
   useAdminEntitlements, useProvisionStudent, useResendActivation,
-  useUpdateEntitlementDays, useAdjustUserCredits,
+  useUpdateEntitlementDays, useAdjustUserCredits, useAdminSetUserPlan,
   type AdminUser, type UpdateAdminUserInput, type AdminEntitlement,
 } from "@workspace/api-client-react"
 import { cn } from "@/lib/utils"
@@ -397,6 +397,101 @@ function DeleteUserButton({ user, selfUsername }: { user: AdminUser; selfUsernam
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+  )
+}
+
+// ── Admin set-plan dialog ─────────────────────────────────────────────────────
+
+const PLAN_OPTIONS = [
+  { value: "basic",   label: "Basic",   sub: "400 créditos/mes" },
+  { value: "pro",     label: "Pro",     sub: "1 500 créditos/mes" },
+  { value: "founder", label: "Founder", sub: "1 500 créditos/mes · período anual" },
+  { value: "none",    label: "Sin plan", sub: "Cancelar suscripción" },
+] as const
+
+function AdminSetPlanDialog({ user }: { user: AdminUser }) {
+  const [open, setOpen] = useState(false)
+  const [plan, setPlan] = useState<string>("")
+  const setPlanMutation = useAdminSetUserPlan()
+  const { toast } = useToast()
+
+  const handleSubmit = () => {
+    if (!plan) return
+    setPlanMutation.mutate({ userId: user.id, planSlug: plan }, {
+      onSuccess: (data) => {
+        toast({
+          title: "Plan actualizado",
+          description: data.creditsGranted > 0
+            ? `@${user.username} → ${plan} · ${data.creditsGranted} créditos recargados`
+            : `@${user.username} → sin plan`,
+        })
+        setOpen(false)
+        setPlan("")
+      },
+      onError: (err: any) => {
+        toast({
+          title: "Error",
+          variant: "destructive",
+          description: err?.data?.error ?? err?.message ?? "No se pudo cambiar el plan",
+        })
+      },
+    })
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) setPlan("") }}>
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="icon"
+          className="h-8 w-8 text-muted-foreground hover:text-primary" title="Asignar plan">
+          <Crown className="w-3.5 h-3.5" />
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Asignar plan</DialogTitle>
+          <DialogDescription>
+            El plan se activa de inmediato y los créditos mensuales se recargan como si el
+            usuario hubiera comprado el plan. No se realiza ningún cargo.
+            <br /><span className="font-medium">@{user.username}</span>
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3 py-1">
+          {PLAN_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => setPlan(opt.value)}
+              className={cn(
+                "w-full flex items-center gap-3 px-4 py-3 rounded-lg border text-left transition-colors",
+                plan === opt.value
+                  ? "border-primary bg-primary/5 text-foreground"
+                  : "border-border hover:border-muted-foreground/50 text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <Crown className={cn("w-4 h-4 shrink-0", plan === opt.value ? "text-primary" : "")} />
+              <div>
+                <p className="text-sm font-medium leading-none">{opt.label}</p>
+                <p className="text-xs mt-0.5 opacity-70">{opt.sub}</p>
+              </div>
+            </button>
+          ))}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => { setOpen(false); setPlan("") }}>
+            Cancelar
+          </Button>
+          <Button
+            onClick={handleSubmit}
+            disabled={!plan || setPlanMutation.isPending}
+          >
+            {setPlanMutation.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />}
+            Aplicar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -1194,6 +1289,7 @@ export default function Users() {
                       {/* Acciones */}
                       <td className="px-3 py-3.5">
                         <div className="flex items-center gap-0.5">
+                          <AdminSetPlanDialog user={user} />
                           <EditUserDialog user={user} selfUsername={selfUsername} />
                           <ChangePasswordDialog user={user} />
                           <DeleteUserButton user={user} selfUsername={selfUsername} />
