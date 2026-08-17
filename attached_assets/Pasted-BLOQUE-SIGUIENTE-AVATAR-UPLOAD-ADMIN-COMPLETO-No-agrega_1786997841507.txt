@@ -1,0 +1,247 @@
+BLOQUE SIGUIENTE — AVATAR UPLOAD + ADMIN COMPLETO
+No agregar nuevas funciones fuera de este alcance. No cambiar precios, créditos, Stripe lifecycle, Founder, B-roll ni reglas comerciales ya aprobadas.
+Objetivo: cerrar dos áreas críticas antes de seguir:
+creación de Avatar AI desde foto;
+administración completa de usuarios.
+1. AVATAR AI DESDE FOTO — P0
+Caso reportado:
+role=user con Basic activo → Crear Avatar AI → subir foto → failed 403.
+Auditar el flujo completo:
+archivo
+→ solicitud de upload
+→ storage
+→ ownership
+→ creación del Avatar AI
+→ generación de 3 looks iniciales gratis.
+Revisar específicamente:
+endpoints de storage/upload;
+middleware requireToolAccess;
+cualquier requireAdmin;
+URL firmada;
+permisos del objeto;
+ownership por userId;
+lectura posterior de la imagen por backend;
+creación final del avatar.
+Reglas
+Basic activo:
+puede crear 1 Avatar AI;
+puede subir JPG, PNG y WEBP;
+recibe 3 looks iniciales incluidos;
+esos 3 looks NO consumen créditos.
+Pro/Founder:
+hasta 3 Avatar AI;
+cada avatar nuevo recibe 3 looks iniciales gratis.
+Sin plan:
+puede entrar a /avatars;
+puede ver biblioteca pública e históricos;
+al intentar crear Avatar AI → PremiumModal;
+NO ejecutar upload ni API con costo;
+nunca mostrar 403 técnico.
+Seguridad
+Un usuario solo puede:
+leer sus propias imágenes privadas;
+crear avatares usando sus propios uploads.
+User A no puede acceder mediante ID/path/URL a archivos de User B.
+Prueba manual obligatoria
+Probar con Basic real:
+login → Avatares → Crear Avatar AI → subir foto → crear → 3 looks visibles
+Confirmar:
+sin 403;
+avatar guardado;
+límite pasa de 0/1 a 1/1;
+créditos no disminuyen por los 3 looks iniciales.
+2. ADMIN — USUARIOS
+Revisar el módulo /users completo.
+Un role=admin debe poder administrar usuarios normales sin que estos sean tratados como administradores.
+Separación de roles
+Verificar:
+role=user → aparece en lista de usuarios.
+role=admin → aparece como administrador.
+Nunca clasificar un role=user dentro de tabla/lista de administradores.
+No inferir admin por plan, entitlement o créditos.
+3. CREAR USUARIO DESDE ADMIN
+Cuando admin crea un usuario:
+crear role=user;
+generar activation token;
+token válido durante el período definido;
+enviar email de activación;
+enlace debe abrir correctamente;
+usuario establece contraseña;
+usuario puede iniciar sesión.
+Corregir el bug donde el enlace recién creado aparece como vencido.
+Revisar:
+timestamp;
+timezone;
+comparación de expiración;
+consumo único del token;
+regeneración del token.
+Añadir botón:
+Reenviar activación
+que:
+invalida token anterior;
+crea uno nuevo;
+extiende correctamente expiración;
+envía nuevo email.
+4. ADMIN — DETALLE COMPLETO DEL USUARIO
+Al hacer clic en un usuario, abrir una vista/drawer/modal con resumen completo.
+Mostrar:
+Cuenta
+nombre;
+email;
+role;
+estado activo/inactivo;
+fecha de creación;
+última actividad/login si está disponible;
+activación completada / pendiente.
+Plan
+plan actual;
+status;
+inicio de período;
+fin de período;
+cancelAtPeriodEnd;
+pending downgrade;
+Founder month X/12 si corresponde.
+Créditos
+disponibles;
+subscription credits;
+purchased credits;
+reservados;
+consumidos acumulados.
+Producción
+número de Avatar AI;
+número de looks;
+número de voces clonadas;
+número de videos creados;
+videos publicados;
+videos fallidos si es sencillo;
+contenido programado.
+Instagram
+conectado / no conectado;
+username si existe;
+needs_reconnection.
+Pagos
+Stripe customer presente o no;
+historial si ya existe endpoint seguro;
+no mostrar datos sensibles de tarjeta.
+5. ADMIN — CAMBIAR PLAN
+Ya existe set-plan.
+Revisar que funcione correctamente para:
+Basic
+Pro
+Founder
+Sin plan
+Asignación manual
+Basic:
+status active;
+400 subscription credits.
+Pro:
+1,500 subscription credits.
+Founder:
+1,500;
+founderMonthsGranted=1;
+anchor correcto;
+cron continúa desde mes 2.
+Sin plan:
+cancelar entitlement;
+no borrar purchased credits;
+no borrar proyectos/assets.
+Al cambiar plan manualmente:
+invalidar caches de:
+billing;
+access state;
+credits;
+plan limits.
+6. ADMIN — CRÉDITOS
+Permitir al admin:
+sumar créditos;
+restar créditos;
+indicar motivo;
+ver resultado antes/después.
+Cada ajuste debe generar entrada en credit_ledger.
+Nunca permitir saldo negativo.
+No modificar purchasedCredits/subscriptionCredits de forma inconsistente.
+Si el sistema ya tiene adjustCredits, reutilizarlo.
+7. ADMIN — CANCELAR / REACTIVAR
+Admin debe poder:
+cancelar acceso;
+reactivar;
+asignar otro plan.
+Si hay Stripe subscription real:
+NO cancelar Stripe silenciosamente desde una acción genérica de admin sin confirmación clara.
+Diferenciar:
+desactivar acceso manual
+vs
+cancelar suscripción Stripe.
+No mezclar ambas operaciones.
+8. ADMIN — SEGURIDAD
+Todos los endpoints admin:
+requieren role=admin o mecanismo admin ya aprobado;
+userId validado;
+no aceptar role/privilegios arbitrarios desde frontend;
+logs de cambios sensibles.
+Un role=user que intente acceder a /users o endpoints admin:
+→ 403/redirect apropiado.
+No mostrar detalles de otros usuarios.
+9. PRUEBAS MANUALES OBLIGATORIAS
+A. Basic
+crear Avatar AI desde foto ✅
+upload sin 403 ✅
+3 looks gratis ✅
+límite 1 avatar ✅
+B. Sin plan
+/avatars visible ✅
+avatar público visible ✅
+Crear Avatar AI → paywall ✅
+no se inicia upload ✅
+C. Admin crea user
+role=user ✅
+email de activación ✅
+enlace válido ✅
+establece contraseña ✅
+login ✅
+D. Admin modifica user
+asigna Basic ✅
+400 créditos ✅
+cambia a Pro ✅
+1,500 créditos ✅
+asigna Founder ✅
+Founder 1/12 ✅
+quita plan ✅
+assets conservados ✅
+E. Admin créditos
++100 ✅
+ledger ✅
+-50 ✅
+no negativo ✅
+F. Roles
+user nunca aparece como admin ✅
+user no puede abrir endpoints admin ✅
+10. NO CAMBIAR
+Mantener:
+Basic $29 / 400
+Pro $97 / 1,500
+Founder $697/año / 1,500 mensual
+1 avatar Basic
+3 Pro/Founder
+3 looks iniciales gratis
+look adicional 2 cr
+primera voz gratis
+voz adicional 10 cr
+Reel 50 cr / 30 s
+Stripe lifecycle actual
+Founder anniversary grants.
+11. ENTREGA
+Al terminar:
+TypeScript/build/tests.
+Commit.
+Push a main.
+Indicar SHA.
+Listar archivos modificados.
+Reportar resultado de pruebas A–F.
+Indicar específicamente:
+causa exacta del 403 de upload;
+cómo quedó resuelto;
+resultado de activación por email;
+resultado de asignación manual de planes;
+resultado de ajustes de créditos.
+NO comenzar el siguiente bloque

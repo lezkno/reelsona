@@ -35,11 +35,12 @@ const PUBLIC_FIELDS = {
   updatedAt:   users.updatedAt,
 } as const;
 
-/** List all admin users (passwords excluded). */
+/** List admin users (role=admin only, passwords excluded). */
 router.get("/users", async (_req: Request, res: Response): Promise<void> => {
   const rows = await db
     .select(PUBLIC_FIELDS)
     .from(users)
+    .where(eq(users.role, "admin"))
     .orderBy(users.createdAt);
   res.json(rows);
 });

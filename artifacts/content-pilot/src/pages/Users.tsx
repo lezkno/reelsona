@@ -4,7 +4,7 @@ import {
   Pencil, Mail, Phone, StickyNote, KeyRound,
   CheckCircle2, XCircle, Clock, GraduationCap,
   RefreshCw, AlertCircle, Info, BookOpen, Wrench,
-  CalendarDays, Download, Coins, PlusCircle, MinusCircle, Crown,
+  CalendarDays, Download, Coins, PlusCircle, MinusCircle, Crown, Eye,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -35,6 +35,7 @@ import {
   useDeleteAdminUser, useAuthStatus,
   useAdminEntitlements, useProvisionStudent, useResendActivation,
   useUpdateEntitlementDays, useAdjustUserCredits, useAdminSetUserPlan,
+  useAdminUserDetail,
   type AdminUser, type UpdateAdminUserInput, type AdminEntitlement,
 } from "@workspace/api-client-react"
 import { cn } from "@/lib/utils"
@@ -1140,13 +1141,179 @@ function EntitlementsSection() {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
+// ── Admin user detail modal ───────────────────────────────────────────────────
+
+function AdminUserDetailModal({ userId, onClose }: { userId: number | null; onClose: () => void }) {
+  const { data, isLoading, error } = useAdminUserDetail(userId)
+
+  return (
+    <Dialog open={!!userId} onOpenChange={(v) => { if (!v) onClose() }}>
+      <DialogContent className="sm:max-w-xl max-h-[85vh] overflow-y-auto">
+        {isLoading && (
+          <div className="flex items-center justify-center py-16">
+            <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+          </div>
+        )}
+        {error && (
+          <div className="py-8 text-center text-destructive text-sm">Error al cargar el perfil</div>
+        )}
+        {data && (() => {
+          const { account, subscription, credits, entitlement, instagram, production } = data
+          const PLAN_COLOR: Record<string, string> = {
+            basic: "text-blue-500", pro: "text-violet-500", founder: "text-amber-500",
+          }
+          return (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2 flex-wrap">
+                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-sm font-bold text-primary shrink-0">
+                    {(account.fullName ?? account.username).charAt(0).toUpperCase()}
+                  </div>
+                  <span>@{account.username}</span>
+                  {account.role === "admin" && <Badge variant="secondary" className="text-xs">Admin</Badge>}
+                  {!account.isActive && <Badge variant="destructive" className="text-xs">Inactivo</Badge>}
+                  {account.activationPending && <Badge variant="outline" className="text-xs text-amber-500 border-amber-500/40">Activación pendiente</Badge>}
+                </DialogTitle>
+                <DialogDescription>
+                  {account.fullName && <>{account.fullName} · </>}{account.email ?? account.username}
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-5 py-1">
+                {/* CUENTA */}
+                <div>
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2">Cuenta</p>
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
+                    <Row label="Creado"       value={fmtDate(account.createdAt)} />
+                    <Row label="Último acceso" value={account.lastLoginAt ? fmtDate(account.lastLoginAt) : "Nunca"} />
+                    {account.phone && <Row label="Teléfono" value={account.phone} />}
+                    {account.notes && <div className="col-span-2"><span className="text-muted-foreground">Notas: </span><span className="text-xs">{account.notes}</span></div>}
+                  </div>
+                </div>
+
+                {/* PLAN */}
+                <div>
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2">Plan</p>
+                  {subscription ? (
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
+                      <Row label="Plan"   value={<span className={cn("font-semibold capitalize", PLAN_COLOR[subscription.planSlug])}>{subscription.planSlug}</span>} />
+                      <Row label="Estado" value={subscription.status} />
+                      <Row label="Inicio" value={fmtDate(subscription.currentPeriodStart)} />
+                      <Row label="Fin"    value={fmtDate(subscription.currentPeriodEnd)} />
+                      {subscription.cancelAtPeriodEnd && (
+                        <div className="col-span-2"><span className="text-destructive text-xs">⚠ Cancela al fin del período</span></div>
+                      )}
+                      {subscription.pendingPlanSlug && (
+                        <Row label="Downgrade pendiente" value={<span className="capitalize">{subscription.pendingPlanSlug}</span>} />
+                      )}
+                      {subscription.planSlug === "founder" && (
+                        <Row label="Meses Founder" value={`${subscription.founderMonthsGranted}/12`} />
+                      )}
+                      <Row label="Stripe" value={subscription.hasStripeCustomer ? "Con cliente" : "Sin cliente"} />
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">Sin suscripción</p>
+                  )}
+                </div>
+
+                {/* CRÉDITOS */}
+                <div>
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2">Créditos</p>
+                  {credits ? (
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
+                      <Row label="Disponibles"      value={<span className="font-bold">{credits.availableCredits}</span>} />
+                      <Row label="De suscripción"   value={credits.subscriptionCredits} />
+                      <Row label="Comprados"         value={credits.purchasedCredits} />
+                      <Row label="Reservados"        value={credits.reservedCredits} />
+                      <Row label="Consumidos total"  value={credits.totalConsumed} />
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">Sin wallet</p>
+                  )}
+                </div>
+
+                {/* PRODUCCIÓN */}
+                <div>
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2">Producción</p>
+                  <div className="grid grid-cols-3 gap-x-4 gap-y-1.5 text-sm">
+                    <Row label="Avatares"    value={production.avatarCount} />
+                    <Row label="Looks"       value={production.lookCount} />
+                    <Row label="Videos"      value={production.videoCount} />
+                    <Row label="Publicados"  value={<span className="text-emerald-500">{production.publishedVideoCount}</span>} />
+                    <Row label="Fallidos"    value={<span className={production.failedVideoCount > 0 ? "text-destructive" : ""}>{production.failedVideoCount}</span>} />
+                    <Row label="En proceso"  value={production.inProgressCount} />
+                  </div>
+                </div>
+
+                {/* HERRAMIENTA */}
+                {entitlement && (
+                  <div>
+                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2">Herramienta</p>
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
+                      <Row label="Estado" value={
+                        <span className={
+                          entitlement.toolAccessStatus === "active"   ? "text-emerald-500" :
+                          entitlement.toolAccessStatus === "trialing" ? "text-blue-500" : "text-destructive"
+                        }>
+                          {TOOL_STATUS_BADGE[entitlement.toolAccessStatus]?.label ?? entitlement.toolAccessStatus}
+                        </span>
+                      } />
+                      <Row label="Vence"  value={fmtDate(entitlement.toolAccessEndsAt)} />
+                      <Row label="Fuente" value={entitlement.source ?? "—"} />
+                      <Row label="Curso"  value={entitlement.courseAccess ? "Sí" : "No"} />
+                    </div>
+                  </div>
+                )}
+
+                {/* INSTAGRAM */}
+                <div>
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2">Instagram</p>
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
+                    <Row label="Conectado" value={
+                      <span className={instagram.connected ? "text-emerald-500" : "text-muted-foreground"}>
+                        {instagram.connected ? "Sí" : "No"}
+                      </span>
+                    } />
+                    {instagram.connected && <>
+                      <Row label="Username"          value={`@${instagram.username}`} />
+                      <Row label="Necesita reconexión" value={
+                        <span className={instagram.needsReconnection ? "text-destructive" : "text-emerald-500"}>
+                          {instagram.needsReconnection ? "Sí" : "No"}
+                        </span>
+                      } />
+                    </>}
+                  </div>
+                </div>
+              </div>
+            </>
+          )
+        })()}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// Compact label-value row helper used inside AdminUserDetailModal
+function Row({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex items-baseline justify-between gap-2 min-w-0">
+      <span className="text-muted-foreground shrink-0">{label}</span>
+      <span className="text-right truncate">{value}</span>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default function Users() {
   const { data: userList, isLoading, error } = useAdminUsers()
   const { data: authData } = useAuthStatus()
   const selfUsername = authData?.user?.username
+  const [detailUserId, setDetailUserId] = useState<number | null>(null)
 
   return (
     <div className="space-y-10">
+      <AdminUserDetailModal userId={detailUserId} onClose={() => setDetailUserId(null)} />
 
       {/* ── Student access section ─────────────────────────────────────────── */}
       <div className="space-y-4">
@@ -1289,6 +1456,13 @@ export default function Users() {
                       {/* Acciones */}
                       <td className="px-3 py-3.5">
                         <div className="flex items-center gap-0.5">
+                          <Button variant="ghost" size="icon"
+                            className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                            title="Ver detalle"
+                            onClick={() => setDetailUserId(user.id)}
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                          </Button>
                           <AdminSetPlanDialog user={user} />
                           <EditUserDialog user={user} selfUsername={selfUsername} />
                           <ChangePasswordDialog user={user} />

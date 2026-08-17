@@ -14,8 +14,8 @@ import type { Request, Response } from "express";
 import { randomBytes } from "crypto";
 import { db } from "@workspace/db";
 import { users, userEntitlements, videosTable, settingsTable, captionConfigTable, userCreditsTable, stripePriceConfigsTable } from "@workspace/db";
-import { subscriptionsTable } from "@workspace/db/schema";
-import { eq } from "drizzle-orm";
+import { subscriptionsTable, instagramAccountsTable, wavespeedPersonasTable } from "@workspace/db/schema";
+import { eq, sql } from "drizzle-orm";
 import { adjustCredits, provisionSubscriptionCredits, VIDEO_CREDIT_COST, PLAN_CREDITS, FOUNDER_MAX_SEATS } from "../lib/credits";
 import { sendEmail, activationEmail, getAppUrl } from "../lib/email";
 import { provisionUser } from "../lib/provision";
@@ -23,6 +23,7 @@ import { runCaptionProcessing } from "../lib/scheduler";
 import { getStripe, invalidatePriceCache } from "../lib/stripe";
 import { invalidateAccessCache } from "../middleware/requireToolAccess";
 import { invalidatePlanCache } from "../middleware/requirePlanAccess";
+import { upsertEntitlement } from "../lib/access";
 
 const router = Router();
 
@@ -625,8 +626,18 @@ router.post("/admin/users/:userId/set-plan", async (req: Request, res: Response)
           .set({ status: "canceled", cancelAtPeriodEnd: false, pendingPlanSlug: null, stripeScheduleId: null, updatedAt: now })
           .where(eq(subscriptionsTable.userId, userId));
       }
+      // Expire entitlement so requireToolAccess blocks immediately
+      await upsertEntitlement({
+        userId,
+        courseAccess:     false,
+        toolAccessStatus: "expired",
+        toolAccessEndsAt: now,
+        source:           "admin",
+        planSlug:         null,
+      });
       invalidateAccessCache(userId);
       invalidatePlanCache(userId);
+      console.log(`[admin/set-plan] user=${userId} (${user.username}) → none (canceled)`);
       res.json({ ok: true, planSlug: "none", creditsGranted: 0 });
       return;
     }
@@ -671,6 +682,17 @@ router.post("/admin/users/:userId/set-plan", async (req: Request, res: Response)
       });
     }
 
+    // Upsert entitlement so requireToolAccess grants access immediately
+    await upsertEntitlement({
+      userId,
+      courseAccess:       true,
+      toolAccessStatus:   "active",
+      toolAccessStartsAt: periodStart,
+      toolAccessEndsAt:   periodEnd,
+      source:             "admin",
+      planSlug:           planSlug as string,
+    });
+
     // Grant credits exactly as if the plan was purchased
     const credits = PLAN_CREDITS[planSlug!] ?? 0;
     if (credits > 0) {
@@ -689,6 +711,146 @@ router.post("/admin/users/:userId/set-plan", async (req: Request, res: Response)
 
   } catch (err: unknown) {
     console.error("[admin/set-plan]", err);
+    res.status(500).json({ error: "Error interno del servidor" });
+  }
+});
+
+// ── GET /api/admin/users/:userId/detail ───────────────────────────────────────
+/**
+ * Full user profile for the admin panel: account, subscription, credits,
+ * entitlement, production stats, and Instagram connection status.
+ * Sensitive fields (Stripe IDs, tokens, password) are never exposed.
+ */
+router.get("/admin/users/:userId/detail", async (req: Request, res: Response): Promise<void> => {
+  if (!isAdminRequest(req)) { res.status(403).json({ error: "Acceso denegado" }); return; }
+
+  const userId = parseInt(req.params.userId as string, 10);
+  if (!Number.isFinite(userId) || userId < 1) {
+    res.status(400).json({ error: "userId inválido" }); return;
+  }
+
+  try {
+    const [
+      accountRow,
+      subRow,
+      creditsRow,
+      entRow,
+      igRow,
+      videoStats,
+      avatarCntResult,
+      lookCntResult,
+    ] = await Promise.all([
+      // Account (no passwordHash / tokens)
+      db.select({
+        id:               users.id,
+        username:         users.username,
+        fullName:         users.fullName,
+        email:            users.email,
+        phone:            users.phone,
+        role:             users.role,
+        isActive:         users.isActive,
+        notes:            users.notes,
+        createdAt:        users.createdAt,
+        lastLoginAt:      users.lastLoginAt,
+        // Activation pending = token exists (non-null) in DB
+        activationPending: sql<boolean>`(activation_token IS NOT NULL)`,
+      }).from(users).where(eq(users.id, userId)).limit(1).then((r) => r[0] ?? null),
+
+      // Subscription
+      db.select().from(subscriptionsTable).where(eq(subscriptionsTable.userId, userId)).limit(1).then((r) => r[0] ?? null),
+
+      // Credits wallet
+      db.select().from(userCreditsTable).where(eq(userCreditsTable.userId, userId)).limit(1).then((r) => r[0] ?? null),
+
+      // Tool entitlement
+      db.select().from(userEntitlements).where(eq(userEntitlements.userId, userId)).limit(1).then((r) => r[0] ?? null),
+
+      // Instagram account
+      db.select({
+        username:          instagramAccountsTable.username,
+        needsReconnection: instagramAccountsTable.needsReconnection,
+      }).from(instagramAccountsTable).where(eq(instagramAccountsTable.userId, userId)).limit(1).then((r) => r[0] ?? null),
+
+      // Video counts by status
+      db.execute(sql`
+        SELECT
+          COUNT(*)                                        AS total,
+          COUNT(*) FILTER (WHERE status = 'published')   AS published,
+          COUNT(*) FILTER (WHERE status = 'failed')      AS failed,
+          COUNT(*) FILTER (WHERE status IN ('scripting','generating','queued')) AS in_progress
+        FROM videos
+        WHERE user_id = ${userId}
+      `).then((r) => r.rows[0] as Record<string, string> | undefined ?? {}),
+
+      // WaveSpeed persona count
+      db.execute(sql`SELECT COUNT(*) AS cnt FROM wavespeed_personas WHERE user_id = ${userId}`)
+        .then((r) => Number((r.rows[0] as Record<string, string> | undefined)?.cnt ?? 0)),
+
+      // WaveSpeed look count (across all personas owned by user)
+      db.execute(sql`
+        SELECT COUNT(wl.id) AS cnt
+        FROM wavespeed_looks wl
+        JOIN wavespeed_personas wp ON wl.persona_id = wp.id
+        WHERE wp.user_id = ${userId}
+      `).then((r) => Number((r.rows[0] as Record<string, string> | undefined)?.cnt ?? 0)),
+    ]);
+
+    if (!accountRow) { res.status(404).json({ error: "Usuario no encontrado" }); return; }
+
+    res.json({
+      account: {
+        id:                 accountRow.id,
+        username:           accountRow.username,
+        fullName:           accountRow.fullName,
+        email:              accountRow.email,
+        phone:              accountRow.phone,
+        role:               accountRow.role,
+        isActive:           accountRow.isActive,
+        notes:              accountRow.notes,
+        createdAt:          accountRow.createdAt,
+        lastLoginAt:        accountRow.lastLoginAt,
+        activationPending:  accountRow.activationPending,
+      },
+      subscription: subRow ? {
+        planSlug:             subRow.planSlug,
+        status:               subRow.status,
+        currentPeriodStart:   subRow.currentPeriodStart,
+        currentPeriodEnd:     subRow.currentPeriodEnd,
+        cancelAtPeriodEnd:    subRow.cancelAtPeriodEnd,
+        pendingPlanSlug:      subRow.pendingPlanSlug,
+        founderMonthsGranted: subRow.founderMonthsGranted,
+        founderAnchorAt:      subRow.founderAnchorAt,
+        hasStripeCustomer:    !!subRow.stripeCustomerId,
+      } : null,
+      credits: creditsRow ? {
+        availableCredits:    creditsRow.availableCredits,
+        subscriptionCredits: creditsRow.subscriptionCredits,
+        purchasedCredits:    creditsRow.purchasedCredits,
+        reservedCredits:     creditsRow.reservedCredits,
+        totalConsumed:       creditsRow.totalConsumed,
+      } : null,
+      entitlement: entRow ? {
+        toolAccessStatus:   entRow.toolAccessStatus,
+        toolAccessStartsAt: entRow.toolAccessStartsAt,
+        toolAccessEndsAt:   entRow.toolAccessEndsAt,
+        courseAccess:       entRow.courseAccess,
+        source:             entRow.source,
+        planSlug:           entRow.planSlug,
+      } : null,
+      instagram: igRow
+        ? { connected: true,  username: igRow.username, needsReconnection: igRow.needsReconnection }
+        : { connected: false, username: null,            needsReconnection: false },
+      production: {
+        avatarCount:         avatarCntResult,
+        lookCount:           lookCntResult,
+        videoCount:          Number(videoStats.total       ?? 0),
+        publishedVideoCount: Number(videoStats.published   ?? 0),
+        failedVideoCount:    Number(videoStats.failed      ?? 0),
+        inProgressCount:     Number(videoStats.in_progress ?? 0),
+      },
+    });
+  } catch (err) {
+    console.error("[admin/users/:userId/detail]", err);
     res.status(500).json({ error: "Error interno del servidor" });
   }
 });

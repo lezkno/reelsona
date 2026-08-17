@@ -1433,6 +1433,71 @@ export function useGenerateWavespeedPersonaLooks() {
   });
 }
 
+// ── Admin user detail ─────────────────────────────────────────────────────────
+
+export interface AdminUserDetail {
+  account: {
+    id:                number;
+    username:          string;
+    fullName:          string | null;
+    email:             string | null;
+    phone:             string | null;
+    role:              string;
+    isActive:          boolean;
+    notes:             string | null;
+    createdAt:         string;
+    lastLoginAt:       string | null;
+    activationPending: boolean;
+  };
+  subscription: {
+    planSlug:             string;
+    status:               string;
+    currentPeriodStart:   string | null;
+    currentPeriodEnd:     string | null;
+    cancelAtPeriodEnd:    boolean;
+    pendingPlanSlug:      string | null;
+    founderMonthsGranted: number;
+    founderAnchorAt:      string | null;
+    hasStripeCustomer:    boolean;
+  } | null;
+  credits: {
+    availableCredits:    number;
+    subscriptionCredits: number;
+    purchasedCredits:    number;
+    reservedCredits:     number;
+    totalConsumed:       number;
+  } | null;
+  entitlement: {
+    toolAccessStatus:   string;
+    toolAccessStartsAt: string | null;
+    toolAccessEndsAt:   string | null;
+    courseAccess:       boolean;
+    source:             string | null;
+    planSlug:           string | null;
+  } | null;
+  instagram: { connected: boolean; username: string | null; needsReconnection: boolean };
+  production: {
+    avatarCount:         number;
+    lookCount:           number;
+    videoCount:          number;
+    publishedVideoCount: number;
+    failedVideoCount:    number;
+    inProgressCount:     number;
+  };
+}
+
+const ADMIN_USER_DETAIL_KEY = (userId: number) => ["admin", "user-detail", userId] as const;
+
+/** Fetch full user detail for the admin panel. */
+export function useAdminUserDetail(userId: number | null) {
+  return useQuery<AdminUserDetail>({
+    queryKey:  userId ? ADMIN_USER_DETAIL_KEY(userId) : ["admin", "user-detail", null],
+    queryFn:   () => customFetch<AdminUserDetail>(`/api/admin/users/${userId}/detail`),
+    enabled:   !!userId,
+    staleTime: 30_000,
+  });
+}
+
 /** Delete a single WaveSpeed look. */
 export function useDeleteWavespeedLook() {
   const qc = useQueryClient();
