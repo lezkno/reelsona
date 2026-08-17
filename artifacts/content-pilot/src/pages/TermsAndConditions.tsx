@@ -15,7 +15,7 @@ export default function TermsAndConditions() {
             <div className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center text-primary-foreground font-bold text-sm shadow-[0_0_12px_rgba(100,50,255,0.4)]">
               CP
             </div>
-            <span className="font-bold text-lg tracking-tight">ContentPilot</span>
+            <span className="font-bold text-lg tracking-tight">Reelsona</span>
           </div>
           <h1 className="text-4xl font-bold tracking-tight mb-3">Términos y Condiciones</h1>
           <p className="text-muted-foreground">Última actualización: 9 de agosto de 2026</p>
@@ -27,7 +27,7 @@ export default function TermsAndConditions() {
           <section>
             <h2 className="text-xl font-semibold mb-3">1. Aceptación de los Términos</h2>
             <p>
-              Al acceder o usar ContentPilot, disponible en <strong>reelsona.com</strong> ("el Servicio"), aceptas
+              Al acceder o usar Reelsona, disponible en <strong>reelsona.com</strong> ("el Servicio"), aceptas
               quedar vinculado por estos Términos y Condiciones ("Términos"). Si no aceptas estos Términos en su
               totalidad, no puedes usar el Servicio.
             </p>
@@ -41,7 +41,7 @@ export default function TermsAndConditions() {
           <section>
             <h2 className="text-xl font-semibold mb-3">2. Descripción del Servicio</h2>
             <p>
-              ContentPilot es una plataforma de automatización de contenido que permite a los usuarios:
+              Reelsona es una plataforma de automatización de contenido que permite a los usuarios:
             </p>
             <ul className="list-disc pl-5 space-y-1 mt-2">
               <li>Generar guiones para videos con inteligencia artificial.</li>
@@ -58,7 +58,7 @@ export default function TermsAndConditions() {
           <section>
             <h2 className="text-xl font-semibold mb-3">3. Elegibilidad y Cuenta</h2>
             <p>
-              Para usar ContentPilot debes tener al menos 18 años o la mayoría de edad en tu jurisdicción. Las
+              Para usar Reelsona debes tener al menos 18 años o la mayoría de edad en tu jurisdicción. Las
               cuentas son personales e intransferibles. Eres responsable de mantener la confidencialidad de tus
               credenciales y de toda la actividad que ocurra bajo tu cuenta.
             </p>
@@ -69,7 +69,7 @@ export default function TermsAndConditions() {
 
           <section>
             <h2 className="text-xl font-semibold mb-3">4. Uso del Servicio y Conducta del Usuario</h2>
-            <p>Al usar ContentPilot te comprometes a:</p>
+            <p>Al usar Reelsona te comprometes a:</p>
             <ul className="list-disc pl-5 space-y-2 mt-2">
               <li>Cumplir con los <a href="https://help.instagram.com/581066165581870" target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2">Términos de Uso de Instagram</a> y las <a href="https://developers.facebook.com/policy/" target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2">Políticas de la Plataforma de Meta</a>.</li>
               <li>Publicar únicamente contenido del cual tienes los derechos necesarios.</li>
@@ -82,12 +82,12 @@ export default function TermsAndConditions() {
           <section>
             <h2 className="text-xl font-semibold mb-3">5. Contenido del Usuario</h2>
             <p>
-              Eres el único responsable del contenido que publicas a través de ContentPilot. Nos otorgas una
+              Eres el único responsable del contenido que publicas a través de Reelsona. Nos otorgas una
               licencia limitada, no exclusiva y revocable para almacenar y procesar dicho contenido únicamente
               con el fin de prestar el Servicio.
             </p>
             <p className="mt-2">
-              ContentPilot no revisa de manera proactiva el contenido generado o publicado por los usuarios.
+              Reelsona no revisa de manera proactiva el contenido generado o publicado por los usuarios.
               Sin embargo, nos reservamos el derecho de suspender cuentas que violen estos Términos o las
               políticas de Meta.
             </p>
@@ -96,7 +96,7 @@ export default function TermsAndConditions() {
           <section>
             <h2 className="text-xl font-semibold mb-3">6. API de Instagram / Meta</h2>
             <p>
-              El Servicio depende de la API de Meta para publicar en Instagram. ContentPilot no garantiza la
+              El Servicio depende de la API de Meta para publicar en Instagram. Reelsona no garantiza la
               disponibilidad continua de esta integración. Meta puede modificar, restringir o discontinuar su
               API en cualquier momento, lo cual podría afectar total o parcialmente el funcionamiento del
               Servicio sin responsabilidad para nosotros.
@@ -111,7 +111,7 @@ export default function TermsAndConditions() {
           <section>
             <h2 className="text-xl font-semibold mb-3">7. Inteligencia Artificial y Contenido Generado</h2>
             <p>
-              El contenido generado por las herramientas de IA integradas en ContentPilot (guiones, títulos,
+              El contenido generado por las herramientas de IA integradas en Reelsona (guiones, títulos,
               sugerencias) se proporciona "tal cual". No garantizamos que dicho contenido sea preciso, adecuado
               para su uso en redes sociales, ni que no infrinja derechos de terceros.
             </p>
@@ -125,12 +125,12 @@ export default function TermsAndConditions() {
           <section>
             <h2 className="text-xl font-semibold mb-3">8. Disponibilidad del Servicio</h2>
             <p>
-              Nos esforzamos por mantener ContentPilot disponible de manera continua, pero no garantizamos
+              Nos esforzamos por mantener Reelsona disponible de manera continua, pero no garantizamos
               disponibilidad del 100%. El Servicio puede interrumpirse por mantenimiento, actualizaciones,
               fallas técnicas o circunstancias fuera de nuestro control.
             </p>
             <p className="mt-2">
-              Las publicaciones programadas dependen de la disponibilidad simultánea de ContentPilot y de la
+              Las publicaciones programadas dependen de la disponibilidad simultánea de Reelsona y de la
               API de Meta. No somos responsables por publicaciones omitidas debido a interrupciones en cualquiera
               de los dos servicios.
             </p>
@@ -139,7 +139,7 @@ export default function TermsAndConditions() {
           <section>
             <h2 className="text-xl font-semibold mb-3">9. Limitación de Responsabilidad</h2>
             <p>
-              En la máxima medida permitida por la ley aplicable, ContentPilot y sus operadores no serán
+              En la máxima medida permitida por la ley aplicable, Reelsona y sus operadores no serán
               responsables por:
             </p>
             <ul className="list-disc pl-5 space-y-1 mt-2">
@@ -157,7 +157,7 @@ export default function TermsAndConditions() {
           <section>
             <h2 className="text-xl font-semibold mb-3">10. Propiedad Intelectual</h2>
             <p>
-              ContentPilot, su diseño, código fuente, marca y funcionalidades son propiedad de sus operadores
+              Reelsona, su diseño, código fuente, marca y funcionalidades son propiedad de sus operadores
               y están protegidos por derechos de autor y otras leyes de propiedad intelectual. No puedes copiar,
               modificar, distribuir ni crear obras derivadas del Servicio sin autorización expresa.
             </p>
@@ -198,7 +198,7 @@ export default function TermsAndConditions() {
 
         {/* Footer */}
         <div className="mt-16 pt-8 border-t text-xs text-muted-foreground flex flex-wrap gap-4">
-          <span>© 2026 ContentPilot / reelsona.com</span>
+          <span>© 2026 Reelsona / reelsona.com</span>
           <Link href="/privacy" className="hover:text-foreground transition-colors underline underline-offset-2">
             Política de Privacidad
           </Link>

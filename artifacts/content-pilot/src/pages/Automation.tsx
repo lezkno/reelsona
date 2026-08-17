@@ -137,14 +137,14 @@ export default function Automation() {
     manual: {
       iconBg: "bg-amber-500/20 text-amber-600",
       title: "Modo Manual",
-      desc: "ContentPilot genera guiones y videos automáticamente, pero tú apruebas y publicas cada reel.",
+      desc: "Reelsona genera guiones y videos automáticamente, pero tú apruebas y publicas cada reel.",
       cardBorder: "border-amber-500/40 shadow-xl shadow-amber-500/10",
       cardBg: "bg-amber-500/5",
     },
     auto: {
       iconBg: "bg-primary text-primary-foreground shadow-[0_0_30px_rgba(100,50,255,0.4)]",
       title: "Automatización Completa",
-      desc: "ContentPilot genera guiones, crea videos y publica reels en los horarios configurados.",
+      desc: "Reelsona genera guiones, crea videos y publica reels en los horarios configurados.",
       cardBorder: "border-primary shadow-xl shadow-primary/10",
       cardBg: "bg-primary/5",
     },

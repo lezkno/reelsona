@@ -1959,7 +1959,7 @@ function AvatarCreationDialog({
                 <Video className={`w-5 h-5 shrink-0 ${mode === "video" ? "text-primary" : "text-muted-foreground"}`} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <p className="text-sm font-semibold">Digital Twin desde video</p>
+                    <p className="text-sm font-semibold">Avatar AI desde video</p>
                     <span className="inline-flex items-center rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary leading-none">Recomendado</span>
                   </div>
                   <p className="text-xs text-muted-foreground mt-0.5">Mejor naturalidad, Avatar V, identidad consistente</p>
@@ -2176,7 +2176,7 @@ function AvatarCreationDialog({
                   )}
 
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    Esto tardará 10–20 min en crear tu Digital Twin.
+                    Esto tardará 10–20 min en crear tu Avatar AI.
                   </p>
                 </div>
               )}
@@ -2382,7 +2382,7 @@ function AvatarCreationDialog({
               <DialogTitle>Creando tu avatar…</DialogTitle>
               <DialogDescription>
                 {mode === "video"
-                  ? "Tu Digital Twin está siendo entrenado. Esto puede tardar entre 10 y 20 minutos."
+                  ? "Tu Avatar AI está siendo entrenado. Esto puede tardar entre 10 y 20 minutos."
                   : mode === "photo"
                     ? "El sistema está procesando tu foto. Esto puede tardar entre 1 y 5 minutos."
                     : "La inteligencia artificial está generando tu avatar. Esto puede tardar unos minutos."}
@@ -2449,7 +2449,7 @@ function AvatarCreationDialog({
               <div>
                 <p className="font-semibold">{name}</p>
                 <p className="text-xs text-muted-foreground">
-                  {mode === "video" ? "Digital Twin" : mode === "photo" ? "Avatar desde foto" : "Avatar generado por IA"} · listo para usar
+                  {mode === "video" ? "Avatar AI" : mode === "photo" ? "Avatar desde foto" : "Avatar generado por IA"} · listo para usar
                 </p>
               </div>
             </div>
@@ -2501,7 +2501,7 @@ function PendingDigitalTwinCard({ job, elapsedSeconds }: {
       </div>
       <CardContent className="p-4">
         <h4 className="font-bold font-display truncate">{job.name}</h4>
-        <p className="text-xs text-muted-foreground mt-0.5">Digital Twin · 10–20 min</p>
+        <p className="text-xs text-muted-foreground mt-0.5">Avatar AI · 10–20 min</p>
       </CardContent>
     </Card>
   )
@@ -3563,11 +3563,11 @@ export default function Avatars() {
   useEffect(() => {
     if (!pendingVideoJob || !pendingVideoStatus) return
     if (pendingVideoStatus.status === "completed") {
-      toast({ title: "¡Digital Twin listo!", description: `"${pendingVideoJob.name}" ya está disponible en tu pestaña Mi Avatar.` })
+      toast({ title: "¡Avatar AI listo!", description: `"${pendingVideoJob.name}" ya está disponible en tu pestaña Mi Avatar.` })
       void refetchMy()
       setPendingVideoJob(null)
     } else if (pendingVideoStatus.status === "failed") {
-      toast({ title: "Error al crear el Digital Twin", description: `"${pendingVideoJob.name}" no pudo procesarse. Intenta subir un video diferente.`, variant: "destructive" })
+      toast({ title: "Error al crear el Avatar AI", description: `"${pendingVideoJob.name}" no pudo procesarse. Intenta subir un video diferente.`, variant: "destructive" })
       setPendingVideoJob(null)
     }
   }, [pendingVideoStatus?.status]) // eslint-disable-line react-hooks/exhaustive-deps

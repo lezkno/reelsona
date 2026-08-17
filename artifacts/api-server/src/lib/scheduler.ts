@@ -905,7 +905,7 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
             .update(contentPlanItemsTable)
             .set({ status: "draft", updatedAt: new Date() })
             .where(eq(contentPlanItemsTable.id, draft.id));
-          return { success: false, message: "No hay avatares ni looks de WaveSpeed disponibles. Configura al menos uno en la página de Avatares." };
+          return { success: false, message: "No hay Avatares AI disponibles. Configura al menos uno en la página de Avatares." };
         }
 
         // Advance rotation pointer (shared across both pipeline types)
@@ -1071,7 +1071,7 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
       );
       return {
         success: false,
-        message: "El look de WaveSpeed seleccionado no está disponible. Asegúrate de que tenga una voz asignada y una imagen generada.",
+        message: "El Avatar AI seleccionado no está disponible. Asegúrate de que tenga una voz asignada y una imagen generada.",
       };
     }
   } else {
@@ -1127,7 +1127,7 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
         logger.error({ userId, itemId: contentItem.id }, "Unified rotation pool is empty — no avatars or WaveSpeed looks available");
         return {
           success: false,
-          message: "No hay avatares ni looks de WaveSpeed disponibles. Configura al menos uno en la página de Avatares.",
+          message: "No hay Avatares AI disponibles. Configura al menos uno en la página de Avatares.",
         };
       }
 

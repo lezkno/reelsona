@@ -44,9 +44,9 @@ export const COURSE_MODULES: Module[] = [
       },
       {
         id: "m1-l3",
-        title: "Costos y APIs que debes conectar",
+        title: "Costos y créditos del sistema",
         description:
-          "Reelsona organiza el sistema, pero tú usas tus propias APIs de HeyGen y OpenAI. Aquí te explicamos cómo funciona el modelo BYOK (trae tu propia clave), qué cuesta en promedio y cómo controlarlo.",
+          "Reelsona organiza el sistema completo de producción de video. Aquí te explicamos cómo funcionan los créditos, qué consume cada Reel y cómo controlar tu gasto mensual.",
         duration: "7 min",
         videoUrl: null,
         actionLabel: "Ir a Configuración",
@@ -61,12 +61,12 @@ export const COURSE_MODULES: Module[] = [
     lessons: [
       {
         id: "m2-l4",
-        title: "Crear o preparar tu cuenta de HeyGen",
+        title: "Configurar tu Avatar AI",
         description:
-          "HeyGen es el motor de avatar. Necesitas una cuenta con acceso a la API, créditos suficientes y al menos un avatar personalizado o de stock. Aquí te mostramos dónde conseguir tu API key y cómo pegarla en Reelsona.",
+          "El motor de Avatar AI de Reelsona genera videos con tu identidad visual. En esta clase configuras tu Avatar AI, eliges looks y asignas una voz para empezar a producir.",
         duration: "9 min",
         videoUrl: null,
-        actionLabel: "Configurar HeyGen",
+        actionLabel: "Ir a Avatares",
         actionHref: "/settings",
       },
       {
@@ -83,7 +83,7 @@ export const COURSE_MODULES: Module[] = [
         id: "m2-l6",
         title: "Elegir y probar tu avatar",
         description:
-          "Selecciona avatares y looks, asigna una voz y haz una prueba corta de video antes de lanzar producción. Esto te ahorrará créditos de HeyGen al detectar problemas temprano.",
+          "Selecciona avatares y looks, asigna una voz y haz una prueba corta de video antes de lanzar producción. Esto te ahorrará créditos al detectar problemas temprano.",
         duration: "10 min",
         videoUrl: null,
         actionLabel: "Ir a Avatares",
@@ -177,7 +177,7 @@ export const COURSE_MODULES: Module[] = [
         id: "m4-l14",
         title: "Generar tu primer video con avatar",
         description:
-          "Envía el guion aprobado a HeyGen y entiende los estados del video: generando, listo, error. Cuánto tarda, qué créditos consume y cómo revisar el resultado.",
+          "Envía el guion aprobado al motor de video y entiende los estados: generando, listo, error. Cuánto tarda, qué créditos consume y cómo revisar el resultado.",
         duration: "10 min",
         videoUrl: null,
         actionLabel: "Generar Video",
@@ -278,7 +278,7 @@ export const COURSE_MODULES: Module[] = [
         id: "m7-l22",
         title: "Buenas prácticas para no gastar créditos de más",
         description:
-          "Prueba con guiones cortos antes de generar videos largos, revisa bien antes de enviar a HeyGen, evita regeneraciones innecesarias. Con disciplina, el costo por video baja significativamente.",
+          "Prueba con guiones cortos antes de generar videos largos, revisa bien antes de generar, evita regeneraciones innecesarias. Con disciplina, el costo por video baja significativamente.",
         duration: "7 min",
         videoUrl: null,
         actionLabel: "Ir a Configuración",
@@ -294,7 +294,7 @@ export const COURSE_MODULES: Module[] = [
         actionLabel: null,
         actionHref: null,
         checklistItems: [
-          "✅ HeyGen API key conectada",
+          "✅ Avatar AI configurado",
           "✅ Avatar seleccionado y probado",
           "✅ OpenAI/IA configurada",
           "✅ Instagram conectado (cuenta profesional)",

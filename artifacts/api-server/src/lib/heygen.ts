@@ -798,7 +798,7 @@ export async function generateVideo(params: GenerateVideoParams, apiKey?: string
     script: finalScript,
     voice_id: params.voice_id,
     aspect_ratio: "9:16",
-    title: params.title ?? "ContentPilot Video",
+    title: params.title ?? "Reelsona Video",
   };
 
   // Natural-motion prompt injected automatically for Avatar V; callers may override.

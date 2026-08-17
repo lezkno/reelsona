@@ -1,0 +1,244 @@
+BLOQUE 6 — Landing + Billing definitivos + limpieza global de marca Reelsona
+
+Trabaja sobre el estado actual aprobado. No cambies lógica de Stripe, wallet, Founder, avatar limits, B-roll, voces, looks ni credits engine.
+
+1. Plan Basic
+
+Mostrar:
+
+Basic — $29/mes
+
+400 créditos/mes
+
+Incluye:
+
+1 Avatar AI propio
+3 looks iniciales incluidos
+Avatares públicos
+Primera voz clonada incluida
+Caption Studio
+B-roll AI
+Plan de contenido con IA
+Creación manual de Reels
+Publicación manual
+Compra de créditos adicionales
+
+No incluye:
+
+AutoPilot
+publicación automática
+más de 1 Avatar AI propio.
+
+2. Plan Pro
+
+Mostrar:
+
+Pro — $97/mes
+
+1,500 créditos/mes
+
+Incluye todo Basic más:
+
+Hasta 3 Avatares AI propios
+3 looks iniciales por avatar
+AutoPilot
+programación/publicación automática
+funciones avanzadas de automatización
+
+No mencionar proveedores ni modelos.
+
+3. Founder
+
+Mostrar:
+
+Founder — $697/año
+
+1,500 créditos cada mes durante 12 meses
+
+Máximo 10 plazas
+
+Incluye exactamente las funciones de Pro.
+
+Eliminar beneficios no aprobados como:
+
+Badge de Fundador
+acceso anticipado
+promesas futuras no definidas.
+
+El valor de Founder debe estar en el ahorro anual, no en features inventadas.
+
+4. Recargas
+
+Mantener:
+
+300 créditos = $19
+600 créditos = $35
+1,200 créditos = $59
+
+Aclarar:
+
+Los créditos adicionales no vencen mientras la cuenta exista.
+
+No venderlos como sustituto de una suscripción activa.
+
+5. Billing sin plan
+
+Usuario autenticado sin subscription:
+
+ve Basic, Pro y Founder;
+puede comprar un plan;
+no debe ver un estado vacío sin CTA;
+top-ups pueden mostrarse, pero el CTA principal debe ser activar un plan.
+
+6. Billing con plan
+
+Basic:
+
+mostrar plan actual;
+botón Subir a Pro.
+
+Pro:
+
+mostrar plan actual;
+botón Bajar a Basic.
+
+Founder:
+
+mostrar Mes X de 12;
+créditos;
+próxima renovación mensual.
+
+Mantener botón:
+
+Administrar suscripción.
+
+7. Ocultar completamente proveedores/modelos
+
+Búsqueda global de textos visibles:
+
+HeyGen
+Heygey
+WaveSpeed
+Wavespeed
+InfiniteTalk
+Seedream
+MiniMax
+nombres concretos de modelos.
+
+Ninguno debe aparecer en Landing, Billing, UI, tooltips, emails ni mensajes visibles al usuario.
+
+Internamente pueden seguir existiendo en código/logs.
+
+8. Limpieza global ContentPilot → Reelsona
+
+Buscar globalmente:
+
+ContentPilot
+Content Pilot
+contentpilot
+content-pilot
+
+Reemplazar cualquier aparición user-facing por:
+
+Reelsona
+
+Esto incluye toda la app, no solo páginas públicas:
+
+Dashboard
+Connect
+Estudio Estratégico
+mensajes cuando no hay IG conectada
+Caption Studio
+Automation
+Avatars
+Videos
+Settings
+Login/Register
+Activation
+Password reset
+emails
+Admin
+errores backend que llegan al frontend
+toasts
+modales
+tooltips
+títulos
+metadata
+páginas legales.
+
+Ejemplo:
+
+Conecta tu cuenta para que ContentPilot pueda analizarla
+
+debe quedar:
+
+Conecta tu cuenta para que Reelsona pueda analizarla.
+
+No renombrar carpetas/packages/imports internos como artifacts/content-pilot salvo que esos nombres se expongan al usuario.
+
+9. Terminología consistente
+
+Usar:
+
+Avatar AI
+
+no mezclar:
+
+persona digital
+avatar personalizado
+twin
+proveedor.
+
+Usar:
+
+Avatares públicos
+
+para la biblioteca pública.
+
+Usar:
+
+Créditos adicionales
+
+para top-ups.
+
+10. No modificar
+
+Mantener exactamente:
+
+Basic $29 / 400
+
+Pro $97 / 1,500
+
+Founder $697 anual / 1,500 mensual x 12
+
+Reel = 50 cr / 30 s
+
+1 avatar Basic
+
+3 Pro/Founder
+
+3 looks gratis
+
+look extra 2
+
+primera voz gratis
+
+voces siguientes 10.
+
+11. Pruebas
+
+Revisar visualmente:
+
+Landing desktop/mobile
+Billing sin plan
+Billing Basic
+Billing Pro
+Billing Founder
+
+Buscar en repositorio y confirmar que no quede ContentPilot en ningún string visible al usuario.
+
+Buscar y confirmar que no quede ningún proveedor/modelo en strings user-facing.
+
+TypeScript/build deben pasar.
+
+Al terminar: commit, push, indicar SHA y lista de archivos. No comenzar Bloque 7.

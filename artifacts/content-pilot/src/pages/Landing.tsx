@@ -462,7 +462,7 @@ export default function Landing() {
               </div>
               <p style={{ fontSize: "0.78rem", color: "#4F6EF7", fontWeight: 700, marginBottom: "1rem" }}>400 créditos / mes</p>
               <div style={{ display: "flex", flexDirection: "column", gap: "0.55rem" }}>
-                {["Videos con avatares públicos","Caption Studio","Plan de contenido con IA","1 persona digital"].map((f) => (
+                {["1 Avatar AI propio","3 looks iniciales incluidos","Avatares públicos","Primera voz clonada incluida","Caption Studio","B-roll AI","Plan de contenido con IA","Creación manual de Reels"].map((f) => (
                   <div key={f} style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem" }}>
                     <CheckCircle2 size={13} color="#4F6EF7" style={{ marginTop: 2, flexShrink: 0 }} />
                     <span style={{ color: "#777", fontSize: "0.82rem" }}>{f}</span>
@@ -493,7 +493,7 @@ export default function Landing() {
               </div>
               <p style={{ fontSize: "0.78rem", color: "#9B5CF6", fontWeight: 700, marginBottom: "1rem" }}>1,500 créditos / mes</p>
               <div style={{ display: "flex", flexDirection: "column", gap: "0.55rem" }}>
-                {["Avatares personalizados (WaveSpeed)","AutoPilot de publicación","Radar de auditoría de competencia","3 personas digitales","Todo lo de Basic"].map((f) => (
+                {["Todo lo de Basic","Hasta 3 Avatares AI propios","3 looks iniciales por avatar","AutoPilot","Programación y publicación automática","Funciones avanzadas de automatización"].map((f) => (
                   <div key={f} style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem" }}>
                     <CheckCircle2 size={13} color="#9B5CF6" style={{ marginTop: 2, flexShrink: 0 }} />
                     <span style={{ color: "#777", fontSize: "0.82rem" }}>{f}</span>
@@ -524,7 +524,7 @@ export default function Landing() {
               </div>
               <p style={{ fontSize: "0.78rem", color: "#F59E0B", fontWeight: 700, marginBottom: "1rem" }}>1,500 créditos/mes · 12 meses · Suscripción anual</p>
               <div style={{ display: "flex", flexDirection: "column", gap: "0.55rem" }}>
-                {["Suscripción anual — $697/año","Todo lo de Pro por 12 meses","Badge exclusivo de Fundador","Acceso anticipado a nuevas funciones","Plazas limitadas — cupo cerrado"].map((f) => (
+                {["Todo lo de Pro durante 12 meses","1,500 créditos cada mes · 12 entregas","Máximo 10 plazas","Ahorro de más de $460 vs. Pro mensual"].map((f) => (
                   <div key={f} style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem" }}>
                     <CheckCircle2 size={13} color="#F59E0B" style={{ marginTop: 2, flexShrink: 0 }} />
                     <span style={{ color: "#777", fontSize: "0.82rem" }}>{f}</span>

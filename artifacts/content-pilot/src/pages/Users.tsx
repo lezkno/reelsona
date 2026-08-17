@@ -110,7 +110,7 @@ function AddUserDialog() {
         <DialogHeader>
           <DialogTitle>Crear usuario administrador</DialogTitle>
           <DialogDescription>
-            Tendrá acceso completo a ContentPilot.
+            Tendrá acceso completo a Reelsona.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4 py-1">
@@ -1076,7 +1076,7 @@ export default function Users() {
               <p className="text-sm text-muted-foreground">
                 {userList
                   ? `${userList.length} usuario${userList.length !== 1 ? "s" : ""} registrado${userList.length !== 1 ? "s" : ""}`
-                  : "Gestiona acceso a ContentPilot"}
+                  : "Gestiona acceso a Reelsona"}
               </p>
             </div>
           </div>
@@ -1208,7 +1208,7 @@ export default function Users() {
         </div>
 
         <p className="text-xs text-muted-foreground text-center">
-          Todos los usuarios activos tienen acceso de administrador completo a ContentPilot.
+          Todos los usuarios activos tienen acceso de administrador completo a Reelsona.
         </p>
       </div>
     </div>

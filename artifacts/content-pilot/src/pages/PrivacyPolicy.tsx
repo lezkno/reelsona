@@ -15,7 +15,7 @@ export default function PrivacyPolicy() {
             <div className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center text-primary-foreground font-bold text-sm shadow-[0_0_12px_rgba(100,50,255,0.4)]">
               CP
             </div>
-            <span className="font-bold text-lg tracking-tight">ContentPilot</span>
+            <span className="font-bold text-lg tracking-tight">Reelsona</span>
           </div>
           <h1 className="text-4xl font-bold tracking-tight mb-3">Política de Privacidad</h1>
           <p className="text-muted-foreground">Última actualización: 9 de agosto de 2026</p>
@@ -27,12 +27,12 @@ export default function PrivacyPolicy() {
           <section>
             <h2 className="text-xl font-semibold mb-3">1. Información general</h2>
             <p>
-              ContentPilot ("nosotros", "nuestro" o "el Servicio") es una plataforma de automatización de contenido
+              Reelsona ("nosotros", "nuestro" o "el Servicio") es una plataforma de automatización de contenido
               para Instagram operada a través de <strong>reelsona.com</strong>. Esta Política de Privacidad describe
               qué datos recopilamos, cómo los usamos y cuáles son tus derechos sobre ellos.
             </p>
             <p>
-              Al usar ContentPilot aceptás esta política. Si no estás de acuerdo con alguna parte, te pedimos que
+              Al usar Reelsona aceptás esta política. Si no estás de acuerdo con alguna parte, te pedimos que
               no uses el Servicio.
             </p>
           </section>
@@ -41,7 +41,7 @@ export default function PrivacyPolicy() {
             <h2 className="text-xl font-semibold mb-3">2. Datos que recopilamos</h2>
             <h3 className="font-semibold mb-2 text-base">2.1 Datos de cuenta</h3>
             <p>
-              Cuando creas una cuenta en ContentPilot recopilamos tu nombre de usuario y contraseña (almacenada
+              Cuando creas una cuenta en Reelsona recopilamos tu nombre de usuario y contraseña (almacenada
               con hash seguro). No recopilamos direcciones de correo electrónico a menos que las ingreses
               voluntariamente en la configuración de perfil.
             </p>
@@ -144,7 +144,7 @@ export default function PrivacyPolicy() {
               <li>Acceder a los datos personales que tenemos sobre ti.</li>
               <li>Solicitar la corrección de datos incorrectos.</li>
               <li>Solicitar la eliminación de tu cuenta y datos asociados.</li>
-              <li>Revocar en cualquier momento el acceso de ContentPilot a tu cuenta de Instagram desde la
+              <li>Revocar en cualquier momento el acceso de Reelsona a tu cuenta de Instagram desde la
                 configuración de Instagram → Aplicaciones y sitios web.</li>
             </ul>
             <p className="mt-3">
@@ -155,7 +155,7 @@ export default function PrivacyPolicy() {
           <section>
             <h2 className="text-xl font-semibold mb-3">8. Cookies y sesiones</h2>
             <p>
-              ContentPilot usa cookies de sesión HTTP estrictamente necesarias para mantener tu sesión
+              Reelsona usa cookies de sesión HTTP estrictamente necesarias para mantener tu sesión
               autenticada. No usamos cookies de seguimiento ni publicidad de terceros.
             </p>
           </section>
@@ -181,7 +181,7 @@ export default function PrivacyPolicy() {
 
         {/* Footer */}
         <div className="mt-16 pt-8 border-t text-xs text-muted-foreground flex flex-wrap gap-4">
-          <span>© 2026 ContentPilot / reelsona.com</span>
+          <span>© 2026 Reelsona / reelsona.com</span>
           <Link href="/terms" className="hover:text-foreground transition-colors underline underline-offset-2">
             Términos y Condiciones
           </Link>

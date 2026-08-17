@@ -130,7 +130,7 @@ export default function Dashboard() {
             </div>
             <h3 className="text-xl font-bold font-display mb-2">Conecta tu cuenta de Instagram</h3>
             <p className="text-muted-foreground max-w-md mb-6">
-              Para que ContentPilot pueda analizar tu contenido y publicar automáticamente, necesitas conectar tu cuenta de Instagram.
+              Para que Reelsona pueda analizar tu contenido y publicar automáticamente, necesitas conectar tu cuenta de Instagram.
             </p>
             <Button asChild>
               <Link href="/connect">Conectar Instagram</Link>
@@ -513,7 +513,7 @@ function PipelineStatusCard({ planItems, planLoading, strategyProfile, strategyL
             <div className="min-w-0">
               <p className="font-semibold text-sm">Estudio estratégico pendiente</p>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Completa el estudio para que ContentPilot pueda generar un plan de contenido personalizado.
+                Completa el estudio para que Reelsona pueda generar un plan de contenido personalizado.
               </p>
             </div>
           </div>
