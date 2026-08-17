@@ -65,12 +65,14 @@ router.post("/admin/provision", async (req: Request, res: Response): Promise<voi
     toolAccessDays,
     courseAccess = true,
     source = "manual",
+    planSlug,
   } = (req.body ?? {}) as {
     email?: string;
     fullName?: string;
     toolAccessDays?: number;
     courseAccess?: boolean;
     source?: string;
+    planSlug?: string;
   };
 
   if (!email || !fullName || !toolAccessDays) {
@@ -82,6 +84,11 @@ router.post("/admin/provision", async (req: Request, res: Response): Promise<voi
     return;
   }
 
+  const VALID_PROVISION_PLANS = ["basic", "pro", "founder"] as const;
+  if (planSlug && !VALID_PROVISION_PLANS.includes(planSlug as (typeof VALID_PROVISION_PLANS)[number])) {
+    res.status(400).json({ error: "planSlug inválido" }); return;
+  }
+
   try {
     const result = await provisionUser({
       email:         email.trim(),
@@ -90,7 +97,62 @@ router.post("/admin/provision", async (req: Request, res: Response): Promise<voi
       courseAccess,
       source,
     });
-    res.json({ ok: true, ...result });
+
+    // ── Optional plan assignment ──────────────────────────────────────────────
+    let creditsGranted = 0;
+    if (planSlug && VALID_PROVISION_PLANS.includes(planSlug as (typeof VALID_PROVISION_PLANS)[number])) {
+      const now         = new Date();
+      const periodStart = now;
+      const periodEnd   = new Date(now);
+      if (planSlug === "founder") {
+        periodEnd.setFullYear(periodEnd.getFullYear() + 1);
+      } else {
+        periodEnd.setMonth(periodEnd.getMonth() + 1);
+      }
+      const founderFields = planSlug === "founder"
+        ? { founderMonthsGranted: 1, founderAnchorAt: now, founderLastGrantAt: now }
+        : {};
+
+      const [existingSub] = await db.select().from(subscriptionsTable)
+        .where(eq(subscriptionsTable.userId, result.userId)).limit(1);
+
+      if (existingSub) {
+        await db.update(subscriptionsTable)
+          .set({ planSlug, status: "active", currentPeriodStart: periodStart, currentPeriodEnd: periodEnd, cancelAtPeriodEnd: false, pendingPlanSlug: null, stripeScheduleId: null, updatedAt: now, ...founderFields })
+          .where(eq(subscriptionsTable.userId, result.userId));
+      } else {
+        await db.insert(subscriptionsTable).values({
+          userId: result.userId, planSlug, status: "active",
+          currentPeriodStart: periodStart, currentPeriodEnd: periodEnd,
+          cancelAtPeriodEnd: false, ...founderFields,
+        });
+      }
+
+      await upsertEntitlement({
+        userId:             result.userId,
+        courseAccess:       true,
+        toolAccessStatus:   "active",
+        toolAccessStartsAt: periodStart,
+        toolAccessEndsAt:   periodEnd,
+        source:             "admin",
+        planSlug,
+      });
+
+      creditsGranted = PLAN_CREDITS[planSlug] ?? 0;
+      if (creditsGranted > 0) {
+        await provisionSubscriptionCredits(
+          result.userId,
+          creditsGranted,
+          `Plan ${planSlug} asignado al dar acceso`,
+        );
+      }
+
+      invalidateAccessCache(result.userId);
+      invalidatePlanCache(result.userId);
+      console.log(`[admin/provision] plan=${planSlug} assigned to userId=${result.userId}, credits=${creditsGranted}`);
+    }
+
+    res.json({ ok: true, ...result, creditsGranted });
   } catch (err) {
     console.error("[admin/provision]", err);
     res.status(500).json({ error: "Error interno del servidor" });

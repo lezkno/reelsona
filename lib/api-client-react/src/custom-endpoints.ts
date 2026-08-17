@@ -397,14 +397,16 @@ export interface ProvisionStudentInput {
   toolAccessDays: number;
   courseAccess?:  boolean;
   source?:        string;
+  planSlug?:      string;
 }
 
 export interface ProvisionResult {
-  ok:        boolean;
-  userId:    number;
-  created:   boolean;
-  emailSent: boolean;
-  warning?:  string;
+  ok:             boolean;
+  userId:         number;
+  created:        boolean;
+  emailSent:      boolean;
+  warning?:       string;
+  creditsGranted?: number;
 }
 
 export const ADMIN_ENTITLEMENTS_KEY = ["admin", "entitlements"] as const;

@@ -730,6 +730,13 @@ function EditAccessDaysButton({ entitlement }: { entitlement: AdminEntitlement }
 
 // ── Provision student dialog ──────────────────────────────────────────────────
 
+const PROVISION_PLAN_OPTIONS = [
+  { value: "",        label: "Sin plan",  sub: "Solo acceso al entorno" },
+  { value: "basic",   label: "Basic",     sub: "400 créditos · 1 avatar" },
+  { value: "pro",     label: "Pro",       sub: "1.500 créditos · 3 avatares" },
+  { value: "founder", label: "Founder",   sub: "1.500 créditos · acceso anual" },
+] as const
+
 function ProvisionStudentDialog() {
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState({
@@ -737,17 +744,17 @@ function ProvisionStudentDialog() {
     fullName: "",
     toolAccessDays: "30",
     courseAccess: true,
-    source: "manual",
+    planSlug: "",
   })
   const [result, setResult] = useState<{
-    created: boolean; emailSent: boolean; warning?: string
+    created: boolean; emailSent: boolean; warning?: string; creditsGranted?: number; planSlug?: string
   } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const provision = useProvisionStudent()
   const { toast } = useToast()
 
   const reset = () => {
-    setForm({ email: "", fullName: "", toolAccessDays: "30", courseAccess: true, source: "manual" })
+    setForm({ email: "", fullName: "", toolAccessDays: "30", courseAccess: true, planSlug: "" })
     setResult(null)
     setError(null)
   }
@@ -763,18 +770,24 @@ function ProvisionStudentDialog() {
     }
     provision.mutate(
       {
-        email: form.email.trim().toLowerCase(),
-        fullName: form.fullName.trim(),
+        email:          form.email.trim().toLowerCase(),
+        fullName:       form.fullName.trim(),
         toolAccessDays: days,
-        courseAccess: form.courseAccess,
-        source: form.source || "manual",
+        courseAccess:   form.courseAccess,
+        planSlug:       form.planSlug || undefined,
       },
       {
         onSuccess: (data) => {
-          setResult({ created: data.created, emailSent: data.emailSent, warning: data.warning })
+          setResult({
+            created:        data.created,
+            emailSent:      data.emailSent,
+            warning:        data.warning,
+            creditsGranted: data.creditsGranted,
+            planSlug:       form.planSlug || undefined,
+          })
           if (!data.warning) {
             toast({
-              title: data.created ? "Usuario dado de alta" : "Acceso actualizado",
+              title:       data.created ? "Usuario dado de alta" : "Acceso actualizado",
               description: data.emailSent
                 ? `Email de activación enviado a ${form.email}`
                 : "No se pudo enviar el email de activación",
@@ -791,14 +804,6 @@ function ProvisionStudentDialog() {
     if (!v) reset()
     setOpen(v)
   }
-
-  const SOURCE_OPTIONS = [
-    { value: "manual", label: "Manual (admin)" },
-    { value: "gumroad", label: "Gumroad" },
-    { value: "hotmart", label: "Hotmart" },
-    { value: "referido", label: "Referido" },
-    { value: "otro", label: "Otro" },
-  ]
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -831,6 +836,12 @@ function ProvisionStudentDialog() {
                 {result.emailSent
                   ? <p className="text-sm text-muted-foreground">Email de activación enviado a <strong>{form.email}</strong>.</p>
                   : <p className="text-sm text-amber-700 dark:text-amber-400">No se pudo enviar el email de activación.</p>}
+                {result.planSlug && (
+                  <p className="text-sm text-muted-foreground">
+                    Plan <strong className="capitalize">{result.planSlug}</strong> asignado
+                    {result.creditsGranted ? ` · ${result.creditsGranted} créditos recargados` : ""}.
+                  </p>
+                )}
                 {result.warning && (
                   <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">{result.warning}</p>
                 )}
@@ -882,17 +893,20 @@ function ProvisionStudentDialog() {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="ps-source">Fuente</Label>
+                <Label htmlFor="ps-plan">Plan (opcional)</Label>
                 <Select
-                  value={form.source}
-                  onValueChange={(v) => setForm((f) => ({ ...f, source: v }))}
+                  value={form.planSlug}
+                  onValueChange={(v) => setForm((f) => ({ ...f, planSlug: v }))}
                 >
-                  <SelectTrigger id="ps-source">
-                    <SelectValue />
+                  <SelectTrigger id="ps-plan">
+                    <SelectValue placeholder="Sin plan" />
                   </SelectTrigger>
                   <SelectContent>
-                    {SOURCE_OPTIONS.map((o) => (
-                      <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                    {PROVISION_PLAN_OPTIONS.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>
+                        <span className="font-medium">{o.label}</span>
+                        <span className="text-muted-foreground ml-1.5 text-xs">{o.sub}</span>
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
