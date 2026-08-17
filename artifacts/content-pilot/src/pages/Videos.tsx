@@ -1,6 +1,6 @@
 import {
   useGetVideos, usePublishVideo, useScheduleVideo, useDeleteVideo, useRetryVideo, useReapplyCaptions,
-  useGetContentItem, useUpdateContentItem, useGetHeyGenAllLooks,
+  useGetContentItem, useUpdateContentItem, useGetHeyGenAllLooks, useWavespeedPersonas,
   getGetVideosQueryKey, getGetContentPlanQueryKey,
 } from "@workspace/api-client-react"
 import { useAccessState } from "@/hooks/useAccessState"
@@ -103,20 +103,28 @@ function computeGeneratingProgress(createdAt: string | null | undefined): number
 }
 
 function CircularVideoProgress({
-  progress,
+  createdAt,
   label,
   ringColor = '#3b82f6',
 }: {
-  progress: number;
+  createdAt: string | null | undefined;
   label: string;
   ringColor?: string;
 }) {
+  const [progress, setProgress] = useState(() => computeGeneratingProgress(createdAt))
+
+  // Tick every second so the ring and percentage advance in real time.
+  useEffect(() => {
+    const id = setInterval(() => setProgress(computeGeneratingProgress(createdAt)), 1000)
+    return () => clearInterval(id)
+  }, [createdAt])
+
   const r = 22;
   const circ = 2 * Math.PI * r;
   const pct  = Math.max(0, Math.min(100, progress));
   const offset = circ * (1 - pct / 100);
   return (
-    <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/30 backdrop-blur-[2px]">
+    <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/50">
       {/* Ring + percentage */}
       <div className="relative flex items-center justify-center w-16 h-16">
         <svg
@@ -131,7 +139,7 @@ function CircularVideoProgress({
             stroke="rgba(255,255,255,0.18)"
             strokeWidth="3.5"
           />
-          {/* Progress arc */}
+          {/* Progress arc — smooth transition so the ring visibly moves */}
           <circle
             cx="32" cy="32" r={r}
             fill="none"
@@ -140,6 +148,7 @@ function CircularVideoProgress({
             strokeLinecap="round"
             strokeDasharray={`${circ}`}
             strokeDashoffset={`${offset}`}
+            style={{ transition: 'stroke-dashoffset 0.9s ease-out' }}
           />
         </svg>
         <span className="relative z-10 text-white text-sm font-bold tabular-nums">
@@ -162,6 +171,16 @@ export default function Videos() {
   // Avatar look images — used as blurred backgrounds while a video is generating
   const { data: allLooks } = useGetHeyGenAllLooks()
   const lookImageById = new Map((allLooks ?? []).map((l) => [l.id, l.image_url]))
+
+  // WaveSpeed look images — keyed by look id so we can show the avatar photo
+  // for WaveSpeed videos that are still generating.
+  const { data: wavespeedData } = useWavespeedPersonas()
+  const wsLookImageById = new Map(
+    (wavespeedData?.personas ?? [])
+      .flatMap((p) => p.looks)
+      .filter((l) => l.imageUrl != null)
+      .map((l) => [l.id, l.imageUrl as string]),
+  )
 
   const { data: videos, isLoading } = useGetVideos(
     { status: 'all' },
@@ -388,7 +407,10 @@ export default function Videos() {
             const captionStatus = (video as any).caption_status as string | null
 
             {/* Look up the avatar preview image for use as blurred background */}
-            const avatarBgUrl = lookImageById.get((video as any).avatar_id ?? '') ?? null
+            const avatarBgUrl =
+              lookImageById.get((video as any).avatar_id ?? '') ??
+              wsLookImageById.get((video as any).wavespeed_look_id ?? 0) ??
+              null
 
             return (
               <Card
@@ -406,12 +428,12 @@ export default function Videos() {
                       className="w-full h-full object-cover"
                     />
                   ) : avatarBgUrl ? (
-                    /* Avatar preview as blurred background while generating */
+                    /* Avatar preview — blurred when video is still generating */
                     <img
                       src={avatarBgUrl}
                       alt=""
                       aria-hidden="true"
-                      className="w-full h-full object-cover scale-110"
+                      className={`w-full h-full object-cover scale-110 transition-[filter] duration-500 ${video.status === 'generating' ? 'blur-md' : ''}`}
                     />
                   ) : (
                     /* Fallback — no avatar image available */
@@ -421,7 +443,7 @@ export default function Videos() {
                   {/* ── Generating overlay (blue ring + %) ──────────────────── */}
                   {video.status === 'generating' && (
                     <CircularVideoProgress
-                      progress={computeGeneratingProgress((video as any).created_at ?? (video as any).updated_at)}
+                      createdAt={(video as any).created_at ?? (video as any).updated_at}
                       label="Generando video…"
                       ringColor="#3b82f6"
                     />
@@ -431,7 +453,7 @@ export default function Videos() {
                   {video.status === 'ready' &&
                    (captionStatus === null || captionStatus === 'processing') && (
                     <CircularVideoProgress
-                      progress={computeGeneratingProgress((video as any).created_at)}
+                      createdAt={(video as any).created_at}
                       label="Aplicando efectos…"
                       ringColor="#a855f7"
                     />

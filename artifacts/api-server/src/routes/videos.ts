@@ -44,7 +44,7 @@ function resolveCaptionedUrl(raw: string | null): string | null {
   return fs.existsSync(filePath) ? raw : null;
 }
 
-function mapVideo(v: typeof videosTable.$inferSelect) {
+function mapVideo(v: typeof videosTable.$inferSelect, wavespeedLookId?: number | null) {
   return {
     id: v.id,
     content_plan_id: v.contentPlanId ?? null,
@@ -66,6 +66,7 @@ function mapVideo(v: typeof videosTable.$inferSelect) {
     published_at: v.publishedAt?.toISOString() ?? null,
     scheduled_publish_at: v.scheduledPublishAt?.toISOString() ?? null,
     thumbnail_cover_url: v.thumbnailCoverUrl ?? null,
+    wavespeed_look_id: wavespeedLookId ?? null,
   };
 }
 
@@ -77,12 +78,18 @@ router.get("/videos", async (req, res): Promise<void> => {
   const queryParsed = GetVideosQueryParams.safeParse(req.query);
   const status = queryParsed.success ? queryParsed.data.status ?? "all" : "all";
 
-  const videos =
-    status !== "all"
-      ? await db.select().from(videosTable).where(and(eq(videosTable.status, status), eq(videosTable.userId, userId))).orderBy(desc(videosTable.createdAt)).limit(50)
-      : await db.select().from(videosTable).where(eq(videosTable.userId, userId)).orderBy(desc(videosTable.createdAt)).limit(50);
+  const baseQuery = db
+    .select({ video: videosTable, wavespeedLookId: contentPlanItemsTable.wavespeedLookId })
+    .from(videosTable)
+    .leftJoin(contentPlanItemsTable, eq(contentPlanItemsTable.id, videosTable.contentPlanId))
+    .orderBy(desc(videosTable.createdAt))
+    .limit(50);
 
-  res.json(GetVideosResponse.parse(videos.map(mapVideo)));
+  const rows = status !== "all"
+    ? await baseQuery.where(and(eq(videosTable.status, status), eq(videosTable.userId, userId)))
+    : await baseQuery.where(eq(videosTable.userId, userId));
+
+  res.json(GetVideosResponse.parse(rows.map((r) => mapVideo(r.video, r.wavespeedLookId))));
 });
 
 router.post("/videos/generate", async (req, res): Promise<void> => {

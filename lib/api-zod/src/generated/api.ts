@@ -629,7 +629,8 @@ export const GetVideosResponseItem = zod.object({
   "updated_at": zod.string(),
   "published_at": zod.string().nullish(),
   "scheduled_publish_at": zod.string().nullish().describe('ISO timestamp at which the video is scheduled to be auto-published'),
-  "thumbnail_cover_url": zod.string().nullish().describe('AI-generated Reel cover image URL (gpt-image-1); stored after first generation, reused on retry')
+  "thumbnail_cover_url": zod.string().nullish().describe('AI-generated Reel cover image URL (gpt-image-1); stored after first generation, reused on retry'),
+  "wavespeed_look_id": zod.number().nullish().describe('WaveSpeed look pinned to this video (from the associated content plan item)')
 })
 export const GetVideosResponse = zod.array(GetVideosResponseItem)
 

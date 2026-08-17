@@ -1,24 +1,28 @@
 ---
 name: Avatar rotation bug and fix
-description: Stored avatarId on content items must be re-validated against current selection before use.
+description: Two separate bugs cause a manually-pinned WaveSpeed look to be replaced by rotation.
 ---
 
-## The bug
+## Bug A — HeyGen stored avatarId not re-validated (original fix)
 
-When a content plan item is first scripted, an `avatarId` is assigned and stored in the DB. If the user later removes that avatar from their `selectedAvatarIds`, the scheduler and manual-generate route still used the stored ID — calling HeyGen with an avatar the user no longer wants.
+When a content plan item is scripted, an `avatarId` is stored. If the user later removes that avatar from `selectedAvatarIds`, the scheduler still used the stale stored ID.
 
-## The fix (applied in scheduler.ts and videos.ts)
+Fix: before using stored `avatarId`, check `selectedAvatarIds.includes(storedId)`. Re-pick and clear voiceId if stale. Applied in `runAutomationCycle` (draft + backfill paths) and `videos.ts`.
 
-Before using a stored `avatarId`, always check:
-```typescript
-const valid = storedId && selectedAvatarIds.includes(storedId);
-const avatarId = valid ? storedId : pickNextAvatar(selectedAvatarIds, ...);
-if (!valid) contentItem.voiceId = null; // force voice re-resolution for new avatar
-```
+## Bug B — WaveSpeed pinned look replaced by rotation across personas (found Aug 2026)
 
-This applies in three places:
-1. `runAutomationCycle` — draft path (assigning avatar to a scripted item)
-2. `runAutomationCycle` — backfill path (scripted items about to generate video)
-3. `videos.ts` manual generate route
+**Root cause:** `getWavespeedContext` in `scheduler.ts` verified the pinned look's persona was plan-enabled, then iterated ALL plan-enabled personas newest-first. If the pinned look lived in an older persona and a newer persona existed, the loop landed on the newer persona first, found `preferredIdx=-1` there, and rotated to that persona's look — returning the wrong avatar silently.
 
-**Why:** The `??` pattern (`stored ?? pickNext()`) only fills null values. Removed avatars are not null — they're stale non-null values that bypass the rotation entirely.
+**Fix:** After the plan-block check, capture `preferredPersonaId` from the look-row query. Filter the personas array to only that persona when a look is pinned. The loop always finds `preferredIdx>=0` and never falls through to another persona.
+
+## Bug C — UI race: picker PATCH vs approval PATCH (found Aug 2026)
+
+The avatar picker saves `wavespeed_look_id` via an async PATCH. `handleApproveAndGenerate` triggers the cycle from its own PATCH's `onSuccess`. If both PATCHes overlap, the cycle may read the item before the picker PATCH commits.
+
+**Fix:** `handleApproveAndGenerate` now re-asserts `wavespeed_look_id` (or `avatar_id`) from `scriptModalItem` in the approval PATCH body, so the correct look is always in DB before the cycle reads the item.
+
+## Bug D — Admin blocked by plan enforcement (found Aug 2026)
+
+Admin users have no subscription row → `getUserPlanSlug` returned null → `getAvatarLimit(null)=0` → all WaveSpeed personas plan-blocked → `PlanBlockedError` thrown → cycle aborted silently.
+
+**Fix:** `getUserPlanSlug` now checks user role first. Admins get internal slug `'admin'`; `AVATAR_LIMITS.admin=999` gives effectively unlimited persona access.
