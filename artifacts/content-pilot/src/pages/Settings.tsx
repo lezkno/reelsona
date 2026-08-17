@@ -1,7 +1,7 @@
 import {
   useGetSettings, useUpdateSettings, useExtractBrandPalette,
   getGetSettingsQueryKey, SettingsTone, type SettingsInput,
-  useCreditsBalance, useAuthStatus,
+  useAuthStatus,
 } from "@workspace/api-client-react"
 import { useUpload } from "@workspace/object-storage-web"
 
@@ -13,102 +13,13 @@ import { Textarea } from "@/components/ui/textarea"
 import { Slider } from "@/components/ui/slider"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Progress } from "@/components/ui/progress"
 import { useQueryClient } from "@tanstack/react-query"
 import { useToast } from "@/hooks/use-toast"
 import { useEffect, useRef, useState } from "react"
-import { Save, CheckCircle2, Loader2, RefreshCw, Play, Upload, X, Palette, Sparkles, Coins, Infinity } from "lucide-react"
+import { Save, CheckCircle2, Loader2, RefreshCw, Play, Upload, X, Palette, Sparkles } from "lucide-react"
 import AccessStatus from "@/components/AccessStatus"
 
 const WELCOME_STORAGE_KEY = "reelsona_welcome_dismissed"
-
-// ── Credits balance card ──────────────────────────────────────────────────────
-
-function CreditsCard() {
-  const { data: authData }  = useAuthStatus()
-  const { data, isLoading } = useCreditsBalance()
-
-  if (isLoading) {
-    return (
-      <Card>
-        <CardContent className="p-6">
-          <Skeleton className="h-20 w-full" />
-        </CardContent>
-      </Card>
-    )
-  }
-
-  if (!data) return null
-
-  // Derive admin status from the auth session, not from the credits cache.
-  // The credits cache uses a static query key and can serve a previous admin
-  // session's isAdmin:true to the next user until the cache expires.
-  const isAdmin = authData?.user?.role === "admin"
-  const available = data.availableCredits ?? 0
-  const consumed  = data.totalConsumed
-  const reserved  = data.reservedCredits
-  const total     = available + consumed
-  const pct       = total > 0 ? Math.round((consumed / total) * 100) : 0
-
-  return (
-    <Card className="overflow-hidden">
-      <CardContent className="p-0">
-        <div className="flex flex-col sm:flex-row">
-          {/* Left — main metric */}
-          <div className="flex-1 p-6 border-b sm:border-b-0 sm:border-r border-border">
-            <div className="flex items-center gap-2 mb-3">
-              <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                <Coins className="w-4 h-4 text-primary" />
-              </div>
-              <p className="text-sm font-medium text-muted-foreground">Saldo de créditos</p>
-            </div>
-            {isAdmin ? (
-              <div className="flex items-end gap-2">
-                <Infinity className="w-10 h-10 text-emerald-500" />
-                <p className="text-sm text-muted-foreground mb-1">Acceso admin — sin límite</p>
-              </div>
-            ) : (
-              <>
-                <div className="flex items-end gap-2 mb-3">
-                  <span className="text-4xl font-display font-bold text-foreground">
-                    {available}
-                  </span>
-                  <span className="text-sm text-muted-foreground mb-1.5">
-                    créditos disponibles
-                  </span>
-                </div>
-                <Progress value={pct} className="h-1.5 mb-2" />
-                <p className="text-xs text-muted-foreground">
-                  {data.subscriptionCredits ?? 0} suscripción · {data.purchasedCredits ?? 0} adicionales · {consumed} usados
-                </p>
-              </>
-            )}
-          </div>
-
-          {/* Right — stat breakdown */}
-          {!isAdmin && (
-            <div className="flex sm:flex-col justify-around sm:justify-center gap-4 sm:gap-6 p-6 sm:w-48 text-center">
-              <div>
-                <p className="text-xl font-bold text-emerald-600">{available}</p>
-                <p className="text-xs text-muted-foreground">Disponibles</p>
-              </div>
-              {reserved > 0 && (
-                <div>
-                  <p className="text-xl font-bold text-amber-500">{reserved}</p>
-                  <p className="text-xs text-muted-foreground">En proceso</p>
-                </div>
-              )}
-              <div>
-                <p className="text-xl font-bold text-muted-foreground">{consumed}</p>
-                <p className="text-xs text-muted-foreground">Usados</p>
-              </div>
-            </div>
-          )}
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
 
 // ── Supported script languages ────────────────────────────────────────────────
 const LANGUAGES = [
@@ -480,17 +391,6 @@ export default function Settings() {
       <div>
         <h1 className="text-2xl sm:text-4xl font-display font-bold tracking-tight">Configuración</h1>
         <p className="text-muted-foreground mt-1 text-sm sm:text-lg">Personalizá tu marca e integraciones.</p>
-      </div>
-
-      {/* ── Saldo de créditos ── */}
-      <div className="space-y-3">
-        <div>
-          <h2 className="text-xl font-display font-semibold">Créditos</h2>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Cada video generado consume {10} créditos. Tu saldo se recarga con tu plan de acceso.
-          </p>
-        </div>
-        <CreditsCard />
       </div>
 
       {/* ── Identidad Visual de Marca ── */}
