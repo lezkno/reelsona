@@ -358,16 +358,20 @@ function ChangePasswordDialog({ user }: { user: AdminUser }) {
 
 // ── Delete button ─────────────────────────────────────────────────────────────
 
-function DeleteUserButton({ user, selfUsername }: { user: AdminUser; selfUsername?: string }) {
+function DeleteUserButton({
+  userId, username, fullName, selfUsername,
+}: {
+  userId: number; username: string; fullName?: string | null; selfUsername?: string
+}) {
   const del = useDeleteAdminUser()
   const { toast } = useToast()
-  if (user.username === selfUsername) return null
+  if (selfUsername && username === selfUsername) return null
 
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
         <Button variant="ghost" size="icon"
-          className="h-8 w-8 text-muted-foreground hover:text-destructive" title="Eliminar">
+          className="h-8 w-8 text-muted-foreground hover:text-destructive" title="Eliminar usuario">
           <Trash2 className="w-3.5 h-3.5" />
         </Button>
       </AlertDialogTrigger>
@@ -375,8 +379,9 @@ function DeleteUserButton({ user, selfUsername }: { user: AdminUser; selfUsernam
         <AlertDialogHeader>
           <AlertDialogTitle>¿Eliminar usuario?</AlertDialogTitle>
           <AlertDialogDescription>
-            <strong>@{user.username}</strong> {user.fullName ? `(${user.fullName}) ` : ""}
+            <strong>@{username}</strong>{fullName ? ` (${fullName})` : ""}{" "}
             será eliminado permanentemente y no podrá iniciar sesión.
+            Esta acción no se puede deshacer.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -384,7 +389,7 @@ function DeleteUserButton({ user, selfUsername }: { user: AdminUser; selfUsernam
           <AlertDialogAction
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             onClick={() =>
-              del.mutate({ id: user.id }, {
+              del.mutate({ id: userId }, {
                 onSuccess: () => toast({ title: "Usuario eliminado" }),
                 onError: (err: any) => toast({
                   title: "Error", variant: "destructive",
@@ -410,7 +415,7 @@ const PLAN_OPTIONS = [
   { value: "none",    label: "Sin plan", sub: "Cancelar suscripción" },
 ] as const
 
-function AdminSetPlanDialog({ user }: { user: AdminUser }) {
+function AdminSetPlanDialog({ userId, username }: { userId: number; username: string }) {
   const [open, setOpen] = useState(false)
   const [plan, setPlan] = useState<string>("")
   const setPlanMutation = useAdminSetUserPlan()
@@ -418,13 +423,13 @@ function AdminSetPlanDialog({ user }: { user: AdminUser }) {
 
   const handleSubmit = () => {
     if (!plan) return
-    setPlanMutation.mutate({ userId: user.id, planSlug: plan }, {
+    setPlanMutation.mutate({ userId, planSlug: plan }, {
       onSuccess: (data) => {
         toast({
           title: "Plan actualizado",
           description: data.creditsGranted > 0
-            ? `@${user.username} → ${plan} · ${data.creditsGranted} créditos recargados`
-            : `@${user.username} → sin plan`,
+            ? `@${username} → ${plan} · ${data.creditsGranted} créditos recargados`
+            : `@${username} → sin plan`,
         })
         setOpen(false)
         setPlan("")
@@ -453,7 +458,7 @@ function AdminSetPlanDialog({ user }: { user: AdminUser }) {
           <DialogDescription>
             El plan se activa de inmediato y los créditos mensuales se recargan como si el
             usuario hubiera comprado el plan. No se realiza ningún cargo.
-            <br /><span className="font-medium">@{user.username}</span>
+            <br /><span className="font-medium">@{username}</span>
           </DialogDescription>
         </DialogHeader>
 
@@ -559,7 +564,11 @@ function ResendActivationButton({ entitlement }: { entitlement: AdminEntitlement
 
 // ── Adjust credits button (admin) ─────────────────────────────────────────────
 
-function AdjustCreditsButton({ entitlement }: { entitlement: AdminEntitlement }) {
+function AdjustCreditsButton({
+  userId, displayName, currentCredits,
+}: {
+  userId: number; displayName: string; currentCredits?: number | null
+}) {
   const [open, setOpen] = useState(false)
   const [amount, setAmount] = useState("")
   const [reason, setReason] = useState("")
@@ -572,10 +581,10 @@ function AdjustCreditsButton({ entitlement }: { entitlement: AdminEntitlement })
       toast({ title: "Error", description: "Ingresa un número distinto de 0", variant: "destructive" }); return
     }
     adjust.mutate(
-      { userId: entitlement.userId, amount: n, reason: reason.trim() || undefined },
+      { userId, amount: n, reason: reason.trim() || undefined },
       {
         onSuccess: () => {
-          toast({ title: "Créditos ajustados", description: `${n > 0 ? "+" : ""}${n} créditos para ${entitlement.fullName ?? entitlement.username}` })
+          toast({ title: "Créditos ajustados", description: `${n > 0 ? "+" : ""}${n} créditos para ${displayName}` })
           setOpen(false); setAmount(""); setReason("")
         },
         onError: (err: any) =>
@@ -589,7 +598,7 @@ function AdjustCreditsButton({ entitlement }: { entitlement: AdminEntitlement })
       <DialogTrigger asChild>
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary">
+            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary" title="Ajustar créditos">
               <Coins className="w-3.5 h-3.5" />
             </Button>
           </TooltipTrigger>
@@ -600,8 +609,8 @@ function AdjustCreditsButton({ entitlement }: { entitlement: AdminEntitlement })
         <DialogHeader>
           <DialogTitle>Ajustar créditos</DialogTitle>
           <DialogDescription>
-            {entitlement.fullName ?? entitlement.username} — saldo actual:{" "}
-            <strong>{entitlement.availableCredits ?? "—"}</strong> créditos
+            {displayName}
+            {currentCredits != null && <> — saldo actual: <strong>{currentCredits}</strong> créditos</>}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
@@ -1121,10 +1130,20 @@ function EntitlementsSection() {
                       </td>
                       {/* Acciones */}
                       <td className="px-3 py-3.5">
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-0.5">
                           <EditAccessDaysButton entitlement={ent} />
                           {!ent.isActive && <ResendActivationButton entitlement={ent} />}
-                          <AdjustCreditsButton entitlement={ent} />
+                          <AdjustCreditsButton
+                            userId={ent.userId}
+                            displayName={ent.fullName ?? ent.username}
+                            currentCredits={ent.availableCredits}
+                          />
+                          <AdminSetPlanDialog userId={ent.userId} username={ent.username} />
+                          <DeleteUserButton
+                            userId={ent.userId}
+                            username={ent.username}
+                            fullName={ent.fullName}
+                          />
                         </div>
                       </td>
                     </tr>
@@ -1463,10 +1482,11 @@ export default function Users() {
                           >
                             <Eye className="w-3.5 h-3.5" />
                           </Button>
-                          <AdminSetPlanDialog user={user} />
+                          <AdjustCreditsButton userId={user.id} displayName={user.fullName ?? user.username} />
+                          <AdminSetPlanDialog userId={user.id} username={user.username} />
                           <EditUserDialog user={user} selfUsername={selfUsername} />
                           <ChangePasswordDialog user={user} />
-                          <DeleteUserButton user={user} selfUsername={selfUsername} />
+                          <DeleteUserButton userId={user.id} username={user.username} fullName={user.fullName} selfUsername={selfUsername} />
                         </div>
                       </td>
                     </tr>
