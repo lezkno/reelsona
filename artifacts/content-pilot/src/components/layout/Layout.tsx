@@ -79,7 +79,12 @@ function TopBar({ onMenuOpen }: { onMenuOpen: () => void }) {
   const handleLogout = () => {
     logout.mutate(undefined, {
       onSuccess: () => {
-        queryClient.setQueryData(["auth", "me"], { authenticated: false })
+        // Clear the full React Query cache so no stale queries survive the
+        // session boundary — prevents cross-session data leaks and ensures
+        // a subsequent login always shows fresh data.
+        queryClient.clear()
+        // Redirect to root; the auth guard will show the login screen.
+        window.location.replace("/")
       },
     })
   }
