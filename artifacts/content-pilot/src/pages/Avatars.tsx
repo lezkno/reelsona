@@ -48,6 +48,9 @@ import { Slider } from "@/components/ui/slider"
 import { useQueryClient } from "@tanstack/react-query"
 import { useToast } from "@/hooks/use-toast"
 import { useState, useEffect, useRef, useMemo, useCallback } from "react"
+import { canUseFeature } from "@/lib/access"
+import { useAccessState } from "@/hooks/useAccessState"
+import { PremiumModal } from "@/components/PremiumModal"
 import {
   Users, Save, CheckCircle2, Image as ImageIcon, Play, Square,
   Plus, Camera, CameraOff, Mic, RefreshCw, Upload, Loader2, AlertCircle, ChevronDown, Sparkles, Video,
@@ -3527,6 +3530,10 @@ export default function Avatars() {
     return map
   }, [wavespeedPersonas])
 
+  // Plan access gate — blocks creation actions without an active subscription
+  const accessState = useAccessState()
+  const [premiumOpen, setPremiumOpen] = useState(false)
+
   const [showWavespeedWizard, setShowWavespeedWizard] = useState(false)
   const [openWavespeedPersona, setOpenWavespeedPersona] = useState<WavespeedPersonaWithLooks | null>(null)
   const [showCreateLookForPersona, setShowCreateLookForPersona] = useState(false)
@@ -4354,7 +4361,7 @@ export default function Avatars() {
                 className="gap-1.5 border-violet-400/60 text-violet-700 dark:text-violet-300 hover:bg-violet-50 dark:hover:bg-violet-950/30 disabled:opacity-50"
                 disabled={atAvatarLimit}
                 title={atAvatarLimit ? "Límite de Avatares AI alcanzado en tu plan actual" : undefined}
-                onClick={() => setShowWavespeedWizard(true)}
+                onClick={() => { if (!canUseFeature(accessState, "create_avatar")) { setPremiumOpen(true); return }; setShowWavespeedWizard(true) }}
               >
                 <Sparkles className="w-4 h-4" />
                 Nuevo Avatar AI
@@ -4387,7 +4394,7 @@ export default function Avatars() {
                   Sube una foto tuya y la IA generará looks personalizados con tu cara para usar en tus videos.
                 </p>
               </div>
-              <Button className="gap-2 border-violet-400/60 text-violet-700 dark:text-violet-300 bg-violet-50 dark:bg-violet-950/30 border hover:bg-violet-100 dark:hover:bg-violet-950/50" onClick={() => setShowWavespeedWizard(true)}>
+              <Button className="gap-2 border-violet-400/60 text-violet-700 dark:text-violet-300 bg-violet-50 dark:bg-violet-950/30 border hover:bg-violet-100 dark:hover:bg-violet-950/50" onClick={() => { if (!canUseFeature(accessState, "create_avatar")) { setPremiumOpen(true); return }; setShowWavespeedWizard(true) }}>
                 <Sparkles className="w-4 h-4" />
                 Nuevo Avatar AI
               </Button>
@@ -5071,6 +5078,13 @@ export default function Avatars() {
           }}
         />
       )}
+
+      <PremiumModal
+        open={premiumOpen}
+        onClose={() => setPremiumOpen(false)}
+        title="Función disponible con plan activo"
+        description="Activa un plan de Reelsona para crear Avatares AI, añadir looks y clonar voces."
+      />
 
       {/* WaveSpeed persona looks dialog */}
       {openWavespeedPersona && (

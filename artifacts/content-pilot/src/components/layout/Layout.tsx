@@ -3,8 +3,7 @@ import { useState } from "react"
 import { Link, useLocation } from "wouter"
 import { Sidebar } from "./Sidebar"
 import { WelcomeModal } from "@/components/WelcomeModal"
-import { Menu, AlertTriangle, Clock, LogOut, Coins, Crown } from "lucide-react"
-import { useEntitlement } from "@/hooks/useEntitlement"
+import { Menu, AlertTriangle, LogOut, Coins, Crown } from "lucide-react"
 import { useAuthStatus, useLogout, useCreditsBalance, useBilling } from "@workspace/api-client-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { cn } from "@/lib/utils"
@@ -155,51 +154,36 @@ function TopBar({ onMenuOpen }: { onMenuOpen: () => void }) {
   )
 }
 
-// ── Access alert banner ───────────────────────────────────────────────────────
+// ── No-plan banner ────────────────────────────────────────────────────────────
+// Only shown for authenticated users with no active subscription.
+// Admins always bypass; banner hides while billing data is loading.
 
 function AccessBanner() {
-  const { data } = useEntitlement()
+  const { data: auth }    = useAuthStatus()
+  const { data: billing } = useBilling()
 
-  if (!data || data.isAdmin) return null
-  if (data.toolAccessActive && (data.daysRemaining === null || data.daysRemaining > 7)) return null
+  // Admins: no banner
+  if (auth?.user?.role === "admin") return null
+  // Billing not loaded yet: hide (avoids flash on load)
+  if (!billing) return null
 
-  const isExpired = !data.toolAccessActive
+  const sub = billing.subscription
+  const hasActiveSub = sub && ["active", "trialing"].includes(sub.status ?? "")
+  if (hasActiveSub) return null
 
   return (
-    <div className={cn(
-      "shrink-0 flex items-center gap-3 px-4 py-2.5 text-sm font-medium",
-      isExpired
-        ? "bg-destructive/10 text-destructive border-b border-destructive/20"
-        : "bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 border-b border-amber-200 dark:border-amber-800/40"
-    )}>
-      {isExpired
-        ? <AlertTriangle className="w-4 h-4 shrink-0" />
-        : <Clock className="w-4 h-4 shrink-0" />
-      }
+    <div className="shrink-0 flex items-center gap-3 px-4 py-2.5 text-sm font-medium bg-destructive/10 text-destructive border-b border-destructive/20">
+      <AlertTriangle className="w-4 h-4 shrink-0" />
       <span className="flex-1 min-w-0">
-        {isExpired ? (
-          <>
-            Tu acceso a la herramienta venció.{" "}
-            {data.courseAccess && (
-              <Link href="/course" className="underline underline-offset-2 hover:no-underline">
-                Puedes seguir accediendo al curso →
-              </Link>
-            )}
-          </>
-        ) : (
-          <>
-            Tu acceso vence en{" "}
-            <strong>
-              {data.daysRemaining === 0
-                ? "hoy"
-                : `${data.daysRemaining} día${data.daysRemaining !== 1 ? "s" : ""}`}
-            </strong>.{" "}
-            <a href="mailto:info@reelsona.com" className="underline underline-offset-2 hover:no-underline">
-              Contacta a tu asesor para renovar
-            </a>
-          </>
-        )}
+        <strong>Tu plan no está activo.</strong>{" "}
+        Reactiva Reelsona para volver a crear, analizar y publicar contenido. Tus proyectos y recursos siguen guardados.
       </span>
+      <Link
+        href="/billing"
+        className="shrink-0 text-xs font-bold border border-destructive/40 rounded-lg px-3 py-1.5 hover:bg-destructive/10 transition-colors whitespace-nowrap"
+      >
+        Ver planes →
+      </Link>
     </div>
   )
 }

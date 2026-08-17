@@ -1,0 +1,306 @@
+BLOQUE 6B — Sistema central de permisos por estado de suscripción
+
+No parchear páginas individualmente sin una regla central. Crear una única fuente de verdad de acceso para toda Reelsona.
+
+1. Estados
+
+Definir conceptualmente:
+
+admin
+active_basic
+active_pro
+active_founder
+no_active_plan
+
+no_active_plan incluye usuario autenticado que:
+
+nunca compró;
+canceló;
+expiró;
+ya no tiene entitlement activo.
+2. Usuario sin plan puede acceder a
+Dashboard en modo limitado;
+Perfil;
+Billing;
+ver planes/comprar/reactivar;
+Conexiones;
+conectar/reconectar Instagram;
+ver videos históricos;
+descargar videos ya creados;
+ver sus créditos existentes;
+curso solamente según entitlement independiente.
+
+No borrar assets cuando pierde el plan.
+
+3. Usuario sin plan NO puede ejecutar
+análisis estratégico;
+Radar;
+generar plan de contenido;
+generar Reel;
+usar avatar público para generar;
+crear Avatar AI propio;
+crear look;
+clonar voz;
+Caption/Effects Studio;
+generar B-roll;
+publicar;
+programar;
+AutoPilot;
+comprar top-ups.
+
+Los créditos comprados existentes permanecen pero no pueden utilizarse hasta reactivar un plan.
+
+4. Avatares públicos
+
+IMPORTANTE:
+
+usuario sin plan sí debe poder cargar y visualizar la biblioteca de Avatares públicos.
+
+No bloquear el GET/listado por subscription.
+
+Puede navegar y verlos.
+
+Al intentar usar uno para generar:
+
+mostrar modal:
+
+Función Premium
+
+Necesitas un plan activo de Reelsona para crear contenido con este Avatar AI.
+
+Botón:
+
+Ver planes
+
+→ /billing
+
+No mostrar errores técnicos.
+
+5. Avatar AI propio
+
+Sin plan puede visualizar sus avatares históricos guardados.
+
+No puede:
+
+crear nuevo;
+generar con ellos;
+crear looks;
+clonar voz.
+
+Mostrar modal premium correspondiente.
+
+Mantener límites activos:
+
+Basic = 1
+Pro/Founder = 3.
+
+6. Estudio Estratégico / Radar
+
+Eliminar cualquier requisito incorrecto:
+
+role === admin
+
+para analizar cuenta.
+
+Cualquier Basic, Pro o Founder activo puede utilizar Estudio Estratégico si tiene la conexión requerida.
+
+Orden de validación:
+
+usuario autenticado → plan activo → cuenta conectada → ejecutar función.
+
+Sin plan:
+
+modal:
+
+Esta función requiere un plan activo
+
+Activa un plan de Reelsona para analizar tu cuenta y recibir tu estudio estratégico.
+
+Ver planes → /billing.
+
+Con plan pero sin Instagram:
+
+modal:
+
+Conecta tu cuenta para continuar
+
+Conectar cuenta → /connect.
+
+7. ELIMINAR “Apify desconectado / modo manual”
+
+Ningún usuario debe ver:
+
+Apify
+
+Apify desconectado
+
+modo manual
+
+ni ningún nombre de infraestructura.
+
+Radar debe mostrar estados de producto:
+
+sin plan → requiere plan;
+
+plan + sin conexión → conecta tu cuenta;
+
+plan + conexión → Radar.
+
+8. Caption / Effects Studio
+
+Sin plan, la página puede visualizarse como preview si resulta útil, pero ningún toggle puede modificar configuración.
+
+Al intentar activar captions/efectos:
+
+modal:
+
+Función Premium
+
+Esta función requiere un plan activo de Reelsona.
+
+Ver planes → /billing.
+
+Backend debe devolver:
+
+plan_required
+
+no un 403 genérico ni “No se pudo actualizar”.
+
+9. Feature Matrix central
+
+Implementar una función/helper central equivalente a:
+
+canUseFeature(accessState, feature)
+
+Features mínimas:
+
+strategic_analysis
+
+content_plan
+
+generate_reel
+
+use_public_avatar
+
+create_avatar
+
+create_look
+
+clone_voice
+
+caption_studio
+
+broll
+
+publish
+
+schedule
+
+autopilot
+
+buy_topup
+
+No duplicar reglas distintas en cada página.
+
+10. AutoPilot
+
+Basic → NO.
+
+Pro → sí.
+
+Founder → sí.
+
+Sin plan → NO.
+
+Backend sigue siendo autoridad.
+
+11. Backend obligatorio
+
+UI no es seguridad.
+
+Todos los endpoints que generan costo o ejecutan funciones premium deben comprobar plan/feature.
+
+Respuestas semánticas:
+
+plan_required
+
+feature_not_available
+
+account_connection_required
+
+evitar 403 técnicos cuando se trata de una regla comercial.
+
+12. Admin
+
+role=admin puede acceder a funciones administrativas independientemente del plan.
+
+No convertir un role=user en admin por tener Pro/Founder.
+
+13. Banner global sin plan
+
+Usuario autenticado sin plan:
+
+mostrar banner persistente:
+
+Tu plan no está activo
+
+Reactiva Reelsona para volver a crear, analizar y publicar contenido. Tus proyectos y recursos siguen guardados.
+
+Ver planes
+
+→ /billing.
+
+No mostrar este banner al admin.
+
+14. Top-ups
+
+Sin plan:
+
+conservar saldo comprado;
+
+mostrarlo;
+
+bloquear nueva compra.
+
+En Billing explicar:
+
+Necesitas un plan activo para comprar y utilizar créditos adicionales.
+
+15. No tocar economía
+
+Mantener:
+
+Basic $29 / 400
+Pro $97 / 1500
+Founder $697 / 1500 mensual
+50 cr / 30 s
+look 2 cr
+voz adicional 10 cr.
+
+16. Pruebas obligatorias
+
+Crear una matriz de tests para:
+
+No plan: billing sí; perfiles sí; public avatars GET sí; generate no; audit no; captions no; topup no.
+
+Basic: analysis sí; public avatars sí; Reel sí; Caption sí; AutoPilot no; máximo 1 avatar.
+
+Pro: todo anterior + AutoPilot + 3 avatares.
+
+Founder: mismas funciones que Pro.
+
+Admin: acceso administrativo.
+
+Además probar:
+
+sin plan Radar no muestra Apify;
+plan activo sin IG → CTA conectar;
+plan activo + IG → análisis;
+sin plan Caption toggle → modal, no error técnico;
+sin plan avatar público → biblioteca visible, generación bloqueada;
+sin plan top-up → compra bloqueada;
+reactivar plan → assets y créditos comprados vuelven a estar utilizables.
+
+TypeScript/build/tests deben pasar.
+
+Commit + push, indicar SHA y no comenzar otro bloque.

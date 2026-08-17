@@ -2,7 +2,7 @@ import { Route, Switch, Router as WouterRouter, useLocation } from "wouter"
 import { QueryClient, QueryClientProvider, QueryCache } from "@tanstack/react-query"
 import { Toaster } from "@/components/ui/toaster"
 import { TooltipProvider } from "@/components/ui/tooltip"
-import { Loader2 } from "lucide-react"
+import { Loader2, Lock } from "lucide-react"
 
 import { Layout } from "@/components/layout/Layout"
 import NotFound from "@/pages/not-found"
@@ -29,8 +29,7 @@ import CheckoutSuccess from "@/pages/CheckoutSuccess"
 import CheckoutCancel from "@/pages/CheckoutCancel"
 import Landing from "@/pages/Landing"
 import Billing from "@/pages/Billing"
-import { useAuthStatus } from "@workspace/api-client-react"
-import { useEntitlement } from "@/hooks/useEntitlement"
+import { useAuthStatus, useBilling } from "@workspace/api-client-react"
 import ResendActivation from "@/pages/ResendActivation"
 import ResetPassword from "@/pages/ResetPassword"
 
@@ -60,15 +59,52 @@ const queryClient = new QueryClient({
 })
 
 /**
- * Renders the given component only if the user has active tool access.
- * Falls back to AccessExpired otherwise.
- * React Query deduplicates the entitlement query — no extra network request.
+ * Plan-required screen — shown instead of the page when the user has no active plan.
+ * Accessible pages (Dashboard, Billing, etc.) are NOT wrapped in ToolRoute.
+ */
+function NoPlanScreen() {
+  return (
+    <div className="flex flex-col items-center justify-center py-24 px-4 text-center gap-6 max-w-sm mx-auto">
+      <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center">
+        <Lock className="w-8 h-8 text-muted-foreground" />
+      </div>
+      <div>
+        <h2 className="text-xl font-bold font-display mb-2">Tu plan no está activo</h2>
+        <p className="text-sm text-muted-foreground">
+          Activa un plan de Reelsona para acceder a esta función. Tus proyectos y recursos siguen guardados.
+        </p>
+      </div>
+      <a
+        href="/billing"
+        className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors"
+      >
+        Ver planes →
+      </a>
+    </div>
+  )
+}
+
+/**
+ * Renders the given component only if the user has an active plan subscription.
+ * Falls back to NoPlanScreen for users without a plan.
+ * While billing data is loading, renders the component (React Query deduplicates).
+ * Admins always pass through regardless of subscription.
  */
 function ToolRoute({ component: Component }: { component: React.ComponentType }) {
-  const { data } = useEntitlement()
-  if (data && !data.isAdmin && !data.toolAccessActive) {
-    return <AccessExpired />
-  }
+  const { data: auth }    = useAuthStatus()
+  const { data: billing } = useBilling()
+
+  // Admins always pass through
+  if (auth?.user?.role === "admin") return <Component />
+
+  // While billing data is loading, show the component — billing resolves quickly
+  // and any in-progress interactive state is already blocked by AccessBanner
+  if (!billing) return <Component />
+
+  const sub = billing.subscription
+  const hasActiveSub = sub && ["active", "trialing"].includes(sub.status ?? "")
+  if (!hasActiveSub) return <NoPlanScreen />
+
   return <Component />
 }
 
@@ -86,28 +122,26 @@ function Router() {
         {/* Admin-only */}
         <Route path="/users" component={() => <AdminOnly><UsersPage /></AdminOnly>} />
 
-        {/* Tool routes — blocked for expired access */}
+        {/* Always accessible (no plan required) */}
         <Route path="/connect">
-          {() => <ToolRoute component={Connect} />}
+          {() => <Connect />}
         </Route>
-        <Route path="/audit">
-          {() => <ToolRoute component={Audit} />}
+        <Route path="/videos">
+          {() => <Videos />}
         </Route>
-
-        {/* Billing — accessible with tool access */}
         <Route path="/billing">
           {() => <Billing />}
         </Route>
 
-        {/* HeyGen routes — tool access required */}
+        {/* Plan-required routes — show NoPlanScreen without active subscription */}
+        <Route path="/audit">
+          {() => <ToolRoute component={Audit} />}
+        </Route>
         <Route path="/content">
           {() => <ToolRoute component={ContentPlan} />}
         </Route>
         <Route path="/avatars">
           {() => <ToolRoute component={Avatars} />}
-        </Route>
-        <Route path="/videos">
-          {() => <ToolRoute component={Videos} />}
         </Route>
         <Route path="/automation">
           {() => <ToolRoute component={Automation} />}

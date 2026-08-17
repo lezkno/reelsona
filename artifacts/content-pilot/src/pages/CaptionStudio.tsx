@@ -1,5 +1,8 @@
 import { useState, useEffect, useRef } from "react"
 import { useGetCaptionPresets, useGetCaptionConfig, useUpdateCaptionConfig, useGetAutomation, useUpdateAutomation, getGetAutomationQueryKey, useGetVideos, useGetSettings, useUpdateSettings, getGetSettingsQueryKey } from "@workspace/api-client-react"
+import { canUseFeature } from "@/lib/access"
+import { useAccessState } from "@/hooks/useAccessState"
+import { PremiumModal } from "@/components/PremiumModal"
 import type { VideoEffects } from "@workspace/api-client-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -1482,6 +1485,11 @@ export default function CaptionStudio() {
     (v) => v.status === "generating" || (v as any).caption_status === "processing"
   )
 
+  // Plan access gate — blocks config changes without an active subscription
+  const accessState = useAccessState()
+  const planLocked = !canUseFeature(accessState, "caption_studio")
+  const [premiumOpen, setPremiumOpen] = useState(false)
+
   const [local, setLocal] = useState<Partial<CaptionConfig>>({})
   const [captionsEnabled, setCaptionsEnabled] = useState(false)
   // autoCoverEnabled removed — brand cover AI is discontinued
@@ -1600,6 +1608,7 @@ export default function CaptionStudio() {
   }, [settings])
 
   const handleToggleEffect = (key: keyof VideoEffects, value: boolean) => {
+    if (planLocked) { setPremiumOpen(true); return }
     const next = { ...videoEffects, [key]: value }
     setVideoEffects(next)
     updateSettings.mutate({ data: { video_effects: next } }, {
@@ -1612,6 +1621,7 @@ export default function CaptionStudio() {
   }
 
   const saveCardConfig = async () => {
+    if (planLocked) { setPremiumOpen(true); return }
     setSavingCards(true)
     try {
       const r = await fetch("/api/cards/template", {
@@ -1691,6 +1701,7 @@ export default function CaptionStudio() {
   // Auto-save when a Browser Template is selected.
   // Preserves the full overrides map so each template's tweaks survive switching.
   const applyBrowserTemplate = (template: CaptionTemplate) => {
+    if (planLocked) { setPremiumOpen(true); return }
     const update: Partial<CaptionConfig> = {
       caption_engine:     "browser_experimental",
       template_id:        template.id,
@@ -1724,6 +1735,7 @@ export default function CaptionStudio() {
 
   // Auto-save immediately when a preset is selected
   const applyPreset = (preset: CaptionPreset) => {
+    if (planLocked) { setPremiumOpen(true); return }
     const update: Partial<CaptionConfig> = {
       preset_id: preset.id,
       primary_color: preset.primary_color,
@@ -2262,6 +2274,13 @@ export default function CaptionStudio() {
         </div>
 
       </div>{/* end 5-col grid */}
+
+      <PremiumModal
+        open={premiumOpen}
+        onClose={() => setPremiumOpen(false)}
+        title="Función disponible con plan activo"
+        description="Activa un plan de Reelsona para personalizar captions, efectos y cards de texto."
+      />
     </div>
   )
 }

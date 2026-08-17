@@ -584,6 +584,9 @@ function TopupsSection({ data, userEmail, onSelect }: {
 }) {
   if (!data?.topups?.length) return null
 
+  const sub = data.subscription
+  const hasActiveSub = !!(sub && ["active", "trialing"].includes(sub.status ?? ""))
+
   return (
     <div>
       <div className="flex items-center gap-2 mb-4">
@@ -593,6 +596,15 @@ function TopupsSection({ data, userEmail, onSelect }: {
       <p className="text-sm text-muted-foreground mb-4">
         Créditos extra que nunca vencen. Ideales para meses de mayor producción.
       </p>
+      {!hasActiveSub && (
+        <div className="flex items-start gap-3 px-4 py-3 mb-4 rounded-xl border border-amber-500/20 bg-amber-500/5 text-sm">
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-500" />
+          <p className="text-amber-700 dark:text-amber-400">
+            Necesitas un plan activo para comprar y utilizar créditos adicionales.{" "}
+            <a href="/billing" className="font-bold underline underline-offset-2">Ver planes →</a>
+          </p>
+        </div>
+      )}
       <div className="grid gap-4 sm:grid-cols-3">
         {data.topups.map((topup) => {
           const meta = TOPUP_META[topup.slug] ?? { label: topup.slug }
@@ -619,7 +631,8 @@ function TopupsSection({ data, userEmail, onSelect }: {
                   size="sm"
                   variant="outline"
                   className="w-full gap-1.5"
-                  onClick={() => onSelect({
+                  disabled={!hasActiveSub}
+                  onClick={hasActiveSub ? () => onSelect({
                     planSlug:    topup.slug,
                     planName:    meta.label,
                     amountCents: topup.amountCents,
@@ -627,7 +640,7 @@ function TopupsSection({ data, userEmail, onSelect }: {
                     credits:     topup.credits,
                     interval:    null,
                     email:       userEmail,
-                  })}
+                  }) : undefined}
                 >
                   <Coins className="w-3.5 h-3.5" />
                   Comprar

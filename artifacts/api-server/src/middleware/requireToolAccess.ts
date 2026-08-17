@@ -7,8 +7,8 @@
  *
  * Admin (role='admin') always passes without a DB query.
  *
- * Returns 403 { error: "tool_access_expired" | "tool_access_required", courseAccess }
- * for non-admin users with expired or no tool access on blocked paths.
+ * Returns 403 { error: "plan_required", courseAccess }
+ * for non-admin users with no active plan on blocked paths.
  *
  * Uses a 90-second in-memory cache per userId to avoid a DB hit on every request.
  */
@@ -76,11 +76,24 @@ const BYPASS_PREFIXES = [
   "/storage/",
 ] as const;
 
+// Exact paths or prefixes that no-plan users must always be able to reach:
+//   • /billing         — plan detection and subscription management
+//   • /credits         — view credit balance without a plan
+//   • /videos          — view/download historical videos without a plan
+//   • /instagram/account — view connection status on /connect page
+const NOPLAN_BYPASS_PREFIXES = [
+  "/billing",
+  "/credits",
+  "/videos",
+  "/instagram/account",
+] as const;
+
 const BYPASS_EXACT = ["/healthz", "/dashboard"] as const;
 
 function bypasses(path: string): boolean {
   if ((BYPASS_EXACT as readonly string[]).includes(path)) return true;
   if (path.startsWith("/dashboard")) return true; // /dashboard, /dashboard/...
+  if (NOPLAN_BYPASS_PREFIXES.some((p) => path.startsWith(p))) return true;
   return BYPASS_PREFIXES.some((p) => path.startsWith(p));
 }
 
@@ -103,7 +116,7 @@ export const requireToolAccess: RequestHandler = async (req, res, next): Promise
   if (cached) {
     if (cached.toolAccessActive) { next(); return; }
     res.status(403).json({
-      error: cached.courseAccess ? "tool_access_expired" : "tool_access_required",
+      error: "plan_required",
       courseAccess: cached.courseAccess,
     });
     return;
@@ -132,7 +145,7 @@ export const requireToolAccess: RequestHandler = async (req, res, next): Promise
     if (toolAccessActive) { next(); return; }
 
     res.status(403).json({
-      error: courseAccess ? "tool_access_expired" : "tool_access_required",
+      error: "plan_required",
       courseAccess,
     });
   } catch (err) {

@@ -24,12 +24,11 @@ import {
   useGetInstagramAccount,
   type StrategyProfile,
   type NicheRadarAccount,
-  useBilling,
 } from "@workspace/api-client-react"
 import {
   TrendingUp, Users, Clock, BarChart2, Target, Lightbulb, Zap,
   AlertTriangle, CheckCircle2, Circle, RefreshCw, Loader2, Plus,
-  Trash2, ExternalLink, Wifi, WifiOff, ChevronRight, Star,
+  Trash2, ExternalLink, ChevronRight, Star,
   Heart, Flame, Sparkles, Instagram, Check,
   Map, FileText, ArrowRight, Award, Lock,
 } from "lucide-react"
@@ -204,8 +203,6 @@ function TabCuenta({ profile, onNext }: { profile: StrategyProfile | null; onNex
 
 // ── Tab: Radar de Nicho ───────────────────────────────────────────────────────
 function TabRadar() {
-  const { data: billingData } = useBilling()
-  const { data: statusData } = useGetRadarStatus()
   const { data: accountsData, isLoading: loadingAccounts } = useGetRadarAccounts()
   const { data: suggestionsData, isLoading: loadingSuggestions, refetch: refetchSuggestions } = useGetRadarSuggestions()
   const addAccount   = useAddRadarAccount()
@@ -214,10 +211,8 @@ function TabRadar() {
   const { toast } = useToast()
 
   const [newUsername, setNewUsername] = useState("")
-  const apifyAvailable = statusData?.apify_available ?? false
   const accounts       = accountsData?.accounts ?? []
   const suggestions    = suggestionsData?.suggestions ?? []
-  const isBasicPlan    = billingData?.subscription?.planSlug === "basic"
 
   const handleAdd = (username: string) => {
     const u = username.trim().toLowerCase().replace(/^@/, "")
@@ -249,28 +244,10 @@ function TabRadar() {
 
   return (
     <div className="space-y-6">
-      {/* Plan gate — Basic plan cannot use Radar */}
-      {isBasicPlan && (
-        <div className="flex items-center gap-3 rounded-xl border border-violet-500/30 bg-violet-500/5 px-5 py-4">
-          <Lock className="w-5 h-5 shrink-0 text-violet-400" />
-          <div className="flex-1 min-w-0">
-            <p className="font-semibold text-sm text-violet-300">Radar de Nicho disponible en Plan Pro</p>
-            <p className="text-xs text-violet-400/70 mt-0.5">
-              Upgrade a Pro para monitorear competidores, recibir sugerencias de IA y hacer estudios de mercado automáticos.
-            </p>
-          </div>
-          <a href="/billing" className="shrink-0 text-xs font-bold text-violet-400 hover:text-violet-300 border border-violet-500/30 rounded-lg px-3 py-1.5 transition-colors">
-            Ver planes →
-          </a>
-        </div>
-      )}
       <div className="flex items-start justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold font-display">Radar de Nicho</h2>
           <p className="text-sm text-muted-foreground mt-0.5">Monitoreá referentes y competidores de tu nicho para nutrir la estrategia.</p>
-        </div>
-        <div className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-full border ${apifyAvailable ? "border-emerald-500/40 bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400" : "border-muted-foreground/20 bg-muted text-muted-foreground"}`}>
-          {apifyAvailable ? <><Wifi className="w-3 h-3" /> Radar conectado</> : <><WifiOff className="w-3 h-3" /> Sin Apify — modo manual</>}
         </div>
       </div>
 
@@ -333,15 +310,6 @@ function TabRadar() {
         )
       })()}
 
-      {!apifyAvailable && (
-        <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
-          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-          <div>
-            <p className="font-semibold">Radar sin Apify</p>
-            <p className="text-xs mt-0.5">Puedes agregar referentes manualmente o usar las sugerencias de IA. Los datos de engagement externos estarán disponibles cuando se configure APIFY_TOKEN.</p>
-          </div>
-        </div>
-      )}
 
       {/* Add manual account */}
       <div>
@@ -355,7 +323,7 @@ function TabRadar() {
             className="flex-1 h-10 rounded-md border bg-background px-3 text-sm"
             onKeyDown={(e) => e.key === "Enter" && handleAdd(newUsername)}
           />
-          <Button onClick={() => handleAdd(newUsername)} disabled={addAccount.isPending || !newUsername.trim() || isBasicPlan} className="gap-1.5">
+          <Button onClick={() => handleAdd(newUsername)} disabled={addAccount.isPending || !newUsername.trim()} className="gap-1.5">
             {addAccount.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
             Agregar
           </Button>
@@ -407,7 +375,7 @@ function TabRadar() {
                         <button
                           type="button"
                           onClick={() => handleToggle(acc)}
-                          disabled={updateAccount.isPending || isBasicPlan}
+                          disabled={updateAccount.isPending}
                           className={`w-8 h-5 rounded-full transition-colors ${acc.use_as_reference ? "bg-primary" : "bg-muted-foreground/30"} disabled:cursor-not-allowed`}
                           aria-label="Usar como referencia"
                         >
@@ -422,7 +390,7 @@ function TabRadar() {
                       <ExternalLink className="w-4 h-4" />
                     </a>
                   )}
-                  <button type="button" onClick={() => handleDelete(acc.id)} disabled={deleteAccount.isPending || isBasicPlan} className="text-muted-foreground hover:text-destructive transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
+                  <button type="button" onClick={() => handleDelete(acc.id)} disabled={deleteAccount.isPending} className="text-muted-foreground hover:text-destructive transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
                     <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
@@ -454,7 +422,7 @@ function TabRadar() {
                     </div>
                     <p className="text-xs text-muted-foreground mt-0.5">{s.reason}</p>
                   </div>
-                  <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" disabled={isBasicPlan} onClick={() => handleAddSuggestion(s.ig_username, s.reason)}>
+                  <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={() => handleAddSuggestion(s.ig_username, s.reason)}>
                     <Plus className="w-3 h-3" /> Agregar
                   </Button>
                 </div>
@@ -477,12 +445,10 @@ function TabRadar() {
 // ── Tab: Mercado ──────────────────────────────────────────────────────────────
 function TabMercado({ profile, onNext }: { profile: StrategyProfile | null; onNext: () => void }) {
   const runMarket = useRunMarketStudy()
-  const { data: billingData } = useBilling()
   const { toast } = useToast()
   const mi = profile?.market_insights
   const hasAccount = !!profile?.account_data
   const done = profile?.steps_completed.includes("market") ?? false
-  const isBasicPlan = billingData?.subscription?.planSlug === "basic"
 
   const handleRun = () => {
     runMarket.mutate(undefined, {
@@ -498,7 +464,7 @@ function TabMercado({ profile, onNext }: { profile: StrategyProfile | null; onNe
           <h2 className="text-xl font-bold font-display">Estudio de Mercado</h2>
           <p className="text-sm text-muted-foreground mt-0.5">Síntesis de patrones de tu cuenta + referentes del radar + ajustes.</p>
         </div>
-        <Button onClick={handleRun} disabled={runMarket.isPending || !hasAccount || isBasicPlan} variant={done ? "outline" : "default"} className="gap-2">
+        <Button onClick={handleRun} disabled={runMarket.isPending || !hasAccount} variant={done ? "outline" : "default"} className="gap-2">
           {runMarket.isPending ? <><Loader2 className="w-4 h-4 animate-spin" /> Sintetizando…</> : done ? <><RefreshCw className="w-4 h-4" /> Actualizar</> : <><TrendingUp className="w-4 h-4" /> Sintetizar Mercado</>}
         </Button>
       </div>
@@ -566,12 +532,10 @@ function TabMercado({ profile, onNext }: { profile: StrategyProfile | null; onNe
 // ── Tab: Estrategia ───────────────────────────────────────────────────────────
 function TabEstrategia({ profile, onNext }: { profile: StrategyProfile | null; onNext: () => void }) {
   const runStrategy = useRunContentStrategy()
-  const { data: billingData } = useBilling()
   const { toast } = useToast()
   const cs = profile?.content_strategy
   const hasMarket = !!profile?.market_insights
   const done = profile?.steps_completed.includes("strategy") ?? false
-  const isBasicPlan = billingData?.subscription?.planSlug === "basic"
 
   const FORMAT_CONFIG = [
     { key: "educational",   label: "Educativo",   color: "bg-blue-500" },
@@ -595,7 +559,7 @@ function TabEstrategia({ profile, onNext }: { profile: StrategyProfile | null; o
           <h2 className="text-xl font-bold font-display">Estrategia de Contenido</h2>
           <p className="text-sm text-muted-foreground mt-0.5">Pilares, ángulos editoriales, mix de formatos y propuesta diferencial.</p>
         </div>
-        <Button onClick={handleRun} disabled={runStrategy.isPending || !hasMarket || isBasicPlan} variant={done ? "outline" : "default"} className="gap-2">
+        <Button onClick={handleRun} disabled={runStrategy.isPending || !hasMarket} variant={done ? "outline" : "default"} className="gap-2">
           {runStrategy.isPending ? <><Loader2 className="w-4 h-4 animate-spin" /> Generando…</> : done ? <><RefreshCw className="w-4 h-4" /> Regenerar</> : <><Target className="w-4 h-4" /> Generar Estrategia</>}
         </Button>
       </div>
