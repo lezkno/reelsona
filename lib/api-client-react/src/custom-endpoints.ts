@@ -537,7 +537,12 @@ export function useDeleteAdminUser() {
   return useMutation({
     mutationFn: ({ id }: { id: number }) =>
       customFetch<{ ok: boolean }>(`/api/users/${id}`, { method: "DELETE" }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin", "users"] }),
+    onSuccess: (_data, { id }) => {
+      // Invalidate both tables — the hook is used for both admin-role and student users
+      qc.invalidateQueries({ queryKey: ["admin", "users"] });
+      qc.invalidateQueries({ queryKey: ["admin", "entitlements"] });
+      qc.removeQueries({ queryKey: ["admin", "user-detail", id] });
+    },
   });
 }
 
