@@ -54,6 +54,13 @@ const queryClient = new QueryClient({
     queries: {
       staleTime: 1000 * 60 * 5,
       refetchOnWindowFocus: false,
+      // Never retry client errors (4xx) — they won't resolve on their own
+      // and the default 3 retries with exponential back-off add ~7 s of
+      // artificial delay on every page that touches a gated endpoint.
+      retry: (failureCount, error: any) => {
+        if (error?.status >= 400 && error?.status < 500) return false
+        return failureCount < 2
+      },
     },
   },
 })
