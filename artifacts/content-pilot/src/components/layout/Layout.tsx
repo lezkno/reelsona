@@ -3,7 +3,7 @@ import { useState } from "react"
 import { Link, useLocation } from "wouter"
 import { Sidebar } from "./Sidebar"
 import { WelcomeModal } from "@/components/WelcomeModal"
-import { Menu, AlertTriangle, LogOut, Coins, Crown } from "lucide-react"
+import { Menu, LogOut, Coins, Crown } from "lucide-react"
 import { useAuthStatus, useLogout, useCreditsBalance, useBilling } from "@workspace/api-client-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { cn } from "@/lib/utils"
@@ -154,40 +154,6 @@ function TopBar({ onMenuOpen }: { onMenuOpen: () => void }) {
   )
 }
 
-// ── No-plan banner ────────────────────────────────────────────────────────────
-// Only shown for authenticated users with no active subscription.
-// Admins always bypass; banner hides while billing data is loading.
-
-function AccessBanner() {
-  const { data: auth }    = useAuthStatus()
-  const { data: billing } = useBilling()
-
-  // Admins: no banner
-  if (auth?.user?.role === "admin") return null
-  // Billing not loaded yet: hide (avoids flash on load)
-  if (!billing) return null
-
-  const sub = billing.subscription
-  const hasActiveSub = sub && ["active", "trialing"].includes(sub.status ?? "")
-  if (hasActiveSub) return null
-
-  return (
-    <div className="shrink-0 flex items-center gap-3 px-4 py-2.5 text-sm font-medium bg-destructive/10 text-destructive border-b border-destructive/20">
-      <AlertTriangle className="w-4 h-4 shrink-0" />
-      <span className="flex-1 min-w-0">
-        <strong>Tu plan no está activo.</strong>{" "}
-        Reactiva Reelsona para volver a crear, analizar y publicar contenido. Tus proyectos y recursos siguen guardados.
-      </span>
-      <Link
-        href="/billing"
-        className="shrink-0 text-xs font-bold border border-destructive/40 rounded-lg px-3 py-1.5 hover:bg-destructive/10 transition-colors whitespace-nowrap"
-      >
-        Ver planes →
-      </Link>
-    </div>
-  )
-}
-
 // ── Layout ────────────────────────────────────────────────────────────────────
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -216,9 +182,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <main className="flex-1 flex flex-col h-full overflow-hidden min-w-0">
         {/* Top bar — all sizes */}
         <TopBar onMenuOpen={() => setSidebarOpen(true)} />
-
-        {/* Access alert banner */}
-        <AccessBanner />
 
         {/* Scrollable content */}
         <div className="flex-1 overflow-y-auto">
