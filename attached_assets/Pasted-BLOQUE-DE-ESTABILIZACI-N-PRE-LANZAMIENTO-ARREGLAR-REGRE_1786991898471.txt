@@ -1,0 +1,441 @@
+BLOQUE DE ESTABILIZACIÓN PRE-LANZAMIENTO — ARREGLAR REGRESIONES
+
+No agregar nuevas funciones. No cambiar precios, créditos, Stripe lifecycle, Founder, límites de avatares, B-roll ni lógica comercial ya aprobada.
+
+Objetivo: corregir regresiones introducidas por los últimos cambios de acceso, Billing, Instagram, Avatares y Caption Studio.
+
+1. INSTAGRAM OAUTH — P0
+
+Actualmente un role=user sin plan puede entrar a /connect, pero al pulsar Conectar con Meta el flujo falla porque los endpoints necesarios de OAuth siguen bloqueados por requireToolAccess.
+
+Corregir de forma específica, NO abriendo todo /instagram.
+
+Usuario autenticado sin plan debe poder usar:
+
+GET /instagram/account
+GET /instagram/auth-url
+POST /instagram/callback
+desconectar cuenta
+reconectar cuenta
+renovar token/conexión cuando corresponda
+
+Usuario sin plan NO debe poder usar:
+
+análisis de posts;
+insights para Radar;
+auditoría estratégica;
+publicación;
+scheduling;
+generación;
+funciones premium.
+
+Revisar requireToolAccess.ts y hacer bypass explícito SOLO para endpoints de administración de conexión.
+
+No usar un bypass general /instagram.
+
+Además corregir InstagramConnectCard:
+
+el popup de Meta no debería abrirse únicamente después de esperar un fetch, porque algunos navegadores pueden bloquearlo.
+
+Abrir una ventana inmediatamente desde el click:
+
+const popup = window.open("about:blank", ...)
+
+luego solicitar /instagram/auth-url
+
+y, si llega correctamente:
+
+popup.location.href = url
+
+Si popup fue bloqueado, usar fallback:
+
+window.location.href = url
+
+Si falla el endpoint, cerrar popup y mostrar toast legible.
+
+No mostrar errores técnicos 403 al usuario.
+
+2. BILLING SIN PLAN — P0
+
+Caso real actual:
+
+role=user autenticado + sin suscripción activa → /billing → no aparecen Basic, Pro ni Founder.
+
+Debe mostrar SIEMPRE:
+
+Basic — $29/mes — 400 créditos
+Pro — $97/mes — 1,500 créditos
+Founder — $697/año — 1,500 créditos/mes durante 12 meses
+
+Revisar:
+
+Billing.tsx
+
+useBilling()
+
+GET /api/billing
+
+stripePriceConfigsTable
+
+Verificar en la DB activa que existen basic, pro, founder.
+
+Si faltan registros, hacer UPSERT idempotente sin duplicados y usando los Stripe Price IDs ya configurados.
+
+No crear nuevos productos o precios Stripe innecesariamente.
+
+PlansSection nunca debe devolver silenciosamente null si no hay planes.
+
+Si por error real plans=[], mostrar:
+
+No pudimos cargar los planes
+
+Intenta nuevamente en unos segundos.
+
+Botón:
+
+Reintentar
+
+Pero no considerar solucionado hasta que los 3 planes carguen realmente en un user sin subscription.
+
+3. BILLING — ESTADO DE CUENTA CLARO
+
+Para usuario sin plan, mostrar arriba:
+
+Tu cuenta está sin un plan activo
+
+Tus proyectos, videos, avatares y créditos adicionales siguen guardados. Activa un plan para volver a crear, analizar y publicar contenido.
+
+CTA:
+
+Activar un plan
+
+→ hacer scroll a Planes de suscripción.
+
+4. CRÉDITOS EN BILLING — P0
+
+La tarjeta Créditos no puede desaparecer.
+
+Actualmente CreditsCard puede hacer:
+
+if (!credits) return null
+
+Cambiar esto.
+
+Si no existe wallet o response parcial:
+
+usar:
+
+available = 0
+subscription = 0
+purchased = 0
+reserved = 0
+consumed = 0
+
+Mostrar siempre:
+
+Créditos disponibles
+
+Créditos del plan
+
+Créditos adicionales
+
+Reservados
+
+Usados
+
+Si no tiene plan pero sí créditos comprados:
+
+mostrar:
+
+Tus créditos adicionales están guardados. Activa un plan para volver a utilizarlos.
+
+No permitir comprar top-ups sin plan activo.
+
+5. CONFIGURACIÓN — TEXTO DE CRÉDITOS DESACTUALIZADO
+
+Buscar y eliminar cualquier texto que diga:
+
+Cada video generado consume 10 créditos
+
+Está incorrecto.
+
+Sustituir por:
+
+El costo de cada Reel depende de su duración.
+
+Como referencia, un Reel de 30 segundos consume 50 créditos. Tu saldo mensual se renueva según tu plan y los créditos adicionales que compres se acumulan.
+
+Añadir referencia:
+
+15 s = 25 cr · 30 s = 50 cr · 45 s = 75 cr · 60 s = 100 cr
+
+6. AVATARES SIN PLAN
+
+/avatars debe ser accesible sin plan.
+
+Usuario sin plan puede:
+
+visualizar Avatares públicos;
+visualizar sus Avatares AI históricos;
+visualizar looks existentes.
+
+No puede:
+
+usar avatar para generar;
+crear Avatar AI;
+crear looks;
+clonar voz;
+ejecutar cualquier operación con costo.
+
+Las acciones deben mostrar PremiumModal, no 403 técnico.
+
+7. CREAR AVATAR DESDE FOTO — 403
+
+Caso reportado:
+
+role=user con plan activo → crear avatar desde foto → upload → failed 403.
+
+Auditar flujo completo:
+
+seleccionar archivo
+→ obtener URL/upload token
+→ subir imagen
+→ ownership
+→ crear avatar
+→ generar 3 looks iniciales.
+
+Verificar que los endpoints de storage/upload no estén limitados incorrectamente a admin.
+
+Validar:
+
+Basic activo → puede subir foto y crear avatar #1.
+
+Pro/Founder → hasta 3.
+
+Sin plan → PremiumModal, no 403.
+
+Ownership obligatorio.
+
+8. ESTUDIO ESTRATÉGICO / RADAR
+
+La función NO debe requerir role=admin.
+
+Lógica:
+
+autenticado
+→ plan activo
+→ Instagram conectado
+→ permitir analizar.
+
+Sin plan:
+
+modal:
+
+Esta función requiere un plan activo
+
+botón:
+
+Ver planes
+
+Plan activo pero sin IG:
+
+mostrar InstagramConnectCard.
+
+Nunca mostrar:
+
+Apify
+
+Apify desconectado
+
+modo manual
+
+nombres de proveedores/modelos.
+
+9. CAPTION / EFFECTS STUDIO
+
+Usuario sin plan:
+
+puede entrar a la pantalla si así está definido, pero no puede guardar ni activar efectos.
+
+Cualquier intento de:
+
+Caption
+efecto
+preset
+template
+card config
+
+debe mostrar:
+
+Función Premium
+
+Necesitas un plan activo de Reelsona para usar esta función.
+
+botón:
+
+Ver planes
+
+Backend debe devolver:
+
+plan_required
+
+No mostrar:
+
+No se pudo actualizar
+
+ni 403 técnico.
+
+10. VIDEOS SIN PLAN
+
+Usuario sin plan puede:
+
+ver historial;
+reproducir;
+descargar videos existentes.
+
+No puede:
+
+generar;
+regenerar;
+reprocesar;
+publicar;
+programar;
+aplicar captions;
+ejecutar operación que consuma créditos.
+
+Todo bloqueo comercial debe mostrar modal claro.
+
+11. LOGOUT
+
+Ya existe fix de cache.
+
+Probar nuevamente:
+
+login → logout
+
+Debe:
+
+cerrar sesión inmediatamente;
+limpiar React Query;
+limpiar estado de usuario;
+redirigir a Login;
+no requerir refresh manual.
+
+Después de logout:
+
+abrir /dashboard manualmente → debe pedir login.
+
+12. NAVEGACIÓN / PERFORMANCE
+
+Validar que el fix que evita retries de errores 4xx siga funcionando.
+
+No debe haber delays artificiales de ~7 segundos por endpoints bloqueados.
+
+Medir navegación entre:
+
+Dashboard
+Billing
+Avatares
+Videos
+Instagram
+Audit
+Caption Studio
+
+Identificar endpoints que tarden anormalmente.
+
+No hacer refactor grande todavía, solo eliminar regresiones y bloqueos innecesarios.
+
+13. NO EXPONER INFRAESTRUCTURA
+
+Buscar globalmente user-facing strings:
+
+Apify
+
+HeyGen
+
+Heygey
+
+WaveSpeed
+
+Wavespeed
+
+InfiniteTalk
+
+Seedream
+
+nombres de modelos/proveedores.
+
+No deben aparecer en UI, toasts, errores, emails o mensajes visibles.
+
+Internamente pueden permanecer en código/logs.
+
+14. PRUEBAS MANUALES OBLIGATORIAS
+
+No declarar terminado solo porque TypeScript pasa.
+
+Probar con 3 tipos de cuenta reales:
+
+A. role=user SIN plan
+Login ✅
+Dashboard ✅
+Billing ✅
+Basic/Pro/Founder visibles ✅
+Créditos visibles aunque sean 0 ✅
+Instagram Connect abre OAuth ✅
+Avatares públicos visibles ✅
+crear avatar bloqueado con modal ✅
+videos históricos visibles ✅
+generar bloqueado ✅
+Audit bloqueado con mensaje comercial ✅
+Caption toggle abre modal ✅
+top-up bloqueado ✅
+B. role=user Basic activo
+Billing muestra Basic ✅
+Instagram OAuth ✅
+Estudio Estratégico si IG conectado ✅
+crear 1 Avatar AI ✅
+upload foto sin 403 ✅
+3 looks gratis ✅
+crear Reel ✅
+Caption Studio ✅
+AutoPilot bloqueado ✅
+C. role=admin
+acceso admin ✅
+no depende de subscription ✅
+no se mezclan estados/caché con users ✅
+15. NO CAMBIAR
+
+Mantener exactamente:
+
+Basic $29 / 400 créditos
+Pro $97 / 1,500
+Founder $697/año / 1,500 mensual
+Reel 50 cr / 30 s
+Basic 1 Avatar AI
+Pro/Founder 3
+3 looks iniciales gratis
+look adicional 2 cr
+primera voz gratis
+siguientes 10 cr
+B-roll económico
+Stripe lifecycle actual
+Founder anniversary grants.
+
+16. ENTREGA
+
+Al terminar:
+
+TypeScript/build/tests.
+Commit.
+Push a main.
+Indicar SHA.
+Listar archivos modificados.
+Indicar resultado de las pruebas manuales A/B/C.
+Indicar específicamente:
+resultado OAuth Instagram;
+plans.map(p => p.slug) en user sin plan;
+saldo mostrado en user sin wallet;
+upload foto Avatar AI;
+Caption Studio sin plan.
+
+NO comenzar otro bloque.

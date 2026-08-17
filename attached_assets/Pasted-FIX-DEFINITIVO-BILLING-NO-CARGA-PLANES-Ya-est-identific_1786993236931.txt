@@ -1,0 +1,116 @@
+FIX DEFINITIVO — BILLING NO CARGA PLANES
+
+Ya está identificada la causa probable. No modificar más Billing.tsx hasta comprobar la base de datos.
+
+GET /api/billing construye plans leyendo stripe_price_configs.
+
+El repositorio tiene POST /api/admin/stripe/setup para poblar esa tabla.
+
+PASO 1 — inspeccionar DB REAL
+
+Ejecuta en la base de datos activa:
+
+SELECT
+  plan_slug,
+  stripe_price_id,
+  stripe_product_id,
+  amount_cents,
+  currency,
+  interval,
+  credit_amount,
+  is_recurring
+FROM stripe_price_configs
+ORDER BY id;
+
+Muéstrame el resultado exacto.
+
+Deben existir:
+
+basic
+pro
+founder
+topup-300
+topup-600
+topup-1200
+
+PASO 2 — NO crear duplicados Stripe
+
+Antes de ejecutar /api/admin/stripe/setup, comprobar si ya existen en nuestra cuenta Stripe los productos/precios reales de Reelsona.
+
+Si YA existen:
+
+NO crear nuevos productos/precios.
+
+Hacer upsert de stripe_price_configs utilizando los Price IDs/Product IDs existentes.
+
+Si NO existen:
+
+entonces ejecutar el setup idempotente existente.
+
+PASO 3 — valores obligatorios
+
+La DB debe quedar:
+
+Basic:
+$29/month
+400 credits
+isRecurring=true
+
+Pro:
+$97/month
+1500 credits
+isRecurring=true
+
+Founder:
+$697/year
+1500 credits
+isRecurring=true
+
+Topup 300:
+$19
+300 credits
+isRecurring=false
+
+Topup 600:
+$35
+600 credits
+isRecurring=false
+
+Topup 1200:
+$59
+1200 credits
+isRecurring=false
+
+PASO 4 — probar API directamente
+
+Después de arreglar DB, iniciar sesión como role=user sin plan y comprobar:
+
+GET /api/billing
+
+Debe devolver:
+
+subscription: null
+plans.length: 3
+plans slugs: basic, pro, founder
+topups.length: 3
+PASO 5 — probar UI
+
+Con ESE MISMO user sin plan:
+
+/billing
+
+debe mostrar las tres tarjetas Basic, Pro y Founder.
+
+No tocar más la UI para solucionar este problema si /api/billing sigue devolviendo plans: [].
+
+PASO 6
+
+Dime:
+
+qué había originalmente en stripe_price_configs;
+si los productos ya existían en Stripe;
+qué IDs se reutilizaron o crearon;
+resultado final de plans.map(p => p.slug);
+confirma visualmente que el user sin plan ya ve los 3 planes.
+
+No avanzar a otro trabajo.

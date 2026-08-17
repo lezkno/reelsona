@@ -38,3 +38,4 @@
 - [WaveSpeed video resolution quirks](wavespeed-video-resolution.md) — infinitetalk-fast outputs 352×640 (not 9:16); use probed duration for timings; upscale to ≥720px before caption compositing.
 - [WaveSpeed caption sync via Whisper](wavespeed-caption-sync.md) — Whisper transcribes TTS audio after TTS completes → word-level SRT in Object Storage → saved to heygenSubtitleUrl → caption engine uses it like HeyGen SRT.
 - [WaveSpeed voice clone audio format](wavespeed-voice-format.md) — minimax/voice-clone rejects webm/ogg (error 2013); convert to 16 kHz mono WAV with ffmpeg server-side and upload with .wav extension so WaveSpeed can identify by URL.
+- [Global router middleware trap](global-router-middleware-trap.md) — `router.use(fn)` without a path in a sub-router blocks ALL requests passing through, not just the router's own routes.
