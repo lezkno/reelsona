@@ -522,9 +522,9 @@ export default function Landing() {
                 <span style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "2.2rem", fontWeight: 900, background: "linear-gradient(135deg,#F59E0B,#FBBF24)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>$697</span>
                 <span style={{ color: "#444", fontSize: "0.82rem" }}> USD/año</span>
               </div>
-              <p style={{ fontSize: "0.78rem", color: "#F59E0B", fontWeight: 700, marginBottom: "1rem" }}>1,500 créditos/mes · 12 meses · Suscripción anual</p>
+              <p style={{ fontSize: "0.78rem", color: "#F59E0B", fontWeight: 700, marginBottom: "1rem" }}>1,500 créditos/mes · 12 meses</p>
               <div style={{ display: "flex", flexDirection: "column", gap: "0.55rem" }}>
-                {["Todo lo de Pro durante 12 meses","1,500 créditos cada mes · 12 entregas","Máximo 10 plazas","Ahorro de más de $460 vs. Pro mensual"].map((f) => (
+                {["Todo lo incluido en Pro","Mentoría estratégica 1 a 1 de bienvenida","Acceso al grupo privado de Founders","Soporte prioritario por WhatsApp","Acceso anticipado a nuevas funciones","Precio Founder protegido mientras mantenga su membresía","Máximo 10 plazas"].map((f) => (
                   <div key={f} style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem" }}>
                     <CheckCircle2 size={13} color="#F59E0B" style={{ marginTop: 2, flexShrink: 0 }} />
                     <span style={{ color: "#777", fontSize: "0.82rem" }}>{f}</span>
@@ -535,7 +535,7 @@ export default function Landing() {
                 onClick={() => setPlanCheckout({ planSlug: "founder", planName: "Founder", amountCents: 69700, currency: "usd", credits: 1500, interval: "year", requireEmail: true })}
                 style={{ marginTop: "1.5rem", width: "100%", background: "linear-gradient(135deg,#F59E0B,#D97706)", color: "#fff", border: "none", borderRadius: 10, padding: "0.75rem", fontSize: "0.85rem", fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, boxShadow: "0 0 24px rgba(245,158,11,0.25)" }}
               >
-                Asegurar mi lugar Founder <ArrowRight size={14} />
+                Quiero ser Founder <ArrowRight size={14} />
               </button>
             </div>
 

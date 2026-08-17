@@ -93,10 +93,13 @@ const PLAN_META: Record<string, { label: string; color: string; accent: string; 
     accent:  "from-amber-400 to-orange-500",
     icon:    <Crown className="w-5 h-5" />,
     features: [
-      "1,500 créditos/mes · 12 meses",
-      "Suscripción anual — $697/año",
       "Todo lo incluido en Pro",
-      "Máximo 10 plazas disponibles",
+      "Mentoría estratégica 1 a 1 de bienvenida",
+      "Acceso al grupo privado de Founders",
+      "Soporte prioritario por WhatsApp",
+      "Acceso anticipado a nuevas funciones",
+      "Precio Founder protegido mientras mantenga su membresía",
+      "Máximo 10 plazas",
     ],
   },
 }
@@ -687,7 +690,9 @@ function PlansSection({
                         ? (plan.slug === "pro"
                             ? <>Subir a Pro <TrendingUp className="w-3.5 h-3.5" /></>
                             : <>Bajar a Basic <TrendingDown className="w-3.5 h-3.5" /></>)
-                        : <>Suscribirse <ArrowRight className="w-3.5 h-3.5" /></>}
+                        : isFounder
+                          ? <>Quiero ser Founder <ArrowRight className="w-3.5 h-3.5" /></>
+                          : <>Suscribirse <ArrowRight className="w-3.5 h-3.5" /></>}
                 </Button>
               </CardContent>
             </Card>
