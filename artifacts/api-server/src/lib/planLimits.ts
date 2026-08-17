@@ -18,6 +18,7 @@ import {
   wavespeedPersonasTable,
   wavespeedVoicesTable,
   heygenClonedVoicesTable,
+  users,
 } from "@workspace/db";
 import { and, eq, inArray, ne, count as drizzleCount } from "drizzle-orm";
 
@@ -28,6 +29,7 @@ export const AVATAR_LIMITS: Record<string, number> = {
   basic:   1,
   pro:     3,
   founder: 3,
+  admin:   999, // internal sentinel — admins are not subject to plan limits
 };
 
 /** Default limit when the user has no active subscription. */
@@ -67,6 +69,17 @@ export function invalidateUserPlanCache(userId: number): void {
 export async function getUserPlanSlug(userId: number): Promise<string | null> {
   const cached = PLAN_CACHE.get(userId);
   if (cached && Date.now() < cached.expiresAt) return cached.planSlug;
+
+  // Admins bypass all plan limits — they are treated as having unlimited access.
+  const [userRow] = await db
+    .select({ role: users.role })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  if (userRow?.role === "admin") {
+    PLAN_CACHE.set(userId, { planSlug: "admin", expiresAt: Date.now() + PLAN_TTL_MS });
+    return "admin";
+  }
 
   const [row] = await db
     .select({ planSlug: subscriptionsTable.planSlug })
