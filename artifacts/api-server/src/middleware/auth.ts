@@ -8,13 +8,44 @@ declare module "express-session" {
   }
 }
 
+// ── Suspension cache ──────────────────────────────────────────────────────────
+// Per-user in-memory TTL cache (30 s) so requireAuth avoids a DB hit on every
+// request while still kicking out suspended users within half a minute.
+
+const suspensionCache = new Map<number, { suspended: boolean; expires: number }>();
+
+/** Clears the suspension cache for a user — call after toggling suspension. */
+export function invalidateSuspensionCache(userId: number): void {
+  suspensionCache.delete(userId);
+}
+
+async function isSuspended(userId: number): Promise<boolean> {
+  const cached = suspensionCache.get(userId);
+  if (cached && cached.expires > Date.now()) return cached.suspended;
+
+  const { db }    = await import("@workspace/db");
+  const { users } = await import("@workspace/db/schema");
+  const { eq }    = await import("drizzle-orm");
+  const [row] = await db
+    .select({ isSuspended: users.isSuspended })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+
+  const suspended = row?.isSuspended ?? false;
+  suspensionCache.set(userId, { suspended, expires: Date.now() + 30_000 });
+  return suspended;
+}
+
+// ── Middleware ────────────────────────────────────────────────────────────────
+
 /**
  * Protect all /api routes.
  * Skipped paths (no auth required):
  *   - /healthz
  *   - /auth/*  (login, logout, me)
  */
-export const requireAuth: RequestHandler = (req, res, next): void => {
+export const requireAuth: RequestHandler = async (req, res, next): Promise<void> => {
   // /captioned-objects/* must be public: Instagram fetches captioned video
   // files directly when creating media containers and cannot supply a browser
   // session cookie. The videos router mounts this handler under /captioned-objects
@@ -33,6 +64,25 @@ export const requireAuth: RequestHandler = (req, res, next): void => {
     if (req.session.user && !req.session.user.userId) {
       req.session.user.userId = 1;
     }
+
+    // Suspension check — cache-first, 30 s TTL.
+    // On failure we allow through to avoid locking everyone out on a DB hiccup.
+    const userId = req.session.user?.userId;
+    if (userId) {
+      try {
+        if (await isSuspended(userId)) {
+          req.session.destroy(() => {});
+          res.status(403).json({
+            error: "Tu cuenta ha sido suspendida. Contacta al administrador.",
+            code:  "ACCOUNT_SUSPENDED",
+          });
+          return;
+        }
+      } catch {
+        // DB error — fail open rather than locking out all users
+      }
+    }
+
     next();
     return;
   }

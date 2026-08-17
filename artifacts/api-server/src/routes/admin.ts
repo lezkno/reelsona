@@ -252,6 +252,7 @@ router.get("/admin/entitlements", async (req: Request, res: Response): Promise<v
         username:                 users.username,
         fullName:                 users.fullName,
         isActive:                 users.isActive,
+        isSuspended:              users.isSuspended,
         activationTokenExpiresAt: users.activationTokenExpiresAt,
         // Credit wallet (LEFT JOIN — null if no wallet exists yet)
         availableCredits:         userCreditsTable.availableCredits,
@@ -773,6 +774,53 @@ router.post("/admin/users/:userId/set-plan", async (req: Request, res: Response)
 
   } catch (err: unknown) {
     console.error("[admin/set-plan]", err);
+    res.status(500).json({ error: "Error interno del servidor" });
+  }
+});
+
+// ── POST /api/admin/users/:userId/toggle-suspend ──────────────────────────────
+/**
+ * Toggles the suspended state of a user account.
+ * Suspended users cannot log in and any active session is blocked within 30 s.
+ * Admins cannot suspend their own account.
+ */
+router.post("/admin/users/:userId/toggle-suspend", async (req: Request, res: Response): Promise<void> => {
+  if (!isAdminRequest(req)) { res.status(403).json({ error: "Acceso denegado" }); return; }
+
+  const userId = parseInt(req.params.userId as string, 10);
+  if (isNaN(userId)) { res.status(400).json({ error: "userId inválido" }); return; }
+
+  if (req.session?.user?.userId === userId) {
+    res.status(400).json({ error: "No puedes suspender tu propia cuenta" });
+    return;
+  }
+
+  try {
+    const [user] = await db
+      .select({ isSuspended: users.isSuspended })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    if (!user) { res.status(404).json({ error: "Usuario no encontrado" }); return; }
+
+    const newSuspended = !user.isSuspended;
+    await db
+      .update(users)
+      .set({
+        isSuspended: newSuspended,
+        suspendedAt: newSuspended ? new Date() : null,
+        updatedAt:   new Date(),
+      })
+      .where(eq(users.id, userId));
+
+    const { invalidateSuspensionCache } = await import("../middleware/auth");
+    invalidateSuspensionCache(userId);
+
+    console.log(`[admin/toggle-suspend] userId=${userId} isSuspended=${newSuspended}`);
+    res.json({ ok: true, isSuspended: newSuspended });
+  } catch (err) {
+    console.error("[admin/toggle-suspend]", err);
     res.status(500).json({ error: "Error interno del servidor" });
   }
 });

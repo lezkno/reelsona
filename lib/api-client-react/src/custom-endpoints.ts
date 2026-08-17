@@ -371,6 +371,23 @@ export function useAdjustUserCredits() {
   });
 }
 
+/** Toggle the suspended state of any user account. */
+export function useToggleSuspendUser() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ userId }: { userId: number }) =>
+      customFetch<{ ok: boolean; isSuspended: boolean }>(
+        `/api/admin/users/${userId}/toggle-suspend`,
+        { method: "POST" },
+      ),
+    onSuccess: (_data, { userId }) => {
+      qc.invalidateQueries({ queryKey: ["admin", "users"] });
+      qc.invalidateQueries({ queryKey: ADMIN_ENTITLEMENTS_KEY });
+      qc.removeQueries({ queryKey: ["admin", "user-detail", userId] });
+    },
+  });
+}
+
 // ── Admin student provisioning ────────────────────────────────────────────────
 
 export interface AdminEntitlement {
@@ -378,6 +395,7 @@ export interface AdminEntitlement {
   username:                 string;
   fullName:                 string | null;
   isActive:                 boolean;
+  isSuspended:              boolean;
   courseAccess:             boolean;
   toolAccessStatus:         string;
   toolAccessEndsAt:         string | null;
@@ -472,6 +490,7 @@ export interface AdminUser {
   phone: string | null;
   role: string;
   isActive: boolean;
+  isSuspended: boolean;
   notes: string | null;
   lastLoginAt: string | null;
   createdAt: string;

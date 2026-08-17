@@ -29,6 +29,7 @@ const PUBLIC_FIELDS = {
   phone:       users.phone,
   role:        users.role,
   isActive:    users.isActive,
+  isSuspended: users.isSuspended,
   notes:       users.notes,
   lastLoginAt: users.lastLoginAt,
   createdAt:   users.createdAt,

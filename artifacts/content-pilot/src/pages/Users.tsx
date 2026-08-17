@@ -5,6 +5,7 @@ import {
   CheckCircle2, XCircle, Clock, GraduationCap,
   RefreshCw, AlertCircle, Info, BookOpen, Wrench,
   CalendarDays, Download, Coins, PlusCircle, MinusCircle, Crown, Eye,
+  PauseCircle, PlayCircle,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -35,7 +36,7 @@ import {
   useDeleteAdminUser, useAuthStatus,
   useAdminEntitlements, useProvisionStudent, useResendActivation,
   useUpdateEntitlementDays, useAdjustUserCredits, useAdminSetUserPlan,
-  useAdminUserDetail,
+  useAdminUserDetail, useToggleSuspendUser,
   type AdminUser, type UpdateAdminUserInput, type AdminEntitlement,
 } from "@workspace/api-client-react"
 import { cn } from "@/lib/utils"
@@ -399,6 +400,93 @@ function DeleteUserButton({
             }
           >
             Eliminar
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}
+
+// ── Suspend / reactivate user button ─────────────────────────────────────────
+
+function SuspendUserButton({
+  userId, username, fullName, isSuspended, selfUsername,
+}: {
+  userId: number; username: string; fullName?: string | null
+  isSuspended: boolean; selfUsername?: string
+}) {
+  const [open, setOpen] = useState(false)
+  const toggle = useToggleSuspendUser()
+  const { toast } = useToast()
+
+  if (selfUsername && username === selfUsername) return null
+
+  const handleConfirm = () => {
+    toggle.mutate(
+      { userId },
+      {
+        onSuccess: (data) => {
+          toast({
+            title:       data.isSuspended ? "Cuenta suspendida" : "Cuenta reactivada",
+            description: data.isSuspended
+              ? `${fullName ?? username} ya no puede iniciar sesión.`
+              : `${fullName ?? username} puede iniciar sesión nuevamente.`,
+          })
+          setOpen(false)
+        },
+        onError: (err: any) => {
+          toast({ title: "Error", description: err?.data?.error ?? "No se pudo actualizar la cuenta", variant: "destructive" })
+          setOpen(false)
+        },
+      }
+    )
+  }
+
+  return (
+    <AlertDialog open={open} onOpenChange={setOpen}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost" size="icon"
+            className={cn(
+              "h-7 w-7",
+              isSuspended
+                ? "text-amber-500 hover:text-emerald-600"
+                : "text-muted-foreground hover:text-amber-500"
+            )}
+            title={isSuspended ? "Reactivar cuenta" : "Suspender cuenta"}
+            onClick={() => setOpen(true)}
+          >
+            {isSuspended
+              ? <PlayCircle className="w-3.5 h-3.5" />
+              : <PauseCircle className="w-3.5 h-3.5" />}
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="left" className="text-xs">
+          {isSuspended ? "Reactivar cuenta" : "Suspender cuenta"}
+        </TooltipContent>
+      </Tooltip>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            {isSuspended ? "¿Reactivar cuenta?" : "¿Suspender cuenta?"}
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            {isSuspended
+              ? `${fullName ?? username} podrá iniciar sesión nuevamente.`
+              : `${fullName ?? username} no podrá iniciar sesión mientras la cuenta esté suspendida. Las sesiones activas se bloquean en menos de 30 segundos.`}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={handleConfirm}
+            className={isSuspended ? "" : "bg-amber-600 hover:bg-amber-700 text-white"}
+            disabled={toggle.isPending}
+          >
+            {toggle.isPending
+              ? <><Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> Procesando…</>
+              : isSuspended ? "Reactivar" : "Suspender"}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -1043,7 +1131,10 @@ function EntitlementsSection() {
                   return (
                     <tr
                       key={ent.userId}
-                      className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors"
+                      className={cn(
+                        "border-b border-border last:border-0 hover:bg-muted/20 transition-colors",
+                        ent.isSuspended && "opacity-60"
+                      )}
                     >
                       {/* Usuario */}
                       <td className="px-5 py-3.5">
@@ -1063,6 +1154,11 @@ function EntitlementsSection() {
                             {!ent.isActive && (
                               <span className="text-xs text-amber-600 flex items-center gap-0.5">
                                 <Info className="w-3 h-3" /> Pendiente activación
+                              </span>
+                            )}
+                            {ent.isSuspended && (
+                              <span className="text-xs text-amber-500 flex items-center gap-0.5">
+                                <PauseCircle className="w-3 h-3" /> Suspendida
                               </span>
                             )}
                           </div>
@@ -1156,6 +1252,12 @@ function EntitlementsSection() {
                             currentCredits={ent.availableCredits}
                           />
                           <AdminSetPlanDialog userId={ent.userId} username={ent.username} />
+                          <SuspendUserButton
+                            userId={ent.userId}
+                            username={ent.username}
+                            fullName={ent.fullName}
+                            isSuspended={ent.isSuspended}
+                          />
                           <DeleteUserButton
                             userId={ent.userId}
                             username={ent.username}
@@ -1421,7 +1523,10 @@ export default function Users() {
                 <tbody>
                   {userList.map((user) => (
                     <tr key={user.id}
-                      className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors">
+                      className={cn(
+                        "border-b border-border last:border-0 hover:bg-muted/20 transition-colors",
+                        user.isSuspended && "opacity-60"
+                      )}>
                       {/* Usuario */}
                       <td className="px-5 py-3.5">
                         <div className="flex items-center gap-2.5">
@@ -1435,6 +1540,11 @@ export default function Users() {
                                 <span className="ml-1.5 text-[10px] font-normal text-primary bg-primary/10 px-1.5 py-0.5 rounded-full">tú</span>
                               )}
                             </p>
+                            {user.isSuspended && (
+                              <span className="text-xs text-amber-500 flex items-center gap-0.5">
+                                <PauseCircle className="w-3 h-3" /> Suspendida
+                              </span>
+                            )}
                           </div>
                         </div>
                       </td>
@@ -1503,6 +1613,13 @@ export default function Users() {
                           <AdminSetPlanDialog userId={user.id} username={user.username} />
                           <EditUserDialog user={user} selfUsername={selfUsername} />
                           <ChangePasswordDialog user={user} />
+                          <SuspendUserButton
+                            userId={user.id}
+                            username={user.username}
+                            fullName={user.fullName}
+                            isSuspended={user.isSuspended}
+                            selfUsername={selfUsername}
+                          />
                           <DeleteUserButton userId={user.id} username={user.username} fullName={user.fullName} selfUsername={selfUsername} />
                         </div>
                       </td>

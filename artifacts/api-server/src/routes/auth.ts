@@ -47,6 +47,11 @@ router.post("/auth/login", async (req: Request, res: Response): Promise<void> =>
       return;
     }
 
+    if (user.isSuspended) {
+      res.status(403).json({ error: "Tu cuenta ha sido suspendida. Contacta al administrador." });
+      return;
+    }
+
     // Update last login timestamp
     await db
       .update(users)
