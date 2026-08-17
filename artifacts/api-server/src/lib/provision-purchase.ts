@@ -340,6 +340,7 @@ async function provisionSubscription({
           currentPeriodStart:   new Date(),
           currentPeriodEnd:     periodEnd,
           founderMonthsGranted: planCredits > 0 ? 1 : 0,
+          founderAnchorAt:      planCredits > 0 ? new Date() : undefined,
           founderLastGrantAt:   planCredits > 0 ? new Date() : undefined,
         })
         .onConflictDoUpdate({
@@ -350,6 +351,7 @@ async function provisionSubscription({
             status:               "active",
             currentPeriodEnd:     periodEnd,
             founderMonthsGranted: planCredits > 0 ? 1 : 0,
+            founderAnchorAt:      planCredits > 0 ? new Date() : undefined,
             founderLastGrantAt:   planCredits > 0 ? new Date() : undefined,
             updatedAt:            new Date(),
           },

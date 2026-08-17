@@ -27,7 +27,15 @@ export const subscriptionsTable = pgTable("subscriptions", {
    * Max = 12. Incremented each time the monthly cron grants credits.
    */
   founderMonthsGranted:  integer("founder_months_granted").notNull().default(0),
-  /** Timestamp of the last Founder monthly credit grant — used by the cron guard. */
+  /**
+   * Immutable anchor date for Founder credit-grant scheduling.
+   * Set once at the initial Founder purchase and never updated.
+   * Each monthly grant date is: addCalendarMonths(founderAnchorAt, founderMonthsGranted).
+   * This preserves the original purchase day across all 12 cycles even when a
+   * grant is processed late (server downtime on the anniversary day).
+   */
+  founderAnchorAt:       timestamp("founder_anchor_at"),
+  /** Audit trail: when the last Founder monthly credit grant actually executed. NOT used for scheduling. */
   founderLastGrantAt:    timestamp("founder_last_grant_at"),
   /** Whether Stripe will cancel the subscription at period end. */
   cancelAtPeriodEnd:     boolean("cancel_at_period_end").notNull().default(false),

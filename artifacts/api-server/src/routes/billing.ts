@@ -96,7 +96,7 @@ router.get("/billing", requireAuth, async (req: Request, res: Response): Promise
             : undefined,
           nextFounderGrantAt: subscription.planSlug === "founder"
             ? (nextFounderGrantDate(
-                subscription.founderLastGrantAt ?? null,
+                subscription.founderAnchorAt ?? subscription.founderLastGrantAt ?? null,
                 subscription.founderMonthsGranted ?? 0,
               ) ?? null)
             : undefined,

@@ -5,64 +5,82 @@
  * any database, Stripe, or cron machinery.
  *
  * Core rules:
- * - Grants run on the calendar-month anniversary of founderLastGrantAt (the date
- *   the previous grant was made), not every 28 days.
- * - Day 29/30/31 edge cases are handled safely: when the original day doesn't
- *   exist in the target month, the result is clamped to the last day of that month.
- * - Maximum FOUNDER_MAX_MONTHS (12) grants total; afterwards nothing happens.
- * - A null founderLastGrantAt means the initial grant hasn't happened yet;
- *   the cron never handles that case (provision-purchase.ts does).
+ * - Each grant date is computed from the immutable founderAnchorAt (the date of the
+ *   initial Founder purchase grant), NOT from founderLastGrantAt.
+ *   Formula: nextGrantAt = addCalendarMonths(founderAnchorAt, founderMonthsGranted)
+ * - This preserves the original purchase day across all 12 cycles even when a grant
+ *   is processed late (downtime on the anniversary day).
+ * - founderLastGrantAt is audit-only (when the grant actually executed).
+ * - Day 29/30/31 edge cases are handled safely: each month is computed independently
+ *   from the anchor, so months that CAN carry the original day do (Jan 31 → Mar 31),
+ *   and months that cannot clamp to their last day (Jan 31 → Feb 28).
+ * - Maximum FOUNDER_MAX_MONTHS (12) grants total.
+ * - A null founderAnchorAt means the initial grant hasn't happened yet.
  */
 
 import { FOUNDER_MAX_MONTHS } from "./credits";
 
-// ── addOneCalendarMonth ────────────────────────────────────────────────────────
+// ── addCalendarMonths ──────────────────────────────────────────────────────────
 
 /**
- * Add exactly one calendar month to `date`, clamping safely when the original
+ * Add exactly `n` calendar months to `anchor`, clamping safely when the anchor's
  * day doesn't exist in the target month.
  *
- * Examples:
- *   Aug 17 → Sep 17
- *   Jan 31 → Feb 28 (non-leap) or Feb 29 (leap)
- *   Mar 31 → Apr 30
- *   Nov 30 → Dec 30
- *   Dec 31 → Jan 31 (next year)
+ * Because each result is computed directly from the anchor (not chained from the
+ * previous result), months that have the original day get it back automatically:
  *
- * Implementation: JavaScript's Date.setMonth() overflows automatically (Jan 31
- * + 1 month becomes Mar 2/3). We detect the overflow by comparing getDate()
- * before and after; if it changed, we call setDate(0) to step back to the last
- * day of the intended month.
+ *   anchor = Jan 31
+ *   n=1 → Feb 28  (Feb has no 31st → clamp)
+ *   n=2 → Mar 31  (Mar has 31 → restored, NOT Mar 28)
+ *   n=3 → Apr 30  (Apr has no 31st → clamp)
+ *   n=4 → May 31  (May has 31 → restored)
+ *
+ *   anchor = Aug 17
+ *   n=1 → Sep 17, n=2 → Oct 17, …  (17 always exists)
+ *
+ * Implementation: Date.setMonth() overflows automatically (Jan 31 + 1 month →
+ * Mar 2/3). We detect the overflow by comparing getDate() before and after;
+ * if it changed, setDate(0) steps back to the last day of the intended month.
  */
-export function addOneCalendarMonth(date: Date): Date {
-  const result = new Date(date);
+export function addCalendarMonths(anchor: Date, n: number): Date {
+  const result = new Date(anchor);
   const originalDay = result.getDate();
-  result.setMonth(result.getMonth() + 1);
-  // Overflow detected: day changed because the target month is shorter.
-  // setDate(0) moves back to the last day of the now-current month's predecessor,
-  // which is the last day of the intended target month.
+  result.setMonth(result.getMonth() + n);
+  // Overflow detected: the day changed because the target month is shorter than
+  // the anchor's day. setDate(0) moves back to the last day of the intended month
+  // (i.e. the day before day-1 of the month that setMonth overflowed into).
   if (result.getDate() !== originalDay) {
     result.setDate(0);
   }
   return result;
 }
 
+/** Convenience alias: add exactly one calendar month. */
+export const addOneCalendarMonth = (date: Date): Date => addCalendarMonths(date, 1);
+
 // ── nextFounderGrantDate ───────────────────────────────────────────────────────
 
 /**
- * Return the date at which the next Founder grant becomes eligible:
- * exactly one calendar month after the last grant.
+ * Return the date at which the NEXT Founder grant becomes eligible.
  *
- * Returns null if founderLastGrantAt is null (initial grant pending)
- * or if the subscriber has already received all FOUNDER_MAX_MONTHS grants.
+ * Formula: addCalendarMonths(founderAnchorAt, founderMonthsGranted)
+ * where founderMonthsGranted is the count already received.
+ *
+ * Returns null if:
+ *  - founderAnchorAt is null (initial grant not yet recorded)
+ *  - founderMonthsGranted >= FOUNDER_MAX_MONTHS (all 12 grants exhausted)
+ *
+ * Note: founderAnchorAt is the date of the FIRST credit grant, set once at
+ * purchase and never updated. founderLastGrantAt is audit-only and is NOT
+ * used here.
  */
 export function nextFounderGrantDate(
-  founderLastGrantAt: Date | null,
+  founderAnchorAt: Date | null,
   founderMonthsGranted: number,
 ): Date | null {
+  if (!founderAnchorAt) return null;
   if (founderMonthsGranted >= FOUNDER_MAX_MONTHS) return null;
-  if (!founderLastGrantAt) return null;
-  return addOneCalendarMonth(founderLastGrantAt);
+  return addCalendarMonths(founderAnchorAt, founderMonthsGranted);
 }
 
 // ── isFounderGrantDue ──────────────────────────────────────────────────────────
@@ -71,27 +89,27 @@ export function nextFounderGrantDate(
  * Determine whether a Founder subscriber is due for their next monthly credit grant.
  *
  * Returns true when ALL of:
- *   1. founderMonthsGranted < FOUNDER_MAX_MONTHS (12 total maximum)
- *   2. founderLastGrantAt is not null
- *   3. now >= addOneCalendarMonth(founderLastGrantAt)  (calendar anniversary reached)
+ *   1. founderAnchorAt is not null
+ *   2. founderMonthsGranted < FOUNDER_MAX_MONTHS (12 total maximum)
+ *   3. now >= addCalendarMonths(founderAnchorAt, founderMonthsGranted)
  *
  * The `now` parameter is injectable so tests can control the clock without
  * mocking globals.
  *
- * Concurrency note: after the first of two concurrent grant processes commits,
- * it sets founderLastGrantAt = now inside the transaction.  The second process
- * (blocked by FOR UPDATE) re-reads the updated row and will find:
- *   addOneCalendarMonth(now) > now  →  not due  →  skip.
- * The durable idempotency key (cron_founder_${id}_month${N}) provides an
+ * Concurrency safety: after the first of two concurrent grant processes commits,
+ * it increments founderMonthsGranted (N → N+1) inside the transaction. The second
+ * process (unblocked from FOR UPDATE) re-reads founderMonthsGranted = N+1 and
+ * finds addCalendarMonths(anchor, N+1) is next month → not due → skip.
+ * The durable idempotency key (cron_founder_${id}_month${N+1}) provides an
  * additional crash-safety net if a process dies after the claim INSERT but
- * before the founderLastGrantAt update.
+ * before the founderMonthsGranted update.
  */
 export function isFounderGrantDue(
-  founderLastGrantAt: Date | null,
+  founderAnchorAt: Date | null,
   founderMonthsGranted: number,
   now: Date = new Date(),
 ): boolean {
-  const next = nextFounderGrantDate(founderLastGrantAt, founderMonthsGranted);
+  const next = nextFounderGrantDate(founderAnchorAt, founderMonthsGranted);
   if (!next) return false;
   return now >= next;
 }

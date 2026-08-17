@@ -3193,15 +3193,23 @@ export function startScheduler(): void {
               return;
             }
 
-            // Re-check calendar-month anniversary with locked (fresh) values.
-            // After a concurrent process commits its grant it updates founderLastGrantAt = now;
-            // the second process then finds addOneCalendarMonth(now) > now → not due → skip.
-            if (!isFounderGrantDue(lockedSub.founderLastGrantAt, grantedSoFar)) {
+            // Re-check calendar-month anniversary using the immutable anchor date.
+            // Formula: nextGrantAt = addCalendarMonths(founderAnchorAt, founderMonthsGranted).
+            // Late processing (e.g., downtime on the exact anniversary) is self-healing:
+            // the next daily run detects the overdue anniversary and grants immediately,
+            // and future anniversaries remain pinned to the anchor day.
+            //
+            // Concurrent process safety: after Process 1 commits it increments
+            // founderMonthsGranted (N → N+1). Process 2 (unblocked from FOR UPDATE)
+            // re-reads founderMonthsGranted = N+1 and finds
+            // addCalendarMonths(anchor, N+1) is next month → not due → skip.
+            const anchor = lockedSub.founderAnchorAt ?? lockedSub.founderLastGrantAt;
+            if (!isFounderGrantDue(anchor, grantedSoFar)) {
               logger.info(
                 {
-                  userId:              sub.userId,
-                  founderLastGrantAt:  lockedSub.founderLastGrantAt,
-                  nextGrantAt:         nextFounderGrantDate(lockedSub.founderLastGrantAt, grantedSoFar),
+                  userId:          sub.userId,
+                  founderAnchorAt: lockedSub.founderAnchorAt,
+                  nextGrantAt:     nextFounderGrantDate(anchor, grantedSoFar),
                 },
                 "[FounderGrant] Anniversary not yet reached (locked re-read) — skipping",
               );
