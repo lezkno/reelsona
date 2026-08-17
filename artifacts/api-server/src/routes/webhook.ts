@@ -120,6 +120,8 @@ const EVENT_HANDLERS: Record<string, (obj: any, stripe: Stripe) => Promise<void>
   "customer.subscription.deleted":            handleSubscriptionDeleted,
   "invoice.paid":                             handleInvoicePaid,
   "invoice.payment_failed":                   handleInvoicePaymentFailed,
+  // Clears stripeScheduleId once the Subscription Schedule has fully completed and released.
+  "subscription_schedule.released":           handleSubscriptionScheduleReleased,
   // payment_intent.succeeded (legacy reelsona_program) removed — endpoint discontinued
 };
 
@@ -273,7 +275,14 @@ async function handleSubscriptionUpdated(sub: Stripe.Subscription, _stripe: Stri
       cancelAtPeriodEnd,
       currentPeriodStart: periodStart ? new Date(periodStart * 1000) : undefined,
       currentPeriodEnd:   periodEnd   ? new Date(periodEnd   * 1000) : undefined,
-      ...(scheduleApplied ? { pendingPlanSlug: null, stripeScheduleId: null } : {}),
+      // When the schedule's Basic phase has applied: clear pendingPlanSlug (the pending change
+      // has taken effect) but KEEP stripeScheduleId. The schedule is still active for its
+      // one-iteration Basic phase; clearing it now would prevent executeUpgrade from
+      // releasing the schedule, causing subscriptions.update to fail while Stripe still
+      // considers the subscription schedule-managed.
+      // stripeScheduleId is cleared by the subscription_schedule.released webhook handler
+      // once Stripe confirms the schedule has fully completed and released.
+      ...(scheduleApplied ? { pendingPlanSlug: null } : {}),
       updatedAt: new Date(),
     })
     .where(eq(subscriptionsTable.id, existing.id));
@@ -483,10 +492,14 @@ async function handleInvoicePaid(invoice: Stripe.Invoice, stripe: Stripe): Promi
       updatedAt:        new Date(),
     };
     if (planChanged) {
-      // Apply the detected plan change (from invoice price or pendingPlanSlug)
+      // Apply the detected plan change (from invoice price or pendingPlanSlug).
+      // Clear pendingPlanSlug (the pending change is now active) but KEEP stripeScheduleId.
+      // The Subscription Schedule is still running its one-iteration Basic phase; clearing
+      // stripeScheduleId here would blind executeUpgrade to the active schedule and cause
+      // subscriptions.update to fail while the subscription is still schedule-managed.
+      // stripeScheduleId is cleared only when subscription_schedule.released fires.
       subUpdate.planSlug        = effectivePlanSlug;
       subUpdate.pendingPlanSlug = null;
-      subUpdate.stripeScheduleId = null; // schedule has applied; clear the reference
     }
     await tx
       .update(subscriptionsTable)
@@ -626,6 +639,37 @@ async function handleInvoicePaymentFailed(invoice: Stripe.Invoice, _stripe: Stri
   invalidatePlanCache(sub.userId);
 
   logger.info({ userId: sub.userId }, "[webhook/stripe] Marked past_due from payment failure");
+}
+
+// ── subscription_schedule.released ────────────────────────────────────────────
+
+/**
+ * Fired by Stripe when a Subscription Schedule finishes all its phases and
+ * releases the subscription back to normal management.
+ *
+ * For Pro→Basic scheduled downgrades, the schedule has two phases:
+ *   Phase 1: Pro price through the paid period-end
+ *   Phase 2: Basic price for exactly 1 billing iteration (iterations:1)
+ * After Phase 2 completes, Stripe fires this event and the subscription becomes
+ * a plain Basic subscription again, no longer controlled by the schedule.
+ *
+ * We use this event — rather than subscription.updated or invoice.paid — to clear
+ * stripeScheduleId, because the schedule is still active during Phase 2. Clearing
+ * it earlier would prevent executeUpgrade from releasing the schedule before a
+ * subscriptions.update call, which Stripe rejects for schedule-managed subscriptions.
+ */
+async function handleSubscriptionScheduleReleased(
+  schedule: Stripe.SubscriptionSchedule,
+  _stripe: Stripe,
+): Promise<void> {
+  const scheduleId = schedule.id;
+
+  await db
+    .update(subscriptionsTable)
+    .set({ stripeScheduleId: null, updatedAt: new Date() })
+    .where(eq(subscriptionsTable.stripeScheduleId, scheduleId));
+
+  logger.info({ scheduleId }, "[webhook/stripe] Subscription schedule released — stripeScheduleId cleared ✓");
 }
 
 // handlePaymentIntentSucceeded (legacy reelsona_program product) removed.

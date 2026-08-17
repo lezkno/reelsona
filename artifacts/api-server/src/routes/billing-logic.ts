@@ -177,29 +177,59 @@ export async function executeDowngrade(p: DowngradeParams): Promise<DowngradeRes
   let schedule: Awaited<ReturnType<typeof p.stripe.subscriptionSchedules.create>>;
 
   try {
-    // Create a schedule from the current subscription (one phase is auto-created
-    // from the current subscription state).
+    // Create a schedule from the current subscription. Stripe auto-creates Phase 1
+    // from the current subscription state (same items, start_date = current_period_start).
     schedule = await p.stripe.subscriptionSchedules.create({
       from_subscription: p.sub.stripeSubscriptionId!,
     });
+  } catch (err: any) {
+    logger.error({ err: err?.message, userId: p.userId }, "[billing] Stripe schedule create failed");
+    return { ok: false, status: 502, code: "stripe_error",
+      message: "No se pudo programar el cambio en Stripe." };
+  }
 
-    // Override phases: Phase 1 = current Pro price through period end;
-    // Phase 2 = Basic price for the next cycle onward.
+  // Stripe requires start_date on the first phase of an active schedule update.
+  // It must match the current phase's start_date returned by the create call.
+  const phase0StartDate = schedule.phases[0]?.start_date;
+  if (typeof phase0StartDate !== "number") {
+    // Defensive: release the orphan schedule before returning an error.
+    try { await p.stripe.subscriptionSchedules.release(schedule.id); } catch {}
+    logger.error({ scheduleId: schedule.id, userId: p.userId }, "[billing] Schedule phase0 has no start_date");
+    return { ok: false, status: 502, code: "stripe_error",
+      message: "No se pudo programar el cambio en Stripe (sin fecha de inicio)." };
+  }
+
+  try {
+    // Phase 1: keep the current Pro price through the paid-for period end.
+    // Phase 2: Basic price for exactly 1 billing iteration so `end_behavior: release`
+    //          fires automatically after that cycle and returns the subscription to
+    //          normal (not schedule-managed). Without iterations, the schedule would
+    //          be indefinite and end_behavior would never trigger.
     await p.stripe.subscriptionSchedules.update(schedule.id, {
       phases: [
         {
-          items:    [{ price: p.proConfig.stripePriceId, quantity: 1 }],
-          end_date: periodEndUnix,
+          items:      [{ price: p.proConfig.stripePriceId, quantity: 1 }],
+          start_date: phase0StartDate, // required — must match current phase start
+          end_date:   periodEndUnix,
         },
         {
-          items: [{ price: p.basicConfig.stripePriceId, quantity: 1 }],
+          items:    [{ price: p.basicConfig.stripePriceId, quantity: 1 }],
+          // `duration` bounds the phase to exactly 1 monthly cycle. Without a bound,
+          // the schedule is indefinite and end_behavior:'release' would never fire
+          // automatically; the subscription would remain schedule-managed forever.
+          // After 1 month, Stripe ends the schedule and releases the subscription
+          // back to normal Basic management.
+          duration: { interval: "month" as const, interval_count: 1 },
         },
       ],
       end_behavior:       "release",
       proration_behavior: "none",
     });
   } catch (err: any) {
-    logger.error({ err: err?.message, userId: p.userId }, "[billing] Stripe schedule create/update failed");
+    // Release the orphan schedule so it doesn't silently control the subscription.
+    try { await p.stripe.subscriptionSchedules.release(schedule.id); } catch {}
+    logger.error({ err: err?.message, userId: p.userId, scheduleId: schedule.id },
+      "[billing] Stripe schedule update failed");
     return { ok: false, status: 502, code: "stripe_error",
       message: "No se pudo programar el cambio en Stripe." };
   }

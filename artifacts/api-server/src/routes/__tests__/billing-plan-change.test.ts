@@ -245,10 +245,17 @@ describe("executeDowngrade", () => {
     dbUpdates = [];
   });
 
+  const MOCK_PHASE0_START_DATE = 1750000000; // Unix timestamp Stripe returns for phase[0].start_date
+
   function makeDowngradeDeps(sub: SubRow) {
     const stripe = makeStripe({
       subscriptionSchedules: {
-        create: async (...args: unknown[]) => { scheduleCreateArgs.push(args); return { id: "sch_new_downgrade" }; },
+        // Stripe returns the created schedule including phases[0].start_date — our code reads
+        // this to set the required start_date on the first phase of the subsequent update call.
+        create: async (...args: unknown[]) => {
+          scheduleCreateArgs.push(args);
+          return { id: "sch_new_downgrade", phases: [{ start_date: MOCK_PHASE0_START_DATE, items: [] }] };
+        },
         update: async (...args: unknown[]) => { scheduleUpdateArgs.push(args); return {}; },
         release: async (..._: unknown[]) => ({}),
       },
@@ -274,7 +281,7 @@ describe("executeDowngrade", () => {
     assert.equal(createArg.from_subscription, "sub_abc", "schedule must be created from existing subscription");
   });
 
-  test("15 — two-phase schedule: Pro until period end, then Basic", async () => {
+  test("15 — two-phase schedule API contract: Pro start_date + Basic iterations:1", async () => {
     const sub    = makeSub({ planSlug: "pro" });
     await executeDowngrade(makeDowngradeDeps(sub));
 
@@ -283,16 +290,31 @@ describe("executeDowngrade", () => {
     const phases = params.phases as Array<Record<string, unknown>>;
     assert.equal(phases.length, 2);
 
-    // Phase 1 must contain Pro price
+    // Phase 1: Pro price, start_date (required by Stripe), end_date = period end
     const phase1Items = phases[0].items as Array<Record<string, unknown>>;
     assert.ok(phase1Items.some((i) => i.price === PRICE_PRO), "Phase 1 must be Pro");
+    assert.equal(
+      phases[0].start_date, MOCK_PHASE0_START_DATE,
+      "Phase 1 start_date must match schedule.phases[0].start_date returned by Stripe",
+    );
+    assert.ok(typeof phases[0].end_date === "number", "Phase 1 must have end_date (period end unix ts)");
 
-    // Phase 2 must contain Basic price
+    // Phase 2: Basic price, duration:{interval:'month',interval_count:1} (required so
+    // end_behavior:release fires after 1 cycle — without a bound the schedule is indefinite)
     const phase2Items = phases[1].items as Array<Record<string, unknown>>;
     assert.ok(phase2Items.some((i) => i.price === PRICE_BASIC), "Phase 2 must be Basic");
+    const phase2Duration = phases[1].duration as Record<string, unknown> | undefined;
+    assert.ok(phase2Duration, "Phase 2 must have duration to bound it to 1 billing cycle");
+    assert.equal(phase2Duration.interval, "month",
+      "Phase 2 duration.interval must be month");
+    assert.equal(phase2Duration.interval_count, 1,
+      "Phase 2 duration.interval_count must be 1 so end_behavior:release fires after 1 Basic cycle");
 
-    // end_behavior must be 'release' so subscription continues after schedule completes
-    assert.equal(params.end_behavior, "release");
+    // Top-level schedule params
+    assert.equal(params.end_behavior, "release",
+      "end_behavior must be release so subscription reverts to normal after schedule ends");
+    assert.equal(params.proration_behavior, "none",
+      "no mid-cycle proration for a downgrade");
   });
 
   test("16 — DB stores scheduleId and pendingPlanSlug=basic", async () => {
@@ -321,6 +343,34 @@ describe("executeDowngrade", () => {
     const result = await executeDowngrade(deps);
     assert.ok(!result.ok);
     assert.equal(result.status, 502);
+  });
+
+  test("18b — 502 when Stripe schedule update throws, releases orphan schedule", async () => {
+    const sub  = makeSub({ planSlug: "pro" });
+    const deps = makeDowngradeDeps(sub);
+    let releasedOnError: string | null = null;
+    (deps.stripe as any).subscriptionSchedules.update = async () => { throw new Error("Update failed"); };
+    (deps.stripe as any).subscriptionSchedules.release = async (id: string) => { releasedOnError = id; return {}; };
+
+    const result = await executeDowngrade(deps);
+    assert.ok(!result.ok);
+    assert.equal(result.status, 502);
+    // Orphan schedule must be released to prevent it silently controlling the subscription
+    assert.equal(releasedOnError, "sch_new_downgrade", "Must release orphan schedule when update fails");
+  });
+
+  test("18c — 502 when schedule create returns no phase start_date, releases orphan", async () => {
+    const sub  = makeSub({ planSlug: "pro" });
+    const deps = makeDowngradeDeps(sub);
+    let releasedId: string | null = null;
+    (deps.stripe as any).subscriptionSchedules.create = async () =>
+      ({ id: "sch_orphan", phases: [] }); // no phase0
+    (deps.stripe as any).subscriptionSchedules.release = async (id: string) => { releasedId = id; return {}; };
+
+    const result = await executeDowngrade(deps);
+    assert.ok(!result.ok);
+    assert.equal(result.status, 502);
+    assert.equal(releasedId, "sch_orphan", "Must release orphan schedule when phases[0] is missing");
   });
 });
 
