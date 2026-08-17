@@ -833,7 +833,6 @@ function ProvisionStudentDialog() {
   const [form, setForm] = useState({
     email: "",
     fullName: "",
-    toolAccessDays: "30",
     courseAccess: true,
     planSlug: "",
   })
@@ -845,7 +844,7 @@ function ProvisionStudentDialog() {
   const { toast } = useToast()
 
   const reset = () => {
-    setForm({ email: "", fullName: "", toolAccessDays: "30", courseAccess: true, planSlug: "" })
+    setForm({ email: "", fullName: "", courseAccess: true, planSlug: "" })
     setResult(null)
     setError(null)
   }
@@ -854,16 +853,11 @@ function ProvisionStudentDialog() {
     e.preventDefault()
     setError(null)
     setResult(null)
-    const days = parseInt(form.toolAccessDays, 10)
-    if (isNaN(days) || days < 1 || days > 3650) {
-      setError("Los días de acceso deben estar entre 1 y 3650")
-      return
-    }
     provision.mutate(
       {
         email:          form.email.trim().toLowerCase(),
         fullName:       form.fullName.trim(),
-        toolAccessDays: days,
+        toolAccessDays: 365,
         courseAccess:   form.courseAccess,
         planSlug:       form.planSlug || undefined,
       },
@@ -969,39 +963,24 @@ function ProvisionStudentDialog() {
                 El email será el nombre de usuario para iniciar sesión.
               </p>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="ps-days">Días de acceso *</Label>
-                <Input
-                  id="ps-days"
-                  type="number"
-                  min={1}
-                  max={3650}
-                  placeholder="30"
-                  value={form.toolAccessDays}
-                  onChange={(e) => setForm((f) => ({ ...f, toolAccessDays: e.target.value }))}
-                  required
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="ps-plan">Plan (opcional)</Label>
-                <Select
-                  value={form.planSlug}
-                  onValueChange={(v) => setForm((f) => ({ ...f, planSlug: v }))}
-                >
-                  <SelectTrigger id="ps-plan">
-                    <SelectValue placeholder="Sin plan" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {PROVISION_PLAN_OPTIONS.map((o) => (
-                      <SelectItem key={o.value} value={o.value}>
-                        <span className="font-medium">{o.label}</span>
-                        <span className="text-muted-foreground ml-1.5 text-xs">{o.sub}</span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="ps-plan">Plan (opcional)</Label>
+              <Select
+                value={form.planSlug}
+                onValueChange={(v) => setForm((f) => ({ ...f, planSlug: v }))}
+              >
+                <SelectTrigger id="ps-plan">
+                  <SelectValue placeholder="Sin plan" />
+                </SelectTrigger>
+                <SelectContent>
+                  {PROVISION_PLAN_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      <span className="font-medium">{o.label}</span>
+                      <span className="text-muted-foreground ml-1.5 text-xs">{o.sub}</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
               <div>
@@ -1024,7 +1003,7 @@ function ProvisionStudentDialog() {
               </Button>
               <Button
                 type="submit"
-                disabled={provision.isPending || !form.email || !form.fullName || !form.toolAccessDays}
+                disabled={provision.isPending || !form.email || !form.fullName}
               >
                 {provision.isPending
                   ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Procesando…</>
