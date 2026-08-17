@@ -627,15 +627,6 @@ function TopupsSection({ data, userEmail, onSelect }: {
       <p className="text-sm text-muted-foreground mb-4">
         Créditos extra que nunca vencen. Ideales para meses de mayor producción.
       </p>
-      {!hasActiveSub && (
-        <div className="flex items-start gap-3 px-4 py-3 mb-4 rounded-xl border border-amber-500/20 bg-amber-500/5 text-sm">
-          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-500" />
-          <p className="text-amber-700 dark:text-amber-400">
-            Necesitas un plan activo para comprar y utilizar créditos adicionales.{" "}
-            <a href="/billing" className="font-bold underline underline-offset-2">Ver planes →</a>
-          </p>
-        </div>
-      )}
       <div className="grid gap-4 sm:grid-cols-3">
         {data.topups.map((topup) => {
           const meta = TOPUP_META[topup.slug] ?? { label: topup.slug }
