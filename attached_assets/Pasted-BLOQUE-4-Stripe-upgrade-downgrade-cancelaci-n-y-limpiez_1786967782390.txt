@@ -1,0 +1,278 @@
+BLOQUE 4 — Stripe: upgrade, downgrade, cancelación y limpieza legacy
+
+Trabaja sobre el estado actual posterior al Bloque 3. No cambies precios, créditos, límites de avatares, B-roll, voces, looks, Founder cron ni landing en este bloque.
+
+1. Upgrade Basic → Pro
+
+Actualmente el usuario Basic puede abrir un nuevo checkout Pro, lo que puede crear una segunda suscripción Stripe.
+
+Esto debe desaparecer.
+
+Si un usuario autenticado ya tiene una suscripción activa Basic y solicita Pro:
+
+localizar su stripeSubscriptionId actual;
+recuperar la suscripción Stripe;
+modificar el subscription item existente al price_id de Pro;
+no crear una segunda suscripción;
+aplicar el cambio inmediatamente;
+utilizar prorrateo de Stripe para cobrar la diferencia correspondiente;
+actualizar metadata plan_slug=pro;
+sincronizar DB solamente después de que Stripe confirme la actualización.
+
+Un usuario nunca debe poder tener simultáneamente Basic + Pro por error.
+
+2. Créditos al hacer upgrade
+
+Cuando Basic pasa a Pro inmediatamente:
+
+el pool mensual debe pasar a la capacidad de Pro:
+
+1,500 créditos de suscripción para el ciclo activo.
+
+No sumar 1,500 encima del saldo mensual Basic como un bonus.
+
+Los créditos comprados permanecen intactos.
+
+Ejemplo:
+
+antes:
+
+subscriptionCredits = 80
+
+purchasedCredits = 250
+
+upgrade:
+
+subscriptionCredits = 1500
+
+purchasedCredits = 250
+
+availableCredits = 1750
+
+Mantener créditos reservados correctamente si existe una generación en proceso.
+
+La operación debe ser idempotente.
+
+3. Downgrade Pro → Basic
+
+No hacer downgrade inmediato.
+
+Programar el cambio para el final del ciclo actual.
+
+Hasta currentPeriodEnd, el usuario conserva:
+
+Pro;
+AutoPilot;
+límite de 3 Avatares AI;
+créditos Pro;
+resto de funciones Pro.
+
+En la siguiente renovación:
+
+Stripe cambia a Basic $29;
+DB pasa a planSlug=basic;
+nuevo pool mensual = 400 créditos;
+créditos comprados permanecen.
+
+No borrar avatares ni otros assets.
+
+El enforcement ya implementado se encargará de dejar solo 1 avatar habilitado cuando el plan realmente pase a Basic.
+
+4. Evitar nuevas suscripciones desde Billing
+
+Si el usuario autenticado ya tiene una suscripción activa:
+
+/checkout/create-session NO debe crear otro checkout para otro plan recurrente.
+
+Debe devolver un error/control específico como:
+
+existing_subscription
+
+y obligar a usar el endpoint de cambio de plan.
+
+Los top-ups sí deben seguir disponibles.
+
+El checkout normal de suscripción se usa solamente para:
+
+usuario sin suscripción;
+landing / alta inicial.
+
+5. Crear endpoint de cambio de plan
+
+Crear una ruta autenticada conceptual:
+
+POST /billing/change-plan
+
+body:
+
+{ targetPlan: "basic" | "pro" }
+
+Reglas:
+
+Basic → Pro = upgrade inmediato.
+
+Pro → Basic = downgrade programado al final del ciclo.
+
+Founder no debe cambiarse desde este endpoint en V1.
+
+Founder debe administrarse como plan anual separado.
+
+6. Customer Portal
+
+Crear endpoint autenticado:
+
+POST /billing/portal
+
+que cree una Stripe Billing Portal Session para el customer del usuario.
+
+Desde Billing agregar:
+
+Administrar suscripción
+
+El portal debe permitir, según configuración Stripe:
+
+actualizar método de pago;
+consultar facturas;
+cancelar;
+reactivar si aplica.
+
+No construir manualmente gestión de tarjetas.
+
+7. Cancelación
+
+Preferimos cancelación al final del período:
+
+cancel_at_period_end=true
+
+El usuario conserva funciones hasta currentPeriodEnd.
+
+Billing debe mostrar:
+
+Tu plan se cancelará el <fecha>.
+
+No borrar inmediatamente wallet ni assets.
+
+En customer.subscription.deleted:
+
+marcar DB como canceled;
+retirar acceso;
+mantener assets;
+mantener historial.
+
+Los créditos comprados no deben convertirse en acceso al software por sí solos si no existe un plan activo.
+
+8. Reactivación
+
+Si una suscripción tiene cancel_at_period_end=true pero todavía está activa, permitir reactivarla antes del fin del período:
+
+cancel_at_period_end=false
+
+Sin crear nueva suscripción.
+
+Puede hacerse mediante Customer Portal si queda correctamente soportado.
+
+9. Eliminar checkout legacy
+
+Verificar que ninguna pantalla actual utiliza:
+
+/checkout/create-payment-intent
+
+ni:
+
+STRIPE_PRICE_ID_PROGRAM
+
+ni metadata:
+
+reelsona_program
+
+ni:
+
+tool_access_days.
+
+Si ya no tienen dependencias activas, eliminar:
+
+endpoint legacy;
+imports asociados getPriceId, getToolAccessDays;
+lógica vieja relacionada con el producto anterior.
+
+No afectar create-session nuevo.
+
+10. Sincronización Stripe → DB
+
+Stripe sigue siendo source of truth para:
+
+subscription ID;
+customer ID;
+plan/price;
+status;
+currentPeriodStart;
+currentPeriodEnd;
+cancelAtPeriodEnd.
+
+Webhooks deben mantener DB sincronizada.
+
+No confiar únicamente en la respuesta del frontend.
+
+11. Seguridad
+
+El usuario solamente puede modificar su propia suscripción.
+
+No aceptar stripeCustomerId ni stripeSubscriptionId enviados por frontend.
+
+Resolver esos IDs desde DB usando userId autenticado.
+
+12. No tocar
+
+Mantener exactamente:
+
+Basic = $29 / 400 créditos
+
+Pro = $97 / 1,500 créditos
+
+Founder = $697/año / 1,500 créditos mensuales
+
+Reel = 50 cr / 30 s
+
+Top-ups:
+
+300 cr = $19
+600 cr = $35
+1,200 cr = $59
+
+No modificar:
+
+avatar limits;
+look credits;
+voice credits;
+InfiniteTalk;
+B-roll;
+portadas;
+Founder cron;
+landing copy.
+
+13. Pruebas obligatorias
+
+Crear tests o pruebas controladas para:
+
+usuario sin plan → compra Basic → una suscripción.
+Basic → Pro → sigue existiendo solamente 1 subscription Stripe.
+upgrade cambia pool mensual a 1,500.
+créditos comprados sobreviven al upgrade.
+Pro → Basic → no baja inmediatamente.
+durante período restante mantiene Pro.
+en próxima renovación pasa a Basic y recibe 400.
+top-up no altera el plan.
+usuario con plan activo no puede crear otra suscripción por /checkout/create-session.
+cancelación at_period_end mantiene acceso hasta fin del período.
+webhook final cancela acceso.
+Billing Portal solamente abre el customer del usuario autenticado.
+TypeScript/build/tests pasan.
+
+Al terminar:
+
+commit;
+push a main;
+indicar SHA;
+listar archivos modificados;
+describir cómo probó upgrade y downgrade;
+no empezar Bloque 5.
