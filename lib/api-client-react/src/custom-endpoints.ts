@@ -294,6 +294,45 @@ export function useCancelPlanChange() {
   });
 }
 
+// ── Invoice history ───────────────────────────────────────────────────────────
+
+export interface InvoiceItem {
+  id:          string;
+  /** Unix timestamp in seconds (as returned by Stripe). */
+  date:        number;
+  description: string;
+  amountCents: number;
+  currency:    string;
+  /** 'paid' | 'open' | 'void' | 'uncollectible' */
+  status:      string;
+  receiptUrl:  string | null;
+}
+
+export const INVOICES_QUERY_KEY = ["billing", "invoices"] as const;
+
+/** Fetch Stripe payment history for the authenticated user. Empty array when no Stripe customer. */
+export function useInvoices() {
+  return useQuery<{ invoices: InvoiceItem[] }>({
+    queryKey: INVOICES_QUERY_KEY,
+    queryFn:  () => customFetch<{ invoices: InvoiceItem[] }>("/api/billing/invoices"),
+    staleTime: 1000 * 60 * 5,
+  });
+}
+
+/** Cancel the active subscription at period end (cancel_at_period_end). Does NOT cancel immediately. */
+export function useCancelSubscription() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      customFetch<{ success: boolean; cancelAt: string | null }>("/api/billing/cancel-subscription", {
+        method: "POST",
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: BILLING_QUERY_KEY });
+    },
+  });
+}
+
 /** Manually adjust a user's credit balance (admin only). */
 export function useAdjustUserCredits() {
   const qc = useQueryClient();

@@ -281,4 +281,95 @@ router.post("/billing/portal", requireAuth, async (req: Request, res: Response):
   res.json({ url: result.url });
 });
 
+// ── GET /api/billing/invoices ─────────────────────────────────────────────────
+
+router.get("/billing/invoices", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const userId = req.session!.user!.userId;
+
+  // stripeCustomerId is read from the DB — never from the request body.
+  const [sub] = await db
+    .select({ stripeCustomerId: subscriptionsTable.stripeCustomerId })
+    .from(subscriptionsTable)
+    .where(eq(subscriptionsTable.userId, userId))
+    .limit(1);
+
+  if (!sub?.stripeCustomerId) {
+    res.json({ invoices: [] });
+    return;
+  }
+
+  let stripe: ReturnType<typeof getStripe>;
+  try { stripe = getStripe(); }
+  catch {
+    res.status(503).json({ error: "El servicio de pagos no está disponible.", code: "stripe_unavailable" });
+    return;
+  }
+
+  try {
+    const result = await stripe.invoices.list({ customer: sub.stripeCustomerId, limit: 24 });
+
+    const invoices = result.data.map((inv) => ({
+      id:          inv.id,
+      date:        inv.created,                                           // Unix timestamp (seconds)
+      description: inv.lines.data[0]?.description ?? inv.number ?? "Pago",
+      amountCents: inv.amount_paid,
+      currency:    inv.currency,
+      status:      inv.status ?? "unknown",
+      receiptUrl:  inv.hosted_invoice_url ?? null,
+    }));
+
+    res.json({ invoices });
+  } catch (err: unknown) {
+    logger.error({ err, userId }, "Failed to fetch Stripe invoices");
+    res.status(502).json({ error: "No se pudieron obtener los pagos.", code: "stripe_error" });
+  }
+});
+
+// ── POST /api/billing/cancel-subscription ────────────────────────────────────
+
+router.post("/billing/cancel-subscription", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const userId = req.session!.user!.userId;
+
+  const [sub] = await db.select().from(subscriptionsTable)
+    .where(eq(subscriptionsTable.userId, userId)).limit(1);
+
+  if (!sub) {
+    res.status(404).json({ error: "No se encontró una suscripción activa.", code: "no_subscription" });
+    return;
+  }
+  if (!sub.stripeSubscriptionId) {
+    res.status(422).json({ error: "Sin Stripe subscription ID en registros.", code: "no_stripe_subscription" });
+    return;
+  }
+  if (sub.cancelAtPeriodEnd) {
+    res.status(400).json({ error: "La suscripción ya está programada para cancelarse.", code: "already_canceling" });
+    return;
+  }
+
+  let stripe: ReturnType<typeof getStripe>;
+  try { stripe = getStripe(); }
+  catch {
+    res.status(503).json({ error: "El servicio de pagos no está disponible.", code: "stripe_unavailable" });
+    return;
+  }
+
+  try {
+    await stripe.subscriptions.update(sub.stripeSubscriptionId, { cancel_at_period_end: true });
+  } catch (err: unknown) {
+    logger.error({ err, userId }, "Failed to cancel Stripe subscription at period end");
+    res.status(502).json({ error: "No se pudo cancelar la suscripción.", code: "stripe_error" });
+    return;
+  }
+
+  await db.update(subscriptionsTable)
+    .set({ cancelAtPeriodEnd: true, updatedAt: new Date() })
+    .where(eq(subscriptionsTable.userId, userId));
+
+  invalidateAccessCache(userId);
+  invalidatePlanCache(userId);
+
+  logger.info({ userId, planSlug: sub.planSlug, cancelAt: sub.currentPeriodEnd }, "Subscription set to cancel at period end");
+  res.json({ success: true, cancelAt: sub.currentPeriodEnd?.toISOString() ?? null });
+});
+
 export default router;

@@ -12,7 +12,10 @@ import {
   useChangePlan,
   useCancelPlanChange,
   useOpenPortal,
+  useInvoices,
+  useCancelSubscription,
   type ChangePlanResult,
+  type InvoiceItem,
 } from "@workspace/api-client-react"
 import { useAuthStatus } from "@workspace/api-client-react"
 import { PlanCheckoutModal, type PlanCheckoutConfig } from "@/components/PlanCheckoutModal"
@@ -22,9 +25,13 @@ import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
+  Dialog, DialogContent, DialogDescription, DialogFooter,
+  DialogHeader, DialogTitle,
+} from "@/components/ui/dialog"
+import {
   Coins, Crown, Sparkles, Zap, ArrowRight, CheckCircle2, Calendar,
   TrendingUp, TrendingDown, ShoppingBag, Infinity, RefreshCw, AlertCircle,
-  Clock, ExternalLink, Loader2, Info,
+  Clock, ExternalLink, Loader2, Info, Receipt, CreditCard, XCircle,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -243,7 +250,11 @@ function CurrentPlanCard({
   isChangingPlan: boolean;
 }) {
   const sub = data?.subscription
-  const portalMutation = useOpenPortal()
+  const portalMutation   = useOpenPortal()
+  const cancelMutation   = useCancelSubscription()
+  const [showCancelDialog, setShowCancelDialog] = useState(false)
+
+  const isActive = !!sub && ["active", "trialing"].includes(sub.status ?? "")
 
   if (!sub) {
     return (
@@ -327,7 +338,7 @@ function CurrentPlanCard({
               </Button>
             )}
 
-            {/* Portal — available for all active subscribers (server resolves customer ID) */}
+            {/* Stripe Customer Portal — subscription management */}
             <Button
               size="sm"
               variant="ghost"
@@ -338,10 +349,72 @@ function CurrentPlanCard({
               {portalMutation.isPending
                 ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 : <ExternalLink className="w-3.5 h-3.5" />}
-              Administrar
+              Administrar suscripción
             </Button>
+
+            {/* Change payment method — same portal handles this */}
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => portalMutation.mutate()}
+              disabled={portalMutation.isPending}
+              className="gap-1.5 text-muted-foreground"
+            >
+              <CreditCard className="w-3.5 h-3.5" />
+              Cambiar método de pago
+            </Button>
+
+            {/* Cancel subscription — only when active and not already canceling */}
+            {isActive && !sub!.cancelAtPeriodEnd && !sub!.pendingPlanSlug && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setShowCancelDialog(true)}
+                disabled={cancelMutation.isPending}
+                className="gap-1.5 text-muted-foreground hover:text-destructive"
+              >
+                <XCircle className="w-3.5 h-3.5" />
+                Cancelar suscripción
+              </Button>
+            )}
           </div>
         </div>
+
+        {/* Cancel confirmation dialog */}
+        <Dialog open={showCancelDialog} onOpenChange={setShowCancelDialog}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>¿Cancelar tu suscripción?</DialogTitle>
+              <DialogDescription className="pt-1">
+                Mantendrás acceso a Reelsona hasta el final de tu período de facturación
+                actual. Tus proyectos, videos, avatares y créditos adicionales permanecerán
+                guardados.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="flex-col sm:flex-row gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setShowCancelDialog(false)}
+                disabled={cancelMutation.isPending}
+                className="sm:mr-auto"
+              >
+                Mantener mi plan
+              </Button>
+              <Button
+                variant="destructive"
+                disabled={cancelMutation.isPending}
+                onClick={() => {
+                  cancelMutation.mutate(undefined, {
+                    onSuccess: () => setShowCancelDialog(false),
+                  })
+                }}
+              >
+                {cancelMutation.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />}
+                Cancelar al finalizar el período
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* Pending downgrade notice + cancel action */}
         {sub.pendingPlanSlug && <PendingDowngradeNotice sub={sub} />}
@@ -357,12 +430,31 @@ function CurrentPlanCard({
           </div>
         )}
 
-        {/* Period row */}
-        {sub.planSlug !== "founder" && sub.currentPeriodEnd && !sub.pendingPlanSlug && (
+        {/* Period row — shown for all plans, annual label for Founder */}
+        {sub.currentPeriodEnd && !sub.pendingPlanSlug && (
           <div className="pt-1 flex items-center gap-2 text-xs text-muted-foreground border-t border-border">
             <Calendar className="w-3.5 h-3.5" />
             <span>
-              Periodo: {fmtDate(sub.currentPeriodStart)} – {fmtDate(sub.currentPeriodEnd)}
+              {sub.planSlug === "founder" ? "Período anual" : "Período"}:{" "}
+              {fmtDate(sub.currentPeriodStart)} – {fmtDate(sub.currentPeriodEnd)}
+            </span>
+          </div>
+        )}
+
+        {/* Founder monthly grant progress */}
+        {sub.planSlug === "founder" && typeof sub.founderMonthsGranted === "number" && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Coins className="w-3.5 h-3.5 shrink-0" />
+            <span>
+              Créditos mensuales: {sub.founderMonthsGranted}/12 otorgados
+              {typeof sub.founderMonthsRemaining === "number" && sub.founderMonthsRemaining > 0 && (
+                <>
+                  {" · "}{sub.founderMonthsRemaining} restantes
+                  {sub.nextFounderGrantAt && (
+                    <> · próximo {fmtDate(sub.nextFounderGrantAt)}</>
+                  )}
+                </>
+              )}
             </span>
           </div>
         )}
@@ -679,6 +771,83 @@ function TopupsSection({ data, userEmail, onSelect }: {
   )
 }
 
+// ── Invoice history section ───────────────────────────────────────────────────
+
+function fmtUnixDate(ts: number): string {
+  return new Intl.DateTimeFormat("es-MX", { dateStyle: "medium" }).format(new Date(ts * 1000))
+}
+
+function invoiceStatusMeta(status: string): { label: string; className: string } {
+  const map: Record<string, { label: string; className: string }> = {
+    paid:          { label: "Pagado",     className: "text-emerald-500 bg-emerald-500/10 border-emerald-500/20" },
+    open:          { label: "Pendiente",  className: "text-amber-500 bg-amber-500/10 border-amber-500/20" },
+    void:          { label: "Anulada",    className: "text-muted-foreground bg-muted border-border" },
+    uncollectible: { label: "Incobrable", className: "text-red-400 bg-red-400/10 border-red-400/20" },
+  }
+  return map[status] ?? { label: status, className: "text-muted-foreground bg-muted border-border" }
+}
+
+function InvoiceRow({ inv }: { inv: InvoiceItem }) {
+  const { label, className } = invoiceStatusMeta(inv.status)
+  return (
+    <div className="flex items-center justify-between gap-3 px-5 py-3.5 flex-wrap">
+      <div className="min-w-0">
+        <p className="text-sm font-medium truncate max-w-xs">{inv.description}</p>
+        <p className="text-xs text-muted-foreground mt-0.5">{fmtUnixDate(inv.date)}</p>
+      </div>
+      <div className="flex items-center gap-3 shrink-0">
+        <span className="text-sm font-semibold tabular-nums">
+          {fmtPrice(inv.amountCents, inv.currency, null)}
+        </span>
+        <span className={cn("text-[11px] border rounded-full px-2 py-0.5 font-medium", className)}>
+          {label}
+        </span>
+        {inv.receiptUrl && (
+          <a
+            href={inv.receiptUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
+          >
+            <ExternalLink className="w-3 h-3" />
+            Ver factura
+          </a>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function InvoiceSection() {
+  const { data, isLoading } = useInvoices()
+  const invoices = data?.invoices ?? []
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-4">
+        <Receipt className="w-4 h-4 text-muted-foreground" />
+        <h2 className="font-display font-bold text-lg">Historial de pagos</h2>
+      </div>
+
+      {isLoading ? (
+        <Skeleton className="h-32 w-full rounded-xl" />
+      ) : invoices.length === 0 ? (
+        <Card className="border-dashed">
+          <CardContent className="p-6 text-center">
+            <p className="text-sm text-muted-foreground">Aún no tienes pagos registrados.</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <div className="divide-y divide-border">
+            {invoices.map((inv) => <InvoiceRow key={inv.id} inv={inv} />)}
+          </div>
+        </Card>
+      )}
+    </div>
+  )
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function Billing() {
@@ -801,6 +970,9 @@ export default function Billing() {
       {!isAdmin && (
         <TopupsSection data={data} userEmail={userEmail} onSelect={setCheckoutCfg} />
       )}
+
+      {/* Payment history — shown to all users (empty state when no Stripe customer) */}
+      {!isAdmin && <InvoiceSection />}
 
       {/* Checkout modal — only for no-subscription flows (topups & Founder) */}
       <PlanCheckoutModal config={checkoutCfg} onClose={() => setCheckoutCfg(null)} />
