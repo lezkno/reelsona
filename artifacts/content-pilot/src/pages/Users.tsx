@@ -772,16 +772,18 @@ function EditAccessDaysButton({ entitlement }: { entitlement: AdminEntitlement }
 
   return (
     <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) setDays("") }}>
-      <DialogTrigger asChild>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary">
-              <CalendarDays className="w-3.5 h-3.5" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="left" className="text-xs">Editar días de acceso</TooltipContent>
-        </Tooltip>
-      </DialogTrigger>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost" size="icon"
+            className="h-7 w-7 text-muted-foreground hover:text-primary"
+            onClick={() => setOpen(true)}
+          >
+            <CalendarDays className="w-3.5 h-3.5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="left" className="text-xs">Editar días de acceso</TooltipContent>
+      </Tooltip>
       <DialogContent className="max-w-sm">
         <DialogHeader>
           <DialogTitle>Editar acceso</DialogTitle>
