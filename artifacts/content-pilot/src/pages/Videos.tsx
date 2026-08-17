@@ -3,6 +3,9 @@ import {
   useGetContentItem, useUpdateContentItem, useGetHeyGenAllLooks,
   getGetVideosQueryKey, getGetContentPlanQueryKey,
 } from "@workspace/api-client-react"
+import { useAccessState } from "@/hooks/useAccessState"
+import { hasActivePlan } from "@/lib/access"
+import { PremiumModal } from "@/components/PremiumModal"
 import type { Video } from "@workspace/api-client-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -153,6 +156,8 @@ function CircularVideoProgress({
 export default function Videos() {
   const { toast } = useToast()
   const queryClient = useQueryClient()
+  const accessState  = useAccessState()
+  const [premiumOpen, setPremiumOpen] = useState(false)
 
   // Avatar look images — used as blurred backgrounds while a video is generating
   const { data: allLooks } = useGetHeyGenAllLooks()
@@ -249,6 +254,7 @@ export default function Videos() {
 
   // ── Retry ─────────────────────────────────────────────────────────────────
   const handleRetry = (video: Video) => {
+    if (!hasActivePlan(accessState)) { setPremiumOpen(true); return }
     retryVideo.mutate({ id: video.id }, {
       onSuccess: () => {
         toast({ title: "Reintentando", description: "El ítem volvió al estado 'Guión listo'. Puedes generarlo de nuevo." })
@@ -264,6 +270,7 @@ export default function Videos() {
   // ── Publish / schedule ────────────────────────────────────────────────────
   /** Opens the confirmation dialog before publishing */
   const handlePublish = (video: Video) => {
+    if (!hasActivePlan(accessState)) { setPremiumOpen(true); return }
     setPublishConfirm(video)
   }
 
@@ -590,6 +597,7 @@ export default function Videos() {
                         variant="outline"
                         className="w-full text-xs gap-1.5"
                         onClick={() => {
+                          if (!hasActivePlan(accessState)) { setPremiumOpen(true); return }
                           setScheduleDialog({ videoId: video.id, topic: video.topic ?? `Video #${video.id}`, current: video.scheduled_publish_at ?? undefined })
                           setScheduleDatetime(video.scheduled_publish_at ? new Date(video.scheduled_publish_at).toISOString().slice(0, 16) : "")
                         }}
@@ -603,6 +611,7 @@ export default function Videos() {
                         className="w-full text-xs gap-1.5"
                         disabled={reapplyCaptions.isPending}
                         onClick={() => {
+                          if (!hasActivePlan(accessState)) { setPremiumOpen(true); return }
                           reapplyCaptions.mutate({ id: video.id }, {
                             onSuccess: () => {
                               queryClient.invalidateQueries({ queryKey: getGetVideosQueryKey() })
@@ -786,6 +795,14 @@ export default function Videos() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Plan gate modal — no-plan users trying to perform a gated action */}
+      <PremiumModal
+        open={premiumOpen}
+        onClose={() => setPremiumOpen(false)}
+        title="Función Premium"
+        description="Necesitas un plan activo de Reelsona para publicar, programar o regenerar videos."
+      />
     </div>
   )
 }

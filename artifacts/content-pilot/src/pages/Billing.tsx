@@ -455,16 +455,36 @@ function PlansSection({
   onSelect,
   onChangePlan,
   isChangingPlan,
+  refetch,
 }: {
-  data:          ReturnType<typeof useBilling>["data"];
-  isCurrentSlug: string | null;
-  hasActiveSub:  boolean;
-  userEmail:     string | undefined;
-  onSelect:      (cfg: PlanCheckoutConfig) => void;
-  onChangePlan:  (target: "basic" | "pro") => void;
+  data:           ReturnType<typeof useBilling>["data"];
+  isCurrentSlug:  string | null;
+  hasActiveSub:   boolean;
+  userEmail:      string | undefined;
+  onSelect:       (cfg: PlanCheckoutConfig) => void;
+  onChangePlan:   (target: "basic" | "pro") => void;
   isChangingPlan: boolean;
+  refetch:        () => void;
 }) {
-  if (!data?.plans?.length) return null
+  if (!data?.plans?.length) {
+    return (
+      <div>
+        <h2 className="font-display font-bold text-lg mb-4">Planes de suscripción</h2>
+        <Card>
+          <CardContent className="p-8 flex flex-col items-center gap-3 text-center">
+            <AlertCircle className="w-8 h-8 text-muted-foreground" />
+            <div className="space-y-1">
+              <p className="text-sm font-medium">No pudimos cargar los planes</p>
+              <p className="text-xs text-muted-foreground">Intenta nuevamente en unos segundos.</p>
+            </div>
+            <Button size="sm" variant="outline" onClick={refetch} className="gap-1.5 mt-1">
+              <RefreshCw className="w-3.5 h-3.5" /> Reintentar
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
 
   return (
     <div>
@@ -660,7 +680,7 @@ function TopupsSection({ data, userEmail, onSelect }: {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function Billing() {
-  const { data, isLoading } = useBilling()
+  const { data, isLoading, refetch } = useBilling()
   const { data: authData }  = useAuthStatus()
   const changePlanMutation  = useChangePlan()
   const [checkoutCfg, setCheckoutCfg] = useState<PlanCheckoutConfig | null>(null)
@@ -767,6 +787,7 @@ export default function Billing() {
           onSelect={setCheckoutCfg}
           onChangePlan={handleChangePlan}
           isChangingPlan={changePlanMutation.isPending}
+          refetch={refetch}
         />
       )}
 

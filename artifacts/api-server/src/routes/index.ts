@@ -30,12 +30,16 @@ router.use(wavespeedRouter);
 // Exclusively for WaveSpeed/MiniMax — zero connection to HeyGen pipeline.
 router.use(requireToolAccess, wavespeedVoiceDirectorRouter);
 
-// Tool routes — require active tool-access entitlement (admin always passes)
+// Tool routes — require active tool-access entitlement (admin always passes).
+// Note: videosRouter and instagramRouter use GET-only bypasses in the global
+// requireToolAccess middleware (app.ts line 117), so no-plan users can list
+// videos and check Instagram connection status. The global middleware protects
+// all mutating operations; the per-router wrapper is intentionally omitted here.
 router.use(requireToolAccess, storageRouter);
-router.use(requireToolAccess, instagramRouter);
+router.use(instagramRouter);
 router.use(requireToolAccess, heygenRouter);
 router.use(requireToolAccess, contentRouter);
-router.use(requireToolAccess, videosRouter);
+router.use(videosRouter);
 router.use(requireToolAccess, automationRouter);
 router.use(requireToolAccess, captionsRouter);
 router.use(requireToolAccess, strategyRouter);

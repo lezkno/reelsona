@@ -22,6 +22,8 @@ import {
   useRunContentStrategy,
   useGetContentPlan,
   useGetInstagramAccount,
+  useAuthStatus,
+  useBilling,
   type StrategyProfile,
   type NicheRadarAccount,
 } from "@workspace/api-client-react"
@@ -830,6 +832,10 @@ function TabPlan({ profile }: { profile: StrategyProfile | null }) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 export default function Audit() {
+  // Plan gate hooks — must be called unconditionally before any early returns
+  const { data: authData }                           = useAuthStatus()
+  const { data: billing, isLoading: billingLoading } = useBilling()
+
   const [tab, setTab] = useState<StepId>("account")
   const { data, isLoading } = useGetStrategyProfile()
   const profile = data?.profile ?? null
@@ -861,6 +867,42 @@ export default function Audit() {
   const updatedAt = profile?.updated_at
     ? format(new Date(profile.updated_at), "d 'de' MMMM 'a las' HH:mm", { locale: es })
     : null
+
+  // ── Plan gate (evaluated after all hooks) ────────────────────────────────────
+  const isAdminUser  = authData?.user?.role === "admin"
+  const sub          = billing?.subscription
+  const hasActiveSub = !!(sub && ["active", "trialing"].includes(sub.status ?? ""))
+
+  if (billingLoading) {
+    return (
+      <div className="p-6 md:p-8 space-y-4">
+        <Skeleton className="h-10 w-64" />
+        <Skeleton className="h-32 w-full" />
+        <Skeleton className="h-48 w-full" />
+      </div>
+    )
+  }
+
+  if (!isAdminUser && !hasActiveSub) {
+    return (
+      <div className="flex items-center justify-center py-16 px-4">
+        <div className="text-center space-y-4 max-w-sm">
+          <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mx-auto">
+            <Lock className="w-6 h-6 text-muted-foreground" />
+          </div>
+          <div className="space-y-1.5">
+            <h3 className="font-semibold text-lg">Esta función requiere un plan activo</h3>
+            <p className="text-sm text-muted-foreground">
+              Activa un plan de Reelsona para acceder al Estudio Estratégico, Radar de Nicho y más.
+            </p>
+          </div>
+          <Button onClick={() => navigate("/billing")} className="gap-2">
+            Ver planes <ArrowRight className="w-4 h-4" />
+          </Button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <TooltipProvider>

@@ -79,21 +79,27 @@ const BYPASS_PREFIXES = [
 // Exact paths or prefixes that no-plan users must always be able to reach:
 //   • /billing         — plan detection and subscription management
 //   • /credits         — view credit balance without a plan
-//   • /videos          — view/download historical videos without a plan
-//   • /instagram/account — view connection status on /connect page
 const NOPLAN_BYPASS_PREFIXES = [
   "/billing",
   "/credits",
+] as const;
+
+// Read-only paths accessible without a plan (GET only).
+// POST/PUT/DELETE on the same paths must still be protected.
+//   • /videos          — view/download historical videos without a plan
+//   • /instagram/account — view connection status on /connect page
+const NOPLAN_BYPASS_GET_PREFIXES = [
   "/videos",
   "/instagram/account",
 ] as const;
 
 const BYPASS_EXACT = ["/healthz", "/dashboard"] as const;
 
-function bypasses(path: string): boolean {
+function bypasses(path: string, method: string): boolean {
   if ((BYPASS_EXACT as readonly string[]).includes(path)) return true;
   if (path.startsWith("/dashboard")) return true; // /dashboard, /dashboard/...
   if (NOPLAN_BYPASS_PREFIXES.some((p) => path.startsWith(p))) return true;
+  if (method === "GET" && NOPLAN_BYPASS_GET_PREFIXES.some((p) => path.startsWith(p))) return true;
   return BYPASS_PREFIXES.some((p) => path.startsWith(p));
 }
 
@@ -101,7 +107,7 @@ function bypasses(path: string): boolean {
 
 export const requireToolAccess: RequestHandler = async (req, res, next): Promise<void> => {
   // Skip unprotected paths
-  if (bypasses(req.path)) { next(); return; }
+  if (bypasses(req.path, req.method)) { next(); return; }
 
   const session = req.session;
   if (!session?.authenticated || !session.user) { next(); return; } // let requireAuth handle 401

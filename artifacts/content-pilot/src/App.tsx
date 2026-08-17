@@ -94,21 +94,27 @@ function NoPlanScreen() {
 /**
  * Renders the given component only if the user has an active plan subscription.
  * Falls back to NoPlanScreen for users without a plan.
- * While billing data is loading, renders the component (React Query deduplicates).
+ * Shows a skeleton while billing loads — never mounts the gated page before knowing the plan.
  * Admins always pass through regardless of subscription.
  */
 function ToolRoute({ component: Component }: { component: React.ComponentType }) {
-  const { data: auth }    = useAuthStatus()
-  const { data: billing } = useBilling()
+  const { data: auth, isLoading: authLoading }       = useAuthStatus()
+  const { data: billing, isLoading: billingLoading } = useBilling()
 
-  // Admins always pass through
+  // While determining plan status: show skeleton — never render gated content blind
+  if (authLoading || billingLoading) {
+    return (
+      <div className="p-6 md:p-8 space-y-4 animate-pulse">
+        <div className="h-8 w-48 bg-muted rounded-lg" />
+        <div className="h-32 w-full bg-muted rounded-xl" />
+        <div className="h-48 w-full bg-muted rounded-xl" />
+      </div>
+    )
+  }
+
   if (auth?.user?.role === "admin") return <Component />
 
-  // While billing data is loading, show the component — billing resolves quickly
-  // and any in-progress interactive state is already blocked by AccessBanner
-  if (!billing) return <Component />
-
-  const sub = billing.subscription
+  const sub = billing?.subscription
   const hasActiveSub = sub && ["active", "trialing"].includes(sub.status ?? "")
   if (!hasActiveSub) return <NoPlanScreen />
 
@@ -140,21 +146,23 @@ function Router() {
           {() => <Billing />}
         </Route>
 
-        {/* Plan-required routes — show NoPlanScreen without active subscription */}
-        <Route path="/audit">
-          {() => <ToolRoute component={Audit} />}
-        </Route>
+        {/* Plan-required routes — NoPlanScreen until active subscription */}
         <Route path="/content">
           {() => <ToolRoute component={ContentPlan} />}
-        </Route>
-        <Route path="/avatars">
-          {() => <ToolRoute component={Avatars} />}
         </Route>
         <Route path="/automation">
           {() => <ToolRoute component={Automation} />}
         </Route>
+
+        {/* Accessible without plan — feature gates handled in-page */}
+        <Route path="/audit">
+          {() => <Audit />}
+        </Route>
+        <Route path="/avatars">
+          {() => <Avatars />}
+        </Route>
         <Route path="/captions">
-          {() => <ToolRoute component={CaptionStudio} />}
+          {() => <CaptionStudio />}
         </Route>
 
         <Route component={NotFound} />
