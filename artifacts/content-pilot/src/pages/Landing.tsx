@@ -872,8 +872,8 @@ export default function Landing() {
               {/* Reelsona bar */}
               <div style={{ position: "relative", backgroundColor: "rgba(79,110,247,0.06)", border: "1px solid rgba(79,110,247,0.25)", borderRadius: 16, padding: "1.25rem 1.5rem", boxShadow: "0 0 30px rgba(79,110,247,0.1)" }}>
                 <div className="flex justify-between" style={{ fontSize: "1rem", fontWeight: 800, fontFamily: "var(--font-display,'Outfit',sans-serif)", marginBottom: "0.6rem", flexWrap: "wrap", gap: "0.25rem" }}>
-                  <span style={{ color: "#e0e0e0", display: "flex", alignItems: "center", gap: 8 }}><Sparkles size={16} color="#4F6EF7" /> Reelsona — Sistema completo</span>
-                  <span style={{ color: "#4F6EF7" }}>$47 pago único</span>
+                  <span style={{ color: "#e0e0e0", display: "flex", alignItems: "center", gap: 8 }}><Sparkles size={16} color="#4F6EF7" /> Reelsona — Plan Pro</span>
+                  <a href="/billing" style={{ color: "#fff", backgroundColor: "#4F6EF7", borderRadius: 8, padding: "0.25rem 0.9rem", fontSize: "0.82rem", fontWeight: 700, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>Activar plan →</a>
                 </div>
                 <div style={{ height: 10, backgroundColor: "#0a0a0a", borderRadius: 999, overflow: "hidden" }}>
                   <div style={{ height: "100%", width: "4%", background: "linear-gradient(90deg,#4F6EF7,#9B5CF6)", borderRadius: 999, boxShadow: "0 0 8px #4F6EF7" }} />
@@ -892,8 +892,8 @@ export default function Landing() {
         <div className="mx-auto" style={{ maxWidth: 900 }}>
           <div className="text-center reveal-up" style={{ marginBottom: "3rem" }}>
             <SectionLabel>Lo que obtienes</SectionLabel>
-            <h2 style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "clamp(1.6rem,4vw,2.4rem)", fontWeight: 800, letterSpacing: "-0.025em", lineHeight: 1.15 }}>Guía Paso a Paso de Implementación + 30 días de herramientas</h2>
-            <p style={{ color: "#666", fontSize: "0.9rem", lineHeight: 1.75, maxWidth: 520, margin: "0.75rem auto 0" }}>Los $47 son acceso de por vida al programa paso a paso. Las herramientas de automatización están incluidas gratis los primeros 30 días.</p>
+            <h2 style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "clamp(1.6rem,4vw,2.4rem)", fontWeight: 800, letterSpacing: "-0.025em", lineHeight: 1.15 }}>Todo lo que incluye tu plan</h2>
+            <p style={{ color: "#666", fontSize: "0.9rem", lineHeight: 1.75, maxWidth: 520, margin: "0.75rem auto 0" }}>Cada plan incluye acceso completo a las herramientas de automatización, Avatar AI, captions y publicación en Instagram.</p>
           </div>
 
           <div className="grid gap-5 reveal-up stagger-1" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(360px,1fr))" }}>
