@@ -2278,8 +2278,6 @@ export default function CaptionStudio() {
       <PremiumModal
         open={premiumOpen}
         onClose={() => setPremiumOpen(false)}
-        title="Función disponible con plan activo"
-        description="Activa un plan de Reelsona para personalizar captions, efectos y cards de texto."
       />
     </div>
   )

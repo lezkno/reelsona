@@ -5082,8 +5082,6 @@ export default function Avatars() {
       <PremiumModal
         open={premiumOpen}
         onClose={() => setPremiumOpen(false)}
-        title="Función disponible con plan activo"
-        description="Activa un plan de Reelsona para crear Avatares AI, añadir looks y clonar voces."
       />
 
       {/* WaveSpeed persona looks dialog */}

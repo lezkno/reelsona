@@ -800,8 +800,6 @@ export default function Videos() {
       <PremiumModal
         open={premiumOpen}
         onClose={() => setPremiumOpen(false)}
-        title="Función Premium"
-        description="Necesitas un plan activo de Reelsona para publicar, programar o regenerar videos."
       />
     </div>
   )
