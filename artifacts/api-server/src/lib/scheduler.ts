@@ -1942,14 +1942,16 @@ async function persistVideoAssetsToStorage(
   let persistentThumbnailUrl  = thumbnailUrl ?? null;
 
   // ── Video ──────────────────────────────────────────────────────────────────
+  // 5-minute timeout: large WaveSpeed talking-head videos can be 50-100 MB.
+  // Without a timeout the fetch can hang indefinitely and block the scheduler.
   try {
-    const res = await fetch(videoUrl);
+    const res = await fetch(videoUrl, { signal: AbortSignal.timeout(300_000) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const buf = Buffer.from(await res.arrayBuffer());
     const objectName = `raw-videos/${videoId}.mp4`;
     await bucket.file(objectName).save(buf, { contentType: "video/mp4" });
     persistentVideoUrl = `https://${domain}/api/captioned-objects/${objectName}`;
-    logger.info({ videoId, objectName }, "[PersistAssets] Video uploaded to Object Storage");
+    logger.info({ videoId, objectName, bytes: buf.length }, "[PersistAssets] Video uploaded to Object Storage");
   } catch (err) {
     logger.warn({ videoId, err }, "[PersistAssets] Video upload failed — keeping original URL");
   }
@@ -1957,7 +1959,7 @@ async function persistVideoAssetsToStorage(
   // ── Thumbnail ──────────────────────────────────────────────────────────────
   if (thumbnailUrl) {
     try {
-      const res = await fetch(thumbnailUrl);
+      const res = await fetch(thumbnailUrl, { signal: AbortSignal.timeout(60_000) });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const buf = Buffer.from(await res.arrayBuffer());
       const objectName = `thumbnails/${videoId}.jpg`;

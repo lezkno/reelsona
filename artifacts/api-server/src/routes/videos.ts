@@ -44,6 +44,18 @@ function resolveCaptionedUrl(raw: string | null): string | null {
   return fs.existsSync(filePath) ? raw : null;
 }
 
+/**
+ * HeyGen CDN URLs (files2.heygen.ai / heygen.ai) contain signed query params
+ * that expire in ~7 days. Returning an expired URL causes broken thumbnails /
+ * video players in the UI. We null them out here so the frontend falls back to
+ * the avatar image or the captioned_video_url instead.
+ */
+function resolveHeyGenUrl(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  if (raw.includes("heygen.ai")) return null; // always temp CDN — drop it
+  return raw;
+}
+
 function mapVideo(v: typeof videosTable.$inferSelect, wavespeedLookId?: number | null) {
   return {
     id: v.id,
@@ -52,8 +64,8 @@ function mapVideo(v: typeof videosTable.$inferSelect, wavespeedLookId?: number |
     topic: v.topic ?? null,
     avatar_id: v.avatarId ?? null,
     status: v.status,
-    video_url: v.videoUrl ?? null,
-    thumbnail_url: v.thumbnailUrl ?? null,
+    video_url: resolveHeyGenUrl(v.videoUrl),
+    thumbnail_url: resolveHeyGenUrl(v.thumbnailUrl),
     ig_media_id: v.igMediaId ?? null,
     ig_permalink: v.igPermalink ?? null,
     error_message: v.errorMessage ?? null,
