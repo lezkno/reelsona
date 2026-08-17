@@ -1,4 +1,5 @@
 import { useGetInstagramAccount, useDisconnectInstagram, useHandleInstagramCallback, getGetInstagramAccountQueryKey, getGetInstagramPostsQueryKey } from "@workspace/api-client-react"
+import { InstagramConnectCard } from "@/components/InstagramConnectCard"
 import { ExternalLink, AlertTriangle, RefreshCw } from "lucide-react"
 import { useMutation } from "@tanstack/react-query"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
@@ -201,26 +202,7 @@ export default function Connect() {
       )}
 
       {!status?.connected || !account ? (
-        <Card className="border-2 border-primary/20 shadow-lg shadow-primary/5">
-          <CardHeader className="text-center pb-2">
-            <div className="w-16 h-16 bg-primary/10 text-primary rounded-full flex items-center justify-center mx-auto mb-4">
-              <Instagram className="w-8 h-8" />
-            </div>
-            <CardTitle className="text-2xl">Conecta tu cuenta</CardTitle>
-            <CardDescription className="text-base max-w-md mx-auto">
-              Autoriza a Reelsona a publicar Reels en tu nombre y leer las estadísticas de tus posts.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="text-center pt-6">
-            <Button size="lg" className="w-full sm:w-auto px-8 gap-2 bg-gradient-to-r from-[#833ab4] via-[#fd1d1d] to-[#fcb045] hover:opacity-90 border-0" onClick={handleConnect}>
-              <Instagram className="w-5 h-5" />
-              Conectar con Meta
-            </Button>
-            <p className="text-xs text-muted-foreground mt-4">
-              Requiere cuenta de Instagram <strong>Business</strong> o <strong>Creator</strong>. Las cuentas personales no son compatibles.
-            </p>
-          </CardContent>
-        </Card>
+        <InstagramConnectCard />
       ) : (
         <Card className={`shadow-lg ${needsReconnection ? "border-destructive/40 shadow-destructive/5" : "border-green-500/20 shadow-green-500/5"}`}>
           <CardHeader>

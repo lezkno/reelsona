@@ -1,6 +1,7 @@
 import { useGetDashboard, useGetVideos, usePublishVideo, useScheduleVideo, useGetInstagramAccount, useGetInstagramPosts, getGetDashboardQueryKey, getGetVideosQueryKey, getGetInstagramAccountQueryKey, getGetInstagramPostsQueryKey, useGetContentPlan, useGetStrategyProfile, useAuthStatus } from "@workspace/api-client-react"
 import type { ContentPlanItem, StrategyProfile } from "@workspace/api-client-react"
 import { Card, CardContent } from "@/components/ui/card"
+import { InstagramConnectCard } from "@/components/InstagramConnectCard"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -122,22 +123,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {!dashboard?.account_connected && (
-        <Card className="border-dashed bg-secondary/5 border-secondary/20">
-          <CardContent className="p-8 text-center flex flex-col items-center">
-            <div className="w-12 h-12 rounded-full bg-secondary/20 flex items-center justify-center mb-4">
-              <Zap className="w-6 h-6 text-secondary" />
-            </div>
-            <h3 className="text-xl font-bold font-display mb-2">Conecta tu cuenta de Instagram</h3>
-            <p className="text-muted-foreground max-w-md mb-6">
-              Para que Reelsona pueda analizar tu contenido y publicar automáticamente, necesitas conectar tu cuenta de Instagram.
-            </p>
-            <Button asChild>
-              <Link href="/connect">Conectar Instagram</Link>
-            </Button>
-          </CardContent>
-        </Card>
-      )}
+      {!igConnected && <InstagramConnectCard />}
 
       {dashboard && (
         <>

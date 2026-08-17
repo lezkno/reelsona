@@ -27,6 +27,7 @@ import {
   type StrategyProfile,
   type NicheRadarAccount,
 } from "@workspace/api-client-react"
+import { InstagramConnectCard } from "@/components/InstagramConnectCard"
 import {
   TrendingUp, Users, Clock, BarChart2, Target, Lightbulb, Zap,
   AlertTriangle, CheckCircle2, Circle, RefreshCw, Loader2, Plus,
@@ -904,6 +905,18 @@ export default function Audit() {
     )
   }
 
+  if (!igConnected) {
+    return (
+      <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <div>
+          <h1 className="text-3xl md:text-4xl font-display font-bold tracking-tight">Estudio Estratégico</h1>
+          <p className="text-muted-foreground mt-1">Analiza tu cuenta, estudia el mercado y genera un plan basado en datos.</p>
+        </div>
+        <InstagramConnectCard />
+      </div>
+    )
+  }
+
   return (
     <TooltipProvider>
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -924,21 +937,6 @@ export default function Audit() {
           )}
         </div>
       </div>
-
-      {/* Instagram not connected banner */}
-      {!igConnected && (
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-amber-500/30 bg-amber-50/60 dark:bg-amber-900/10 px-4 sm:px-5 py-4">
-          <div className="flex items-center gap-3">
-            <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
-            <p className="text-sm text-amber-800 dark:text-amber-300 font-medium">
-              Necesitas conectar tu cuenta de Instagram para usar el Estudio Estratégico.
-            </p>
-          </div>
-          <Button size="sm" className="shrink-0 gap-2 w-full sm:w-auto" onClick={() => navigate("/connect")}>
-            <Instagram className="w-4 h-4" /> Conectar cuenta
-          </Button>
-        </div>
-      )}
 
       {/* Step progress */}
       <div className="flex items-center gap-1 overflow-x-auto pb-1">
