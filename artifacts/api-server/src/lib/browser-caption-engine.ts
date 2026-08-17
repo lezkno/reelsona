@@ -457,13 +457,22 @@ export interface WordTiming {
 
 /** Parse an SRT file (word-level or phrase-level blocks) into WordTimings. */
 export function parseSRT(srtContent: string): WordTiming[] {
-  const blocks = srtContent.trim().split(/\n\n+/);
+  // Normalise: strip UTF-8 BOM, unify all line-ending styles to \n.
+  const normalised = srtContent
+    .replace(/^\uFEFF/, "")   // BOM
+    .replace(/\r\n/g, "\n")   // Windows CRLF → LF
+    .replace(/\r/g, "\n");    // stray CR → LF
+
+  const blocks = normalised.trim().split(/\n\n+/);
   const out: WordTiming[] = [];
 
   for (const block of blocks) {
     const lines = block.trim().split("\n");
-    if (lines.length < 3) continue;
-    const m = lines[1].match(
+    // Locate the timecode line by content (not by fixed position) so that SRTs
+    // without sequence numbers, or with extra header lines, are handled correctly.
+    const tcIdx = lines.findIndex((l) => l.includes("-->"));
+    if (tcIdx < 0) continue;
+    const m = lines[tcIdx].match(
       /(\d{2}):(\d{2}):(\d{2})[,.](\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})[,.](\d{3})/,
     );
     if (!m) continue;
@@ -471,7 +480,9 @@ export function parseSRT(srtContent: string): WordTiming[] {
       +h * 3_600_000 + +min * 60_000 + +s * 1000 + +ms;
     const startMs = ms(m[1], m[2], m[3], m[4]);
     const endMs   = ms(m[5], m[6], m[7], m[8]);
-    const text    = lines.slice(2).join(" ").trim();
+    // Skip cues where end ≤ start — invalid timing that would cause negative durations.
+    if (endMs <= startMs) continue;
+    const text = lines.slice(tcIdx + 1).join(" ").trim();
     // Each SRT entry may contain a single word (Whisper word-level) or a phrase.
     // Split multi-word entries so each word gets proportional timing weighted by
     // character count — longer words take more time, which is more accurate for
@@ -954,25 +965,37 @@ export async function applyCaptionsBrowser(
     const segmentFiles: string[] = [];
 
     for (let b = 0; b < batches.length; b++) {
-      const batch      = batches[b];
-      const batchStart = batch[0].startSec;
-      const batchEnd   = batches[b + 1] ? batches[b + 1][0].startSec
-        : batch[batch.length - 1].endSec;
-      const batchDur   = batchEnd - batchStart;
-      const segOut     = path.join(tmpDir, `seg_${String(b).padStart(3, "0")}.mp4`);
+      const batch = batches[b];
+
+      // ── Batch time range ────────────────────────────────────────────────────
+      // batchStart: first batch always starts at t=0 so the video intro
+      //   (before the first caption cue) is included in the output.  Subsequent
+      //   batches start at the first cue of that batch — the previous batch
+      //   already covered the gap up to this point.
+      // batchEnd:   last batch always ends at the probed video duration so the
+      //   video tail (after the last caption cue) is not dropped.
+      const batchStart = b === 0 ? 0 : batch[0].startSec;
+      const batchEnd   = b === batches.length - 1
+        ? Math.max(videoInfo.duration, batch[batch.length - 1].endSec + 0.05)
+        : batches[b + 1][0].startSec;
+      const segOut = path.join(tmpDir, `seg_${String(b).padStart(3, "0")}.mp4`);
 
       const extraInputs: string[] = [];
       const filterParts: string[] = [];
       let prevLabel = "[base]";
 
       batch.forEach(({ pngPath, startSec, endSec }, i) => {
-        const relStart = (startSec - batchStart).toFixed(3);
-        const relEnd   = (endSec   - batchStart).toFixed(3);
+        // relStart/relEnd are offsets from batchStart.  With the trim filter
+        // below, t=0 in the encoded segment corresponds EXACTLY to batchStart
+        // (frame-accurate), so these offsets land on the right frames.
+        const relStart = (startSec - batchStart).toFixed(6);
+        const relEnd   = (endSec   - batchStart).toFixed(6);
         const inLabel  = `[cap${i}]`;
         const outLabel = i < batch.length - 1 ? `[ov${i}]` : "[out]";
         extraInputs.push("-i", pngPath);
-        // PNG was rendered at videoInfo.width × videoInfo.height — scale is a no-op
-        // but we keep it explicit so any resize from a re-encode round-trip is corrected.
+        // PNG was rendered at videoInfo.width × videoInfo.height — scale is a
+        // no-op but kept explicit so any resize from a re-encode round-trip is
+        // corrected.
         filterParts.push(`[${i + 1}:v]scale=${videoInfo.width}:${videoInfo.height}${inLabel}`);
         filterParts.push(
           `${prevLabel}${inLabel}overlay=0:0:enable='between(t,${relStart},${relEnd})'${outLabel}`,
@@ -980,18 +1003,23 @@ export async function applyCaptionsBrowser(
         prevLabel = outLabel;
       });
 
-      // Reset BOTH video AND audio timestamps from 0 so each segment is
-      // self-contained and the concat demuxer can sequence them cleanly.
+      // ── Why trim/atrim instead of "-ss … -i" (input seek) ─────────────────
+      // Input seek lands on the nearest keyframe, which may be 1–4 s before
+      // batchStart.  setpts=PTS-STARTPTS then resets video PTS to 0, but the
+      // caption overlay times are calculated as (cueTime - batchStart).
+      // If the actual segment start is BEFORE batchStart, t=0 in the output
+      // corresponds to a point BEFORE batchStart and every overlay fires too
+      // early by up to one GOP — exactly the drift the user observes.
       //
-      // Without [0:a]asetpts=PTS-STARTPTS the fast-seek (-ss before -i) lands on
-      // the nearest keyframe, which may be before batchStart. setpts resets the
-      // video stream to PTS=0 but the audio stream keeps the raw seek-point PTS —
-      // a sub-frame offset that accumulates across batches into audible A/V drift.
-      const fullFilter = `[0:v]setpts=PTS-STARTPTS[base]; [0:a]asetpts=PTS-STARTPTS[aout]; ${filterParts.join("; ")}`;
+      // trim/atrim is frame-accurate: it cuts at the exact batchStart frame so
+      // that after setpts=PTS-STARTPTS the output t=0 always equals batchStart.
+      const fullFilter = [
+        `[0:v]trim=start=${batchStart.toFixed(6)}:end=${batchEnd.toFixed(6)},setpts=PTS-STARTPTS[base]`,
+        `[0:a]atrim=start=${batchStart.toFixed(6)}:end=${batchEnd.toFixed(6)},asetpts=PTS-STARTPTS[aout]`,
+        ...filterParts,
+      ].join("; ");
 
       await execFileAsync("ffmpeg", [
-        "-ss", String(batchStart),
-        "-t",  String(batchDur),
         "-i",  captionSourcePath,
         ...extraInputs,
         "-filter_complex", fullFilter,
@@ -1002,8 +1030,6 @@ export async function applyCaptionsBrowser(
         "-crf", "21",
         "-c:a", "aac",
         "-b:a", "128k",
-        // Prevent encoder-delay-induced negative timestamps from shifting audio
-        // forward at the start of each segment, which compounds during concat.
         "-avoid_negative_ts", "make_zero",
         "-y", segOut,
       ], { maxBuffer: 100 * 1024 * 1024 });
