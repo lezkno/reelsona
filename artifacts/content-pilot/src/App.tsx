@@ -96,7 +96,7 @@ function Router() {
 
         {/* Billing — accessible with tool access */}
         <Route path="/billing">
-          {() => <ToolRoute component={Billing} />}
+          {() => <Billing />}
         </Route>
 
         {/* HeyGen routes — tool access required */}
