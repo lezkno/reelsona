@@ -132,6 +132,10 @@ async function getWavespeedContext(
   // If a look is pinned on the content item, verify its persona is still plan-enabled.
   // Throw PlanBlockedError so the caller can surface a clear user-facing message
   // instead of the generic "look unavailable" one — and crucially, no job is submitted.
+  // Also capture the persona so the rotation loop below is restricted to that persona
+  // only — without this the loop can land on a DIFFERENT persona (newest-first) before
+  // reaching the one that owns the pinned look and silently rotate to the wrong avatar.
+  let preferredPersonaId: number | null = null;
   if (preferredLookId != null) {
     const [lookRow] = await db
       .select({ personaId: wavespeedLooksTable.personaId })
@@ -141,10 +145,17 @@ async function getWavespeedContext(
     if (lookRow && lookRow.personaId != null && !enabledIds.has(lookRow.personaId)) {
       throw new PlanBlockedError();
     }
+    preferredPersonaId = lookRow?.personaId ?? null;
   }
 
   // Rotation: newest-first (reverse of ASC), but only among plan-enabled personas.
-  const personas = [...personasAsc].reverse().filter((p) => enabledIds.has(p.id));
+  // When a specific look is pinned, restrict the loop to that look's persona — never
+  // fall back to another persona's rotation while the user has an explicit selection.
+  const personas = [...personasAsc].reverse().filter((p) => {
+    if (!enabledIds.has(p.id)) return false;
+    if (preferredPersonaId != null) return p.id === preferredPersonaId;
+    return true;
+  });
 
   for (const persona of personas) {
     // Load all looks for this persona that have a generated image

@@ -289,8 +289,18 @@ export default function ContentPlan() {
     // at click time rather than after two round-trips.
     setPendingGenerateId(item.id)
 
+    // Re-assert the pinned look/avatar in this PATCH so the generation cycle always
+    // reads the correct value from DB, even if the avatar-picker PATCH is still
+    // in-flight (race condition: picker saves wavespeed_look_id async; this ensures
+    // the cycle triggers with the right avatar regardless of timing).
+    const lookPin = item.wavespeed_look_id != null
+      ? { wavespeed_look_id: item.wavespeed_look_id }
+      : item.avatar_id != null
+        ? { avatar_id: item.avatar_id }
+        : {}
+
     updateItem.mutate(
-      { id: item.id, data: { hook: draft.hook, script: draft.script, cta: draft.cta, video_effects_override: localEffects } },
+      { id: item.id, data: { hook: draft.hook, script: draft.script, cta: draft.cta, video_effects_override: localEffects, ...lookPin } },
       {
         onSuccess: () => {
           generateVideo.mutate(
