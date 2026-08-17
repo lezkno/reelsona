@@ -873,7 +873,7 @@ export default function Landing() {
               <div style={{ position: "relative", backgroundColor: "rgba(79,110,247,0.06)", border: "1px solid rgba(79,110,247,0.25)", borderRadius: 16, padding: "1.25rem 1.5rem", boxShadow: "0 0 30px rgba(79,110,247,0.1)" }}>
                 <div className="flex justify-between" style={{ fontSize: "1rem", fontWeight: 800, fontFamily: "var(--font-display,'Outfit',sans-serif)", marginBottom: "0.6rem", flexWrap: "wrap", gap: "0.25rem" }}>
                   <span style={{ color: "#e0e0e0", display: "flex", alignItems: "center", gap: 8 }}><Sparkles size={16} color="#4F6EF7" /> Reelsona — Plan Pro</span>
-                  <a href="/billing" style={{ color: "#fff", backgroundColor: "#4F6EF7", borderRadius: 8, padding: "0.25rem 0.9rem", fontSize: "0.82rem", fontWeight: 700, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>Activar plan →</a>
+                  <button onClick={() => setPlanCheckout({ planSlug: "pro", planName: "Pro", amountCents: 9700, currency: "usd", credits: 1500, interval: "month", requireEmail: true })} style={{ color: "#fff", backgroundColor: "#4F6EF7", border: "none", borderRadius: 8, padding: "0.25rem 0.9rem", fontSize: "0.82rem", fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>Activar plan →</button>
                 </div>
                 <div style={{ height: 10, backgroundColor: "#0a0a0a", borderRadius: 999, overflow: "hidden" }}>
                   <div style={{ height: "100%", width: "4%", background: "linear-gradient(90deg,#4F6EF7,#9B5CF6)", borderRadius: 999, boxShadow: "0 0 8px #4F6EF7" }} />
