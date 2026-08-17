@@ -595,16 +595,19 @@ function AdjustCreditsButton({
 
   return (
     <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setAmount(""); setReason("") } }}>
-      <DialogTrigger asChild>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary" title="Ajustar créditos">
-              <Coins className="w-3.5 h-3.5" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="left" className="text-xs">Ajustar créditos</TooltipContent>
-        </Tooltip>
-      </DialogTrigger>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost" size="icon"
+            className="h-7 w-7 text-muted-foreground hover:text-primary"
+            title="Ajustar créditos"
+            onClick={() => setOpen(true)}
+          >
+            <Coins className="w-3.5 h-3.5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="left" className="text-xs">Ajustar créditos</TooltipContent>
+      </Tooltip>
       <DialogContent className="max-w-sm">
         <DialogHeader>
           <DialogTitle>Ajustar créditos</DialogTitle>
