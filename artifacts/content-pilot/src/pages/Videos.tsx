@@ -405,6 +405,11 @@ export default function Videos() {
             const isSelected = selected.has(video.id)
             const hasPlayable = !!(video.captioned_video_url || video.video_url)
             const captionStatus = (video as any).caption_status as string | null
+            const isProcessing = !hasPlayable && (
+              video.status === 'generating' ||
+              video.status === 'publishing' ||
+              (video.status === 'ready' && (captionStatus === null || captionStatus === 'processing'))
+            )
 
             {/* Look up the avatar preview image for use as blurred background */}
             const avatarBgUrl =
@@ -476,7 +481,7 @@ export default function Videos() {
                     </div>
                   )}
 
-                  {/* Play overlay (only in normal mode) */}
+                  {/* Play overlay (only in normal mode, video ready) */}
                   {!selectMode && hasPlayable && (
                     <button
                       onClick={() => setPreviewVideo(video)}
@@ -487,6 +492,23 @@ export default function Videos() {
                         <Play className="w-6 h-6 text-black fill-black ml-0.5" />
                       </div>
                     </button>
+                  )}
+
+                  {/* Processing click — show informational toast instead of opening player */}
+                  {!selectMode && isProcessing && (
+                    <button
+                      onClick={() => {
+                        const msg =
+                          video.status === 'generating'
+                            ? 'Este video aún se está generando. Estará listo en unos minutos.'
+                            : video.status === 'publishing'
+                              ? 'Este video está siendo publicado en Instagram.'
+                              : 'Se están aplicando los efectos al video. Ya casi está listo.'
+                        toast({ title: 'Video en proceso', description: msg })
+                      }}
+                      className="absolute inset-0 flex items-center justify-center bg-transparent hover:bg-white/5 transition-colors cursor-default"
+                      aria-label="Video en proceso"
+                    />
                   )}
 
                   {/* Main status badge */}
