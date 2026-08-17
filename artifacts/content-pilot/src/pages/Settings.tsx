@@ -1,7 +1,7 @@
 import {
   useGetSettings, useUpdateSettings, useExtractBrandPalette,
   getGetSettingsQueryKey, SettingsTone, type SettingsInput,
-  useCreditsBalance,
+  useCreditsBalance, useAuthStatus,
 } from "@workspace/api-client-react"
 import { useUpload } from "@workspace/object-storage-web"
 
@@ -25,6 +25,7 @@ const WELCOME_STORAGE_KEY = "reelsona_welcome_dismissed"
 // ── Credits balance card ──────────────────────────────────────────────────────
 
 function CreditsCard() {
+  const { data: authData }  = useAuthStatus()
   const { data, isLoading } = useCreditsBalance()
 
   if (isLoading) {
@@ -39,7 +40,10 @@ function CreditsCard() {
 
   if (!data) return null
 
-  const isAdmin = data.isAdmin
+  // Derive admin status from the auth session, not from the credits cache.
+  // The credits cache uses a static query key and can serve a previous admin
+  // session's isAdmin:true to the next user until the cache expires.
+  const isAdmin = authData?.user?.role === "admin"
   const available = data.availableCredits ?? 0
   const consumed  = data.totalConsumed
   const reserved  = data.reservedCredits

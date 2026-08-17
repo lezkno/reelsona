@@ -79,11 +79,13 @@ export function useLogin() {
   });
 }
 
-/** Logout. */
+/** Logout. Clears the entire React Query cache so no user's data leaks to the next session. */
 export function useLogout() {
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: () =>
       customFetch<{ ok: boolean }>("/api/auth/logout", { method: "POST" }),
+    onSuccess: () => qc.clear(),
   });
 }
 

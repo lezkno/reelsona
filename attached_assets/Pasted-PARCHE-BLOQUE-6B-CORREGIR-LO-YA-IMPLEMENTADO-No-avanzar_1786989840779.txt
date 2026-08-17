@@ -1,0 +1,225 @@
+PARCHE BLOQUE 6B — CORREGIR LO YA IMPLEMENTADO
+
+No avanzar a ningún otro bloque. Trabaja sobre el estado actual de main.
+
+El Bloque 6B existe, pero hay comportamientos que no cumplen la especificación. Corrige y prueba lo siguiente.
+
+1. Billing sin plan — P0
+
+Caso real que está fallando:
+
+role=user autenticado + sin suscripción activa → /billing → NO aparecen los planes.
+
+Debe mostrar obligatoriamente:
+
+Basic — $29/mes — 400 créditos
+Pro — $97/mes — 1,500 créditos
+Founder — $697/año — 1,500 créditos/mes durante 12 meses
+
+Diagnosticar el flujo REAL:
+
+Billing.tsx → useBilling() → GET /api/billing → stripePriceConfigsTable
+
+Verificar en la base de datos activa que existan correctamente los registros basic, pro y founder.
+
+Si faltan, hacer UPSERT correcto sin crear duplicados y utilizando los Stripe Price IDs ya configurados.
+
+NO crear nuevos productos/precios Stripe innecesariamente.
+
+PlansSection no puede seguir haciendo silenciosamente:
+
+if (!data?.plans?.length) return null
+
+Si no se pueden cargar planes, mostrar:
+
+No pudimos cargar los planes
+
+Intenta nuevamente en unos segundos.
+
+Botón:
+
+Reintentar
+
+No considerar solucionado hasta probarlo iniciando sesión como un role=user REAL sin subscription.
+
+2. Corregir ToolRoute
+
+Actualmente mientras useBilling() todavía no tiene datos, ToolRoute renderiza el componente premium:
+
+if (!billing) return <Component />
+
+Esto es incorrecto.
+
+Mientras se determina el estado de suscripción:
+
+→ mostrar skeleton/loader.
+
+NO montar la página premium hasta conocer el estado del plan.
+
+Después:
+
+admin → permitir
+active Basic/Pro/Founder → según feature
+no active plan → bloquear según matriz.
+
+3. /avatars NO debe estar bloqueado completamente
+
+Quitar /avatars del ToolRoute global.
+
+Usuario sin plan debe poder entrar a Avatares y:
+
+visualizar biblioteca de Avatares públicos;
+visualizar sus Avatares AI propios históricos;
+visualizar assets ya existentes.
+
+Pero NO puede:
+
+crear Avatar AI;
+usar avatar para generar;
+crear look;
+clonar voz;
+ejecutar operaciones con costo.
+
+Al intentar cualquiera:
+
+Función Premium
+
+Necesitas un plan activo de Reelsona para usar esta función.
+
+Botón:
+
+Ver planes → /billing
+
+Backend debe continuar bloqueando las operaciones, no solamente UI.
+
+4. Estudio Estratégico / Radar
+
+Probar específicamente role=user.
+
+La función NO requiere rol admin.
+
+La lógica debe ser:
+
+autenticado → plan activo → Instagram conectado → analizar.
+
+Sin plan:
+
+Esta función requiere un plan activo
+
+botón Ver planes.
+
+Plan activo sin Instagram:
+
+Conecta tu cuenta para continuar
+
+botón Conectar cuenta.
+
+Plan activo + Instagram:
+
+análisis disponible.
+
+Nunca mostrar al usuario:
+
+Apify
+
+Apify desconectado
+
+modo manual
+
+nombres de proveedores/modelos.
+
+5. Caption / Effects Studio
+
+Usuario sin plan puede llegar a la pantalla si corresponde al diseño, pero no modificar funciones premium.
+
+Al activar Caption, efectos, templates, presets, etc.:
+
+mostrar PremiumModal.
+
+No mostrar:
+
+No se pudo actualizar
+
+ni un 403 técnico.
+
+Backend:
+
+plan_required
+
+6. Videos históricos
+
+Usuario sin plan:
+
+puede ver sus videos ya creados;
+puede descargar sus videos existentes.
+
+NO puede:
+
+generar nuevos;
+regenerar;
+publicar;
+programar;
+ejecutar operaciones que consuman créditos.
+7. Créditos
+
+Usuario sin plan:
+
+conserva créditos adicionales comprados;
+puede ver su saldo;
+NO puede utilizarlos;
+NO puede comprar top-ups nuevos.
+
+Reactiva plan → recupera inmediatamente posibilidad de utilizar los créditos comprados.
+
+8. Prueba REAL obligatoria
+
+No responder solamente con unit tests.
+
+Usar un usuario normal role=user SIN plan activo y probar manualmente:
+
+Login funciona.
+Dashboard carga.
+/billing muestra Basic, Pro y Founder.
+Los tres tienen precio correcto.
+/avatars carga.
+Avatares públicos son visibles.
+Crear/usar avatar abre PremiumModal.
+/videos muestra historial.
+Generar nuevo video queda bloqueado.
+Radar no muestra Apify.
+Analizar cuenta muestra modal de plan.
+Caption toggle muestra modal premium.
+Top-up está bloqueado.
+/connect sigue accesible.
+
+Luego probar un role=user Basic activo para confirmar que estas funciones vuelven a habilitarse según la matriz.
+
+9. No modificar
+
+No cambiar:
+
+Basic $29 / 400 cr
+Pro $97 / 1,500 cr
+Founder $697/año / 1,500 cr mensuales
+Reel 50 cr / 30 s
+límites de avatares
+costos de looks/voces
+Stripe lifecycle
+Founder grants
+B-roll.
+
+10. Entrega
+
+Ejecutar TypeScript/build/tests.
+
+Hacer commit + push a main.
+
+Indicar:
+
+SHA;
+archivos modificados;
+resultado de tests;
+resultado de la prueba manual con usuario sin plan;
+qué devolvió /api/billing para ese usuario (plans y slugs, sin exponer secretos).
+
+NO comenzar otro bloque.
