@@ -405,6 +405,7 @@ function LooksDialogV3({
   onClose,
   onLooksLoaded,
   saveStatus = "idle",
+  onPlanRequired,
 }: {
   group: V3Group
   isOwned?: boolean
@@ -416,10 +417,13 @@ function LooksDialogV3({
   onClose: () => void
   onLooksLoaded?: (groupId: string, looks: V3Look[]) => void
   saveStatus?: "idle" | "saving" | "saved"
+  /** Called when a plan-gated action is attempted without an active plan. */
+  onPlanRequired?: () => void
 }) {
   const { data, isLoading, refetch } = useGetV3GroupLooks(group.id)
   const queryClient = useQueryClient()
   const { toast } = useToast()
+  const lookDialogAccessState = useAccessState()
 
   const [newLookOpen, setNewLookOpen] = useState(false)
   const [selectMode, setSelectMode] = useState(false)
@@ -752,7 +756,13 @@ function LooksDialogV3({
                       </Button>
                     )}
                     {isOwned && looks.length > 0 && (
-                      <Button variant="outline" onClick={() => setNewLookOpen(true)} className="gap-2">
+                      <Button variant="outline" onClick={() => {
+                        if (!canUseFeature(lookDialogAccessState, "create_look")) {
+                          onPlanRequired?.()
+                          return
+                        }
+                        setNewLookOpen(true)
+                      }} className="gap-2">
                         <Plus className="w-4 h-4" />
                         Nuevo look
                       </Button>
@@ -4189,6 +4199,10 @@ export default function Avatars() {
 
   // ── Handlers ──────────────────────────────────────────────────────────────
   const toggleLook = (id: string) => {
+    if (!canUseFeature(accessState, "use_public_avatar")) {
+      setPremiumOpen(true)
+      return
+    }
     const newSet = new Set(selectedIds)
     if (newSet.has(id)) newSet.delete(id)
     else newSet.add(id)
@@ -5108,7 +5122,10 @@ export default function Avatars() {
             setOpenWavespeedPersona(null)
             void refetchWavespeed()
           }}
-          onNewLook={() => setShowCreateLookForPersona(true)}
+          onNewLook={() => {
+            if (!canUseFeature(accessState, "create_look")) { setPremiumOpen(true); return }
+            setShowCreateLookForPersona(true)
+          }}
         />
       )}
 
@@ -5139,6 +5156,7 @@ export default function Avatars() {
           onClose={() => { setOpenGroup(null); setDialogSaveStatus("idle") }}
           onLooksLoaded={handleLooksLoaded}
           saveStatus={dialogSaveStatus}
+          onPlanRequired={() => setPremiumOpen(true)}
         />
       )}
     </div>

@@ -1,0 +1,175 @@
+AJUSTE ACCESS MATRIX — AVATARES + STUDIO DE EFECTOS
+
+Aplicar estas dos reglas sobre el sistema actual de permisos. No cambiar precios, créditos, límites de planes ni otras funciones.
+
+1. AVATARES — USUARIO SIN PLAN
+
+La página /avatars SÍ debe permanecer accesible para un role=user sin plan activo.
+
+El objetivo es que pueda explorar lo que ofrece Reelsona y conservar acceso visual a sus recursos históricos.
+
+Sin plan puede:
+
+ver la biblioteca de Avatares públicos;
+abrir/explorar los Avatares públicos;
+ver sus Avatares AI históricos;
+ver sus looks existentes;
+ver que existe la función de clonación de voz.
+
+Pero NO puede ejecutar ninguna acción premium.
+
+Deben quedar bloqueadas:
+
+seleccionar/usar un Avatar público;
+crear Avatar AI personalizado;
+crear un nuevo look;
+clonar una voz;
+seleccionar/configurar algo que genere costo;
+generar contenido desde un avatar;
+cualquier operación que consuma créditos o cree un nuevo recurso.
+
+Cuando un usuario sin plan intente cualquiera de esas acciones, utilizar un único paywall reutilizable con exactamente este mensaje:
+
+Función disponible con plan activo
+
+Activa un plan de Reelsona para acceder a esta función. Tus proyectos y recursos siguen guardados.
+
+CTA principal:
+
+Ver planes
+
+→ /billing
+
+No abrir detrás del modal el flujo que el usuario intentaba ejecutar.
+
+No llamar APIs que generen costo antes de comprobar el plan.
+
+Backend debe mantener la protección con:
+
+plan_required
+
+y frontend debe convertir ese estado en el paywall, no mostrar un 403 técnico.
+
+Caso especialmente importante: Avatar público.
+
+La biblioteca debe cargar aunque el usuario no tenga plan.
+
+Flujo esperado:
+
+user sin plan
+→ Avatares
+→ ve biblioteca pública
+→ selecciona un Avatar público
+→ aparece:
+
+Función disponible con plan activo
+
+Activa un plan de Reelsona para acceder a esta función. Tus proyectos y recursos siguen guardados.
+
+→ Ver planes
+→ /billing
+
+Exactamente el mismo comportamiento debe ocurrir con:
+
+Crear Avatar AI
+
+Crear look
+
+Clonar voz
+
+No crear mensajes diferentes para cada caso cuando la causa es la misma: ausencia de plan.
+
+2. STUDIO DE EFECTOS — USUARIO SIN PLAN
+
+Aquí la regla es diferente a Avatares.
+
+/captions / Studio de Efectos NO debe estar disponible funcionalmente para un usuario sin plan activo.
+
+No queremos utilizar Studio de Efectos como showroom.
+
+Cuando un role=user sin plan entre a Studio de Efectos:
+
+NO mostrar:
+
+Caption Studio;
+toggles;
+efectos;
+presets;
+templates;
+cards;
+configuraciones;
+controles de edición.
+
+Tampoco ejecutar innecesariamente APIs premium para cargar esas configuraciones.
+
+En su lugar, bloquear el contenido completo de la página y mostrar:
+
+Función disponible con plan activo
+
+Activa un plan de Reelsona para acceder a esta función. Tus proyectos y recursos siguen guardados.
+
+CTA:
+
+Ver planes
+
+→ /billing
+
+Basic activo → acceso normal al Studio de Efectos.
+
+Pro activo → acceso normal.
+
+Founder activo → acceso normal.
+
+Admin → acceso independientemente de subscription.
+
+Backend debe continuar protegiendo endpoints premium.
+
+3. IMPORTANTE — NO CONFUNDIR LAS DOS REGLAS
+
+Avatares sin plan:
+
+página visible + recursos visibles + acciones bloqueadas.
+
+Studio de Efectos sin plan:
+
+página bloqueada completamente + paywall.
+
+4. PRUEBAS MANUALES OBLIGATORIAS
+
+Probar con un role=user REAL sin plan:
+
+Avatares
+
+/avatars carga ✅
+
+Avatares públicos visibles ✅
+
+Seleccionar Avatar público → paywall ✅
+
+Crear Avatar AI → paywall ✅
+
+Crear look → paywall ✅
+
+Clonar voz → paywall ✅
+
+Ninguna de esas acciones ejecuta API con costo ✅
+
+Studio de Efectos
+
+/captions → contenido premium NO visible ✅
+
+aparece directamente:
+
+Función disponible con plan activo ✅
+
+botón Ver planes → /billing ✅
+
+Probar después con Basic activo:
+
+Avatares → funcionamiento normal según límite de 1 Avatar AI ✅
+
+Studio de Efectos → acceso normal ✅
+
+No modificar ninguna otra regla de Access Matrix.
+
+Ejecutar build/tests y hacer commit + push. Indicar SHA y archivos modificados.

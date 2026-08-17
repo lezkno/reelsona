@@ -1,0 +1,99 @@
+BILLING — GESTIÓN DE SUSCRIPCIÓN + HISTORIAL DE PAGOS
+
+Revisar y completar Billing para usuarios con suscripción.
+
+1. Historial de pagos
+
+Añadir sección:
+
+Historial de pagos
+
+Obtener desde Stripe las facturas/pagos correspondientes exclusivamente al stripeCustomerId del usuario autenticado.
+
+Mostrar:
+
+fecha;
+concepto;
+importe;
+estado;
+enlace Ver factura/recibo cuando Stripe lo proporcione.
+
+Incluir pagos de suscripción y compras de créditos adicionales.
+
+Nunca permitir consultar pagos de otro usuario.
+
+Si no existen:
+
+Aún no tienes pagos registrados.
+
+2. Método de pago
+
+Añadir botón visible:
+
+Cambiar método de pago
+
+Utilizar Stripe Customer Portal existente.
+
+No almacenar números de tarjeta en Reelsona.
+
+3. Administrar suscripción
+
+Mantener acceso al Stripe Customer Portal pero cambiar el texto genérico Administrar por:
+
+Administrar suscripción
+
+4. Cancelación
+
+Añadir acción visible:
+
+Cancelar suscripción
+
+Antes de cancelar mostrar modal:
+
+¿Cancelar tu suscripción?
+
+Mantendrás acceso a Reelsona hasta el final de tu período de facturación actual. Tus proyectos, videos, avatares y créditos adicionales permanecerán guardados.
+
+Botones:
+
+Mantener mi plan
+
+Cancelar al finalizar el período
+
+La cancelación debe usar cancel_at_period_end.
+
+NO cancelar inmediatamente.
+
+Después mostrar:
+
+Tu suscripción se cancelará el [fecha].
+
+Mantener el estado existente cancelAtPeriodEnd.
+
+5. Founder
+
+No aplicar una lógica mensual de cancelación como Basic/Pro sin revisar primero la naturaleza anual del Founder.
+
+Founder debe mostrar correctamente su período anual y los grants mensuales restantes.
+
+6. Seguridad
+
+Todos los endpoints deben obtener userId y stripeCustomerId desde la sesión/DB.
+
+Nunca aceptar stripeCustomerId arbitrario enviado desde frontend.
+
+7. Pruebas
+
+Probar:
+
+Basic activo → historial + método pago + cancelar.
+
+Pro activo → historial + método pago + cancelar.
+
+canceled-at-period-end → fecha correcta y no duplicar cancelación.
+
+user sin plan → historial anterior visible si existe, pero sin botones de cancelar/cambiar método salvo que todavía exista Customer de Stripe donde tenga sentido.
+
+user A nunca puede consultar facturas de user B.
+
+No modificar precios, créditos ni lifecycle existente.

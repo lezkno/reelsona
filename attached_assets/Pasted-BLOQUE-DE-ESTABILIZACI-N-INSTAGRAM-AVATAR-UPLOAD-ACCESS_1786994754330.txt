@@ -1,0 +1,407 @@
+BLOQUE DE ESTABILIZACIÓN — INSTAGRAM + AVATAR UPLOAD + ACCESS MATRIX
+
+No avanzar con nuevos features. No tocar precios, Stripe lifecycle, Founder, créditos, límites de avatares, B-roll ni lógica comercial aprobada.
+
+Objetivo: corregir regresiones y validar los tres estados principales:
+
+role=user sin plan
+role=user Basic activo
+role=admin
+
+1. INSTAGRAM OAUTH — P0
+
+Actualmente /connect es accesible sin plan, pero hay que asegurar que el flujo completo OAuth funcione para un usuario autenticado aunque no tenga plan activo.
+
+Permitir específicamente sin plan:
+
+GET /instagram/account
+GET /instagram/auth-url
+POST /instagram/callback
+disconnect
+reconnect
+refresh token/conexión
+
+NO abrir todo /instagram.
+
+Mantener bloqueado sin plan:
+
+posts/insights operativos
+análisis estratégico
+Radar
+publicación
+scheduling
+generación
+cualquier función premium
+
+Revisar requireToolAccess.ts para que los endpoints de administración de conexión tengan bypass explícito.
+
+Además corregir InstagramConnectCard:
+
+abrir popup inmediatamente desde el click:
+
+const popup = window.open("about:blank", ...)
+
+luego pedir /api/instagram/auth-url.
+
+Si llega URL:
+
+popup.location.href = url
+
+Si popup fue bloqueado:
+
+window.location.href = url
+
+Si falla el endpoint:
+
+cerrar popup y mostrar toast claro.
+
+No mostrar 403 técnico.
+
+2. PROBAR OAUTH REAL
+
+Con un role=user sin plan:
+
+entrar a Instagram
+clic en Conectar con Meta
+debe abrir OAuth
+autorizar
+callback debe completar
+/connect debe mostrar cuenta conectada
+
+No considerar terminado si solo pasan unit tests.
+
+3. AVATAR AI DESDE FOTO — 403
+
+Caso reportado:
+
+role=user con Basic activo → crear Avatar AI → subir foto → failed 403
+
+Auditar flujo completo:
+
+archivo
+→ upload request
+→ storage
+→ ownership
+→ crear avatar
+→ 3 looks iniciales gratis.
+
+Revisar si storage/upload quedó protegido incorrectamente por admin o tool access.
+
+Reglas:
+
+Basic activo → puede crear 1 Avatar AI
+
+Pro/Founder → hasta 3
+
+sin plan → PremiumModal, no 403
+
+Los 3 looks iniciales no consumen créditos.
+
+Verificar JPG, PNG y WEBP.
+
+Verificar que un usuario no pueda leer archivos de otro usuario.
+
+4. AVATARES SIN PLAN
+
+/avatars debe seguir accesible sin plan.
+
+Usuario sin plan puede:
+
+ver avatares públicos
+ver sus avatares históricos
+ver looks existentes
+
+No puede:
+
+crear avatar
+usar avatar para generar
+crear look
+clonar voz
+
+Cada acción bloqueada debe abrir PremiumModal.
+
+5. ACCESS MATRIX — PRUEBA REAL
+
+Validar que la matriz central existente se cumpla realmente.
+
+User sin plan
+
+Puede:
+
+Dashboard
+Billing
+Instagram connect
+Videos históricos
+Avatares públicos
+Perfil
+
+No puede:
+
+Audit
+generar Reel
+Caption/Effects
+crear avatar
+looks
+voz
+publicar
+schedule
+AutoPilot
+top-ups
+Basic
+
+Puede:
+
+Audit
+generar Reel
+Caption Studio
+avatares públicos
+1 Avatar AI
+publicación manual
+
+No puede:
+
+AutoPilot
+Pro/Founder
+
+Todo Basic +
+
+AutoPilot
+hasta 3 Avatar AI
+Admin
+
+acceso administrativo sin depender de plan.
+
+6. AUDIT / RADAR
+
+La lógica debe ser:
+
+autenticado
+→ plan activo
+→ Instagram conectado
+→ permitir analizar
+
+Sin plan:
+
+modal:
+
+Esta función requiere un plan activo
+
+botón:
+
+Ver planes
+
+Con plan sin IG:
+
+mostrar InstagramConnectCard
+
+Con plan + IG:
+
+permitir análisis.
+
+Nunca mostrar:
+
+Apify
+modo manual
+nombres de proveedores/modelos
+7. CAPTION / EFFECTS STUDIO
+
+Sin plan:
+
+puede entrar si la página está diseñada así, pero ningún toggle o preset puede modificar configuración.
+
+Al intentar:
+
+caption
+effect
+preset
+template
+card config
+
+mostrar:
+
+Función Premium
+
+botón:
+
+Ver planes
+
+Backend:
+
+plan_required
+
+No mostrar:
+
+No se pudo actualizar
+
+ni 403 técnico.
+
+8. VIDEOS SIN PLAN
+
+Puede:
+
+ver
+reproducir
+descargar históricos
+
+No puede:
+
+generar
+regenerar
+publicar
+programar
+reprocesar
+aplicar captions
+
+Todas las acciones bloqueadas → PremiumModal.
+
+9. LOGOUT
+
+Ya existe fix de cache.
+
+Probar:
+
+login
+→ logout
+
+Debe:
+
+cerrar sesión inmediatamente
+limpiar React Query
+redirigir
+no requerir refresh
+
+Después abrir /dashboard manualmente:
+
+debe pedir login.
+
+10. PERFORMANCE
+
+Validar que no se reintenten 4xx.
+
+Probar navegación entre:
+
+Dashboard
+Billing
+Instagram
+Audit
+Avatares
+Videos
+Caption Studio
+
+Si alguna página tarda varios segundos:
+
+identificar endpoint exacto y tiempo.
+
+No hacer refactor grande todavía.
+
+11. NO EXPONER INFRAESTRUCTURA
+
+Buscar user-facing:
+
+ContentPilot
+Apify
+HeyGen
+Heygey
+Wavespeed
+InfiniteTalk
+Seedream
+nombres de modelos
+
+Todo texto visible debe usar Reelsona y terminología de producto.
+
+No renombrar carpetas/imports internos salvo que sea necesario.
+
+12. NO CAMBIAR
+
+Mantener:
+
+Basic $29 / 400
+
+Pro $97 / 1,500
+
+Founder $697/año / 1,500 mensual
+
+Reel 50 cr / 30 s
+
+Basic 1 Avatar AI
+
+Pro/Founder 3
+
+3 looks iniciales gratis
+
+look adicional 2 cr
+
+primera voz gratis
+
+siguiente voz 10 cr
+
+B-roll actual
+
+Stripe lifecycle
+
+Founder grants
+
+13. PRUEBAS OBLIGATORIAS
+
+Probar manualmente:
+
+A. User sin plan
+
+Instagram OAuth ✅
+
+Avatares públicos ✅
+
+crear avatar bloqueado ✅
+
+Videos históricos ✅
+
+Audit bloqueado ✅
+
+Caption bloqueado ✅
+
+top-up bloqueado ✅
+
+B. Basic
+
+Instagram OAuth ✅
+
+upload foto avatar ✅
+
+crea avatar #1 ✅
+
+3 looks gratis ✅
+
+Audit ✅
+
+Reel ✅
+
+Caption ✅
+
+AutoPilot bloqueado ✅
+
+C. Admin
+
+acceso admin ✅
+
+sin dependencia de subscription ✅
+
+logout/login entre cuentas sin contaminación de caché ✅
+
+14. ENTREGA
+
+Al terminar:
+
+TypeScript/build/tests
+commit
+push a main
+SHA
+archivos modificados
+resultado pruebas A/B/C
+resultado específico de:
+Instagram OAuth
+Avatar photo upload
+Audit
+Caption Studio
+Logout
+
+NO comenzar otro bloque.

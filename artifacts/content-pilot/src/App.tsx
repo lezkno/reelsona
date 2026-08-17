@@ -138,8 +138,10 @@ function Router() {
         <Route path="/avatars">
           {() => <Avatars />}
         </Route>
+
+        {/* Caption Studio — full wall for no-plan users; no UI or API calls rendered */}
         <Route path="/captions">
-          {() => <CaptionStudio />}
+          {() => <ToolRoute component={CaptionStudio} />}
         </Route>
 
         <Route component={NotFound} />

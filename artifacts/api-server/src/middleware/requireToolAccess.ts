@@ -99,9 +99,34 @@ const NOPLAN_BYPASS_PREFIXES = [
 // POST/PUT/DELETE on the same paths must still be protected.
 //   • /videos             — view/download historical videos without a plan
 //   • /instagram/account  — view connection status on /connect page
+//
+// Avatars page — display-only so no-plan users can browse the library
+// and see their historical resources (actions are gated in the frontend):
+//   • /heygen/public-avatar-groups  — public avatar library
+//   • /heygen/my-avatar-groups      — user's own avatar groups
+//   • /heygen/avatar-groups         — group + looks metadata
+//   • /heygen/v3-groups             — v3 group looks
+//   • /heygen/avatar-config         — read avatar config
+//   • /heygen/voices                — voices list (show cloning exists)
+//   • /heygen/looks                 — look reverse-lookup
+//   • /heygen/audio-proxy           — voice audio preview
+//   • /heygen/avatars/looks         — look status polling
+//   • /wavespeed/personas           — WaveSpeed persona list + status
+//   • /wavespeed/voices             — WaveSpeed voice list + status
 const NOPLAN_BYPASS_GET_PREFIXES = [
   "/videos",
   "/instagram/account",
+  "/heygen/public-avatar-groups",
+  "/heygen/my-avatar-groups",
+  "/heygen/avatar-groups",
+  "/heygen/v3-groups",
+  "/heygen/avatar-config",
+  "/heygen/voices",
+  "/heygen/looks",
+  "/heygen/audio-proxy",
+  "/heygen/avatars/looks",
+  "/wavespeed/personas",
+  "/wavespeed/voices",
 ] as const;
 
 const BYPASS_EXACT = ["/healthz", "/dashboard"] as const;
