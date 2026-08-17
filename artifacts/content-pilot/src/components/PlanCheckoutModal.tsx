@@ -90,9 +90,10 @@ function accentFor(slug: string): string {
 // ── Modal ─────────────────────────────────────────────────────────────────────
 
 export function PlanCheckoutModal({ config, onClose }: Props) {
-  const [step,         setStep]         = useState<Step>(
-    config?.requireEmail ? "email" : "stripe",
-  );
+  // Always start at the "email" step so the user sees the Reelsona plan
+  // summary first.  For authenticated users the email field is hidden and
+  // createSession is triggered on "Continuar al pago" click, not on mount.
+  const [step,         setStep]         = useState<Step>("email");
   const [email,        setEmail]        = useState(config?.email ?? "");
   const [fullName,     setFullName]     = useState("");
   const [clientSecret, setClientSecret] = useState<string | null>(null);
@@ -113,13 +114,6 @@ export function PlanCheckoutModal({ config, onClose }: Props) {
         }
       })
       .catch(() => setError("Error al conectar con el servidor de pagos."));
-  }, []);
-
-  // Authenticated flow: no email needed → create session immediately
-  useEffect(() => {
-    if (!config || config.requireEmail || sessionCreated.current) return;
-    createSession(config.email ?? "");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const createSession = useCallback(
@@ -168,13 +162,18 @@ export function PlanCheckoutModal({ config, onClose }: Props) {
   const handleEmailSubmit = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
+      // Authenticated users skip the email step — use the pre-filled email
+      if (!config?.requireEmail) {
+        await createSession(config?.email ?? "");
+        return;
+      }
       if (!email.includes("@")) {
         setError("Ingresa un email válido");
         return;
       }
       await createSession(email, fullName);
     },
-    [email, fullName, createSession],
+    [config, email, fullName, createSession],
   );
 
   if (!config) return null;
@@ -291,44 +290,49 @@ export function PlanCheckoutModal({ config, onClose }: Props) {
               onSubmit={handleEmailSubmit}
               style={{ padding: 20, display: "flex", flexDirection: "column", gap: 14 }}
             >
-              {/* Name */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                <label style={{ color: "#999", fontSize: "0.78rem", fontWeight: 500 }}>
-                  Nombre completo{" "}
-                  <span style={{ color: "#444" }}>(opcional)</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="Tu nombre"
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  style={inputBase}
-                  onFocus={(e) => (e.target.style.borderColor = "#4F6EF7")}
-                  onBlur={(e)  => (e.target.style.borderColor = "#2a2a2a")}
-                />
-              </div>
+              {/* Name + Email — only shown for unauthenticated (landing) flow */}
+              {config.requireEmail && (
+                <>
+                  {/* Name */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                    <label style={{ color: "#999", fontSize: "0.78rem", fontWeight: 500 }}>
+                      Nombre completo{" "}
+                      <span style={{ color: "#444" }}>(opcional)</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Tu nombre"
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                      style={inputBase}
+                      onFocus={(e) => (e.target.style.borderColor = "#4F6EF7")}
+                      onBlur={(e)  => (e.target.style.borderColor = "#2a2a2a")}
+                    />
+                  </div>
 
-              {/* Email */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                <label style={{ color: "#999", fontSize: "0.78rem", fontWeight: 500 }}>
-                  Email <span style={{ color: "#f87171" }}>*</span>
-                </label>
-                <input
-                  type="email"
-                  placeholder="tu@email.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  style={inputBase}
-                  onFocus={(e) => (e.target.style.borderColor = "#4F6EF7")}
-                  onBlur={(e)  => (e.target.style.borderColor = "#2a2a2a")}
-                />
-                <p style={{ color: "#444", fontSize: "0.7rem" }}>
-                  {isTopup
-                    ? "Los créditos se acreditarán en esta cuenta."
-                    : "Tu acceso se activa en este email tras el pago."}
-                </p>
-              </div>
+                  {/* Email */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                    <label style={{ color: "#999", fontSize: "0.78rem", fontWeight: 500 }}>
+                      Email <span style={{ color: "#f87171" }}>*</span>
+                    </label>
+                    <input
+                      type="email"
+                      placeholder="tu@email.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      required
+                      style={inputBase}
+                      onFocus={(e) => (e.target.style.borderColor = "#4F6EF7")}
+                      onBlur={(e)  => (e.target.style.borderColor = "#2a2a2a")}
+                    />
+                    <p style={{ color: "#444", fontSize: "0.7rem" }}>
+                      {isTopup
+                        ? "Los créditos se acreditarán en esta cuenta."
+                        : "Tu acceso se activa en este email tras el pago."}
+                    </p>
+                  </div>
+                </>
+              )}
 
               {/* Error */}
               {error && (
@@ -348,26 +352,27 @@ export function PlanCheckoutModal({ config, onClose }: Props) {
               {/* Submit */}
               <button
                 type="submit"
-                disabled={!canSubmit}
+                disabled={config.requireEmail ? !canSubmit : loading}
                 style={{
                   display:        "flex",
                   alignItems:     "center",
                   justifyContent: "center",
                   gap:            8,
-                  background:     canSubmit ? accentFor(config.planSlug) : "#1a1a1a",
-                  color:          canSubmit ? "#fff" : "#444",
+                  background:     (config.requireEmail ? canSubmit : !loading)
+                    ? accentFor(config.planSlug) : "#1a1a1a",
+                  color:          (config.requireEmail ? canSubmit : !loading) ? "#fff" : "#444",
                   border:         "none",
                   borderRadius:   12,
                   padding:        "14px",
                   fontWeight:     700,
                   fontSize:       "0.95rem",
-                  cursor:         canSubmit ? "pointer" : "not-allowed",
+                  cursor:         (config.requireEmail ? canSubmit : !loading) ? "pointer" : "not-allowed",
                   transition:     "opacity 0.15s",
                   letterSpacing:  "0.01em",
                 }}
               >
                 {loading
-                  ? <><Loader2 size={16} className="animate-spin" /> Cargando…</>
+                  ? <><Loader2 size={16} className="animate-spin" /> Procesando…</>
                   : <>Continuar al pago <ArrowRight size={15} /></>
                 }
               </button>
