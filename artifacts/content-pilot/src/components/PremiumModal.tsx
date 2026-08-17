@@ -1,13 +1,14 @@
 /**
  * PremiumModal — reusable paywall dialog.
  *
- * Use whenever a gated action is attempted without an active plan.
- * Title, description, CTA label and href are all configurable.
+ * Matches the NoAccessWall standard: same title, description and CTA
+ * so every access gate looks identical across the app.
+ * Title, description, CTA label and href are configurable for edge cases.
  */
 
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { Sparkles } from "lucide-react"
+import { Lock, ArrowRight } from "lucide-react"
 import { Link } from "wouter"
 
 interface PremiumModalProps {
@@ -22,8 +23,8 @@ interface PremiumModalProps {
 export function PremiumModal({
   open,
   onClose,
-  title       = "Función Premium",
-  description = "Necesitas un plan activo de Reelsona para usar esta función.",
+  title       = "Función disponible con plan activo",
+  description = "Activa un plan de Reelsona para acceder a esta función. Tus proyectos y recursos siguen guardados.",
   ctaLabel    = "Ver planes",
   ctaHref     = "/billing",
 }: PremiumModalProps) {
@@ -32,7 +33,7 @@ export function PremiumModal({
       <DialogContent className="max-w-sm">
         <DialogHeader>
           <div className="flex items-center gap-2 mb-1">
-            <Sparkles className="w-5 h-5 text-primary shrink-0" />
+            <Lock className="w-5 h-5 text-muted-foreground shrink-0" />
             <DialogTitle>{title}</DialogTitle>
           </div>
           <DialogDescription>{description}</DialogDescription>
@@ -41,8 +42,8 @@ export function PremiumModal({
           <Button variant="outline" onClick={onClose} className="w-full sm:w-auto">
             Cancelar
           </Button>
-          <Button asChild className="w-full sm:w-auto" onClick={onClose}>
-            <Link href={ctaHref}>{ctaLabel} →</Link>
+          <Button asChild className="gap-2 w-full sm:w-auto" onClick={onClose}>
+            <Link href={ctaHref}>{ctaLabel} <ArrowRight className="w-4 h-4" /></Link>
           </Button>
         </DialogFooter>
       </DialogContent>

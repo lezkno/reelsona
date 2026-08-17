@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge"
 import { useQueryClient, useQuery } from "@tanstack/react-query"
 import { useToast } from "@/hooks/use-toast"
 import { useEffect, useState } from "react"
-import { Zap, Clock, CalendarDays, Plus, X, Lock, ExternalLink, Sparkles, CheckCircle2, Circle, Globe, PauseCircle, Eye } from "lucide-react"
+import { Zap, Clock, CalendarDays, Plus, X, Lock, ExternalLink, Sparkles, CheckCircle2, Circle, Globe, PauseCircle, Eye, ArrowRight } from "lucide-react"
 
 type RecommendedSlot = { time: string; label: string; reason: string }
 type RecommendedTimesResponse = {
@@ -163,14 +163,19 @@ export default function Automation() {
         <div className="flex items-center gap-3 rounded-xl border border-violet-500/30 bg-violet-500/5 px-5 py-4">
           <Lock className="w-5 h-5 shrink-0 text-violet-400" />
           <div className="flex-1 min-w-0">
-            <p className="font-semibold text-sm text-violet-300">AutoPilot disponible en Plan Pro</p>
+            <p className="font-semibold text-sm text-violet-300">Función disponible con plan activo</p>
             <p className="text-xs text-violet-400/70 mt-0.5">
-              Upgrade a Pro para publicar en automático, programar horarios y gestionar el flujo completo.
+              Activa un plan de Reelsona para acceder a esta función. Tus proyectos y recursos siguen guardados.
             </p>
           </div>
-          <a href="/billing" className="shrink-0 text-xs font-bold text-violet-400 hover:text-violet-300 border border-violet-500/30 rounded-lg px-3 py-1.5 transition-colors">
-            Ver planes →
-          </a>
+          <Button
+            size="sm"
+            variant="outline"
+            className="shrink-0 gap-1.5"
+            onClick={() => window.location.href = "/billing"}
+          >
+            Ver planes <ArrowRight className="w-3.5 h-3.5" />
+          </Button>
         </div>
       )}
 

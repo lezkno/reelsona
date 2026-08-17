@@ -28,6 +28,7 @@ import {
   type NicheRadarAccount,
 } from "@workspace/api-client-react"
 import { InstagramConnectCard } from "@/components/InstagramConnectCard"
+import { NoAccessWall } from "@/components/NoAccessWall"
 import {
   TrendingUp, Users, Clock, BarChart2, Target, Lightbulb, Zap,
   AlertTriangle, CheckCircle2, Circle, RefreshCw, Loader2, Plus,
@@ -885,24 +886,7 @@ export default function Audit() {
   }
 
   if (!isAdminUser && !hasActiveSub) {
-    return (
-      <div className="flex items-center justify-center py-16 px-4">
-        <div className="text-center space-y-4 max-w-sm">
-          <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mx-auto">
-            <Lock className="w-6 h-6 text-muted-foreground" />
-          </div>
-          <div className="space-y-1.5">
-            <h3 className="font-semibold text-lg">Esta función requiere un plan activo</h3>
-            <p className="text-sm text-muted-foreground">
-              Activa un plan de Reelsona para acceder al Estudio Estratégico, Radar de Nicho y más.
-            </p>
-          </div>
-          <Button onClick={() => navigate("/billing")} className="gap-2">
-            Ver planes <ArrowRight className="w-4 h-4" />
-          </Button>
-        </div>
-      </div>
-    )
+    return <NoAccessWall py="py-16" />
   }
 
   if (!igConnected) {

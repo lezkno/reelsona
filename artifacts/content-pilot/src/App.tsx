@@ -2,9 +2,10 @@ import { Route, Switch, Router as WouterRouter, useLocation } from "wouter"
 import { QueryClient, QueryClientProvider, QueryCache } from "@tanstack/react-query"
 import { Toaster } from "@/components/ui/toaster"
 import { TooltipProvider } from "@/components/ui/tooltip"
-import { Loader2, Lock } from "lucide-react"
+import { Loader2 } from "lucide-react"
 
 import { Layout } from "@/components/layout/Layout"
+import { NoAccessWall } from "@/components/NoAccessWall"
 import NotFound from "@/pages/not-found"
 import Dashboard from "@/pages/Dashboard"
 import Connect from "@/pages/Connect"
@@ -65,31 +66,8 @@ const queryClient = new QueryClient({
   },
 })
 
-/**
- * Plan-required screen — shown instead of the page when the user has no active plan.
- * Accessible pages (Dashboard, Billing, etc.) are NOT wrapped in ToolRoute.
- */
-function NoPlanScreen() {
-  return (
-    <div className="flex flex-col items-center justify-center py-24 px-4 text-center gap-6 max-w-sm mx-auto">
-      <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center">
-        <Lock className="w-8 h-8 text-muted-foreground" />
-      </div>
-      <div>
-        <h2 className="text-xl font-bold font-display mb-2">Tu plan no está activo</h2>
-        <p className="text-sm text-muted-foreground">
-          Activa un plan de Reelsona para acceder a esta función. Tus proyectos y recursos siguen guardados.
-        </p>
-      </div>
-      <a
-        href="/billing"
-        className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors"
-      >
-        Ver planes →
-      </a>
-    </div>
-  )
-}
+// NoPlanScreen delegates to the shared NoAccessWall so all access gates
+// look identical across the app.
 
 /**
  * Renders the given component only if the user has an active plan subscription.
@@ -116,7 +94,7 @@ function ToolRoute({ component: Component }: { component: React.ComponentType })
 
   const sub = billing?.subscription
   const hasActiveSub = sub && ["active", "trialing"].includes(sub.status ?? "")
-  if (!hasActiveSub) return <NoPlanScreen />
+  if (!hasActiveSub) return <NoAccessWall />
 
   return <Component />
 }
