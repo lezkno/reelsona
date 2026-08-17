@@ -1,0 +1,235 @@
+BLOQUE 5 — Founder: renovación mensual de créditos según fecha real de compra
+
+Trabaja sobre el estado actual posterior al Bloque 4 aprobado. No modificar Stripe upgrade/downgrade, precios, límites, B-roll, Landing, Billing comercial ni Admin en este bloque.
+
+1. Problema actual
+
+El grant de Founder corre actualmente el día 1 de cada mes y usa una ventana de 28 días.
+
+Esto debe cambiar.
+
+Founder debe recibir sus créditos aproximadamente en el aniversario mensual de la fecha de activación/primer grant.
+
+Ejemplo:
+
+compra Founder el 17 de agosto
+→ primer grant: 17 agosto
+→ segundo: ~17 septiembre
+→ tercero: ~17 octubre
+...
+→ máximo 12 grants.
+
+2. Mantener primera entrega
+
+La compra inicial Founder ya entrega:
+
+1,500 créditos
+
+y establece:
+
+founderMonthsGranted = 1
+
+Mantener esa lógica.
+
+No volver a entregar créditos en el cron inmediatamente después de la compra.
+
+3. Sustituir cron mensual fijo
+
+Eliminar la lógica:
+
+0 4 1 * *
+
+y la comparación simple de:
+
+28 días desde founderLastGrantAt.
+
+Sustituirla por un proceso que pueda ejecutarse diariamente.
+
+Por ejemplo:
+
+04:00 diariamente
+
+El proceso revisa todos los Founder activos y determina individualmente quién ya alcanzó su siguiente aniversario mensual.
+
+4. Fecha próxima de grant
+
+Calcular la próxima fecha usando meses calendario, no 28 días.
+
+Conceptualmente:
+
+nextGrantAt = addMonths(founderLastGrantAt, 1)
+
+Si:
+
+now >= nextGrantAt
+
+y:
+
+founderMonthsGranted < 12
+
+entonces entregar.
+
+Cuidar correctamente compras en:
+
+día 29
+día 30
+día 31
+
+usando comportamiento de calendario seguro.
+
+Ejemplo:
+
+compra 31 enero
+→ siguiente fecha válida debe caer al final de febrero, no romper el cálculo.
+
+5. Mantener toda la protección actual
+
+NO eliminar:
+
+row lock de subscription;
+transacción;
+idempotency claim;
+invoiceCreditGrantsTable;
+contador founderMonthsGranted;
+máximo FOUNDER_MAX_MONTHS = 12;
+protección contra procesos concurrentes;
+conservación de créditos comprados.
+
+El código actual ya tiene una buena arquitectura de lock → claim → wallet → counter. Mantenerla.
+
+6. Créditos mensuales
+
+Cada grant Founder debe establecer:
+
+subscriptionCredits = 1500
+
+no sumar 1,500 encima del saldo mensual anterior.
+
+Créditos comprados permanecen.
+
+Ejemplo:
+
+antes del aniversario:
+
+subscriptionCredits = 170
+
+purchasedCredits = 400
+
+después:
+
+subscriptionCredits = 1500
+
+purchasedCredits = 400
+
+saldo total = 1900.
+
+Mantener correctamente créditos reservados si existe generación activa.
+
+7. Máximo absoluto 12
+
+El sistema jamás debe entregar grant #13.
+
+Si:
+
+founderMonthsGranted >= 12
+
+no volver a tocar el wallet.
+
+Esto debe mantenerse incluso si el cron se ejecuta varias veces.
+
+8. Founder inactivo/cancelado
+
+Solamente entregar a subscriptions Founder con estado que realmente otorgue acceso:
+
+active
+
+o:
+
+trialing
+
+Si está canceled, past_due definitivo o eliminado, no entregar.
+
+No destruir créditos comprados existentes.
+
+9. Recuperación de cron perdido
+
+Si el servidor estuvo caído el día exacto del aniversario:
+
+ejemplo:
+
+grant debía ocurrir el 17
+servidor vuelve el 19
+
+→ debe entregarse el 19.
+
+No esperar al mes siguiente.
+
+Pero no entregar múltiples meses de golpe salvo que exista una lógica explícita y segura.
+
+Para V1, máximo un grant por ejecución diaria por subscriber.
+
+10. Billing
+
+Billing puede seguir mostrando:
+
+Mes X de 12
+
+y:
+
+X meses restantes.
+
+Si es sencillo, añadir también:
+
+Próxima renovación de créditos: <fecha>
+
+pero no es obligatorio para este bloque.
+
+11. No tocar
+
+Mantener exactamente:
+
+Founder = $697/año
+
+1,500 créditos por mes
+
+12 grants máximo
+
+10 plazas máximo
+
+funciones iguales a Pro.
+
+No añadir:
+
+badges comerciales nuevos
+
+beneficios no definidos
+
+acceso anticipado
+
+promesas adicionales.
+
+12. Pruebas obligatorias
+
+Probar al menos:
+
+compra 17 agosto → grant siguiente 17 septiembre.
+compra 1 agosto → 1 septiembre.
+compra 31 enero → siguiente fecha válida de febrero.
+cron corre dos veces mismo día → un solo grant.
+cron corre al día siguiente del aniversario perdido → grant correcto.
+Founder con 11 grants → recibe #12.
+Founder con 12 → no recibe #13.
+créditos comprados sobreviven.
+saldo mensual se reemplaza, no se acumula.
+Founder canceled → no recibe.
+dos procesos concurrentes → un solo grant.
+TypeScript/build/tests pasan.
+
+Al terminar:
+
+commit;
+push a main;
+indicar SHA;
+listar archivos modificados;
+indicar cuántos tests pasan;
+no empezar Bloque 6.

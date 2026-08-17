@@ -34,6 +34,7 @@ import {
   executeCancelPlanChange,
   executeCreatePortal,
 } from "./billing-logic";
+import { nextFounderGrantDate } from "../lib/founder-grant";
 
 const router = Router();
 
@@ -92,6 +93,12 @@ router.get("/billing", requireAuth, async (req: Request, res: Response): Promise
             : undefined,
           founderMonthsRemaining: subscription.planSlug === "founder"
             ? Math.max(0, FOUNDER_MAX_MONTHS - subscription.founderMonthsGranted)
+            : undefined,
+          nextFounderGrantAt: subscription.planSlug === "founder"
+            ? (nextFounderGrantDate(
+                subscription.founderLastGrantAt ?? null,
+                subscription.founderMonthsGranted ?? 0,
+              ) ?? null)
             : undefined,
         }
       : null,

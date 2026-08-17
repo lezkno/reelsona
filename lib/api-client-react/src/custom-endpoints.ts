@@ -218,6 +218,8 @@ export interface BillingData {
     pendingPlanSlug:         string | null;
     founderMonthsGranted?:   number;
     founderMonthsRemaining?: number;
+    /** ISO date of the next Founder credit grant, or null if already at max 12. */
+    nextFounderGrantAt?:     string | null;
   } | null;
   credits: {
     available:     number;

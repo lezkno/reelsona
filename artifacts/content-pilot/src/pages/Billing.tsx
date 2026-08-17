@@ -277,7 +277,7 @@ function CurrentPlanCard({
               </div>
               <p className="text-xs text-muted-foreground mt-0.5">
                 {sub.planSlug === "founder"
-                  ? `Mes ${sub.founderMonthsGranted ?? 0} de 12 · ${sub.founderMonthsRemaining ?? 0} restantes`
+                  ? `Mes ${sub.founderMonthsGranted ?? 0} de 12 · ${sub.founderMonthsRemaining ?? 0} restantes${sub.nextFounderGrantAt ? ` · próxima renovación ${fmtDate(sub.nextFounderGrantAt)}` : ""}`
                   : sub.currentPeriodEnd
                     ? (sub.pendingPlanSlug
                         ? `Acceso Pro hasta el ${fmtDate(sub.currentPeriodEnd)}`

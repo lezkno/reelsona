@@ -38,6 +38,7 @@ import {
   PLAN_CREDITS,
   FOUNDER_MAX_MONTHS,
 } from "./credits";
+import { isFounderGrantDue, nextFounderGrantDate } from "./founder-grant";
 import { provisionUser } from "./provision";
 import { provisionPurchase } from "./provision-purchase";
 import { getStripe } from "./stripe";
@@ -3145,13 +3146,14 @@ export function startScheduler(): void {
     await syncAllStaleRadarAccounts();
   });
 
-  // 1st of each month at 04:00 AM: grant 1,500 subscription credits to all
-  // active Founder subscribers whose monthly grant count < FOUNDER_MAX_MONTHS
-  // and whose last grant was ≥ 28 days ago (guards against double-runs).
-  cron.schedule("0 4 1 * *", async () => {
-    logger.info("[FounderGrant] Monthly Founder credit grant started");
+  // Daily at 04:00: check each active Founder subscriber's calendar-month
+  // anniversary and grant 1,500 subscription credits when it has been reached.
+  // Running daily (not on the 1st) means grants land on the subscriber's personal
+  // purchase anniversary, server outages self-heal on the next run, and day-29/30/31
+  // edge cases are handled correctly by addOneCalendarMonth (see founder-grant.ts).
+  cron.schedule("0 4 * * *", async () => {
+    logger.info("[FounderGrant] Daily anniversary grant check started");
     try {
-      const twentyEightDaysAgo = new Date(Date.now() - 28 * 24 * 60 * 60 * 1000);
       const activeFounders = await db
         .select()
         .from(subscriptionsTable)
@@ -3191,9 +3193,18 @@ export function startScheduler(): void {
               return;
             }
 
-            // Re-check cooldown with fresh (locked) value
-            if (lockedSub.founderLastGrantAt && lockedSub.founderLastGrantAt > twentyEightDaysAgo) {
-              logger.info({ userId: sub.userId }, "[FounderGrant] Last grant < 28 days ago (locked re-read) — skipping");
+            // Re-check calendar-month anniversary with locked (fresh) values.
+            // After a concurrent process commits its grant it updates founderLastGrantAt = now;
+            // the second process then finds addOneCalendarMonth(now) > now → not due → skip.
+            if (!isFounderGrantDue(lockedSub.founderLastGrantAt, grantedSoFar)) {
+              logger.info(
+                {
+                  userId:              sub.userId,
+                  founderLastGrantAt:  lockedSub.founderLastGrantAt,
+                  nextGrantAt:         nextFounderGrantDate(lockedSub.founderLastGrantAt, grantedSoFar),
+                },
+                "[FounderGrant] Anniversary not yet reached (locked re-read) — skipping",
+              );
               return;
             }
 
@@ -3280,9 +3291,9 @@ export function startScheduler(): void {
           logger.error({ err: subErr, userId: sub.userId }, "[FounderGrant] Failed to grant credits for subscriber");
         }
       }
-      logger.info({ granted, total: activeFounders.length }, "[FounderGrant] Monthly grant complete");
+      logger.info({ granted, total: activeFounders.length }, "[FounderGrant] Daily anniversary check complete");
     } catch (err) {
-      logger.error({ err }, "[FounderGrant] Monthly Founder grant error");
+      logger.error({ err }, "[FounderGrant] Daily anniversary grant error");
     }
   });
 
