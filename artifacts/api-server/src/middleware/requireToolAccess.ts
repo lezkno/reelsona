@@ -76,18 +76,29 @@ const BYPASS_PREFIXES = [
   "/storage/",
 ] as const;
 
-// Exact paths or prefixes that no-plan users must always be able to reach:
-//   • /billing         — plan detection and subscription management
-//   • /credits         — view credit balance without a plan
+// Exact paths or prefixes that no-plan users must always be able to reach
+// (any HTTP method):
+//   • /billing                             — plan detection and subscription management
+//   • /credits                             — view credit balance without a plan
+//   • /instagram/auth-url                  — start OAuth handshake
+//   • /instagram/callback                  — complete OAuth handshake
+//   • /instagram/disconnect                — remove connection
+//   • /instagram/refresh-profile-picture   — refresh profile image
+//   • /instagram/refresh-token             — maintain connection
 const NOPLAN_BYPASS_PREFIXES = [
   "/billing",
   "/credits",
+  "/instagram/auth-url",
+  "/instagram/callback",
+  "/instagram/disconnect",
+  "/instagram/refresh-profile-picture",
+  "/instagram/refresh-token",
 ] as const;
 
 // Read-only paths accessible without a plan (GET only).
 // POST/PUT/DELETE on the same paths must still be protected.
-//   • /videos          — view/download historical videos without a plan
-//   • /instagram/account — view connection status on /connect page
+//   • /videos             — view/download historical videos without a plan
+//   • /instagram/account  — view connection status on /connect page
 const NOPLAN_BYPASS_GET_PREFIXES = [
   "/videos",
   "/instagram/account",

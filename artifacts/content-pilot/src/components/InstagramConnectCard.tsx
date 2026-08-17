@@ -2,6 +2,13 @@
  * Shared "Instagram not connected" call-to-action card.
  * Displays the same design on every page that requires an Instagram connection.
  * Handles the OAuth handshake internally — the redirect always goes through /connect.
+ *
+ * Popup strategy:
+ *   1. Open about:blank immediately on click (sync) so browsers don't block it.
+ *   2. Fetch the auth URL asynchronously.
+ *   3. Navigate the popup to the returned URL.
+ *   4. If the popup was blocked, fall back to same-tab redirect.
+ *   5. On error, close the popup and show a toast.
  */
 import { Instagram } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
@@ -21,15 +28,44 @@ export function InstagramConnectCard() {
     const state = crypto.randomUUID()
     localStorage.setItem(IG_STATE_KEY, state)
     const redirectUri = getConnectRedirectUri()
-    const res = await fetch(
-      `/api/instagram/auth-url?redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}`
+
+    // Open a blank popup immediately — must happen synchronously inside the click
+    // handler or browsers will block it as an unrelated popup.
+    const popup = window.open(
+      "about:blank",
+      "_blank",
+      "width=640,height=720,left=200,top=80,noopener,noreferrer",
     )
-    if (!res.ok) {
-      toast({ title: "Error", description: "No se pudo generar la URL de autorización.", variant: "destructive" })
-      return
+
+    try {
+      const res = await fetch(
+        `/api/instagram/auth-url?redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}`
+      )
+      if (!res.ok) {
+        popup?.close()
+        toast({
+          title: "Error de conexión",
+          description: "No se pudo iniciar la conexión con Meta. Inténtalo de nuevo.",
+          variant: "destructive",
+        })
+        return
+      }
+      const { url } = (await res.json()) as { url: string }
+
+      if (popup && !popup.closed) {
+        popup.location.href = url
+      } else {
+        // Popup was blocked — fall back to same-tab navigation
+        window.location.href = url
+      }
+    } catch {
+      popup?.close()
+      toast({
+        title: "Error de conexión",
+        description: "No se pudo iniciar la conexión con Meta. Inténtalo de nuevo.",
+        variant: "destructive",
+      })
     }
-    const { url } = (await res.json()) as { url: string }
-    window.open(url, "_blank", "noopener,noreferrer")
   }
 
   return (

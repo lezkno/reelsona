@@ -1630,6 +1630,7 @@ function AvatarCreationDialog({
   const [pose, setPose] = useState("half_body")
   const [promptVoiceId, setPromptVoiceId] = useState("")
 
+  const creationAccessState = useAccessState()
   const uploadAsset = useUploadHeyGenAsset()
   const createPhoto = useCreatePhotoAvatar()
   const createPrompt = useCreatePromptAvatar()
@@ -1876,6 +1877,17 @@ function AvatarCreationDialog({
 
   const handleCreate = async () => {
     if (!name.trim()) return
+    // Safety guard: require active plan before uploading/creating.
+    // Entry points gate on canUseFeature already, but this prevents a
+    // raw 403 from the backend if the dialog is ever opened ungated.
+    if (!canUseFeature(creationAccessState, "create_avatar")) {
+      toast({
+        title: "Función disponible con plan activo",
+        description: "Activa un plan de Reelsona para crear avatares.",
+        variant: "destructive",
+      })
+      return
+    }
     try {
       if (mode === "video") {
         if (!videoFile) return
@@ -4490,7 +4502,10 @@ export default function Avatars() {
             <p className="text-sm text-muted-foreground">
               Clona tu voz o elige una voz pública para asociarla a tus avatares.
             </p>
-            <Button size="sm" className="gap-1.5" onClick={() => setShowCloneDialog(true)}>
+            <Button size="sm" className="gap-1.5" onClick={() => {
+              if (!canUseFeature(accessState, "clone_voice")) { setPremiumOpen(true); return }
+              setShowCloneDialog(true)
+            }}>
               <Mic className="w-4 h-4" />
               Clonar mi voz
             </Button>

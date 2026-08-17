@@ -66,8 +66,7 @@ const queryClient = new QueryClient({
   },
 })
 
-// NoPlanScreen delegates to the shared NoAccessWall so all access gates
-// look identical across the app.
+// No-plan gate: NoAccessWall renders the standard access wall.
 
 /**
  * Renders the given component only if the user has an active plan subscription.

@@ -1678,6 +1678,7 @@ export default function CaptionStudio() {
   }
 
   const setOverride = <K extends keyof CaptionTemplate>(key: K, val: CaptionTemplate[K]) => {
+    if (planLocked) { setPremiumOpen(true); return }
     if (!activeTmpl) return
     const tid = activeTmpl.id
     setAllTmplOverrides((prev) => {
@@ -1688,6 +1689,7 @@ export default function CaptionStudio() {
   }
 
   const resetOverrides = () => {
+    if (planLocked) { setPremiumOpen(true); return }
     if (!activeTmpl) return
     const tid = activeTmpl.id
     setAllTmplOverrides((prev) => {
@@ -1773,6 +1775,7 @@ export default function CaptionStudio() {
   }
 
   const handleSave = () => {
+    if (planLocked) { setPremiumOpen(true); return }
     updateConfig.mutate({ data: local as any }, {
       onSuccess: () => {
         setDirty(false)
@@ -1784,6 +1787,7 @@ export default function CaptionStudio() {
   }
 
   const saveRotation = (ids: Set<string>, strategy: string) => {
+    if (planLocked) { setPremiumOpen(true); return }
     updateConfig.mutate(
       { data: { selected_preset_ids: Array.from(ids), caption_rotation_strategy: strategy } as any },
       { onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetCaptionConfigQueryKey() }) }
@@ -1810,6 +1814,7 @@ export default function CaptionStudio() {
   }
 
   const handleToggle = (enabled: boolean) => {
+    if (planLocked) { setPremiumOpen(true); return }
     setCaptionsEnabled(enabled)
     updateAutomation.mutate({ data: { captions_enabled: enabled } }, {
       onSuccess: () => {
