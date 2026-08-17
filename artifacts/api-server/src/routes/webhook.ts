@@ -119,7 +119,7 @@ const EVENT_HANDLERS: Record<string, (obj: any, stripe: Stripe) => Promise<void>
   "customer.subscription.deleted":            handleSubscriptionDeleted,
   "invoice.paid":                             handleInvoicePaid,
   "invoice.payment_failed":                   handleInvoicePaymentFailed,
-  "payment_intent.succeeded":                 handlePaymentIntentSucceeded, // legacy
+  // payment_intent.succeeded (legacy reelsona_program) removed — endpoint discontinued
 };
 
 // ── checkout.session.completed ─────────────────────────────────────────────────
@@ -314,7 +314,7 @@ async function handleSubscriptionDeleted(sub: Stripe.Subscription, _stripe: Stri
 // ATOMICITY: INSERT into invoice_credit_grants + wallet updates in one transaction.
 // If either fails, everything rolls back → 0 rows in grant table → Stripe retries.
 
-async function handleInvoicePaid(invoice: Stripe.Invoice, _stripe: Stripe): Promise<void> {
+async function handleInvoicePaid(invoice: Stripe.Invoice, stripe: Stripe): Promise<void> {
   // Stripe v22: invoice.subscription was removed.
   // The subscription ID is now at invoice.parent.subscription_details.subscription.
   const subRef      = invoice.parent?.subscription_details?.subscription;
@@ -390,7 +390,12 @@ async function handleInvoicePaid(invoice: Stripe.Invoice, _stripe: Stripe): Prom
     return;
   }
 
-  const planCredits = PLAN_CREDITS[sub.planSlug] ?? 0;
+  // ── Pending plan change (scheduled downgrade) ─────────────────────────────
+  // When pendingPlanSlug is set (Pro→Basic downgrade was scheduled), apply the
+  // new plan on this renewal: grant credits for the target plan, update planSlug,
+  // and clear pendingPlanSlug so subsequent renewals use the standard path.
+  const effectivePlanSlug = sub.pendingPlanSlug ?? sub.planSlug;
+  const planCredits = PLAN_CREDITS[effectivePlanSlug] ?? 0;
   let credited = false;
 
   // ── Atomic: invoice claim + credit grant (non-Founder only) ──────────────
@@ -402,7 +407,7 @@ async function handleInvoicePaid(invoice: Stripe.Invoice, _stripe: Stripe): Prom
       .values({
         stripeInvoiceId: invoiceId,
         userId:          sub.userId,
-        planSlug:        sub.planSlug,
+        planSlug:        effectivePlanSlug,
         creditsGranted:  planCredits,
       })
       .onConflictDoNothing()
@@ -414,10 +419,19 @@ async function handleInvoicePaid(invoice: Stripe.Invoice, _stripe: Stripe): Prom
       return;
     }
 
-    // Update subscription period end
+    // Update subscription period end + apply pending plan change if scheduled
+    const subUpdate: Record<string, unknown> = {
+      status:           "active",
+      currentPeriodEnd: newPeriodEnd ?? undefined,
+      updatedAt:        new Date(),
+    };
+    if (sub.pendingPlanSlug) {
+      subUpdate.planSlug        = sub.pendingPlanSlug;
+      subUpdate.pendingPlanSlug = null;
+    }
     await tx
       .update(subscriptionsTable)
-      .set({ status: "active", currentPeriodEnd: newPeriodEnd ?? undefined, updatedAt: new Date() })
+      .set(subUpdate)
       .where(eq(subscriptionsTable.id, sub.id));
 
     if (planCredits <= 0) return;
@@ -474,13 +488,13 @@ async function handleInvoicePaid(invoice: Stripe.Invoice, _stripe: Stripe): Prom
       balanceAfter:       newAvailable,
       pool:               "subscription",
       subscriptionAmount: newSubCreditsW,
-      description:        `Renovación ${sub.planSlug} (invoice ${invoiceId}): ${planCredits} créditos del ciclo`,
+      description:        `Renovación ${effectivePlanSlug} (invoice ${invoiceId}): ${planCredits} créditos del ciclo`,
     });
 
     credited = true;
   });
 
-  // ── Update entitlement period (idempotent; outside main tx) ──────────────
+  // ── Update entitlement period + Stripe metadata (idempotent; outside main tx) ──
   if (credited && newPeriodEnd) {
     await upsertEntitlement({
       userId:           sub.userId,
@@ -488,11 +502,24 @@ async function handleInvoicePaid(invoice: Stripe.Invoice, _stripe: Stripe): Prom
       toolAccessStatus: "active",
       toolAccessEndsAt: newPeriodEnd,
       source:           "stripe_renewal",
-      planSlug:         sub.planSlug,
+      planSlug:         effectivePlanSlug,
     });
     invalidateAccessCache(sub.userId);
     invalidatePlanCache(sub.userId);
-    logger.info({ userId: sub.userId, planSlug: sub.planSlug, planCredits, invoiceId }, "[webhook/stripe] Renewal credits granted ✓");
+
+    // If a scheduled downgrade was applied, update Stripe metadata to match the new plan.
+    // Non-critical: a failure here doesn't affect credits or DB state.
+    if (sub.pendingPlanSlug && sub.stripeSubscriptionId) {
+      try {
+        await stripe.subscriptions.update(sub.stripeSubscriptionId, {
+          metadata: { plan_slug: sub.pendingPlanSlug },
+        });
+      } catch (err: any) {
+        logger.warn({ err: err?.message, stripeSubId }, "[webhook/stripe] Could not update Stripe metadata after plan change — non-critical");
+      }
+    }
+
+    logger.info({ userId: sub.userId, planSlug: effectivePlanSlug, prevPlanSlug: sub.planSlug, planCredits, invoiceId }, "[webhook/stripe] Renewal credits granted ✓");
   }
 }
 
@@ -533,57 +560,10 @@ async function handleInvoicePaymentFailed(invoice: Stripe.Invoice, _stripe: Stri
   logger.info({ userId: sub.userId }, "[webhook/stripe] Marked past_due from payment failure");
 }
 
-// ── Legacy: payment_intent.succeeded ──────────────────────────────────────────
-
-async function handlePaymentIntentSucceeded(intent: Stripe.PaymentIntent, stripe: Stripe): Promise<void> {
-  const intentId = intent.id;
-
-  const [existing] = await db
-    .select()
-    .from(purchases)
-    .where(eq(purchases.providerSessionId, intentId))
-    .limit(1);
-
-  if (existing) {
-    if (existing.provisionedAt) return;
-    await provisionPurchase(existing, stripe);
-    return;
-  }
-
-  let email    = (intent.receipt_email ?? "").toLowerCase().trim();
-  let fullName = "";
-
-  if (intent.payment_method && typeof intent.payment_method === "string") {
-    try {
-      const pm = await stripe.paymentMethods.retrieve(intent.payment_method);
-      if (pm.billing_details.email) email    = pm.billing_details.email.toLowerCase().trim();
-      if (pm.billing_details.name)  fullName = pm.billing_details.name.trim();
-    } catch {/* ignore */}
-  }
-
-  if (!email) email    = (intent.metadata?.email     ?? "").toLowerCase().trim();
-  if (!fullName) fullName = (intent.metadata?.full_name ?? "").trim();
-  if (!email) { logger.error({ intentId }, "[webhook/stripe] No email in PaymentIntent"); return; }
-
-  const toolAccessDays = Math.max(1, parseInt(intent.metadata?.tool_access_days ?? "30", 10) || 30);
-  const legacyRows = await db
-    .insert(purchases)
-    .values({
-      provider:           "stripe",
-      providerSessionId:  intentId,
-      providerCustomerId: typeof intent.customer === "string" ? intent.customer : null,
-      email,
-      fullName,
-      amountTotal: intent.amount_received ?? intent.amount ?? 0,
-      currency:    intent.currency ?? "usd",
-      status:      "completed",
-      toolAccessDays,
-      purchaseType: "program",
-    })
-    .returning();
-
-  await provisionPurchase(legacyRows[0], stripe);
-}
+// handlePaymentIntentSucceeded (legacy reelsona_program product) removed.
+// The /checkout/create-payment-intent endpoint and its Stripe webhook handler
+// are discontinued. Any in-flight legacy payment_intent.succeeded events are
+// simply ignored (no entry in EVENT_HANDLERS above).
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

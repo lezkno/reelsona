@@ -13,54 +13,24 @@
 
 import { Router } from "express";
 import type { Request, Response } from "express";
-import { getStripe, getPlanConfig, getActiveFounderCount, getPriceId, getToolAccessDays } from "../lib/stripe";
+import { getStripe, getPlanConfig, getActiveFounderCount } from "../lib/stripe";
 import { getAppUrl } from "../lib/email";
 import { FOUNDER_MAX_SEATS } from "../lib/credits";
+import { db } from "@workspace/db";
+import { subscriptionsTable } from "@workspace/db/schema";
+import { eq } from "drizzle-orm";
 
 const router = Router();
 
 /**
- * POST /api/checkout/create-payment-intent
- *
- * Legacy: Creates a Stripe PaymentIntent for the old custom PaymentElement form.
- * Reads STRIPE_PRICE_ID_PROGRAM env var.  Still works, not removed yet.
+ * POST /api/checkout/create-payment-intent — REMOVED (legacy program product).
+ * Returns 410 Gone so old clients get a clear error instead of hanging.
  */
-router.post("/checkout/create-payment-intent", async (req: Request, res: Response): Promise<void> => {
-  let stripe: ReturnType<typeof getStripe>;
-  let priceId: string;
-  try {
-    stripe  = getStripe();
-    priceId = getPriceId();
-  } catch (configErr: any) {
-    console.error("[checkout/create-payment-intent] Stripe not configured:", configErr.message);
-    res.status(503).json({ error: "El checkout no está disponible en este momento." });
-    return;
-  }
-
-  const toolAccessDays = getToolAccessDays();
-
-  try {
-    const price = await stripe.prices.retrieve(priceId);
-    if (!price.unit_amount) {
-      res.status(500).json({ error: "No se pudo determinar el precio." });
-      return;
-    }
-
-    const intent = await stripe.paymentIntents.create({
-      amount:   price.unit_amount,
-      currency: price.currency,
-      automatic_payment_methods: { enabled: true },
-      metadata: {
-        product:          "reelsona_program",
-        tool_access_days: String(toolAccessDays),
-      },
-    });
-
-    res.json({ clientSecret: intent.client_secret });
-  } catch (err: any) {
-    console.error("[checkout/create-payment-intent]", err?.message);
-    res.status(500).json({ error: "No se pudo crear la sesión de pago" });
-  }
+router.post("/checkout/create-payment-intent", (_req: Request, res: Response): void => {
+  res.status(410).json({
+    error: "Este endpoint fue removido. El producto original ya no está disponible.",
+    code:  "legacy_endpoint_removed",
+  });
 });
 
 /**
@@ -134,6 +104,26 @@ router.post("/checkout/create-session", async (req: Request, res: Response): Pro
   }
 
   const isSubscription = planConfig.isRecurring;
+
+  // Block authenticated users from creating a second subscription.
+  // Top-ups (isSubscription=false) are always allowed.
+  // Unauthenticated users (landing / initial signup) pass through normally.
+  if (isSubscription && req.session?.user?.userId) {
+    const userId = req.session.user.userId;
+    const [existingSub] = await db
+      .select({ status: subscriptionsTable.status })
+      .from(subscriptionsTable)
+      .where(eq(subscriptionsTable.userId, userId))
+      .limit(1);
+
+    if (existingSub && ["active", "trialing"].includes(existingSub.status)) {
+      res.status(400).json({
+        error: "existing_subscription",
+        message: "Ya tenés una suscripción activa. Usá Facturación → Cambiar plan para modificarla.",
+      });
+      return;
+    }
+  }
   const appUrl = getAppUrl();
 
   try {

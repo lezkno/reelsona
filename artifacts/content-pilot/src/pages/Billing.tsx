@@ -1,12 +1,18 @@
 /**
  * Billing page — /billing
  *
- * Shows the current subscription, credit breakdown, available upgrade plans,
- * and topup packs. All checkout flows redirect to Stripe-hosted pages.
+ * Shows the current subscription, credit breakdown, available upgrade/downgrade
+ * controls, and topup packs. Subscribed users use the inline change-plan flow
+ * or the Stripe Billing Portal; new users go through the hosted checkout.
  */
 
 import { useState } from "react"
-import { useBilling } from "@workspace/api-client-react"
+import {
+  useBilling,
+  useChangePlan,
+  useOpenPortal,
+  type ChangePlanResult,
+} from "@workspace/api-client-react"
 import { useAuthStatus } from "@workspace/api-client-react"
 import { PlanCheckoutModal, type PlanCheckoutConfig } from "@/components/PlanCheckoutModal"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -16,7 +22,8 @@ import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   Coins, Crown, Sparkles, Zap, ArrowRight, CheckCircle2, Calendar,
-  TrendingUp, ShoppingBag, Infinity, RefreshCw, AlertCircle,
+  TrendingUp, TrendingDown, ShoppingBag, Infinity, RefreshCw, AlertCircle,
+  Clock, ExternalLink, Loader2, Info,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -89,10 +96,10 @@ const TOPUP_META: Record<string, { label: string; popular?: boolean }> = {
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { label: string; cls: string }> = {
-    active:    { label: "Activa",      cls: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" },
-    trialing:  { label: "Trial",       cls: "bg-blue-500/10 text-blue-400 border-blue-500/20" },
+    active:    { label: "Activa",       cls: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" },
+    trialing:  { label: "Trial",        cls: "bg-blue-500/10 text-blue-400 border-blue-500/20" },
     past_due:  { label: "Pago vencido", cls: "bg-red-500/10 text-red-400 border-red-500/20" },
-    canceled:  { label: "Cancelada",   cls: "bg-zinc-500/10 text-zinc-400 border-zinc-500/20" },
+    canceled:  { label: "Cancelada",    cls: "bg-zinc-500/10 text-zinc-400 border-zinc-500/20" },
   }
   const info = map[status] ?? { label: status, cls: "bg-zinc-500/10 text-zinc-400 border-zinc-500/20" }
   return (
@@ -121,14 +128,70 @@ function CreditBar({
   )
 }
 
+// ── Inline feedback banner ────────────────────────────────────────────────────
+
+function FeedbackBanner({
+  result,
+  error,
+  onDismiss,
+}: {
+  result:    ChangePlanResult | null;
+  error:     string | null;
+  onDismiss: () => void;
+}) {
+  if (!result && !error) return null
+
+  if (error) {
+    return (
+      <div className="flex items-start gap-3 rounded-xl border border-red-500/20 bg-red-500/5 p-4 text-sm text-red-400">
+        <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+        <div className="flex-1">{error}</div>
+        <button onClick={onDismiss} className="text-red-400/60 hover:text-red-400 text-xs">✕</button>
+      </div>
+    )
+  }
+
+  if (result?.type === "upgrade") {
+    return (
+      <div className="flex items-start gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-sm text-emerald-400">
+        <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+        <div className="flex-1">
+          <span className="font-semibold">¡Upgrade a Pro exitoso!</span> Tus créditos ya fueron actualizados a 1,500.
+        </div>
+        <button onClick={onDismiss} className="text-emerald-400/60 hover:text-emerald-400 text-xs">✕</button>
+      </div>
+    )
+  }
+
+  if (result?.type === "downgrade") {
+    return (
+      <div className="flex items-start gap-3 rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 text-sm text-amber-400">
+        <Clock className="w-4 h-4 shrink-0 mt-0.5" />
+        <div className="flex-1">
+          <span className="font-semibold">Cambio a Basic programado</span> — se aplicará el {fmtDate(result.effectiveDate ?? null)}.
+          Seguís con acceso Pro hasta esa fecha.
+        </div>
+        <button onClick={onDismiss} className="text-amber-400/60 hover:text-amber-400 text-xs">✕</button>
+      </div>
+    )
+  }
+
+  return null
+}
+
 // ── Current plan card ─────────────────────────────────────────────────────────
 
-function CurrentPlanCard({ data, userEmail, onUpgrade }: {
-  data:      ReturnType<typeof useBilling>["data"];
-  userEmail: string | undefined;
-  onUpgrade: (cfg: PlanCheckoutConfig) => void;
+function CurrentPlanCard({
+  data,
+  onChangePlan,
+  isChangingPlan,
+}: {
+  data:          ReturnType<typeof useBilling>["data"];
+  onChangePlan:  (target: "basic" | "pro") => void;
+  isChangingPlan: boolean;
 }) {
   const sub = data?.subscription
+  const portalMutation = useOpenPortal()
 
   if (!sub) {
     return (
@@ -142,12 +205,16 @@ function CurrentPlanCard({ data, userEmail, onUpgrade }: {
     )
   }
 
-  const meta = PLAN_META[sub.planSlug] ?? PLAN_META.basic
+  const meta    = PLAN_META[sub.planSlug] ?? PLAN_META.basic
+  const isBasic = sub.planSlug === "basic"
+  const isPro   = sub.planSlug === "pro"
 
   return (
     <Card className="overflow-hidden">
       <div className={cn("h-1 w-full bg-gradient-to-r", meta.accent)} />
-      <CardContent className="p-6">
+      <CardContent className="p-6 space-y-4">
+
+        {/* Plan header row */}
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-3">
             <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center", meta.color)}>
@@ -157,7 +224,7 @@ function CurrentPlanCard({ data, userEmail, onUpgrade }: {
               <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="font-display font-bold text-lg">{meta.label}</h3>
                 <StatusBadge status={sub.status} />
-                {sub.cancelAtPeriodEnd && (
+                {sub.cancelAtPeriodEnd && !sub.pendingPlanSlug && (
                   <span className="text-xs text-amber-400 bg-amber-400/10 border border-amber-400/20 rounded-full px-2 py-0.5">
                     No renueva
                   </span>
@@ -167,40 +234,88 @@ function CurrentPlanCard({ data, userEmail, onUpgrade }: {
                 {sub.planSlug === "founder"
                   ? `Mes ${sub.founderMonthsGranted ?? 0} de 12 · ${sub.founderMonthsRemaining ?? 0} restantes`
                   : sub.currentPeriodEnd
-                    ? `Renueva el ${fmtDate(sub.currentPeriodEnd)}`
+                    ? (sub.pendingPlanSlug
+                        ? `Acceso Pro hasta el ${fmtDate(sub.currentPeriodEnd)}`
+                        : `Renueva el ${fmtDate(sub.currentPeriodEnd)}`)
                     : ""}
               </p>
             </div>
           </div>
 
-          {/* Upgrade CTA for basic */}
-          {sub.planSlug === "basic" && data?.plans && (
+          {/* Action buttons */}
+          <div className="flex items-center gap-2 flex-wrap shrink-0">
+            {/* Upgrade Basic → Pro */}
+            {isBasic && (
+              <Button
+                size="sm"
+                onClick={() => onChangePlan("pro")}
+                disabled={isChangingPlan}
+                className="gap-1.5"
+              >
+                {isChangingPlan
+                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  : <TrendingUp className="w-3.5 h-3.5" />}
+                Subir a Pro
+              </Button>
+            )}
+
+            {/* Downgrade Pro → Basic (only if no pending change already) */}
+            {isPro && !sub.pendingPlanSlug && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => onChangePlan("basic")}
+                disabled={isChangingPlan}
+                className="gap-1.5 text-muted-foreground"
+              >
+                {isChangingPlan
+                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  : <TrendingDown className="w-3.5 h-3.5" />}
+                Bajar a Basic
+              </Button>
+            )}
+
+            {/* Portal — available for all active subscribers (server resolves customer ID) */}
             <Button
               size="sm"
-              onClick={() => {
-                const proPlan = data.plans.find((p) => p.slug === "pro")
-                if (!proPlan) return
-                const m = PLAN_META.pro
-                onUpgrade({
-                  planSlug:    proPlan.slug,
-                  planName:    m.label,
-                  amountCents: proPlan.amountCents,
-                  currency:    proPlan.currency,
-                  credits:     proPlan.credits,
-                  interval:    proPlan.interval,
-                  email:       userEmail,
-                })
-              }}
-              className="gap-1.5 shrink-0"
+              variant="ghost"
+              onClick={() => portalMutation.mutate()}
+              disabled={portalMutation.isPending}
+              className="gap-1.5 text-muted-foreground"
             >
-              <TrendingUp className="w-3.5 h-3.5" />
-              Subir a Pro
+              {portalMutation.isPending
+                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                : <ExternalLink className="w-3.5 h-3.5" />}
+              Administrar
             </Button>
-          )}
+          </div>
         </div>
 
-        {sub.planSlug !== "founder" && sub.currentPeriodEnd && (
-          <div className="mt-4 pt-4 border-t border-border flex items-center gap-2 text-xs text-muted-foreground">
+        {/* Pending downgrade notice */}
+        {sub.pendingPlanSlug && (
+          <div className="flex items-start gap-2.5 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2.5 text-xs text-amber-400">
+            <Clock className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+            <span>
+              Cambio a <strong>Basic</strong> programado para el {fmtDate(sub.currentPeriodEnd)}.
+              Seguís con acceso Pro hasta esa fecha.
+            </span>
+          </div>
+        )}
+
+        {/* Cancellation notice */}
+        {sub.cancelAtPeriodEnd && !sub.pendingPlanSlug && (
+          <div className="flex items-start gap-2.5 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2.5 text-xs text-red-400">
+            <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+            <span>
+              Tu suscripción se cancelará el <strong>{fmtDate(sub.currentPeriodEnd)}</strong>.
+              Podés reactivarla desde "Administrar".
+            </span>
+          </div>
+        )}
+
+        {/* Period row */}
+        {sub.planSlug !== "founder" && sub.currentPeriodEnd && !sub.pendingPlanSlug && (
+          <div className="pt-1 flex items-center gap-2 text-xs text-muted-foreground border-t border-border">
             <Calendar className="w-3.5 h-3.5" />
             <span>
               Periodo: {fmtDate(sub.currentPeriodStart)} – {fmtDate(sub.currentPeriodEnd)}
@@ -289,12 +404,21 @@ function CreditsCard({ data, isAdmin }: {
 // ── Plan cards grid ───────────────────────────────────────────────────────────
 
 function PlansSection({
-  data, isCurrentSlug, userEmail, onSelect,
+  data,
+  isCurrentSlug,
+  hasActiveSub,
+  userEmail,
+  onSelect,
+  onChangePlan,
+  isChangingPlan,
 }: {
   data:          ReturnType<typeof useBilling>["data"];
   isCurrentSlug: string | null;
+  hasActiveSub:  boolean;
   userEmail:     string | undefined;
   onSelect:      (cfg: PlanCheckoutConfig) => void;
+  onChangePlan:  (target: "basic" | "pro") => void;
+  isChangingPlan: boolean;
 }) {
   if (!data?.plans?.length) return null
 
@@ -303,10 +427,12 @@ function PlansSection({
       <h2 className="font-display font-bold text-lg mb-4">Planes de suscripción</h2>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {data.plans.map((plan) => {
-          const meta    = PLAN_META[plan.slug] ?? PLAN_META.basic
+          const meta      = PLAN_META[plan.slug] ?? PLAN_META.basic
           const isCurrent = plan.slug === isCurrentSlug
           const isFounder = plan.slug === "founder"
           const seatsLeft = isFounder ? (data.founderSeatsLeft ?? 0) : null
+          // For active basic/pro subscribers, plan change replaces checkout
+          const useChangePlanFlow = hasActiveSub && !isFounder && !isCurrent
 
           return (
             <Card
@@ -361,27 +487,40 @@ function PlansSection({
                 {/* CTA */}
                 <Button
                   size="sm"
-                  disabled={isCurrent || (isFounder && seatsLeft === 0)}
-                  onClick={() => onSelect({
-                    planSlug:    plan.slug,
-                    planName:    meta.label,
-                    amountCents: plan.amountCents,
-                    currency:    plan.currency,
-                    credits:     plan.credits,
-                    interval:    plan.interval,
-                    email:       userEmail,
-                  })}
+                  disabled={isCurrent || (isFounder && seatsLeft === 0) || (useChangePlanFlow && isChangingPlan)}
+                  onClick={() => {
+                    if (useChangePlanFlow) {
+                      onChangePlan(plan.slug as "basic" | "pro")
+                    } else {
+                      onSelect({
+                        planSlug:    plan.slug,
+                        planName:    meta.label,
+                        amountCents: plan.amountCents,
+                        currency:    plan.currency,
+                        credits:     plan.credits,
+                        interval:    plan.interval,
+                        email:       userEmail,
+                      })
+                    }
+                  }}
                   className={cn(
                     "w-full gap-1.5",
                     isFounder && !isCurrent && "bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:from-amber-400 hover:to-orange-400 border-0",
                   )}
                   variant={isCurrent ? "outline" : "default"}
                 >
+                  {useChangePlanFlow && isChangingPlan
+                    ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    : null}
                   {isCurrent
                     ? "Plan actual"
                     : (isFounder && seatsLeft === 0)
                       ? "Sin lugares disponibles"
-                      : <>Suscribirse <ArrowRight className="w-3.5 h-3.5" /></>}
+                      : useChangePlanFlow
+                        ? (plan.slug === "pro"
+                            ? <>Subir a Pro <TrendingUp className="w-3.5 h-3.5" /></>
+                            : <>Bajar a Basic <TrendingDown className="w-3.5 h-3.5" /></>)
+                        : <>Suscribirse <ArrowRight className="w-3.5 h-3.5" /></>}
                 </Button>
               </CardContent>
             </Card>
@@ -466,11 +605,30 @@ function TopupsSection({ data, userEmail, onSelect }: {
 export default function Billing() {
   const { data, isLoading } = useBilling()
   const { data: authData }  = useAuthStatus()
+  const changePlanMutation  = useChangePlan()
   const [checkoutCfg, setCheckoutCfg] = useState<PlanCheckoutConfig | null>(null)
+  const [planFeedback, setPlanFeedback] = useState<{
+    result: ChangePlanResult | null;
+    error:  string | null;
+  }>({ result: null, error: null })
 
-  const userEmail  = authData?.user?.email ?? undefined
-  const isAdmin    = authData?.user?.role === "admin"
+  const userEmail   = authData?.user?.email ?? undefined
+  const isAdmin     = authData?.user?.role === "admin"
   const currentSlug = data?.subscription?.planSlug ?? null
+  const hasActiveSub = !!data?.subscription && ["active", "trialing"].includes(data.subscription.status)
+
+  const handleChangePlan = async (target: "basic" | "pro") => {
+    setPlanFeedback({ result: null, error: null })
+    try {
+      const result = await changePlanMutation.mutateAsync(target)
+      setPlanFeedback({ result, error: null })
+    } catch (err: any) {
+      const msg = err?.message
+        ?? (err?.error as string | undefined)
+        ?? "No se pudo cambiar el plan. Intentá de nuevo."
+      setPlanFeedback({ result: null, error: msg })
+    }
+  }
 
   if (isLoading) {
     return (
@@ -503,6 +661,15 @@ export default function Billing() {
         </Button>
       </div>
 
+      {/* Plan change feedback banner */}
+      {(planFeedback.result || planFeedback.error) && (
+        <FeedbackBanner
+          result={planFeedback.result}
+          error={planFeedback.error}
+          onDismiss={() => setPlanFeedback({ result: null, error: null })}
+        />
+      )}
+
       {/* Admin: unlimited note */}
       {isAdmin && (
         <Card className="border-emerald-500/20 bg-emerald-500/5">
@@ -520,7 +687,11 @@ export default function Billing() {
         <div className="grid gap-6 lg:grid-cols-2">
           <div className="space-y-4">
             <h2 className="font-display font-bold text-lg">Suscripción</h2>
-            <CurrentPlanCard data={data} userEmail={userEmail} onUpgrade={setCheckoutCfg} />
+            <CurrentPlanCard
+              data={data}
+              onChangePlan={handleChangePlan}
+              isChangingPlan={changePlanMutation.isPending}
+            />
           </div>
           <div className="space-y-4">
             <h2 className="font-display font-bold text-lg">Créditos</h2>
@@ -534,8 +705,11 @@ export default function Billing() {
         <PlansSection
           data={data}
           isCurrentSlug={currentSlug}
+          hasActiveSub={hasActiveSub}
           userEmail={userEmail}
           onSelect={setCheckoutCfg}
+          onChangePlan={handleChangePlan}
+          isChangingPlan={changePlanMutation.isPending}
         />
       )}
 
@@ -544,7 +718,7 @@ export default function Billing() {
         <TopupsSection data={data} userEmail={userEmail} onSelect={setCheckoutCfg} />
       )}
 
-      {/* Checkout modal */}
+      {/* Checkout modal — only for no-subscription flows (topups & Founder) */}
       <PlanCheckoutModal config={checkoutCfg} onClose={() => setCheckoutCfg(null)} />
     </div>
   )

@@ -99,21 +99,5 @@ export async function getActiveFounderCount(): Promise<number> {
   return rows.length;
 }
 
-// ── Legacy helpers (kept for backward compat) ─────────────────────────────────
-
-/**
- * @deprecated — Reads from STRIPE_PRICE_ID_PROGRAM env var (legacy single-plan).
- * Kept so the old PaymentIntent checkout path keeps compiling.
- */
-export function getPriceId(): string {
-  const p = process.env.STRIPE_PRICE_ID_PROGRAM?.trim();
-  if (!p) throw new Error("STRIPE_PRICE_ID_PROGRAM is not configured");
-  return p;
-}
-
-/** Falls back to 30 days if STRIPE_TOOL_ACCESS_DAYS is absent or invalid. */
-export function getToolAccessDays(): number {
-  const raw = process.env.STRIPE_TOOL_ACCESS_DAYS;
-  const n   = parseInt(raw ?? "", 10);
-  return !isNaN(n) && n >= 1 && n <= 3650 ? n : 30;
-}
+// Legacy helpers (getPriceId, getToolAccessDays) removed — the old
+// /checkout/create-payment-intent and reelsona_program product are discontinued.

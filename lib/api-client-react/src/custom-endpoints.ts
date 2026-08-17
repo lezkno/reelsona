@@ -211,6 +211,11 @@ export interface BillingData {
     currentPeriodStart:   string | null;
     currentPeriodEnd:     string | null;
     cancelAtPeriodEnd:    boolean;
+    /**
+     * When set, a downgrade to this plan is scheduled for the next renewal cycle.
+     * The user keeps their current plan until currentPeriodEnd.
+     */
+    pendingPlanSlug:         string | null;
     founderMonthsGranted?:   number;
     founderMonthsRemaining?: number;
   } | null;
@@ -235,6 +240,41 @@ export function useBilling() {
     queryKey: BILLING_QUERY_KEY,
     queryFn:  () => customFetch<BillingData>("/api/billing"),
     staleTime: 1000 * 60 * 5,
+  });
+}
+
+export interface ChangePlanResult {
+  success:     boolean;
+  type:        "upgrade" | "downgrade";
+  plan:        string;
+  scheduled?:  boolean;
+  effectiveDate?: string | null;
+}
+
+/** Upgrade (Basic→Pro immediate) or downgrade (Pro→Basic scheduled) for users with an active subscription. */
+export function useChangePlan() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (targetPlan: "basic" | "pro") =>
+      customFetch<ChangePlanResult>("/api/billing/change-plan", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ targetPlan }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: BILLING_QUERY_KEY });
+    },
+  });
+}
+
+/** Opens a Stripe Billing Portal session for self-service plan/payment management. */
+export function useOpenPortal() {
+  return useMutation({
+    mutationFn: () =>
+      customFetch<{ url: string }>("/api/billing/portal", { method: "POST" }),
+    onSuccess: ({ url }) => {
+      window.location.href = url;
+    },
   });
 }
 
