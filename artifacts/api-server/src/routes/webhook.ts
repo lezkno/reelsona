@@ -36,6 +36,7 @@ import { invalidateAccessCache } from "../middleware/requireToolAccess";
 import { invalidatePlanCache } from "../middleware/requirePlanAccess";
 import { provisionPurchase } from "../lib/provision-purchase";
 import { db } from "@workspace/db";
+import { stripePriceConfigsTable } from "@workspace/db/schema";
 import {
   purchases,
   subscriptionsTable,
@@ -210,16 +211,12 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, stripe:
 async function handleSubscriptionUpdated(sub: Stripe.Subscription, _stripe: Stripe): Promise<void> {
   const stripeSubId = sub.id;
   const status      = mapStripeStatus(sub.status);
-  const planSlug    = getPlanSlugFromSub(sub);
   const cancelAtPeriodEnd = sub.cancel_at_period_end;
 
   // Stripe v22: current_period_end/start moved off the Subscription root to subscription items.
-  // Read from the first item; fall back to billing_cycle_anchor (still on root) for start.
   const firstItem                  = sub.items?.data?.[0] as any;
   const periodStart: number | null = firstItem?.current_period_start ?? sub.billing_cycle_anchor ?? null;
   const periodEnd: number | null   = firstItem?.current_period_end   ?? null;
-
-  logger.info({ stripeSubId, status, planSlug }, "[webhook/stripe] subscription.updated");
 
   const [existing] = await db
     .select()
@@ -232,19 +229,55 @@ async function handleSubscriptionUpdated(sub: Stripe.Subscription, _stripe: Stri
     return;
   }
 
+  // ── Derive planSlug from Stripe subscription's price (authoritative) ──────
+  //
+  // We read the price ID from the subscription's line items and reverse-map it
+  // to a planSlug via our stripePriceConfigsTable. This is authoritative because
+  // it reflects what Stripe actually has on record, regardless of metadata.
+  //
+  // Rationale: metadata.plan_slug can be stale or arrive out-of-order during
+  // schedule phase transitions or after credits-grant metadata updates in
+  // handleInvoicePaid. Deriving from the price ID eliminates the metadata race.
+  //
+  // Fall-back chain: price lookup → metadata → existing DB planSlug.
+  const priceId = firstItem?.price?.id ?? null;
+  let planSlugFromPrice: string | null = null;
+  if (priceId) {
+    const [priceRow] = await db
+      .select({ planSlug: stripePriceConfigsTable.planSlug })
+      .from(stripePriceConfigsTable)
+      .where(eq(stripePriceConfigsTable.stripePriceId, priceId))
+      .limit(1);
+    planSlugFromPrice = priceRow?.planSlug ?? null;
+  }
+  const resolvedPlanSlug = planSlugFromPrice ?? getPlanSlugFromSub(sub) ?? existing.planSlug;
+
+  // Detect schedule phase application: if the price-derived plan matches the
+  // pending plan, the schedule has applied its next phase → clear pending state.
+  const scheduleApplied = !!(
+    planSlugFromPrice &&
+    existing.pendingPlanSlug &&
+    planSlugFromPrice === existing.pendingPlanSlug
+  );
+
+  logger.info(
+    { stripeSubId, status, resolvedPlanSlug, priceId, scheduleApplied },
+    "[webhook/stripe] subscription.updated",
+  );
+
   await db
     .update(subscriptionsTable)
     .set({
       status,
-      planSlug:           planSlug ?? existing.planSlug,
+      planSlug:         resolvedPlanSlug,
       cancelAtPeriodEnd,
       currentPeriodStart: periodStart ? new Date(periodStart * 1000) : undefined,
       currentPeriodEnd:   periodEnd   ? new Date(periodEnd   * 1000) : undefined,
-      updatedAt:          new Date(),
+      ...(scheduleApplied ? { pendingPlanSlug: null, stripeScheduleId: null } : {}),
+      updatedAt: new Date(),
     })
     .where(eq(subscriptionsTable.id, existing.id));
 
-  // Update entitlement status
   const toolActive = status === "active" || status === "trialing";
   const newEndsAt  = periodEnd ? new Date(periodEnd * 1000) : null;
 
@@ -254,12 +287,15 @@ async function handleSubscriptionUpdated(sub: Stripe.Subscription, _stripe: Stri
     toolAccessStatus: toolActive ? "active" : "expired",
     toolAccessEndsAt: newEndsAt,
     source:           "stripe_subscription",
-    planSlug:         planSlug ?? existing.planSlug,
+    planSlug:         resolvedPlanSlug,
   });
   invalidateAccessCache(existing.userId);
   invalidatePlanCache(existing.userId);
 
-  logger.info({ userId: existing.userId, status }, "[webhook/stripe] Entitlement updated from subscription.updated");
+  logger.info(
+    { userId: existing.userId, status, resolvedPlanSlug, scheduleApplied },
+    "[webhook/stripe] Entitlement updated from subscription.updated",
+  );
 }
 
 // ── customer.subscription.deleted ─────────────────────────────────────────────
@@ -390,12 +426,33 @@ async function handleInvoicePaid(invoice: Stripe.Invoice, stripe: Stripe): Promi
     return;
   }
 
-  // ── Pending plan change (scheduled downgrade) ─────────────────────────────
-  // When pendingPlanSlug is set (Pro→Basic downgrade was scheduled), apply the
-  // new plan on this renewal: grant credits for the target plan, update planSlug,
-  // and clear pendingPlanSlug so subsequent renewals use the standard path.
-  const effectivePlanSlug = sub.pendingPlanSlug ?? sub.planSlug;
+  // ── Effective plan: derived from invoice line item price (authoritative) ─────
+  //
+  // For subscription_cycle renewals, the invoice's line items reflect exactly what
+  // Stripe billed — this is the authoritative source for which plan's credits to grant.
+  //
+  // When a Subscription Schedule transitions Pro→Basic at period end, the renewal
+  // invoice will contain the Basic price. We look that up in stripePriceConfigsTable
+  // and use the resulting planSlug as the effective plan for credit math.
+  //
+  // Fall-back chain:
+  //   1. Invoice line item price ID → stripePriceConfigsTable lookup (authoritative)
+  //   2. pendingPlanSlug from DB (belt-and-suspenders if the price isn't in our DB)
+  //   3. Current planSlug from DB (standard renewals with no pending change)
+  const nonProrationLines = (invoice.lines?.data ?? []).filter((l: any) => !l.proration);
+  const invoiceLinePrice  = (nonProrationLines[0] as any)?.price?.id ?? null;
+  let invoicePlanSlug: string | null = null;
+  if (invoiceLinePrice) {
+    const [priceRow] = await db
+      .select({ planSlug: stripePriceConfigsTable.planSlug })
+      .from(stripePriceConfigsTable)
+      .where(eq(stripePriceConfigsTable.stripePriceId, invoiceLinePrice))
+      .limit(1);
+    invoicePlanSlug = priceRow?.planSlug ?? null;
+  }
+  const effectivePlanSlug = invoicePlanSlug ?? sub.pendingPlanSlug ?? sub.planSlug;
   const planCredits = PLAN_CREDITS[effectivePlanSlug] ?? 0;
+  const planChanged = effectivePlanSlug !== sub.planSlug;
   let credited = false;
 
   // ── Atomic: invoice claim + credit grant (non-Founder only) ──────────────
@@ -419,15 +476,17 @@ async function handleInvoicePaid(invoice: Stripe.Invoice, stripe: Stripe): Promi
       return;
     }
 
-    // Update subscription period end + apply pending plan change if scheduled
+    // Update subscription period end + apply pending plan change if detected
     const subUpdate: Record<string, unknown> = {
       status:           "active",
       currentPeriodEnd: newPeriodEnd ?? undefined,
       updatedAt:        new Date(),
     };
-    if (sub.pendingPlanSlug) {
-      subUpdate.planSlug        = sub.pendingPlanSlug;
+    if (planChanged) {
+      // Apply the detected plan change (from invoice price or pendingPlanSlug)
+      subUpdate.planSlug        = effectivePlanSlug;
       subUpdate.pendingPlanSlug = null;
+      subUpdate.stripeScheduleId = null; // schedule has applied; clear the reference
     }
     await tx
       .update(subscriptionsTable)
@@ -494,7 +553,7 @@ async function handleInvoicePaid(invoice: Stripe.Invoice, stripe: Stripe): Promi
     credited = true;
   });
 
-  // ── Update entitlement period + Stripe metadata (idempotent; outside main tx) ──
+  // ── Update entitlement + Stripe metadata (outside main tx, idempotent) ───────
   if (credited && newPeriodEnd) {
     await upsertEntitlement({
       userId:           sub.userId,
@@ -507,19 +566,28 @@ async function handleInvoicePaid(invoice: Stripe.Invoice, stripe: Stripe): Promi
     invalidateAccessCache(sub.userId);
     invalidatePlanCache(sub.userId);
 
-    // If a scheduled downgrade was applied, update Stripe metadata to match the new plan.
-    // Non-critical: a failure here doesn't affect credits or DB state.
-    if (sub.pendingPlanSlug && sub.stripeSubscriptionId) {
+    // Sync Stripe metadata when the plan changed (e.g. schedule applied).
+    // handleSubscriptionUpdated now derives plan from price ID, so this is belt-
+    // and-suspenders rather than the primary source of truth. Log failures but do
+    // not throw — credits are already committed and Stripe will not retry for a
+    // metadata-only update failure.
+    if (planChanged && sub.stripeSubscriptionId) {
       try {
         await stripe.subscriptions.update(sub.stripeSubscriptionId, {
-          metadata: { plan_slug: sub.pendingPlanSlug },
+          metadata: { plan_slug: effectivePlanSlug },
         });
       } catch (err: any) {
-        logger.warn({ err: err?.message, stripeSubId }, "[webhook/stripe] Could not update Stripe metadata after plan change — non-critical");
+        logger.warn(
+          { err: err?.message, stripeSubId, effectivePlanSlug },
+          "[webhook/stripe] Metadata sync after plan change failed — price-based webhook lookup remains authoritative",
+        );
       }
     }
 
-    logger.info({ userId: sub.userId, planSlug: effectivePlanSlug, prevPlanSlug: sub.planSlug, planCredits, invoiceId }, "[webhook/stripe] Renewal credits granted ✓");
+    logger.info(
+      { userId: sub.userId, effectivePlanSlug, prevPlanSlug: sub.planSlug, invoiceLinePrice, planCredits, invoiceId },
+      "[webhook/stripe] Renewal credits granted ✓",
+    );
   }
 }
 

@@ -10,6 +10,7 @@ import { useState } from "react"
 import {
   useBilling,
   useChangePlan,
+  useCancelPlanChange,
   useOpenPortal,
   type ChangePlanResult,
 } from "@workspace/api-client-react"
@@ -123,6 +124,50 @@ function CreditBar({
       </div>
       <div className="h-2 rounded-full bg-muted overflow-hidden">
         <div className={cn("h-full rounded-full transition-all", color)} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  )
+}
+
+// ── Pending downgrade notice with cancel action ───────────────────────────────
+
+function PendingDowngradeNotice({ sub }: { sub: NonNullable<ReturnType<typeof useBilling>["data"]>["subscription"] }) {
+  const cancelMutation = useCancelPlanChange()
+  const [cancelError, setCancelError] = useState<string | null>(null)
+
+  if (!sub) return null
+
+  const handleCancel = async () => {
+    setCancelError(null)
+    try {
+      await cancelMutation.mutateAsync()
+    } catch (err: any) {
+      setCancelError(err?.error ?? err?.message ?? "No se pudo cancelar el cambio. Intentá de nuevo.")
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-start gap-2.5 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2.5 text-xs text-amber-400">
+        <Clock className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+        <div className="flex-1 min-w-0">
+          <p>
+            Cambio a <strong>Basic</strong> programado para el {fmtDate(sub.currentPeriodEnd)}.
+            Seguís con acceso Pro hasta esa fecha.
+          </p>
+          {cancelError && (
+            <p className="mt-1 text-red-400">{cancelError}</p>
+          )}
+        </div>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="shrink-0 h-6 px-2 text-xs text-amber-300 hover:text-amber-200 hover:bg-amber-500/10"
+          onClick={handleCancel}
+          disabled={cancelMutation.isPending}
+        >
+          {cancelMutation.isPending ? "Cancelando…" : "Cancelar cambio"}
+        </Button>
       </div>
     </div>
   )
@@ -291,16 +336,8 @@ function CurrentPlanCard({
           </div>
         </div>
 
-        {/* Pending downgrade notice */}
-        {sub.pendingPlanSlug && (
-          <div className="flex items-start gap-2.5 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2.5 text-xs text-amber-400">
-            <Clock className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-            <span>
-              Cambio a <strong>Basic</strong> programado para el {fmtDate(sub.currentPeriodEnd)}.
-              Seguís con acceso Pro hasta esa fecha.
-            </span>
-          </div>
-        )}
+        {/* Pending downgrade notice + cancel action */}
+        {sub.pendingPlanSlug && <PendingDowngradeNotice sub={sub} />}
 
         {/* Cancellation notice */}
         {sub.cancelAtPeriodEnd && !sub.pendingPlanSlug && (

@@ -32,12 +32,19 @@ export const subscriptionsTable = pgTable("subscriptions", {
   /** Whether Stripe will cancel the subscription at period end. */
   cancelAtPeriodEnd:     boolean("cancel_at_period_end").notNull().default(false),
   /**
-   * Scheduled plan change: when set, the next subscription_cycle invoice will
-   * apply this plan instead of the current one. Used for Pro→Basic downgrades so
-   * the user keeps Pro access until currentPeriodEnd without a premature DB change.
+   * Scheduled plan change: when set, a Stripe Subscription Schedule is managing
+   * the next billing cycle price. At renewal, the plan switches to this value.
+   * Used for Pro→Basic downgrades: user keeps Pro access until currentPeriodEnd,
+   * then Basic credits are granted at the next invoice.paid cycle.
    * Null means no pending change. Values: 'basic' | 'pro' (never 'founder').
    */
   pendingPlanSlug:       varchar("pending_plan_slug", { length: 32 }),
+  /**
+   * Stripe Subscription Schedule ID backing the pending plan change.
+   * Set alongside pendingPlanSlug; cleared when the schedule is released
+   * (upgrade, manual cancellation, or automatic phase transition at period end).
+   */
+  stripeScheduleId:      varchar("stripe_schedule_id", { length: 256 }),
   /**
    * Immutable Stripe invoice ID of the last renewal that successfully granted credits.
    * Used as the idempotency key in invoice.paid so that subscription.updated writing

@@ -278,6 +278,18 @@ export function useOpenPortal() {
   });
 }
 
+/** Cancel a pending Pro→Basic scheduled downgrade (releases the Stripe Subscription Schedule). */
+export function useCancelPlanChange() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      customFetch<{ success: boolean }>("/api/billing/cancel-plan-change", { method: "POST" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: BILLING_QUERY_KEY });
+    },
+  });
+}
+
 /** Manually adjust a user's credit balance (admin only). */
 export function useAdjustUserCredits() {
   const qc = useQueryClient();

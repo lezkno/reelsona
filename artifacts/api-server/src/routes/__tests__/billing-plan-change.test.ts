@@ -1,281 +1,402 @@
 /**
  * billing-plan-change.test.ts
  *
- * Unit tests for POST /api/billing/change-plan and POST /api/billing/portal.
+ * Tests for the actual billing business-logic functions exported from billing-logic.ts.
+ * These tests import and execute the production code — not local reimplementations.
  *
- * These tests mock:
- *   - DB queries  (using mock factory helpers)
- *   - Stripe SDK  (stubbed at the import level)
- *
- * Run with:
- *   node --import tsx/esm --test src/routes/__tests__/billing-plan-change.test.ts
- *
- * Coverage (9 scenarios from spec §13):
- *   1.  Missing / invalid targetPlan → 400
- *   2.  No subscription found → 404
- *   3.  Subscription not active (canceled) → 404
- *   4.  Founder plan → 400 (cannot change)
- *   5.  Already on same plan → 409 same_plan
- *   6.  Basic → Pro (upgrade) → immediate, credits provisioned
- *   7.  Pro → Basic (downgrade) → scheduled, effectiveDate returned
- *   8.  Portal — no Stripe customer → 404
- *   9.  Portal — happy path → 200 { url }
+ * Covered scenarios (from spec §13):
+ *   1. validateChangePlan — rejects invalid plan
+ *   2. validateChangePlan — rejects missing / inactive subscription
+ *   3. validateChangePlan — rejects founder plan modification
+ *   4. validateChangePlan — rejects same-plan request
+ *   5. executeUpgrade     — releases existing schedule, calls Stripe, updates DB, provisions credits
+ *   6. executeUpgrade     — preserves purchased credits (only subscription pool is replaced)
+ *   7. executeDowngrade   — uses Stripe Subscription Schedule (not subscriptions.update)
+ *   8. executeDowngrade   — stores scheduleId, sets pendingPlanSlug in DB
+ *   9. executeCancelPlanChange — releases Stripe schedule, clears pending state in DB
+ *  10. executeCancelPlanChange — 404 when no pending change
+ *  11. executeCreatePortal     — returns Stripe portal URL
  */
 
-import { test, describe, before, beforeEach, after, mock } from "node:test";
+import { describe, test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import type { Request, Response } from "express";
 
-// ── Shared stub state ──────────────────────────────────────────────────────────
+// ── Import the actual production functions ─────────────────────────────────────
+import {
+  validateChangePlan,
+  executeUpgrade,
+  executeDowngrade,
+  executeCancelPlanChange,
+  executeCreatePortal,
+  type SubRow,
+  type PlanConfig,
+} from "../billing-logic.js";
 
-let stubSub: Record<string, unknown> | null = null;
-let lastStripeCall: string | null = null;
-let provisionCalled = false;
-let invalidateCalled = false;
+// ── Fixtures ───────────────────────────────────────────────────────────────────
 
-// ── Mock factories ────────────────────────────────────────────────────────────
+const PRICE_PRO   = "price_pro_monthly";
+const PRICE_BASIC = "price_basic_monthly";
 
-function makeReq(body: unknown = {}, sessionUserId = 42): Partial<Request> {
+const proConfig:   PlanConfig = { planSlug: "pro",   stripePriceId: PRICE_PRO };
+const basicConfig: PlanConfig = { planSlug: "basic", stripePriceId: PRICE_BASIC };
+
+function makeSub(overrides: Partial<SubRow> = {}): SubRow {
   return {
-    body,
-    session: { user: { userId: sessionUserId } } as any,
+    id:                   1,
+    userId:               42,
+    planSlug:             "basic",
+    status:               "active",
+    stripeSubscriptionId: "sub_abc",
+    stripeCustomerId:     "cus_abc",
+    stripeScheduleId:     null,
+    pendingPlanSlug:      null,
+    currentPeriodEnd:     new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+    ...overrides,
   };
 }
 
-function makeRes(): {
-  res: Partial<Response>;
-  statusCode: number | null;
-  json: unknown;
-} {
-  const out = { statusCode: null as number | null, json: undefined as unknown };
-  const res: Partial<Response> = {
-    status(code: number) {
-      out.statusCode = code;
-      return this as unknown as Response;
+function makeStripe(overrides: Record<string, unknown> = {}) {
+  const scheduleCreated = { id: "sch_new" };
+  return {
+    subscriptions: {
+      update:   async (..._a: unknown[]) => ({}),
     },
-    json(body: unknown) {
-      out.json = body;
-      return this as unknown as Response;
+    subscriptionSchedules: {
+      create:   async (_args: unknown) => scheduleCreated,
+      update:   async (..._a: unknown[]) => ({}),
+      release:  async (_id: unknown)    => ({}),
     },
-  };
-  return { res, ...out, get statusCode() { return out.statusCode; }, get json() { return out.json; } };
+    billingPortal: {
+      sessions: {
+        create: async (_args: unknown) => ({ url: "https://billing.stripe.com/session/test" }),
+      },
+    },
+    ...overrides,
+  } as any;
 }
 
-// ── Inline helpers (mirror route logic without touching actual route module) ──
+// ── validateChangePlan ─────────────────────────────────────────────────────────
 
-// These tests test the business logic expressed in the spec rather than importing
-// the live route (which requires full Express + DB bootstrap). For a proper
-// integration test suite, use supertest against a test Express instance.
-
-type ChangePlanInput = {
-  targetPlan: unknown;
-  sub: Record<string, unknown> | null;
-  stripeSubItem?: string;
-  stripePlanConfig?: { stripePriceId: string } | null;
-};
-
-type ChangePlanOutput =
-  | { status: 400; code: string }
-  | { status: 404; code: string }
-  | { status: 409; code: string }
-  | { status: 503; code: string }
-  | { status: 200; type: "upgrade" | "downgrade"; scheduled?: boolean; effectiveDate?: string | null };
-
-/**
- * Mirrors the business logic of POST /api/billing/change-plan without Express.
- * Returns a discriminated union for easy assertion.
- */
-async function changePlanLogic(input: ChangePlanInput): Promise<ChangePlanOutput> {
-  const { targetPlan, sub } = input;
-
-  if (!targetPlan || !["basic", "pro"].includes(targetPlan as string)) {
-    return { status: 400, code: "invalid_plan" };
-  }
-
-  if (!sub || !["active", "trialing"].includes(sub.status as string)) {
-    return { status: 404, code: "no_subscription" };
-  }
-
-  if (sub.planSlug === "founder") {
-    return { status: 400, code: "founder_plan" };
-  }
-
-  const currentPlan = sub.planSlug as string;
-  const pendingPlanSlug = sub.pendingPlanSlug as string | null | undefined;
-
-  if (currentPlan === targetPlan && !pendingPlanSlug) {
-    return { status: 409, code: "same_plan" };
-  }
-
-  if (pendingPlanSlug === targetPlan) {
-    return { status: 409, code: "already_pending" };
-  }
-
-  if (!input.stripeSubItem) {
-    return { status: 503, code: "no_stripe_item" };
-  }
-
-  if (!input.stripePlanConfig) {
-    return { status: 503, code: "plan_not_configured" };
-  }
-
-  if (currentPlan === "basic" && targetPlan === "pro") {
-    // Simulate Stripe update + DB update + credit provision
-    lastStripeCall = "subscriptions.update.upgrade";
-    provisionCalled = true;
-    invalidateCalled = true;
-    return { status: 200, type: "upgrade" };
-  }
-
-  if (currentPlan === "pro" && targetPlan === "basic") {
-    lastStripeCall = "subscriptions.update.downgrade";
-    const effectiveDate = (sub.currentPeriodEnd as Date | null)?.toISOString() ?? null;
-    return { status: 200, type: "downgrade", scheduled: true, effectiveDate };
-  }
-
-  return { status: 400, code: "invalid_transition" };
-}
-
-// ── Tests ─────────────────────────────────────────────────────────────────────
-
-describe("POST /billing/change-plan", () => {
-
-  beforeEach(() => {
-    stubSub = null;
-    lastStripeCall = null;
-    provisionCalled = false;
-    invalidateCalled = false;
+describe("validateChangePlan", () => {
+  test("01 — rejects invalid targetPlan value", () => {
+    const err = validateChangePlan("enterprise", makeSub());
+    assert.ok(err);
+    assert.equal(err.code, "invalid_plan");
+    assert.equal(err.status, 400);
   });
 
-  test("1. Missing targetPlan returns 400 invalid_plan", async () => {
-    const result = await changePlanLogic({
-      targetPlan:       undefined,
-      sub:              { planSlug: "basic", status: "active" },
-      stripeSubItem:    "si_abc",
-      stripePlanConfig: { stripePriceId: "price_pro" },
-    });
-    assert.equal(result.status, 400);
-    assert.equal((result as any).code, "invalid_plan");
+  test("02 — rejects null subscription", () => {
+    const err = validateChangePlan("pro", null);
+    assert.ok(err);
+    assert.equal(err.code, "no_subscription");
+    assert.equal(err.status, 404);
   });
 
-  test("2. Invalid targetPlan value returns 400 invalid_plan", async () => {
-    const result = await changePlanLogic({
-      targetPlan:       "founder",   // not allowed from this endpoint
-      sub:              { planSlug: "basic", status: "active" },
-      stripeSubItem:    "si_abc",
-      stripePlanConfig: { stripePriceId: "price_pro" },
-    });
-    assert.equal(result.status, 400);
-    assert.equal((result as any).code, "invalid_plan");
+  test("03 — rejects inactive subscription", () => {
+    const err = validateChangePlan("pro", makeSub({ status: "canceled" }));
+    assert.ok(err);
+    assert.equal(err.code, "no_subscription");
   });
 
-  test("3. No subscription → 404 no_subscription", async () => {
-    const result = await changePlanLogic({
-      targetPlan:       "pro",
-      sub:              null,
-      stripeSubItem:    "si_abc",
-      stripePlanConfig: { stripePriceId: "price_pro" },
-    });
-    assert.equal(result.status, 404);
-    assert.equal((result as any).code, "no_subscription");
+  test("04 — rejects founder plan", () => {
+    const err = validateChangePlan("basic", makeSub({ planSlug: "founder" }));
+    assert.ok(err);
+    assert.equal(err.code, "founder_plan");
   });
 
-  test("4. Canceled subscription → 404 no_subscription", async () => {
-    const result = await changePlanLogic({
-      targetPlan:       "pro",
-      sub:              { planSlug: "basic", status: "canceled" },
-      stripeSubItem:    "si_abc",
-      stripePlanConfig: { stripePriceId: "price_pro" },
-    });
-    assert.equal(result.status, 404);
+  test("05 — rejects same plan when no pending change", () => {
+    const err = validateChangePlan("basic", makeSub({ planSlug: "basic" }));
+    assert.ok(err);
+    assert.equal(err.code, "same_plan");
   });
 
-  test("5. Founder plan → 400 founder_plan", async () => {
-    const result = await changePlanLogic({
-      targetPlan:       "basic",
-      sub:              { planSlug: "founder", status: "active" },
-      stripeSubItem:    "si_abc",
-      stripePlanConfig: { stripePriceId: "price_basic" },
-    });
-    assert.equal(result.status, 400);
-    assert.equal((result as any).code, "founder_plan");
+  test("06 — rejects when already pending the same target plan", () => {
+    const err = validateChangePlan("basic", makeSub({ planSlug: "pro", pendingPlanSlug: "basic" }));
+    assert.ok(err);
+    assert.equal(err.code, "already_pending");
   });
 
-  test("6. Already on same plan with no pending change → 409 same_plan", async () => {
-    const result = await changePlanLogic({
-      targetPlan:       "basic",
-      sub:              { planSlug: "basic", status: "active", pendingPlanSlug: null },
-      stripeSubItem:    "si_abc",
-      stripePlanConfig: { stripePriceId: "price_basic" },
-    });
-    assert.equal(result.status, 409);
-    assert.equal((result as any).code, "same_plan");
+  test("07 — passes for valid Basic→Pro upgrade", () => {
+    const err = validateChangePlan("pro", makeSub({ planSlug: "basic" }));
+    assert.equal(err, null);
   });
 
-  test("7. Basic → Pro upgrade → immediate, credits provisioned, cache invalidated", async () => {
-    const result = await changePlanLogic({
-      targetPlan:       "pro",
-      sub:              { planSlug: "basic", status: "active" },
-      stripeSubItem:    "si_abc",
-      stripePlanConfig: { stripePriceId: "price_pro" },
-    });
-    assert.equal(result.status, 200);
-    assert.equal((result as { type: string }).type, "upgrade");
-    assert.equal(lastStripeCall, "subscriptions.update.upgrade");
-    assert.equal(provisionCalled, true, "provisionSubscriptionCredits should have been called");
-    assert.equal(invalidateCalled, true, "invalidateAccessCache should have been called");
-  });
-
-  test("8. Pro → Basic downgrade → scheduled, effectiveDate returned", async () => {
-    const periodEnd = new Date("2026-09-17T00:00:00Z");
-    const result = await changePlanLogic({
-      targetPlan:       "basic",
-      sub:              { planSlug: "pro", status: "active", currentPeriodEnd: periodEnd },
-      stripeSubItem:    "si_abc",
-      stripePlanConfig: { stripePriceId: "price_basic" },
-    });
-    assert.equal(result.status, 200);
-    const r = result as { type: string; scheduled: boolean; effectiveDate: string };
-    assert.equal(r.type, "downgrade");
-    assert.equal(r.scheduled, true);
-    assert.equal(r.effectiveDate, periodEnd.toISOString());
-    assert.equal(lastStripeCall, "subscriptions.update.downgrade");
-    // credits should NOT be provisioned for a downgrade (happens at renewal)
-    assert.equal(provisionCalled, false, "provisionSubscriptionCredits must NOT be called for scheduled downgrade");
-  });
-
-  test("9. Pro → Basic when pendingPlanSlug already set → 409 already_pending", async () => {
-    const result = await changePlanLogic({
-      targetPlan:       "basic",
-      sub:              { planSlug: "pro", status: "active", pendingPlanSlug: "basic" },
-      stripeSubItem:    "si_abc",
-      stripePlanConfig: { stripePriceId: "price_basic" },
-    });
-    assert.equal(result.status, 409);
-    assert.equal((result as any).code, "already_pending");
+  test("08 — passes for valid Pro→Basic downgrade", () => {
+    const err = validateChangePlan("basic", makeSub({ planSlug: "pro" }));
+    assert.equal(err, null);
   });
 });
 
-describe("POST /billing/portal", () => {
-  type PortalInput  = { stripeCustomerId: string | null };
-  type PortalOutput = { status: 404 } | { status: 200; url: string };
+// ── executeUpgrade ─────────────────────────────────────────────────────────────
 
-  async function portalLogic(input: PortalInput): Promise<PortalOutput> {
-    if (!input.stripeCustomerId) {
-      return { status: 404 };
-    }
-    // Simulate Stripe portal session creation
-    return { status: 200, url: `https://billing.stripe.com/session/${input.stripeCustomerId}` };
-  }
+describe("executeUpgrade", () => {
+  let stripeUpdateArgs: unknown[][] = [];
+  let stripeReleaseArgs: unknown[][] = [];
+  let dbUpdates: Record<string, unknown>[] = [];
+  let creditsCalled: Array<{ userId: number; amount: number }> = [];
+  let invalidateAccessCalled: number[] = [];
+  let invalidatePlanCalled: number[] = [];
 
-  test("1. No Stripe customer → 404", async () => {
-    const result = await portalLogic({ stripeCustomerId: null });
-    assert.equal(result.status, 404);
+  beforeEach(() => {
+    stripeUpdateArgs  = [];
+    stripeReleaseArgs = [];
+    dbUpdates         = [];
+    creditsCalled     = [];
+    invalidateAccessCalled = [];
+    invalidatePlanCalled   = [];
   });
 
-  test("2. Happy path → 200 with url", async () => {
-    const result = await portalLogic({ stripeCustomerId: "cus_abc123" });
-    assert.equal(result.status, 200);
-    assert.ok((result as { url: string }).url.includes("billing.stripe.com"));
+  function makeUpgradeDeps(sub: SubRow) {
+    const stripe = makeStripe({
+      subscriptions: {
+        update: async (...args: unknown[]) => { stripeUpdateArgs.push(args); return {}; },
+      },
+      subscriptionSchedules: {
+        release: async (...args: unknown[]) => { stripeReleaseArgs.push(args); return {}; },
+        create:  async (..._: unknown[]) => ({ id: "sch_ignored" }),
+        update:  async (..._: unknown[]) => ({}),
+      },
+    });
+    return {
+      userId:                      sub.userId,
+      sub,
+      proConfig,
+      stripeFirstItemId:           "si_item_001",
+      stripe,
+      provisionSubscriptionCredits: async (userId: number, amount: number) => {
+        creditsCalled.push({ userId, amount });
+      },
+      invalidateAccessCache:        (userId: number) => { invalidateAccessCalled.push(userId); },
+      invalidatePlanCache:          (userId: number) => { invalidatePlanCalled.push(userId); },
+      updateSub:                    async (u: Record<string, unknown>) => { dbUpdates.push(u); },
+    };
+  }
+
+  test("09 — Stripe subscriptions.update called with Pro price", async () => {
+    const sub    = makeSub({ planSlug: "basic" });
+    const result = await executeUpgrade(makeUpgradeDeps(sub));
+
+    assert.ok(result.ok);
+    assert.equal(result.type, "upgrade");
+    assert.equal(result.plan, "pro");
+
+    // Stripe was called with the pro price
+    assert.equal(stripeUpdateArgs.length, 1);
+    const [subId, params] = stripeUpdateArgs[0] as [string, Record<string, unknown>];
+    assert.equal(subId, "sub_abc");
+    const items = (params.items as Array<Record<string, unknown>>);
+    assert.ok(items.some((i) => i.price === PRICE_PRO), "Pro price must be in update items");
+  });
+
+  test("10 — wallet: provisionSubscriptionCredits replaces subscription pool only", async () => {
+    const sub    = makeSub({ planSlug: "basic" });
+    const result = await executeUpgrade(makeUpgradeDeps(sub));
+
+    assert.ok(result.ok);
+    // provisionSubscriptionCredits is called with the Pro credit amount
+    // This function only modifies subscriptionCredits — purchased credits remain untouched.
+    assert.equal(creditsCalled.length, 1);
+    assert.equal(creditsCalled[0].userId, 42);
+    // Pro credits = 1500 (from PLAN_CREDITS)
+    assert.equal(creditsCalled[0].amount, 1500);
+  });
+
+  test("11 — DB updated with planSlug=pro, pendingPlanSlug=null, stripeScheduleId=null", async () => {
+    const sub    = makeSub({ planSlug: "basic" });
+    await executeUpgrade(makeUpgradeDeps(sub));
+
+    assert.equal(dbUpdates.length, 1);
+    assert.equal(dbUpdates[0].planSlug, "pro");
+    assert.equal(dbUpdates[0].pendingPlanSlug, null);
+    assert.equal(dbUpdates[0].stripeScheduleId, null);
+  });
+
+  test("12 — existing schedule released before upgrade", async () => {
+    const sub = makeSub({ planSlug: "basic", stripeScheduleId: "sch_old" });
+    await executeUpgrade(makeUpgradeDeps(sub));
+
+    assert.equal(stripeReleaseArgs.length, 1);
+    const [releasedId] = stripeReleaseArgs[0] as [string];
+    assert.equal(releasedId, "sch_old");
+  });
+
+  test("13 — returns error when Stripe throws", async () => {
+    const sub = makeSub({ planSlug: "basic" });
+    const deps = makeUpgradeDeps(sub);
+    (deps.stripe as any).subscriptions.update = async () => { throw new Error("Stripe down"); };
+
+    const result = await executeUpgrade(deps);
+    assert.ok(!result.ok);
+    assert.equal(result.status, 502);
+    assert.equal(result.code, "stripe_error");
+  });
+});
+
+// ── executeDowngrade ───────────────────────────────────────────────────────────
+
+describe("executeDowngrade", () => {
+  let scheduleCreateArgs: unknown[][] = [];
+  let scheduleUpdateArgs: unknown[][] = [];
+  let dbUpdates: Record<string, unknown>[] = [];
+
+  beforeEach(() => {
+    scheduleCreateArgs = [];
+    scheduleUpdateArgs = [];
+    dbUpdates = [];
+  });
+
+  function makeDowngradeDeps(sub: SubRow) {
+    const stripe = makeStripe({
+      subscriptionSchedules: {
+        create: async (...args: unknown[]) => { scheduleCreateArgs.push(args); return { id: "sch_new_downgrade" }; },
+        update: async (...args: unknown[]) => { scheduleUpdateArgs.push(args); return {}; },
+        release: async (..._: unknown[]) => ({}),
+      },
+    });
+    return {
+      userId:     sub.userId,
+      sub,
+      proConfig,
+      basicConfig,
+      stripe,
+      updateSub:  async (u: Record<string, unknown>) => { dbUpdates.push(u); },
+    };
+  }
+
+  test("14 — creates Subscription Schedule (not subscriptions.update)", async () => {
+    const sub    = makeSub({ planSlug: "pro" });
+    const result = await executeDowngrade(makeDowngradeDeps(sub));
+
+    assert.ok(result.ok);
+    // schedule was CREATED (not subscriptions.update)
+    assert.equal(scheduleCreateArgs.length, 1);
+    const createArg = scheduleCreateArgs[0][0] as Record<string, unknown>;
+    assert.equal(createArg.from_subscription, "sub_abc", "schedule must be created from existing subscription");
+  });
+
+  test("15 — two-phase schedule: Pro until period end, then Basic", async () => {
+    const sub    = makeSub({ planSlug: "pro" });
+    await executeDowngrade(makeDowngradeDeps(sub));
+
+    assert.equal(scheduleUpdateArgs.length, 1);
+    const [_schedId, params] = scheduleUpdateArgs[0] as [string, Record<string, unknown>];
+    const phases = params.phases as Array<Record<string, unknown>>;
+    assert.equal(phases.length, 2);
+
+    // Phase 1 must contain Pro price
+    const phase1Items = phases[0].items as Array<Record<string, unknown>>;
+    assert.ok(phase1Items.some((i) => i.price === PRICE_PRO), "Phase 1 must be Pro");
+
+    // Phase 2 must contain Basic price
+    const phase2Items = phases[1].items as Array<Record<string, unknown>>;
+    assert.ok(phase2Items.some((i) => i.price === PRICE_BASIC), "Phase 2 must be Basic");
+
+    // end_behavior must be 'release' so subscription continues after schedule completes
+    assert.equal(params.end_behavior, "release");
+  });
+
+  test("16 — DB stores scheduleId and pendingPlanSlug=basic", async () => {
+    const sub    = makeSub({ planSlug: "pro" });
+    await executeDowngrade(makeDowngradeDeps(sub));
+
+    assert.equal(dbUpdates.length, 1);
+    assert.equal(dbUpdates[0].pendingPlanSlug, "basic");
+    assert.equal(dbUpdates[0].stripeScheduleId, "sch_new_downgrade");
+  });
+
+  test("17 — 400 when currentPeriodEnd is null", async () => {
+    const sub    = makeSub({ planSlug: "pro", currentPeriodEnd: null });
+    const result = await executeDowngrade(makeDowngradeDeps(sub));
+
+    assert.ok(!result.ok);
+    assert.equal(result.status, 400);
+    assert.equal(result.code, "no_period_end");
+  });
+
+  test("18 — 502 when Stripe schedule creation throws", async () => {
+    const sub  = makeSub({ planSlug: "pro" });
+    const deps = makeDowngradeDeps(sub);
+    (deps.stripe as any).subscriptionSchedules.create = async () => { throw new Error("Stripe error"); };
+
+    const result = await executeDowngrade(deps);
+    assert.ok(!result.ok);
+    assert.equal(result.status, 502);
+  });
+});
+
+// ── executeCancelPlanChange ────────────────────────────────────────────────────
+
+describe("executeCancelPlanChange", () => {
+  test("19 — releases Stripe schedule and clears pending state in DB", async () => {
+    const sub = makeSub({ planSlug: "pro", pendingPlanSlug: "basic", stripeScheduleId: "sch_active" });
+    let releasedId: string | null = null;
+    let dbUpdate: Record<string, unknown> = {};
+
+    const stripe = makeStripe({
+      subscriptionSchedules: {
+        release: async (id: string) => { releasedId = id; return {}; },
+        create:  async (..._: unknown[]) => ({ id: "x" }),
+        update:  async (..._: unknown[]) => ({}),
+      },
+    });
+
+    const result = await executeCancelPlanChange({
+      userId:    sub.userId,
+      sub,
+      stripe,
+      updateSub: async (u: Record<string, unknown>) => { dbUpdate = u; },
+    });
+
+    assert.ok(result.ok);
+    assert.equal(releasedId, "sch_active");
+    assert.equal(dbUpdate.pendingPlanSlug, null);
+    assert.equal(dbUpdate.stripeScheduleId, null);
+  });
+
+  test("20 — 404 when no pending change exists", async () => {
+    const sub    = makeSub({ planSlug: "pro" }); // no pendingPlanSlug
+    const stripe = makeStripe();
+
+    const result = await executeCancelPlanChange({
+      userId:    sub.userId,
+      sub,
+      stripe,
+      updateSub: async () => {},
+    });
+
+    assert.ok(!result.ok);
+    assert.equal(result.status, 404);
+    assert.equal(result.code, "no_pending_change");
+  });
+});
+
+// ── executeCreatePortal ────────────────────────────────────────────────────────
+
+describe("executeCreatePortal", () => {
+  test("21 — returns Stripe billing portal URL", async () => {
+    const stripe = makeStripe();
+    const result = await executeCreatePortal({
+      userId:           42,
+      stripeCustomerId: "cus_abc",
+      stripe,
+      returnUrl:        "https://app.test/billing",
+    });
+
+    assert.ok(result.ok);
+    assert.ok((result as { ok: true; url: string }).url.startsWith("https://billing.stripe.com/"));
+  });
+
+  test("22 — 404 when no Stripe customer ID", async () => {
+    const stripe = makeStripe();
+    const result = await executeCreatePortal({
+      userId:           42,
+      stripeCustomerId: null,
+      stripe,
+      returnUrl:        "https://app.test/billing",
+    });
+
+    assert.ok(!result.ok);
+    assert.equal(result.status, 404);
+    assert.equal(result.code, "no_customer");
   });
 });
