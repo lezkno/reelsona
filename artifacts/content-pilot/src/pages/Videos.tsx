@@ -111,10 +111,14 @@ function GeneratingCardOverlay({
   createdAt,
   avatarBgUrl,
   onClick,
+  label = 'Generando video…',
+  sublabel = 'Procesando…',
 }: {
   createdAt: string | null | undefined
   avatarBgUrl: string | null
   onClick: () => void
+  label?: string
+  sublabel?: string
 }) {
   const [progress, setProgress] = useState(() => computeGeneratingProgress(createdAt))
   useEffect(() => {
@@ -161,7 +165,7 @@ function GeneratingCardOverlay({
 
         {/* Label */}
         <span className="text-white/70 text-[10px] font-semibold tracking-widest uppercase -mt-1">
-          Generando video…
+          {label}
         </span>
 
         {/* Progress bar + percentage */}
@@ -177,7 +181,7 @@ function GeneratingCardOverlay({
             />
           </div>
           <div className="flex justify-between items-center">
-            <span className="text-white/45 text-[9px] tracking-wide">Procesando…</span>
+            <span className="text-white/45 text-[9px] tracking-wide">{sublabel}</span>
             <span className="text-white font-bold text-[11px] tabular-nums">{pct}%</span>
           </div>
         </div>
@@ -514,6 +518,16 @@ export default function Videos() {
                     onClick={() => toast({ title: 'Video en proceso', description: 'Este video aún se está generando. Estará listo en unos minutos.' })}
                   />
                 )}
+                {/* Full-card applying-effects overlay — same design as generating */}
+                {video.status === 'ready' && (captionStatus === null || captionStatus === 'processing') && !selectMode && (
+                  <GeneratingCardOverlay
+                    createdAt={(video as any).created_at ?? (video as any).updated_at}
+                    avatarBgUrl={avatarBgUrl}
+                    label="Aplicando efectos…"
+                    sublabel="Captions y efectos…"
+                    onClick={() => toast({ title: 'Aplicando efectos', description: 'Se están aplicando captions y efectos al video. Estará listo en unos minutos.' })}
+                  />
+                )}
                 <div
                   className="aspect-[9/16] bg-muted relative"
                   onClick={() => selectMode && toggleSelect(video.id)}
@@ -534,16 +548,6 @@ export default function Videos() {
                   ) : (
                     /* Fallback — no avatar image available */
                     <div className="w-full h-full bg-zinc-900" />
-                  )}
-
-                  {/* ── Applying effects overlay (violet ring + %) ───────────── */}
-                  {video.status === 'ready' &&
-                   (captionStatus === null || captionStatus === 'processing') && (
-                    <CircularVideoProgress
-                      createdAt={(video as any).created_at}
-                      label="Aplicando efectos…"
-                      ringColor="#a855f7"
-                    />
                   )}
 
                   {/* ── Publishing overlay ───────────────────────────────────── */}
