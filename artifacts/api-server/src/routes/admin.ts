@@ -17,7 +17,8 @@ import { users, userEntitlements, videosTable, settingsTable, captionConfigTable
 import { subscriptionsTable, instagramAccountsTable, wavespeedPersonasTable } from "@workspace/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { adjustCredits, provisionSubscriptionCredits, VIDEO_CREDIT_COST, PLAN_CREDITS, FOUNDER_MAX_SEATS } from "../lib/credits";
-import { sendEmail, activationEmail, getAppUrl } from "../lib/email";
+import { sendEmail, activationEmail, passwordResetEmail, getAppUrl } from "../lib/email";
+import { hashPassword } from "../lib/password";
 import { provisionUser } from "../lib/provision";
 import { runCaptionProcessing } from "../lib/scheduler";
 import { getStripe, invalidatePriceCache } from "../lib/stripe";
@@ -821,6 +822,83 @@ router.post("/admin/users/:userId/toggle-suspend", async (req: Request, res: Res
     res.json({ ok: true, isSuspended: newSuspended });
   } catch (err) {
     console.error("[admin/toggle-suspend]", err);
+    res.status(500).json({ error: "Error interno del servidor" });
+  }
+});
+
+// ── POST /api/admin/users/:userId/set-password ────────────────────────────────
+/**
+ * Admin sets a new password for any user directly, without requiring the old one.
+ */
+router.post("/admin/users/:userId/set-password", async (req: Request, res: Response): Promise<void> => {
+  if (!isAdminRequest(req)) { res.status(403).json({ error: "Acceso denegado" }); return; }
+
+  const userId = parseInt(req.params.userId as string, 10);
+  if (!Number.isFinite(userId) || userId < 1) { res.status(400).json({ error: "userId inválido" }); return; }
+
+  const { password } = req.body as { password?: string };
+  if (!password || password.length < 8) {
+    res.status(400).json({ error: "La contraseña debe tener al menos 8 caracteres" }); return;
+  }
+
+  try {
+    const result = await db
+      .update(users)
+      .set({ passwordHash: hashPassword(password), updatedAt: new Date() })
+      .where(eq(users.id, userId))
+      .returning({ id: users.id });
+
+    if (result.length === 0) { res.status(404).json({ error: "Usuario no encontrado" }); return; }
+
+    console.log(`[admin/set-password] userId=${userId}`);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[admin/set-password]", err);
+    res.status(500).json({ error: "Error interno del servidor" });
+  }
+});
+
+// ── POST /api/admin/users/:userId/send-reset-email ────────────────────────────
+/**
+ * Generates a password-reset token and emails the user a link to choose their
+ * own new password. Token expires in 1 hour.
+ */
+router.post("/admin/users/:userId/send-reset-email", async (req: Request, res: Response): Promise<void> => {
+  if (!isAdminRequest(req)) { res.status(403).json({ error: "Acceso denegado" }); return; }
+
+  const userId = parseInt(req.params.userId as string, 10);
+  if (!Number.isFinite(userId) || userId < 1) { res.status(400).json({ error: "userId inválido" }); return; }
+
+  try {
+    const [user] = await db
+      .select({ id: users.id, email: users.email, fullName: users.fullName, username: users.username })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    if (!user) { res.status(404).json({ error: "Usuario no encontrado" }); return; }
+    if (!user.email) { res.status(400).json({ error: "Este usuario no tiene email registrado" }); return; }
+
+    const token = randomBytes(32).toString("hex");
+    await db
+      .update(users)
+      .set({
+        passwordResetToken:           token,
+        passwordResetTokenExpiresAt:  new Date(Date.now() + 60 * 60 * 1000),
+        updatedAt:                    new Date(),
+      })
+      .where(eq(users.id, userId));
+
+    const resetUrl = `${getAppUrl()}/reset-password?token=${token}`;
+    sendEmail({
+      to: user.email,
+      ...passwordResetEmail(user.fullName ?? user.username, resetUrl),
+    }).catch((err) => console.error("[admin/send-reset-email] email failed:", err));
+
+    console.log(`[admin/send-reset-email] userId=${userId} email=${user.email}`);
+    res.json({ ok: true, email: user.email });
+  } catch (err) {
+    console.error("[admin/send-reset-email]", err);
     res.status(500).json({ error: "Error interno del servidor" });
   }
 });

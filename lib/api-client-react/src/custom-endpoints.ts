@@ -388,6 +388,29 @@ export function useToggleSuspendUser() {
   });
 }
 
+/** Admin sets a new password for any user directly. */
+export function useAdminSetPassword() {
+  return useMutation({
+    mutationFn: ({ userId, password }: { userId: number; password: string }) =>
+      customFetch<{ ok: boolean }>(`/api/admin/users/${userId}/set-password`, {
+        method:  "POST",
+        body:    JSON.stringify({ password }),
+        headers: { "Content-Type": "application/json" },
+      }),
+  });
+}
+
+/** Admin triggers a password-reset email for any user. */
+export function useAdminSendResetEmail() {
+  return useMutation({
+    mutationFn: ({ userId }: { userId: number }) =>
+      customFetch<{ ok: boolean; email: string }>(
+        `/api/admin/users/${userId}/send-reset-email`,
+        { method: "POST" },
+      ),
+  });
+}
+
 // ── Admin student provisioning ────────────────────────────────────────────────
 
 export interface AdminEntitlement {

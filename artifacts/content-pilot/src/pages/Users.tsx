@@ -37,6 +37,7 @@ import {
   useAdminEntitlements, useProvisionStudent, useResendActivation,
   useUpdateEntitlementDays, useAdjustUserCredits, useAdminSetUserPlan,
   useAdminUserDetail, useToggleSuspendUser,
+  useAdminSetPassword, useAdminSendResetEmail,
   type AdminUser, type UpdateAdminUserInput, type AdminEntitlement,
 } from "@workspace/api-client-react"
 import { cn } from "@/lib/utils"
@@ -354,6 +355,120 @@ function ChangePasswordDialog({ user }: { user: AdminUser }) {
         </form>
       </DialogContent>
     </Dialog>
+  )
+}
+
+// ── Admin set-password dialog (any user) ─────────────────────────────────────
+
+function AdminSetPasswordDialog({
+  userId, username, fullName,
+}: {
+  userId: number; username: string; fullName?: string | null;
+}) {
+  const [open, setOpen]       = useState(false)
+  const [password, setPassword] = useState("")
+  const [confirm,  setConfirm]  = useState("")
+  const [error,    setError]    = useState<string | null>(null)
+  const setPass = useAdminSetPassword()
+  const { toast } = useToast()
+
+  const reset = () => { setPassword(""); setConfirm(""); setError(null) }
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    setError(null)
+    if (password !== confirm) { setError("Las contraseñas no coinciden"); return }
+    setPass.mutate(
+      { userId, password },
+      {
+        onSuccess: () => {
+          toast({ title: "Contraseña actualizada", description: `La contraseña de @${username} fue cambiada.` })
+          setOpen(false); reset()
+        },
+        onError: (err: any) => setError(err?.data?.error ?? err?.message ?? "Error al cambiar contraseña"),
+      }
+    )
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) reset() }}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button variant="ghost" size="icon"
+            className="h-7 w-7 text-muted-foreground hover:text-foreground"
+            onClick={() => setOpen(true)}
+          >
+            <KeyRound className="w-3.5 h-3.5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="left" className="text-xs">Cambiar contraseña</TooltipContent>
+      </Tooltip>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Cambiar contraseña</DialogTitle>
+          <DialogDescription>
+            Nueva contraseña para <strong>@{username}</strong>
+            {fullName ? ` (${fullName})` : ""}.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4 py-1">
+          <div className="space-y-1.5">
+            <Label htmlFor="asp-new">Nueva contraseña</Label>
+            <Input id="asp-new" type="password" placeholder="Mínimo 8 caracteres"
+              value={password} onChange={(e) => setPassword(e.target.value)}
+              autoComplete="new-password" minLength={8} required autoFocus
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="asp-confirm">Confirmar contraseña</Label>
+            <Input id="asp-confirm" type="password" placeholder="Repite la contraseña"
+              value={confirm} onChange={(e) => setConfirm(e.target.value)}
+              autoComplete="new-password" minLength={8} required
+            />
+          </div>
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
+            <Button type="submit" disabled={setPass.isPending || !password || !confirm}>
+              {setPass.isPending
+                ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Guardando…</>
+                : "Cambiar contraseña"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ── Admin send reset-email button ─────────────────────────────────────────────
+
+function AdminSendResetEmailButton({ userId }: { userId: number }) {
+  const sendReset = useAdminSendResetEmail()
+  const { toast } = useToast()
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button variant="ghost" size="icon"
+          className="h-7 w-7 text-muted-foreground hover:text-primary"
+          disabled={sendReset.isPending}
+          onClick={() =>
+            sendReset.mutate({ userId }, {
+              onSuccess: (data) =>
+                toast({ title: "Email enviado", description: `Enlace de restablecimiento enviado a ${data.email}.` }),
+              onError: (err: any) =>
+                toast({ title: "Error", description: err?.data?.error ?? "No se pudo enviar el email.", variant: "destructive" }),
+            })
+          }
+        >
+          {sendReset.isPending
+            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            : <Mail className="w-3.5 h-3.5" />}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="left" className="text-xs">Enviar enlace para cambiar contraseña</TooltipContent>
+    </Tooltip>
   )
 }
 
@@ -1232,6 +1347,12 @@ function EntitlementsSection() {
                             displayName={ent.fullName ?? ent.username}
                             currentCredits={ent.availableCredits}
                           />
+                          <AdminSetPasswordDialog
+                            userId={ent.userId}
+                            username={ent.username}
+                            fullName={ent.fullName}
+                          />
+                          <AdminSendResetEmailButton userId={ent.userId} />
                           <AdminSetPlanDialog userId={ent.userId} username={ent.username} />
                           <SuspendUserButton
                             userId={ent.userId}
@@ -1594,6 +1715,7 @@ export default function Users() {
                           <AdminSetPlanDialog userId={user.id} username={user.username} />
                           <EditUserDialog user={user} selfUsername={selfUsername} />
                           <ChangePasswordDialog user={user} />
+                          <AdminSendResetEmailButton userId={user.id} />
                           <SuspendUserButton
                             userId={user.id}
                             username={user.username}
