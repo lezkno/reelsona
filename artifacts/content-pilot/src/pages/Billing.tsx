@@ -6,7 +6,7 @@
  * or the Stripe Billing Portal; new users go through the hosted checkout.
  */
 
-import { useState } from "react"
+import { useState, useRef } from "react"
 import {
   useBilling,
   useChangePlan,
@@ -372,30 +372,34 @@ function CurrentPlanCard({
 }
 
 // ── Credits card ──────────────────────────────────────────────────────────────
+// Always renders — even if the user has no wallet or 0 credits.
 
-function CreditsCard({ data, isAdmin }: {
-  data:    ReturnType<typeof useBilling>["data"];
-  isAdmin: boolean;
+function CreditsCard({
+  data,
+  isAdmin,
+  hasActiveSub,
+}: {
+  data:         ReturnType<typeof useBilling>["data"];
+  isAdmin:      boolean;
+  hasActiveSub: boolean;
 }) {
-  const credits = data?.credits
-  if (!credits) return null
-
-  const total     = credits.subscription + credits.purchased
-  const consumed  = credits.totalConsumed
-  const available = credits.available
+  // Use zero fallback so the card always renders, even before wallet is created
+  const credits = data?.credits ?? {
+    available: 0, subscription: 0, purchased: 0, reserved: 0, totalConsumed: 0,
+  }
 
   return (
     <Card>
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-base">
           <Coins className="w-4 h-4 text-primary" />
-          Saldo de créditos
+          Créditos
         </CardTitle>
         <CardDescription className="text-xs">
-          Los créditos de suscripción se renuevan cada ciclo; los comprados nunca vencen.
+          Los créditos de suscripción se renuevan cada ciclo; los adicionales comprados nunca vencen.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-5">
+      <CardContent className="space-y-4">
         {isAdmin ? (
           <div className="flex items-center gap-3">
             <Infinity className="w-9 h-9 text-emerald-500" />
@@ -405,39 +409,46 @@ function CreditsCard({ data, isAdmin }: {
           <>
             {/* Main metric */}
             <div className="flex items-end gap-2">
-              <span className="text-5xl font-display font-bold">
-                {available.toLocaleString()}
+              <span className="text-5xl font-display font-bold tabular-nums">
+                {credits.available.toLocaleString()}
               </span>
               <span className="text-sm text-muted-foreground mb-1.5">créditos disponibles</span>
             </div>
 
-            {/* Breakdown */}
-            <div className="space-y-3">
-              <CreditBar
-                label="Suscripción (ciclo actual)"
-                value={credits.subscription}
-                total={Math.max(total, 1)}
-                color="bg-primary"
-              />
-              <CreditBar
-                label="Comprados (permanentes)"
-                value={credits.purchased}
-                total={Math.max(total, 1)}
-                color="bg-violet-500"
-              />
+            {/* Breakdown table */}
+            <div className="divide-y divide-border rounded-lg border bg-muted/20 overflow-hidden text-sm">
+              <div className="flex items-center justify-between px-3 py-2.5">
+                <span className="text-muted-foreground">Créditos del plan</span>
+                <span className={cn(
+                  "font-semibold tabular-nums",
+                  !hasActiveSub && credits.subscription > 0 && "text-muted-foreground/50",
+                )}>
+                  {credits.subscription.toLocaleString()}
+                  {!hasActiveSub && credits.subscription > 0 && (
+                    <span className="ml-1.5 text-[10px] font-normal tracking-wide uppercase opacity-70">requieren plan</span>
+                  )}
+                </span>
+              </div>
+              <div className="flex items-center justify-between px-3 py-2.5">
+                <span className="text-muted-foreground">Créditos adicionales</span>
+                <span className="font-semibold tabular-nums">{credits.purchased.toLocaleString()}</span>
+              </div>
+              <div className="flex items-center justify-between px-3 py-2.5">
+                <span className="text-muted-foreground">Reservados</span>
+                <span className="font-semibold tabular-nums text-muted-foreground">{credits.reserved.toLocaleString()}</span>
+              </div>
             </div>
 
-            {/* Stats */}
-            <div className="grid grid-cols-2 gap-3 pt-1">
-              <div className="rounded-lg bg-muted/40 p-3">
-                <p className="text-xs text-muted-foreground mb-0.5">Usados este ciclo</p>
-                <p className="font-bold tabular-nums">{consumed.toLocaleString()}</p>
+            {/* No-plan + purchased credits: saved-credits notice */}
+            {!hasActiveSub && credits.purchased > 0 && (
+              <div className="flex items-start gap-2.5 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2.5 text-xs text-amber-700 dark:text-amber-400">
+                <Info className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-500" />
+                <span>
+                  Tus créditos adicionales están guardados.{" "}
+                  Activa un plan para volver a utilizarlos.
+                </span>
               </div>
-              <div className="rounded-lg bg-muted/40 p-3">
-                <p className="text-xs text-muted-foreground mb-0.5">Reservados</p>
-                <p className="font-bold tabular-nums">{credits.reserved.toLocaleString()}</p>
-              </div>
-            </div>
+            )}
           </>
         )}
       </CardContent>
@@ -683,6 +694,7 @@ export default function Billing() {
   const { data, isLoading, refetch } = useBilling()
   const { data: authData }  = useAuthStatus()
   const changePlanMutation  = useChangePlan()
+  const plansRef            = useRef<HTMLDivElement>(null)
   const [checkoutCfg, setCheckoutCfg] = useState<PlanCheckoutConfig | null>(null)
   const [planFeedback, setPlanFeedback] = useState<{
     result: ChangePlanResult | null;
@@ -759,6 +771,27 @@ export default function Billing() {
         </Card>
       )}
 
+      {/* No-plan alert — shown to non-admin users without an active subscription */}
+      {!isAdmin && !hasActiveSub && (
+        <Card className="border-amber-500/25 bg-amber-50/60 dark:bg-amber-950/20">
+          <CardContent className="p-5 flex flex-col sm:flex-row sm:items-center gap-4">
+            <div className="flex-1 min-w-0 space-y-0.5">
+              <p className="font-semibold text-base">Tu cuenta está sin un plan activo</p>
+              <p className="text-sm text-muted-foreground">
+                Tus proyectos, videos, avatares y créditos adicionales siguen guardados.
+                Activa un plan para volver a crear, analizar y publicar contenido.
+              </p>
+            </div>
+            <Button
+              className="shrink-0 gap-1.5"
+              onClick={() => plansRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+            >
+              Activar un plan <ArrowRight className="w-4 h-4" />
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Top row: subscription + credits */}
       {!isAdmin && (
         <div className="grid gap-6 lg:grid-cols-2">
@@ -772,13 +805,14 @@ export default function Billing() {
           </div>
           <div className="space-y-4">
             <h2 className="font-display font-bold text-lg">Créditos</h2>
-            <CreditsCard data={data} isAdmin={isAdmin} />
+            <CreditsCard data={data} isAdmin={isAdmin} hasActiveSub={hasActiveSub} />
           </div>
         </div>
       )}
 
-      {/* Plans */}
+      {/* Plans — ref used by the no-plan banner CTA to scroll here */}
       {!isAdmin && (
+        <div ref={plansRef} className="scroll-mt-6">
         <PlansSection
           data={data}
           isCurrentSlug={currentSlug}
@@ -789,6 +823,7 @@ export default function Billing() {
           isChangingPlan={changePlanMutation.isPending}
           refetch={refetch}
         />
+        </div>
       )}
 
       {/* Topups */}

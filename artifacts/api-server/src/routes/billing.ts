@@ -79,6 +79,16 @@ router.get("/billing", requireAuth, async (req: Request, res: Response): Promise
     founderSeatsLeft = Math.max(0, FOUNDER_MAX_SEATS - used);
   }
 
+  // For users without an active subscription, subscription credits from a
+  // previous period are NOT usable — only permanent (purchased) credits count.
+  // This prevents presenting stale/historical subscription balances as spendable.
+  const isActiveSub = subscription
+    ? (["active", "trialing"] as string[]).includes(subscription.status ?? "")
+    : false;
+  const usableAvailable = isActiveSub
+    ? (wallet?.availableCredits ?? 0)
+    : Math.max(0, (wallet?.purchasedCredits ?? 0) - (wallet?.reservedCredits ?? 0));
+
   res.json({
     subscription: subscription
       ? {
@@ -103,11 +113,11 @@ router.get("/billing", requireAuth, async (req: Request, res: Response): Promise
         }
       : null,
     credits: {
-      available:    wallet?.availableCredits    ?? 0,
-      subscription: wallet?.subscriptionCredits ?? 0,
-      purchased:    wallet?.purchasedCredits    ?? 0,
-      reserved:     wallet?.reservedCredits     ?? 0,
-      totalConsumed: wallet?.totalConsumed      ?? 0,
+      available:     usableAvailable,
+      subscription:  wallet?.subscriptionCredits ?? 0,
+      purchased:     wallet?.purchasedCredits    ?? 0,
+      reserved:      wallet?.reservedCredits     ?? 0,
+      totalConsumed: wallet?.totalConsumed       ?? 0,
     },
     plans,
     topups,
