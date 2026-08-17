@@ -1,6 +1,13 @@
 import { Router } from "express";
-import { requireToolAccess, requireCourseAccess } from "../middleware/auth";
+// Use the NEW requireToolAccess (middleware/requireToolAccess.ts) which has
+// bypass logic for /billing and /credits.  The old one (middleware/auth.ts)
+// had zero bypass logic and was silently 403-ing billing/credits requests that
+// reached this router.
+import { requireToolAccess } from "../middleware/requireToolAccess";
+import { requireCourseAccess } from "../middleware/auth";
 import healthRouter from "./health";
+import billingRouter from "./billing";
+import creditsRouter from "./credits";
 import storageRouter from "./storage";
 import dashboardRouter from "./dashboard";
 import instagramRouter from "./instagram";
@@ -17,6 +24,15 @@ import wavespeedVoiceDirectorRouter from "./wavespeed-voice-director";
 
 
 const router = Router();
+
+// ── No-plan-required routes (guaranteed fallback) ─────────────────────────────
+// billingRouter and creditsRouter are ALSO mounted directly in app.ts (before
+// requireToolAccess), so they are normally handled there.  This second
+// registration acts as a belt-and-suspenders fallback: if a request somehow
+// falls through the app.ts mount (e.g. due to an async middleware quirk), it
+// lands here and is still served correctly before requireToolAccess can block it.
+router.use(billingRouter);
+router.use(creditsRouter);
 
 // General routes — accessible to any authenticated user
 router.use(healthRouter);

@@ -16,8 +16,10 @@ import { requireAdmin } from "../middleware/auth";
 
 const router = Router();
 
-// All user-management endpoints require admin role
-router.use(requireAdmin);
+// All user-management endpoints require admin role.
+// Scoped to "/users" so requests for OTHER paths that pass through this
+// router (e.g. /billing, /credits) are not accidentally blocked.
+router.use("/users", requireAdmin);
 
 const PUBLIC_FIELDS = {
   id:          users.id,
