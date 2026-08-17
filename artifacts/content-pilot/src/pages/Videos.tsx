@@ -102,6 +102,90 @@ function computeGeneratingProgress(createdAt: string | null | undefined): number
   return base;
 }
 
+// ── Full-card generating overlay ─────────────────────────────────────────────
+// Covers the entire Card (image + content) with a blurred avatar background,
+// spinning app logo, and an animated progress bar that advances in real time.
+const LOGO_BASE = import.meta.env.BASE_URL.replace(/\/$/, "")
+
+function GeneratingCardOverlay({
+  createdAt,
+  avatarBgUrl,
+  onClick,
+}: {
+  createdAt: string | null | undefined
+  avatarBgUrl: string | null
+  onClick: () => void
+}) {
+  const [progress, setProgress] = useState(() => computeGeneratingProgress(createdAt))
+  useEffect(() => {
+    const id = setInterval(() => setProgress(computeGeneratingProgress(createdAt)), 1000)
+    return () => clearInterval(id)
+  }, [createdAt])
+  const pct = Math.max(0, Math.min(100, progress))
+
+  return (
+    <div
+      className="absolute inset-0 z-10 flex flex-col items-center justify-center overflow-hidden cursor-default"
+      onClick={onClick}
+    >
+      {/* Heavily blurred avatar as background */}
+      {avatarBgUrl ? (
+        <img
+          src={avatarBgUrl}
+          aria-hidden
+          className="absolute inset-0 w-full h-full object-cover pointer-events-none select-none"
+          style={{ filter: 'blur(28px) brightness(0.3)', transform: 'scale(1.4)' }}
+        />
+      ) : (
+        <div className="absolute inset-0 bg-zinc-950" />
+      )}
+
+      {/* Dark vignette */}
+      <div className="absolute inset-0 bg-black/55" />
+
+      {/* Content */}
+      <div className="relative z-10 flex flex-col items-center gap-5 w-full px-6">
+        {/* Spinning logo with purple glow */}
+        <img
+          src={`${LOGO_BASE}/logo-spinner.png`}
+          alt=""
+          aria-hidden
+          className="w-16 h-16 object-contain animate-spin"
+          style={{
+            animationDuration: '3s',
+            animationTimingFunction: 'linear',
+            filter:
+              'drop-shadow(0 0 10px rgba(139,92,246,1)) drop-shadow(0 0 22px rgba(99,102,241,0.55))',
+          }}
+        />
+
+        {/* Label */}
+        <span className="text-white/70 text-[10px] font-semibold tracking-widest uppercase -mt-1">
+          Generando video…
+        </span>
+
+        {/* Progress bar + percentage */}
+        <div className="w-full flex flex-col gap-2">
+          <div className="h-[3px] rounded-full bg-white/15 overflow-hidden">
+            <div
+              className="h-full rounded-full"
+              style={{
+                width: `${pct}%`,
+                background: 'linear-gradient(90deg,#7c3aed,#6366f1,#3b82f6)',
+                transition: 'width 0.9s ease-out',
+              }}
+            />
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-white/45 text-[9px] tracking-wide">Procesando…</span>
+            <span className="text-white font-bold text-[11px] tabular-nums">{pct}%</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function CircularVideoProgress({
   createdAt,
   label,
@@ -405,8 +489,8 @@ export default function Videos() {
             const isSelected = selected.has(video.id)
             const hasPlayable = !!(video.captioned_video_url || video.video_url)
             const captionStatus = (video as any).caption_status as string | null
+            // 'generating' excluded — GeneratingCardOverlay handles clicks for that state
             const isProcessing = !hasPlayable && (
-              video.status === 'generating' ||
               video.status === 'publishing' ||
               (video.status === 'ready' && (captionStatus === null || captionStatus === 'processing'))
             )
@@ -420,8 +504,16 @@ export default function Videos() {
             return (
               <Card
                 key={video.id}
-                className={`overflow-hidden group flex flex-col transition-all ${selectMode && isSelected ? "ring-2 ring-destructive" : selectMode ? "ring-1 ring-border" : ""}`}
+                className={`overflow-hidden group flex flex-col transition-all relative ${selectMode && isSelected ? "ring-2 ring-destructive" : selectMode ? "ring-1 ring-border" : ""}`}
               >
+                {/* Full-card generating overlay — covers image + card content */}
+                {video.status === 'generating' && !selectMode && (
+                  <GeneratingCardOverlay
+                    createdAt={(video as any).created_at ?? (video as any).updated_at}
+                    avatarBgUrl={avatarBgUrl}
+                    onClick={() => toast({ title: 'Video en proceso', description: 'Este video aún se está generando. Estará listo en unos minutos.' })}
+                  />
+                )}
                 <div
                   className="aspect-[9/16] bg-muted relative"
                   onClick={() => selectMode && toggleSelect(video.id)}
@@ -433,25 +525,15 @@ export default function Videos() {
                       className="w-full h-full object-cover"
                     />
                   ) : avatarBgUrl ? (
-                    /* Avatar preview — blurred when video is still generating */
                     <img
                       src={avatarBgUrl}
                       alt=""
                       aria-hidden="true"
-                      className={`w-full h-full object-cover scale-110 transition-[filter] duration-500 ${video.status === 'generating' ? 'blur-md' : ''}`}
+                      className="w-full h-full object-cover scale-110"
                     />
                   ) : (
                     /* Fallback — no avatar image available */
                     <div className="w-full h-full bg-zinc-900" />
-                  )}
-
-                  {/* ── Generating overlay (blue ring + %) ──────────────────── */}
-                  {video.status === 'generating' && (
-                    <CircularVideoProgress
-                      createdAt={(video as any).created_at ?? (video as any).updated_at}
-                      label="Generando video…"
-                      ringColor="#3b82f6"
-                    />
                   )}
 
                   {/* ── Applying effects overlay (violet ring + %) ───────────── */}
