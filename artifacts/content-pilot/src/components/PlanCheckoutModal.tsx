@@ -1,363 +1,257 @@
 /**
- * PlanCheckoutModal — collects email (unauthenticated flow) then redirects to
- * Stripe's hosted checkout page.
+ * PlanCheckoutModal — Reelsona RC1 embedded Stripe Checkout.
  *
- * Works unauthenticated (Landing — requireEmail:true) and authenticated (Billing).
- * For authenticated users the email step is skipped and the session is created
- * immediately with the account email fetched server-side.
+ * Landing (unauthenticated): collect name/email first, then mount Stripe Checkout.
+ * Billing/topups (authenticated): email comes from the account and Checkout mounts
+ * after the user confirms the purchase. Payment stays inside Reelsona.
  */
 
-import { useCallback, useRef, useState } from "react";
-import {
-  ArrowRight,
-  Crown,
-  ExternalLink,
-  Loader2,
-  ShieldCheck,
-  Sparkles,
-  X,
-  Zap,
-} from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { loadStripe, type Stripe } from "@stripe/stripe-js";
+import { EmbeddedCheckout, EmbeddedCheckoutProvider } from "@stripe/react-stripe-js";
+import { ArrowLeft, Crown, Loader2, ShieldCheck, Sparkles, X, Zap } from "lucide-react";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-// ── Types ─────────────────────────────────────────────────────────────────────
-
 export interface PlanCheckoutConfig {
-  planSlug:    string;
-  planName:    string;
+  planSlug: string;
+  planName: string;
   amountCents: number;
-  currency:    string;
-  credits:     number;
-  /** 'month' | 'year' | null (for topups) */
-  interval:    string | null;
-  /** Show email field — true for unauthenticated landing flows */
+  currency: string;
+  credits: number;
+  interval: string | null;
   requireEmail?: boolean;
-  /** Pre-filled email (authenticated flow) */
   email?: string;
 }
 
 interface Props {
-  config:  PlanCheckoutConfig | null;
+  config: PlanCheckoutConfig | null;
   onClose: () => void;
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+type CheckoutIdentity = { email: string; fullName: string };
 
 function formatPrice(cents: number, currency: string): string {
   return new Intl.NumberFormat("es-MX", {
-    style:                 "currency",
-    currency:              currency.toUpperCase(),
+    style: "currency",
+    currency: currency.toUpperCase(),
     minimumFractionDigits: 0,
   }).format(cents / 100);
 }
 
 function PlanIcon({ slug }: { slug: string }) {
-  if (slug === "founder")        return <Crown    size={20} color="#F59E0B" />;
-  if (slug === "pro")            return <Sparkles size={20} color="#9B5CF6" />;
-  if (slug.startsWith("topup"))  return <Zap      size={20} color="#4F6EF7" />;
-  return <Zap size={20} color="#4F6EF7" />;
+  if (slug === "founder") return <Crown size={20} className="text-amber-500" />;
+  if (slug === "pro") return <Sparkles size={20} className="text-violet-500" />;
+  return <Zap size={20} className="text-blue-500" />;
 }
-
-const inputBase: React.CSSProperties = {
-  background:   "#161616",
-  border:       "1px solid #2a2a2a",
-  borderRadius: 10,
-  padding:      "10px 12px",
-  color:        "#f0f0f0",
-  fontSize:     "0.875rem",
-  outline:      "none",
-  width:        "100%",
-  boxSizing:    "border-box",
-  fontFamily:   "inherit",
-  transition:   "border-color 0.15s",
-};
-
-function accentFor(slug: string): string {
-  if (slug === "founder") return "linear-gradient(135deg,#F59E0B,#D97706)";
-  if (slug === "pro")     return "linear-gradient(135deg,#9B5CF6,#7C3AED)";
-  return "linear-gradient(135deg,#4F6EF7,#7B5CF6)";
-}
-
-// ── Modal ─────────────────────────────────────────────────────────────────────
 
 export function PlanCheckoutModal({ config, onClose }: Props) {
-  const [email,    setEmail]    = useState(config?.email ?? "");
+  const [stripePromise, setStripePromise] = useState<Promise<Stripe | null> | null>(null);
+  const [stripeError, setStripeError] = useState<string | null>(null);
+  const [email, setEmail] = useState(config?.email ?? "");
   const [fullName, setFullName] = useState("");
-  const [loading,  setLoading]  = useState(false);
-  const [error,    setError]    = useState<string | null>(null);
-  const sessionCreated = useRef(false);
+  const [identity, setIdentity] = useState<CheckoutIdentity | null>(null);
+  const [showCheckout, setShowCheckout] = useState(false);
 
-  const createSession = useCallback(
-    async (resolvedEmail: string, resolvedName?: string) => {
-      if (!config) return;
-      sessionCreated.current = true;
-      setLoading(true);
-      setError(null);
+  useEffect(() => {
+    if (!config) return;
+    setEmail(config.email ?? "");
+    setFullName("");
+    setIdentity(null);
+    setShowCheckout(false);
+    setStripeError(null);
+  }, [config?.planSlug]);
 
-      try {
-        const body: Record<string, unknown> = { planSlug: config.planSlug };
-        if (resolvedEmail) body.email    = resolvedEmail.trim().toLowerCase();
-        if (resolvedName)  body.fullName = resolvedName.trim();
+  useEffect(() => {
+    if (!config || stripePromise) return;
+    fetch(`${BASE}/api/config/public`, { credentials: "include" })
+      .then(async (r) => {
+        if (!r.ok) throw new Error("No se pudo cargar la configuración de Stripe");
+        return r.json() as Promise<{ stripePublishableKey?: string | null }>;
+      })
+      .then(({ stripePublishableKey }) => {
+        if (!stripePublishableKey) throw new Error("Stripe no está configurado para este entorno");
+        setStripePromise(loadStripe(stripePublishableKey));
+      })
+      .catch((err: Error) => setStripeError(err.message));
+  }, [config, stripePromise]);
 
-        const res  = await fetch(`${BASE}/api/checkout/create-session`, {
-          method:      "POST",
-          headers:     { "Content-Type": "application/json" },
-          credentials: "include",
-          body:        JSON.stringify(body),
-        });
-        const data = await res.json() as {
-          url?:           string;
-          clientSecret?:  string;
-          error?:         string;
-          founderSoldOut?: boolean;
-        };
+  const canContinue = !config?.requireEmail || email.trim().includes("@");
 
-        if (!res.ok) {
-          throw new Error(data.error ?? "No se pudo crear la sesión de pago");
-        }
+  const handleContinue = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!config || !canContinue) return;
+    setIdentity({
+      email: (config.requireEmail ? email : (config.email ?? email)).trim().toLowerCase(),
+      fullName: fullName.trim(),
+    });
+    setShowCheckout(true);
+    setStripeError(null);
+  };
 
-        if (data.url) {
-          // Redirect to Stripe's hosted checkout page
-          window.location.href = data.url;
-          return;
-        }
+  const fetchClientSecret = useCallback(async () => {
+    if (!config || !identity) throw new Error("Checkout incompleto");
 
-        // Fallback: should not happen with current backend
-        throw new Error(data.error ?? "Respuesta inesperada del servidor de pagos");
-      } catch (err: unknown) {
-        sessionCreated.current = false;
-        setError(err instanceof Error ? err.message : "Error inesperado");
-        setLoading(false);
-      }
-    },
-    [config],
-  );
+    const res = await fetch(`${BASE}/api/checkout/create-session`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        planSlug: config.planSlug,
+        email: identity.email || undefined,
+        fullName: identity.fullName || undefined,
+        embedded: true,
+      }),
+    });
 
-  const handleSubmit = useCallback(
-    async (e: React.FormEvent) => {
-      e.preventDefault();
-      if (sessionCreated.current) return;
+    const data = await res.json() as {
+      clientSecret?: string;
+      error?: string;
+      message?: string;
+      code?: string;
+    };
 
-      if (config?.requireEmail) {
-        if (!email.includes("@")) {
-          setError("Ingresa un email válido");
-          return;
-        }
-        await createSession(email, fullName);
-      } else {
-        // Authenticated user — email resolved server-side from the session
-        await createSession(config?.email ?? "");
-      }
-    },
-    [config, email, fullName, createSession],
+    if (!res.ok || !data.clientSecret) {
+      throw new Error(data.message ?? data.error ?? "No se pudo iniciar el pago");
+    }
+
+    return data.clientSecret;
+  }, [config, identity]);
+
+  const embeddedOptions = useMemo(
+    () => showCheckout && identity ? { fetchClientSecret } : null,
+    [showCheckout, identity, fetchClientSecret],
   );
 
   if (!config) return null;
 
-  const priceLabel    = formatPrice(config.amountCents, config.currency);
-  const intervalLabel =
-    config.interval === "month" ? "/mes" :
-    config.interval === "year"  ? "/año" : "";
-  const isTopup      = config.planSlug.startsWith("topup");
-  const canSubmit    = !loading && (!config.requireEmail || email.includes("@"));
+  const intervalLabel = config.interval === "month" ? "/mes" : config.interval === "year" ? "/año" : "";
+  const isTopup = config.planSlug.startsWith("topup");
+  // Billing opens this modal with requireEmail=false/undefined because the user is
+  // already authenticated. Founder is deliberately a separate annual V1 product
+  // and the original billing spec forbids converting an active Basic/Pro subscription
+  // through the plan-change endpoint. Do not send the user into a checkout that the
+  // backend must reject as a second subscription.
+  const founderBlockedForActiveSubscriber = config.planSlug === "founder" && !config.requireEmail;
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto"
-      style={{
-        backgroundColor: "rgba(0,0,0,0.92)",
-        backdropFilter:  "blur(14px)",
-        padding:         "2rem 1rem",
-      }}
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/90 backdrop-blur-xl p-4 sm:p-8"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div
-        style={{
-          position:        "relative",
-          width:           "100%",
-          maxWidth:        440,
-          backgroundColor: "#0d0d0d",
-          borderRadius:    20,
-          border:          "1px solid #1e1e1e",
-          overflow:        "hidden",
-          boxShadow:       "0 0 80px rgba(79,110,247,0.12), 0 32px 80px rgba(0,0,0,0.85)",
-        }}
-      >
-
-        {/* ── Header ── */}
-        <div style={{
-          display:        "flex",
-          alignItems:     "center",
-          justifyContent: "space-between",
-          padding:        "16px 20px",
-          borderBottom:   "1px solid #181818",
-        }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <img
-              src={`${BASE}/logo.png`}
-              alt="Reelsona"
-              style={{ width: 22, height: 22, objectFit: "contain" }}
-            />
-            <span style={{ fontWeight: 700, fontSize: "0.85rem", color: "#f0f0f0" }}>
-              Reelsona
-            </span>
+      <div className="relative w-full max-w-xl overflow-hidden rounded-2xl border border-white/10 bg-[#0d0d0d] shadow-2xl">
+        <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
+          <div className="flex items-center gap-2">
+            <img src={`${BASE}/logo.png`} alt="Reelsona" className="h-6 w-6 object-contain" />
+            <span className="font-semibold">Reelsona</span>
           </div>
-          <button
-            onClick={onClose}
-            aria-label="Cerrar"
-            style={{
-              background:   "none",
-              border:       "none",
-              color:        "#555",
-              cursor:       "pointer",
-              padding:      4,
-              display:      "flex",
-              borderRadius: 8,
-            }}
-          >
-            <X size={16} />
+          <button onClick={onClose} aria-label="Cerrar" className="rounded-lg p-1.5 text-muted-foreground hover:bg-white/5 hover:text-foreground">
+            <X size={17} />
           </button>
         </div>
 
-        {/* ── Plan strip ── */}
-        <div style={{
-          padding:      "16px 20px",
-          background:   config.planSlug === "founder"
-            ? "linear-gradient(90deg,rgba(245,158,11,0.08),rgba(245,158,11,0.04))"
-            : "linear-gradient(90deg,rgba(79,110,247,0.07),rgba(155,92,246,0.07))",
-          borderBottom: "1px solid #181818",
-        }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+        <div className="border-b border-white/10 bg-gradient-to-r from-blue-500/5 to-violet-500/5 px-5 py-4">
+          <div className="mb-1 flex items-center gap-2">
             <PlanIcon slug={config.planSlug} />
-            <span style={{ fontWeight: 700, fontSize: "1rem", color: "#f0f0f0" }}>
-              {config.planName}
-            </span>
+            <span className="font-semibold">{config.planName}</span>
           </div>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
-            <span style={{
-              fontWeight:           800,
-              fontSize:             "2rem",
-              background:           accentFor(config.planSlug),
-              WebkitBackgroundClip: "text",
-              WebkitTextFillColor:  "transparent",
-              backgroundClip:       "text",
-            }}>
-              {priceLabel}
-            </span>
-            {intervalLabel && (
-              <span style={{ color: "#666", fontSize: "0.85rem" }}>
-                {intervalLabel}
-              </span>
-            )}
+          <div className="flex items-baseline gap-1">
+            <span className="text-3xl font-bold">{formatPrice(config.amountCents, config.currency)}</span>
+            {intervalLabel && <span className="text-sm text-muted-foreground">{intervalLabel}</span>}
           </div>
-          <p style={{ color: "#555", fontSize: "0.75rem", marginTop: 4, marginBottom: 0 }}>
+          <p className="mt-1 text-xs text-muted-foreground">
             {isTopup
-              ? `${config.credits.toLocaleString()} créditos · Nunca vencen`
-              : `${config.credits.toLocaleString()} créditos / mes`}
+              ? `${config.credits.toLocaleString()} créditos adicionales · nunca vencen`
+              : `${config.credits.toLocaleString()} créditos incluidos`}
           </p>
         </div>
 
-        {/* ── Form ── */}
-        <form
-          onSubmit={handleSubmit}
-          style={{ padding: 20, display: "flex", flexDirection: "column", gap: 14 }}
-        >
-          {/* Name + Email — only shown for unauthenticated (landing) flow */}
-          {config.requireEmail && (
-            <>
-              {/* Name */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                <label style={{ color: "#999", fontSize: "0.78rem", fontWeight: 500 }}>
-                  Nombre completo{" "}
-                  <span style={{ color: "#444" }}>(opcional)</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="Tu nombre"
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  style={inputBase}
-                  onFocus={(e) => (e.target.style.borderColor = "#4F6EF7")}
-                  onBlur={(e)  => (e.target.style.borderColor = "#2a2a2a")}
-                />
+        {founderBlockedForActiveSubscriber ? (
+          <div className="space-y-4 p-5">
+            <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-4">
+              <div className="mb-2 flex items-center gap-2 font-semibold text-amber-400">
+                <Crown size={18} /> Founder es una suscripción anual separada
               </div>
-
-              {/* Email */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                <label style={{ color: "#999", fontSize: "0.78rem", fontWeight: 500 }}>
-                  Email <span style={{ color: "#f87171" }}>*</span>
-                </label>
-                <input
-                  type="email"
-                  placeholder="tu@email.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  style={inputBase}
-                  onFocus={(e) => (e.target.style.borderColor = "#4F6EF7")}
-                  onBlur={(e)  => (e.target.style.borderColor = "#2a2a2a")}
-                />
-                <p style={{ color: "#444", fontSize: "0.7rem" }}>
-                  {isTopup
-                    ? "Los créditos se acreditarán en esta cuenta."
-                    : "Tu acceso se activa en este email tras el pago."}
-                </p>
-              </div>
-            </>
-          )}
-
-          {/* Error */}
-          {error && (
-            <p style={{
-              color:        "#f87171",
-              fontSize:     "0.8rem",
-              background:   "rgba(248,113,113,0.07)",
-              border:       "1px solid rgba(248,113,113,0.18)",
-              borderRadius: 8,
-              padding:      "10px 12px",
-              margin:       0,
-            }}>
-              {error}
-            </p>
-          )}
-
-          {/* Submit */}
-          <button
-            type="submit"
-            disabled={!canSubmit}
-            style={{
-              display:        "flex",
-              alignItems:     "center",
-              justifyContent: "center",
-              gap:            8,
-              background:     canSubmit ? accentFor(config.planSlug) : "#1a1a1a",
-              color:          canSubmit ? "#fff" : "#444",
-              border:         "none",
-              borderRadius:   12,
-              padding:        "14px",
-              fontWeight:     700,
-              fontSize:       "0.95rem",
-              cursor:         canSubmit ? "pointer" : "not-allowed",
-              transition:     "opacity 0.15s",
-              letterSpacing:  "0.01em",
-            }}
-          >
-            {loading
-              ? <><Loader2 size={16} className="animate-spin" /> Procesando…</>
-              : <><ExternalLink size={15} /> Ir al pago seguro <ArrowRight size={15} /></>
-            }
-          </button>
-
-          {/* Trust note */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
-            <ShieldCheck size={12} style={{ color: "#333" }} />
-            <p style={{ color: "#333", fontSize: "0.68rem", margin: 0 }}>
-              Pago seguro con Stripe · Cancela cuando quieras
-            </p>
+              <p className="text-sm leading-6 text-muted-foreground">
+                Ya tienes una suscripción activa. Reelsona no creará una segunda suscripción Stripe ni intentará cobrar Founder encima de tu plan actual.
+              </p>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                Para RC1, los cambios entre planes activos se limitan a Basic ↔ Pro. Founder continúa disponible para nuevas altas anuales.
+              </p>
+            </div>
+            <button type="button" onClick={onClose} className="w-full rounded-xl border border-white/10 px-4 py-3 font-semibold hover:bg-white/5">
+              Entendido
+            </button>
           </div>
-        </form>
+        ) : !showCheckout ? (
+          <form onSubmit={handleContinue} className="space-y-4 p-5">
+            {config.requireEmail && (
+              <>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">Nombre completo</label>
+                  <input
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    placeholder="Tu nombre"
+                    className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">Email</label>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="tu@email.com"
+                    required
+                    className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+                  />
+                </div>
+              </>
+            )}
 
+            {stripeError && (
+              <div className="rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-sm text-red-400">
+                {stripeError}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={!canContinue || !!stripeError || !stripePromise}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 px-4 py-3 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {!stripePromise && !stripeError ? <Loader2 size={16} className="animate-spin" /> : null}
+              Continuar al pago
+            </button>
+
+            <div className="flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground">
+              <ShieldCheck size={13} /> Pago seguro procesado por Stripe dentro de Reelsona
+            </div>
+          </form>
+        ) : (
+          <div className="p-4 sm:p-5">
+            <button
+              type="button"
+              onClick={() => { setShowCheckout(false); setIdentity(null); }}
+              className="mb-3 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+            >
+              <ArrowLeft size={13} /> Volver
+            </button>
+
+            {stripePromise && embeddedOptions ? (
+              <div className="min-h-[420px] overflow-hidden rounded-xl bg-white">
+                <EmbeddedCheckoutProvider stripe={stripePromise} options={embeddedOptions}>
+                  <EmbeddedCheckout />
+                </EmbeddedCheckoutProvider>
+              </div>
+            ) : (
+              <div className="flex min-h-[320px] items-center justify-center">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

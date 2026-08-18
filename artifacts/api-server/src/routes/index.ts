@@ -20,6 +20,7 @@ import captionsRouter from "./captions";
 import strategyRouter from "./strategy";
 import courseRouter from "./course";
 import wavespeedRouter from "./wavespeed";
+import wavespeedFinalizeRouter from "./wavespeed-finalize";
 import wavespeedVoiceDirectorRouter from "./wavespeed-voice-director";
 
 
@@ -41,6 +42,7 @@ router.use(settingsRouter);
 
 // WaveSpeed internal routes — accessible to any authenticated user (key check is internal)
 router.use(wavespeedRouter);
+router.use(wavespeedFinalizeRouter);
 
 // WaveSpeed Voice Director — preview/debug route (tool access required)
 // Exclusively for WaveSpeed/MiniMax — zero connection to HeyGen pipeline.
