@@ -40,13 +40,13 @@ export interface HeyGenQuota {
 }
 
 /**
- * Fetch remaining API credits from GET /v2/user/remaining_quota.
+ * Fetch remaining API credits from GET /v3/user/remaining_quota.
  * Response: { data: { remaining_quota, details: { api, generative_credit, plan_credit, instant_avatars } } }
  */
 export async function getHeyGenQuota(apiKey: string): Promise<HeyGenQuota> {
   try {
     const client = getClient(apiKey);
-    const res = await client.get("/v2/user/remaining_quota");
+    const res = await client.get("/v3/user/remaining_quota");
     const data = res.data?.data ?? {};
     const remaining = typeof data.remaining_quota === "number" ? data.remaining_quota : null;
     const d = data.details ?? {};
@@ -68,12 +68,12 @@ export async function getHeyGenQuota(apiKey: string): Promise<HeyGenQuota> {
 
 /**
  * Validate a HeyGen API key.
- * Uses GET /v2/avatars — returns HTTP 200 for valid keys, 401 for invalid ones.
+ * Uses GET /v3/user/remaining_quota — returns HTTP 200 for valid keys, 401 for invalid ones.
  */
 export async function validateHeyGenKey(apiKey: string): Promise<boolean> {
   try {
     const client = getClient(apiKey);
-    const res = await client.get("/v2/avatars");
+    const res = await client.get("/v3/user/remaining_quota");
     // Valid key → 200; error field is null
     return res.status === 200 && !res.data?.error?.message?.toLowerCase().includes("unauthorized");
   } catch (err: any) {
@@ -101,11 +101,38 @@ export interface HeyGenVoice {
   is_clone?: boolean;
 }
 
+/**
+ * List all avatars across all groups via the v3 API.
+ * In v3 there are no "standalone" avatars — all are organized as looks within groups.
+ * Returns a flattened list using the HeyGenAvatar shape for backward compat.
+ */
 export async function listAvatars(apiKey?: string): Promise<HeyGenAvatar[]> {
-  const client = getClient(apiKey);
-  const res = await client.get("/v2/avatars");
-  const avatars: HeyGenAvatar[] = res.data?.data?.avatars ?? [];
-  return avatars;
+  try {
+    const client = getClient(apiKey);
+    const groupsRes = await client.get("/v3/avatars", { params: { limit: 50 } });
+    const groups: any[] = Array.isArray(groupsRes.data?.data) ? groupsRes.data.data : [];
+    const results = await Promise.allSettled(
+      groups.map(async (g: any) => {
+        const looksRes = await client.get("/v3/avatars/looks", { params: { group_id: g.id, limit: 50 } });
+        const looks: any[] = Array.isArray(looksRes.data?.data) ? looksRes.data.data : [];
+        return looks.map((l: any): HeyGenAvatar => ({
+          avatar_id: l.avatar_type === "photo_avatar" ? `tp:${l.id}` : (l.id ?? ""),
+          avatar_name: l.name ?? "",
+          preview_image_url: l.preview_image_url ?? null,
+          preview_video_url: l.preview_video_url ?? null,
+          gender: l.gender ?? null,
+        }));
+      })
+    );
+    const avatars: HeyGenAvatar[] = [];
+    for (const r of results) {
+      if (r.status === "fulfilled") avatars.push(...r.value);
+    }
+    return avatars;
+  } catch (err) {
+    logger.warn({ err }, "[HeyGen] listAvatars (v3) failed");
+    return [];
+  }
 }
 
 export interface HeyGenAvatarGroup {
@@ -123,16 +150,27 @@ export interface HeyGenGroupLook {
   motion_preview_url?: string | null;
 }
 
+/** @deprecated Use listV3AvatarGroups() directly for new code. Kept for backward compat. */
 export async function listAvatarGroups(apiKey?: string): Promise<HeyGenAvatarGroup[]> {
-  const client = getClient(apiKey);
-  const res = await client.get("/v2/avatar_group.list", { params: { include_public: false } });
-  return res.data?.data?.avatar_group_list ?? [];
+  const { groups } = await listV3AvatarGroups("private", undefined, 50, apiKey);
+  return groups.map((g) => ({
+    id: g.id,
+    name: g.name,
+    group_type: "UNKNOWN",
+    num_looks: g.looks_count,
+    preview_image: g.preview_image_url,
+  }));
 }
 
+/** @deprecated Use listV3GroupLooks() directly for new code. Kept for backward compat. */
 export async function listGroupLooks(groupId: string, apiKey?: string): Promise<HeyGenGroupLook[]> {
-  const client = getClient(apiKey);
-  const res = await client.get(`/v2/avatar_group/${groupId}/avatars`);
-  return res.data?.data?.avatar_list ?? [];
+  const { looks } = await listV3GroupLooks(groupId, undefined, apiKey);
+  return looks.map((l) => ({
+    id: l.id,
+    name: l.name,
+    image_url: l.preview_image_url,
+    motion_preview_url: l.preview_video_url ?? null,
+  }));
 }
 
 // ── Avatar preview image lookup ───────────────────────────────────────────────
@@ -146,8 +184,7 @@ const AVATAR_IMAGE_TTL = 10 * 60 * 1000;
  *
  * Search order:
  *   1. In-memory cache (10 min TTL)
- *   2. GET /v2/avatars — covers standalone avatars
- *   3. GET /v2/avatar_group.list + group avatars — covers looks inside groups
+ *   2. listAvatars() — v3-backed: fetches all groups + their looks via /v3/avatars
  *
  * Returns null on any error or when the ID is not found, so callers can fall
  * back gracefully (e.g. to the video thumbnail frame).
@@ -162,41 +199,12 @@ export async function fetchAvatarPreviewImage(
   if (cached && Date.now() - cached.at < AVATAR_IMAGE_TTL) return cached.url;
 
   try {
-    const client = getClient(apiKey);
-
-    // 2. Standalone avatars
-    const avatarsRes = await client.get("/v2/avatars");
-    const avatars: HeyGenAvatar[] = avatarsRes.data?.data?.avatars ?? [];
+    // Search all avatars (v3-backed) for the matching ID and return its preview image.
+    const avatars = await listAvatars(apiKey);
     const match = avatars.find((a) => a.avatar_id === avatarId);
-    if (match?.preview_image_url) {
-      avatarImageCache.set(ck, { url: match.preview_image_url, at: Date.now() });
-      return match.preview_image_url;
-    }
-
-    // 3. Avatar groups + their looks (includes both video avatars and talking photos)
-    const groupsRes = await client.get("/v2/avatar_group.list", { params: { include_public: false } });
-    const groups: HeyGenAvatarGroup[] = groupsRes.data?.data?.avatar_group_list ?? [];
-    for (const group of groups) {
-      const looksRes = await client.get(`/v2/avatar_group/${group.id}/avatars`);
-      const looks: any[] = looksRes.data?.data?.avatar_list ?? [];
-      // Video avatar looks: matched by l.avatar_id === avatarId
-      // Talking photo looks: stored internally as "tp:<id>"; match by tp:${l.id} === avatarId
-      const lookMatch = looks.find((l: any) =>
-        l.avatar_id === avatarId || (l.id && `tp:${l.id}` === avatarId)
-      );
-      if (lookMatch) {
-        // Video avatar looks: preview_image_url / preview_image
-        // Talking photo looks: image_url
-        const url: string | null =
-          lookMatch.preview_image_url ?? lookMatch.preview_image ?? lookMatch.image_url ?? null;
-        avatarImageCache.set(ck, { url, at: Date.now() });
-        return url;
-      }
-    }
-
-    // Not found anywhere
-    avatarImageCache.set(ck, { url: null, at: Date.now() });
-    return null;
+    const url = match?.preview_image_url ?? null;
+    avatarImageCache.set(ck, { url, at: Date.now() });
+    return url;
   } catch (err) {
     logger.warn({ avatarId, err }, "[HeyGen] fetchAvatarPreviewImage failed");
     return null;
@@ -212,31 +220,29 @@ export async function getAvatarDefaultVoiceId(avatarId: string, apiKey?: string)
   const prefix = apiKeyPrefix(apiKey);
   const existing = defaultVoiceMapByKey.get(prefix);
   if (!existing || Date.now() - existing.at > 10 * 60 * 1000) {
-    const client = getClient(apiKey);
-    const res = await client.get("/v2/avatar_group.list", { params: { include_public: false } });
-    const groups: any[] = res.data?.data?.avatar_group_list ?? [];
-    const map = new Map<string, string>();
-    const results = await Promise.allSettled(
-      groups.map(async (g) => {
-        if (!g.default_voice_id) return;
-        const looks = await listGroupLooks(g.id, apiKey);
-        for (const l of looks as any[]) {
-          if (l.avatar_id) {
-            // Index by avatar_id (canonical HeyGen key)
-            map.set(l.avatar_id, g.default_voice_id);
-            // Also index by look.id — selectedAvatarIds stores l.id, which may
-            // differ from l.avatar_id for custom/cloned avatar looks.
-            if (l.id && l.id !== l.avatar_id) map.set(l.id, g.default_voice_id);
-          } else if (l.id) {
-            map.set(`tp:${l.id}`, g.default_voice_id);
+    try {
+      const client = getClient(apiKey);
+      // v3: GET /v3/avatars — groups may optionally include default_voice_id
+      const res = await client.get("/v3/avatars", { params: { limit: 50 } });
+      const groups: any[] = Array.isArray(res.data?.data) ? res.data.data : [];
+      const map = new Map<string, string>();
+      const results = await Promise.allSettled(
+        groups.map(async (g: any) => {
+          if (!g.default_voice_id) return;
+          const looks = await listGroupLooks(g.id, apiKey);
+          for (const l of looks) {
+            // listGroupLooks() now returns normalized IDs (tp: prefix for photo avatars)
+            if (l.id) map.set(l.id, g.default_voice_id);
           }
-        }
-      })
-    );
-    if (results.some((r) => r.status === "rejected") && existing) {
-      // Partial refresh: keep the previous complete map for this API key
-    } else {
-      defaultVoiceMapByKey.set(prefix, { map, at: Date.now() });
+        })
+      );
+      if (results.some((r) => r.status === "rejected") && existing) {
+        // Partial refresh: keep the previous complete map for this API key
+      } else {
+        defaultVoiceMapByKey.set(prefix, { map, at: Date.now() });
+      }
+    } catch (err) {
+      logger.warn({ err }, "[HeyGen] getAvatarDefaultVoiceId v3 failed — defaulting to null");
     }
   }
   return defaultVoiceMapByKey.get(prefix)?.map.get(avatarId) ?? null;
@@ -249,8 +255,11 @@ export function invalidateDefaultVoiceCache(apiKey?: string): void {
 
 export async function listVoices(apiKey?: string): Promise<HeyGenVoice[]> {
   const client = getClient(apiKey);
-  const res = await client.get("/v2/voices");
-  const voices: HeyGenVoice[] = res.data?.data?.voices ?? [];
+  const res = await client.get("/v3/voices");
+  // v3 may return { data: { voices: [...] } } or { data: [...] }
+  const voices: HeyGenVoice[] =
+    res.data?.data?.voices ??
+    (Array.isArray(res.data?.data) ? res.data.data : []);
   return voices;
 }
 
@@ -349,7 +358,7 @@ export async function getVoiceCloneStatus(
  */
 export async function deleteVoice(voiceId: string, apiKey?: string): Promise<void> {
   const client = getClient(apiKey);
-  await client.delete(`/v2/voice/${encodeURIComponent(voiceId)}`);
+  await client.delete(`/v3/voices/${encodeURIComponent(voiceId)}`);
 }
 
 /**
@@ -364,7 +373,7 @@ export async function renameVoice(
 ): Promise<void> {
   try {
     const client = getClient(apiKey);
-    await client.patch(`/v2/voice/${encodeURIComponent(voiceId)}`, { name: newName });
+    await client.patch(`/v3/voices/${encodeURIComponent(voiceId)}`, { name: newName });
   } catch (err) {
     // HeyGen may not support server-side rename — log as warn so we can track drift.
     logger.warn({ err, voiceId, newName }, "[HeyGen] renameVoice failed — DB display_name and HeyGen name may diverge");
@@ -418,32 +427,26 @@ export async function getAllAvailableAvatarIds(
   try {
     const client = getClient(apiKey);
 
-    // Standalone avatars (video avatars not part of a group)
-    const avatarsRes = await client.get("/v2/avatars");
-    for (const a of (avatarsRes.data?.data?.avatars ?? []) as HeyGenAvatar[]) {
-      if (a.avatar_id) ids.add(a.avatar_id);
-    }
-
-    // Avatar groups + their looks (covers both video and photo avatar groups).
-    // include_public: true is required — user's photo avatar (talking photo) groups
-    // may be stored as public groups. Omitting public groups causes all tp: IDs to
-    // be missing from the set, which makes pruneDeletedAvatars remove them all.
-    const groupsRes = await client.get("/v2/avatar_group.list", { params: { include_public: true } });
-    const groups: HeyGenAvatarGroup[] = groupsRes.data?.data?.avatar_group_list ?? [];
+    // v3: GET /v3/avatars returns all avatar groups (both private and public).
+    // Omitting ownership param returns all groups so photo avatar (talking photo)
+    // groups are included — this prevents tp: IDs being missing and wrongly pruned.
+    const groupsRes = await client.get("/v3/avatars", { params: { limit: 50 } });
+    const groups: any[] = Array.isArray(groupsRes.data?.data) ? groupsRes.data.data : [];
 
     const lookResults = await Promise.allSettled(
-      groups.map(async (group) => {
-        const looksRes = await client.get(`/v2/avatar_group/${group.id}/avatars`);
-        const looks: Record<string, unknown>[] = looksRes.data?.data?.avatar_list ?? [];
-        const isPhoto =
-          group.group_type === "PHOTO" || group.group_type === "GENERATED_PHOTO";
+      groups.map(async (group: any) => {
+        // v3: GET /v3/avatars/looks?group_id=<id>
+        const looksRes = await client.get("/v3/avatars/looks", {
+          params: { group_id: group.id, limit: 50 },
+        });
+        const looks: any[] = Array.isArray(looksRes.data?.data) ? looksRes.data.data : [];
         for (const look of looks) {
+          // v3 avatar_type identifies photo vs video avatars
+          const isPhoto = look.avatar_type === "photo_avatar";
           if (isPhoto) {
-            if (look["id"]) ids.add(`tp:${look["id"]}`);
+            if (look.id) ids.add(`tp:${look.id}`);
           } else {
-            // Video avatar looks: prefer avatar_id, fall back to id
-            if (look["avatar_id"]) ids.add(look["avatar_id"] as string);
-            else if (look["id"]) ids.add(look["id"] as string);
+            if (look.id) ids.add(look.id);
           }
         }
       })
@@ -467,7 +470,9 @@ export async function getAllAvailableAvatarIds(
     return { ids, complete: true };
   } catch (err) {
     logger.warn({ err }, "[HeyGen] getAllAvailableAvatarIds failed — keeping previous cache");
-    // Network / auth error before we could collect anything useful.
+    if (availableAvatarIdsCache.has(cacheKey)) {
+      return { ids: availableAvatarIdsCache.get(cacheKey)!.ids, complete: false };
+    }
     return { ids, complete: false };
   }
 }

@@ -90,27 +90,19 @@ router.get(
  * be protected with authentication or ACL checks based on the use case.
  */
 router.get('/storage/objects/*path', async (req: Request, res: Response) => {
+  // Require an authenticated session.  Unauthenticated requests must never be
+  // able to enumerate or download private user objects.
+  if (!req.session?.authenticated || !req.session?.user?.userId) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+
   try {
     const raw = req.params.path;
     const wildcardPath = Array.isArray(raw) ? raw.join('/') : raw;
     const objectPath = `/objects/${wildcardPath}`;
     const objectFile =
       await objectStorageService.getObjectEntityFile(objectPath);
-
-    // --- Protected route example (uncomment when using replit-auth) ---
-    // if (!req.isAuthenticated()) {
-    //   res.status(401).json({ error: "Unauthorized" });
-    //   return;
-    // }
-    // const canAccess = await objectStorageService.canAccessObjectEntity({
-    //   userId: req.user.id,
-    //   objectFile,
-    //   requestedPermission: ObjectPermission.READ,
-    // });
-    // if (!canAccess) {
-    //   res.status(403).json({ error: "Forbidden" });
-    //   return;
-    // }
 
     const response = await objectStorageService.downloadObject(objectFile);
 

@@ -3062,6 +3062,117 @@ async function pollPendingClonedVoices(): Promise<void> {
   );
 }
 
+/**
+ * Poll pending WaveSpeed voice clones and transition them to "ready" or "failed".
+ * Mirrors pollPendingClonedVoices() for HeyGen but targets wavespeedVoicesTable.
+ *
+ * The minimax/voice-clone job returns outputs[0] as the final voice id once
+ * the clone is complete.  On success, credits are consumed and the user
+ * receives an email notification.  On failure or timeout, credits are released.
+ */
+async function pollPendingWavespeedVoices(): Promise<void> {
+  if (!isWavespeedConfigured()) return;
+
+  const now = new Date();
+  const TIMEOUT_MS = 60 * 60 * 1000; // 60 minutes
+
+  const pendingVoices = await db
+    .select()
+    .from(wavespeedVoicesTable)
+    .where(
+      and(
+        eq(wavespeedVoicesTable.status, "pending"),
+        isNotNull(wavespeedVoicesTable.wavespeedRequestId),
+      ),
+    );
+
+  if (pendingVoices.length === 0) return;
+
+  logger.debug({ count: pendingVoices.length }, "[WSVoicePoller] Checking pending WaveSpeed voice clones");
+
+  await Promise.allSettled(
+    pendingVoices.map(async (voice) => {
+      const ageMs = now.getTime() - voice.createdAt.getTime();
+      try {
+        const result = await getWavespeedJobStatus(voice.wavespeedRequestId!);
+
+        if (result.status === "completed") {
+          // minimax/voice-clone returns the voice id as outputs[0]
+          const outputArr = Array.isArray(result.outputs) ? result.outputs : [];
+          const finalVoiceId = outputArr.length > 0 ? String(outputArr[0]) : voice.wavespeedRequestId!;
+
+          await db
+            .update(wavespeedVoicesTable)
+            .set({ status: "ready", wavespeedVoiceId: finalVoiceId, updatedAt: now })
+            .where(eq(wavespeedVoicesTable.id, voice.id));
+          await consumeVoiceCredits(voice.id, "wavespeed").catch((err) =>
+            logger.warn({ err, id: voice.id }, "[WSVoicePoller] consumeVoiceCredits failed"),
+          );
+          logger.info(
+            { requestId: voice.wavespeedRequestId, finalVoiceId, userId: voice.userId },
+            "[WSVoicePoller] WaveSpeed voice clone ready ✓",
+          );
+
+          // Email notification (mirrors HeyGen voice-ready email)
+          const [user] = await db
+            .select({ email: users.email, username: users.username, fullName: users.fullName })
+            .from(users)
+            .where(eq(users.id, voice.userId))
+            .limit(1);
+          const to = user?.email ?? user?.username;
+          if (to) {
+            await sendEmail({
+              to,
+              subject: "¡Tu voz clonada está lista en Reelsona! 🎤",
+              html: `<p>Hola ${user?.fullName ?? ""},</p>
+<p>Tu voz clonada ya está disponible para usar en todos tus videos de Reelsona.</p>
+<p>Entra a la plataforma, ve a <strong>Avatares → Mis Voces</strong> y asígnala a tus avatares para empezar a generar contenido con tu propia voz.</p>`,
+              text: "Tu voz clonada está lista. Entra a Reelsona, ve a Avatares → Mis Voces y asígnala a tus avatares.",
+            }).catch((err) =>
+              logger.warn({ err, userId: voice.userId }, "[WSVoicePoller] Email notification failed"),
+            );
+          }
+        } else if (result.status === "failed") {
+          await db
+            .update(wavespeedVoicesTable)
+            .set({ status: "failed", errorMessage: result.error ?? "WaveSpeed reported failure", updatedAt: now })
+            .where(eq(wavespeedVoicesTable.id, voice.id));
+          await releaseVoiceCredits(voice.id, "wavespeed", "WaveSpeed voice clone failed").catch((err) =>
+            logger.warn({ err, id: voice.id }, "[WSVoicePoller] releaseVoiceCredits failed"),
+          );
+          logger.warn(
+            { requestId: voice.wavespeedRequestId, userId: voice.userId, error: result.error },
+            "[WSVoicePoller] WaveSpeed voice clone failed",
+          );
+        } else if (ageMs > TIMEOUT_MS) {
+          // Still queued/processing but exceeded 60-minute timeout — force-fail
+          await db
+            .update(wavespeedVoicesTable)
+            .set({ status: "failed", errorMessage: "Timeout: voice clone took longer than 60 minutes", updatedAt: now })
+            .where(eq(wavespeedVoicesTable.id, voice.id));
+          await releaseVoiceCredits(voice.id, "wavespeed", "WaveSpeed voice clone timeout").catch((err) =>
+            logger.warn({ err, id: voice.id }, "[WSVoicePoller] releaseVoiceCredits (timeout) failed"),
+          );
+          logger.warn(
+            { requestId: voice.wavespeedRequestId, userId: voice.userId, ageMs },
+            "[WSVoicePoller] WaveSpeed voice clone timed out — marking failed",
+          );
+        } else {
+          logger.debug(
+            { requestId: voice.wavespeedRequestId, status: result.status, ageMs },
+            "[WSVoicePoller] Voice still processing — will retry next cycle",
+          );
+        }
+      } catch (err) {
+        logger.warn(
+          { err, requestId: voice.wavespeedRequestId },
+          "[WSVoicePoller] Failed to poll voice clone status — will retry next cycle",
+        );
+      }
+    }),
+  );
+}
+
 let cronJob: ReturnType<typeof cron.schedule> | null = null;
 let cycleRunning = false;
 
@@ -3077,6 +3188,7 @@ export function startScheduler(): void {
       await Promise.all([
         pollAndPublishVideos(),
         pollPendingClonedVoices(),
+        pollPendingWavespeedVoices(),
       ]);
     } catch (err) {
       logger.error({ err }, "Error in video polling cycle");

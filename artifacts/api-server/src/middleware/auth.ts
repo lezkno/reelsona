@@ -5,6 +5,8 @@ declare module "express-session" {
   interface SessionData {
     authenticated?: boolean;
     user?: { username: string; role: string; userId: number };
+    /** CSRF token stored server-side during Instagram OAuth initiation */
+    igOauthState?: string;
   }
 }
 

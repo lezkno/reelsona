@@ -20,6 +20,32 @@ import router from "./routes";
 
 const PgSession = connectPgSimple(session);
 
+// ── Startup security assertions ─────────────────────────────────────────────
+// Fail fast in production rather than silently running with insecure defaults.
+const _rawSessionSecret = process.env.SESSION_SECRET;
+const _insecureDefault  = "dev-secret-please-set-SESSION_SECRET";
+if (!_rawSessionSecret || _rawSessionSecret === _insecureDefault) {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "FATAL: SESSION_SECRET is not set or uses the insecure dev default. " +
+      "Set a strong random secret in your Replit Secrets before deploying."
+    );
+  }
+  // eslint-disable-next-line no-console
+  console.warn(
+    "⚠️  SESSION_SECRET is not set — using insecure dev default. " +
+    "Never deploy to production without setting SESSION_SECRET."
+  );
+}
+if (!process.env.NODE_ENV) {
+  // eslint-disable-next-line no-console
+  console.warn(
+    "⚠️  NODE_ENV is not set. Session cookies will NOT have the Secure flag. " +
+    "Set NODE_ENV=production in your deployment environment."
+  );
+}
+// ────────────────────────────────────────────────────────────────────────────
+
 const app = express();
 
 // Replit (and most cloud providers) terminate TLS at the reverse proxy.

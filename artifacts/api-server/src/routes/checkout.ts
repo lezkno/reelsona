@@ -69,8 +69,10 @@ router.post("/checkout/create-session", async (req: Request, res: Response): Pro
     return;
   }
 
-  // For authenticated users without a provided email, look it up from the DB.
-  if (!email && req.session?.user?.userId) {
+  // Security: for authenticated users, always resolve email from the DB —
+  // never trust an email supplied in the request body. This prevents a user
+  // from supplying a different account's email and crediting that account.
+  if (req.session?.user?.userId) {
     const [user] = await db
       .select({ email: usersTable.email })
       .from(usersTable)
@@ -152,6 +154,14 @@ router.post("/checkout/create-session", async (req: Request, res: Response): Pro
       credits_amount: String(planConfig.creditAmount),
     };
 
+    // Idempotency key: scoped to user + plan + 1-minute window so that rapid
+    // double-clicks or retries within the same minute reuse the same Stripe
+    // session instead of creating two separate charges.
+    const idempotencyScope = req.session?.user?.userId
+      ? `uid_${req.session.user.userId}`
+      : `email_${email.trim().toLowerCase().replace(/[^a-z0-9]/g, "_")}`;
+    const idempotencyKey = `checkout_${idempotencyScope}_${planSlug}_${Math.floor(Date.now() / 60_000)}`;
+
     // Hosted checkout — always works regardless of Stripe account settings.
     const session = await stripe.checkout.sessions.create({
       mode:           isSubscription ? "subscription" : "payment",
@@ -163,7 +173,7 @@ router.post("/checkout/create-session", async (req: Request, res: Response): Pro
       ...(isSubscription ? {
         subscription_data: { metadata },
       } : {}),
-    });
+    }, { idempotencyKey });
 
     res.json({ url: session.url });
   } catch (err: any) {

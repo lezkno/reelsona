@@ -78,7 +78,9 @@ export default function Connect() {
         return
       }
       localStorage.removeItem(IG_STATE_KEY)
-      handleCallback.mutate({ data: { code, redirect_uri: redirectUri } }, {
+      // Include the returned state so the server can validate it against the
+      // session-stored value as a server-side CSRF check.
+      handleCallback.mutate({ data: { code, redirect_uri: redirectUri, state: returnedState ?? undefined } }, {
         onSuccess: () => {
           toast({ title: "Cuenta Conectada", description: "Tu cuenta de Instagram se vinculó correctamente." })
           queryClient.invalidateQueries({ queryKey: getGetInstagramAccountQueryKey() })

@@ -48,7 +48,9 @@ export const GetInstagramAuthUrlResponse = zod.object({
  */
 export const HandleInstagramCallbackBody = zod.object({
   "code": zod.string(),
-  "redirect_uri": zod.string()
+  "redirect_uri": zod.string(),
+  /** CSRF state token — must match the value stored in the server session */
+  "state": zod.string().optional()
 })
 
 export const HandleInstagramCallbackResponse = zod.object({

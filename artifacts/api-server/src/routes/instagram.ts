@@ -52,6 +52,11 @@ router.get("/instagram/auth-url", async (req, res): Promise<void> => {
     res.status(400).json({ error: "redirect_uri query param is required and must be an allowed origin" });
     return;
   }
+  // Store the state in the server session so we can validate it on callback
+  // (CSRF protection — prevents an attacker from injecting a forged code).
+  if (state) {
+    req.session.igOauthState = state;
+  }
   const url = getAuthUrl(redirectUri, state);
   res.json(GetInstagramAuthUrlResponse.parse({ url }));
 });
@@ -62,7 +67,26 @@ router.post("/instagram/callback", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const { code, redirect_uri } = parsed.data;
+  const { code, redirect_uri, state } = parsed.data;
+
+  // ── Server-side CSRF state validation ────────────────────────────────────
+  // If this session previously initiated an OAuth flow (igOauthState is set),
+  // the returned state MUST match.  If no session state exists we allow the
+  // request through with a warning (handles legacy flows without state support).
+  const expectedState = req.session.igOauthState;
+  if (expectedState) {
+    if (!state || state !== expectedState) {
+      logger.warn({ userId: req.session.user?.userId, hasState: !!state }, "[IG/Callback] State mismatch — possible CSRF attempt, rejecting");
+      res.status(400).json({ error: "El parámetro state no es válido. Intenta conectar de nuevo." });
+      return;
+    }
+  } else if (state) {
+    // State returned but no session record — log but proceed (graceful for existing sessions)
+    logger.warn({ state }, "[IG/Callback] state returned but no igOauthState in session — stale or cross-tab session");
+  }
+  // Clear the nonce from the session regardless of outcome
+  delete req.session.igOauthState;
+  // ─────────────────────────────────────────────────────────────────────────
 
   let accessToken: string;
   let expiresAt: Date;
