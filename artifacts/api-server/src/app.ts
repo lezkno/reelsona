@@ -5,6 +5,7 @@ import connectPgSimple from "connect-pg-simple";
 import pinoHttp from "pino-http";
 import cookieParser from "cookie-parser";
 import { logger } from "./lib/logger";
+import { getSchedulerLeadershipState } from "./lib/scheduler-leader";
 import { requireAuth } from "./middleware/auth";
 import { requireToolAccess } from "./middleware/requireToolAccess";
 import { apiRateLimit } from "./middleware/rateLimit";
@@ -105,7 +106,19 @@ app.use(
 );
 
 app.get("/api/healthz", (_req, res) => {
-  res.json({ status: applicationReady ? "ok" : "starting" });
+  const scheduler = getSchedulerLeadershipState();
+  const buildSha =
+    process.env.REPLIT_GIT_COMMIT_SHA ??
+    process.env.GIT_COMMIT_SHA ??
+    process.env.COMMIT_SHA ??
+    null;
+
+  res.json({
+    status: applicationReady ? "ok" : "starting",
+    scheduler: scheduler.status,
+    schedulerStarted: scheduler.started,
+    build: buildSha ? buildSha.slice(0, 12) : null,
+  });
 });
 
 app.use("/api", (_req, res, next) => {
