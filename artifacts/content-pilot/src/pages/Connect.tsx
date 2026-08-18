@@ -88,6 +88,12 @@ export default function Connect() {
       } as any
       handleCallback.mutate({ data: callbackData }, {
         onSuccess: () => {
+          if (window.opener && !window.opener.closed) {
+            // Running inside the OAuth popup — refresh the parent tab and close this popup.
+            try { window.opener.location.reload() } catch { /* cross-origin guard */ }
+            window.close()
+            return
+          }
           toast({ title: "Cuenta Conectada", description: "Tu cuenta de Instagram se vinculó correctamente." })
           queryClient.invalidateQueries({ queryKey: getGetInstagramAccountQueryKey() })
           queryClient.invalidateQueries({ queryKey: getGetInstagramPostsQueryKey() })
@@ -96,6 +102,10 @@ export default function Connect() {
         onError: (err: any) => {
           const detail = err?.message ?? "Hubo un problema al conectar tu cuenta."
           toast({ title: "Error al conectar", description: detail, variant: "destructive" })
+          if (window.opener && !window.opener.closed) {
+            // Stay in the popup so the user can see the error toast before closing manually.
+            return
+          }
           setLocation("/connect")
         }
       })
