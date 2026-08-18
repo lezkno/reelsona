@@ -469,7 +469,7 @@ function TabMercado({ profile, onNext }: { profile: StrategyProfile | null; onNe
           <p className="text-sm text-muted-foreground mt-0.5">Síntesis de patrones de tu cuenta + referentes del radar + ajustes.</p>
         </div>
         <Button onClick={handleRun} disabled={runMarket.isPending || !hasAccount} variant={done ? "outline" : "default"} className="gap-2">
-          {runMarket.isPending ? <><Loader2 className="w-4 h-4 animate-spin" /> Sintetizando…</> : done ? <><RefreshCw className="w-4 h-4" /> Actualizar</> : <><TrendingUp className="w-4 h-4" /> Sintetizar Mercado</>}
+          {runMarket.isPending ? <><Loader2 className="w-4 h-4 animate-spin" /> Sincronizando referentes y analizando…</> : done ? <><RefreshCw className="w-4 h-4" /> Actualizar</> : <><TrendingUp className="w-4 h-4" /> Sintetizar Mercado</>}
         </Button>
       </div>
 

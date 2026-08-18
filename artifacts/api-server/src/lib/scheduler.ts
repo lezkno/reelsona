@@ -3355,18 +3355,16 @@ export async function syncAllStaleRadarAccounts(userId?: number): Promise<{ sync
     return { synced: 0, failed: 0, total: 0 };
   }
 
-  logger.info({ count: staleAccounts.length }, "[RadarSync] Syncing stale radar accounts");
+  logger.info({ count: staleAccounts.length }, "[RadarSync] Syncing stale radar accounts (parallel)");
 
-  let synced = 0;
-  let failed = 0;
-
-  for (const account of staleAccounts) {
-    try {
+  // Run all enrichments concurrently so the total wall-clock time is bounded
+  // by the slowest single account (≤90 s) rather than sum(accounts × 90 s).
+  const results = await Promise.allSettled(
+    staleAccounts.map(async (account) => {
       const apifyData = await enrichProfileWithApify(account.igUsername);
       if (!apifyData) {
-        failed++;
         logger.warn({ igUsername: account.igUsername }, "[RadarSync] Apify returned no data — skipping account");
-        continue;
+        return "failed" as const;
       }
       await db
         .update(nicheRadarAccountsTable)
@@ -3378,14 +3376,23 @@ export async function syncAllStaleRadarAccounts(userId?: number): Promise<{ sync
           lastSyncedAt: new Date(),
         })
         .where(eq(nicheRadarAccountsTable.id, account.id));
-      synced++;
       logger.info({ igUsername: account.igUsername }, "[RadarSync] Account synced ✓");
-    } catch (err) {
+      return "synced" as const;
+    })
+  );
+
+  let synced = 0;
+  let failed = 0;
+  for (const r of results) {
+    if (r.status === "fulfilled" && r.value === "synced") synced++;
+    else {
       failed++;
-      logger.error({ err, igUsername: account.igUsername }, "[RadarSync] Failed to sync account");
+      if (r.status === "rejected") {
+        logger.error({ err: r.reason }, "[RadarSync] Failed to sync account");
+      }
     }
   }
 
-  logger.info({ synced, failed, total: staleAccounts.length }, "[RadarSync] Weekly radar sync complete");
+  logger.info({ synced, failed, total: staleAccounts.length }, "[RadarSync] Radar sync complete");
   return { synced, failed, total: staleAccounts.length };
 }

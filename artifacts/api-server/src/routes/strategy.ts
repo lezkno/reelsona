@@ -413,6 +413,22 @@ router.post("/strategy/market", requirePlanAccess(PRO_PLANS), async (req, res): 
   }
   const [settingsRow] = await db.select().from(settingsTable)
     .where(eq(settingsTable.userId, userId)).limit(1);
+
+  // Auto-sync all stale radar accounts before synthesizing so the AI always
+  // works with fresh Apify data (bio, followers, top posts). Runs in parallel
+  // so total wait time is bounded by the slowest single account (~90 s max).
+  // Failures are non-fatal — we continue with whatever data is already stored.
+  if (process.env.APIFY_TOKEN) {
+    try {
+      const syncResult = await syncAllStaleRadarAccounts(userId);
+      if (syncResult.total > 0) {
+        logger.info(syncResult, "[Market] Pre-synthesis radar sync complete");
+      }
+    } catch (syncErr) {
+      logger.warn({ err: syncErr }, "[Market] Pre-synthesis radar sync failed — continuing with cached data");
+    }
+  }
+
   const radarAccounts = await db
     .select()
     .from(nicheRadarAccountsTable)
