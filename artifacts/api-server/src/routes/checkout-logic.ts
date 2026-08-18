@@ -11,6 +11,16 @@ export interface CheckoutSessionParamsInput {
   embedded: boolean;
 }
 
+/** Returns true only when Stripe secret/publishable keys belong to the same mode. */
+export function stripeKeyModesCompatible(secretKey?: string | null, publishableKey?: string | null): boolean {
+  const sk = secretKey?.trim() ?? "";
+  const pk = publishableKey?.trim() ?? "";
+  if (!sk || !pk) return false;
+  const secretMode = sk.startsWith("sk_live_") ? "live" : sk.startsWith("sk_test_") ? "test" : null;
+  const publicMode = pk.startsWith("pk_live_") ? "live" : pk.startsWith("pk_test_") ? "test" : null;
+  return secretMode !== null && secretMode === publicMode;
+}
+
 /**
  * Build Stripe Checkout Session params without touching Express/DB so the
  * monetization contract can be regression-tested independently.
