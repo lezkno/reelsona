@@ -19,7 +19,7 @@ function resolvePort(command: "build" | "serve"): number {
   return port;
 }
 
-export default defineConfig(({ command }) => {
+export default defineConfig(async ({ command }) => {
   const port = resolvePort(command);
   // BASE_PATH controls where Replit mounts the preview. It is irrelevant to a
   // standalone production build, where Vite's canonical root base is '/'.
