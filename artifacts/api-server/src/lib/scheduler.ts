@@ -39,6 +39,7 @@ import {
   FOUNDER_MAX_MONTHS,
 } from "./credits";
 import { isFounderGrantDue, nextFounderGrantDate } from "./founder-grant";
+import { getCanonicalOrigin } from "./appOrigin";
 import { provisionUser } from "./provision";
 import { provisionPurchase } from "./provision-purchase";
 import { getStripe } from "./stripe";
@@ -1900,9 +1901,7 @@ async function transcribeAudioToSrt(videoUrl: string, videoId: number): Promise<
       .file(objectName)
       .save(Buffer.from(srtContent, "utf-8"), { contentType: "text/plain; charset=utf-8" });
 
-    const domain = process.env.REPLIT_DEV_DOMAIN;
-    if (!domain) throw new Error("REPLIT_DEV_DOMAIN not set");
-    const srtUrl = `https://${domain}/api/captioned-objects/${objectName}`;
+    const srtUrl = `${getCanonicalOrigin()}/api/captioned-objects/${objectName}`;
 
     const cueCount = (srtContent.match(/^\d+$/gm) ?? []).length;
     logger.info({ videoId, cueCount, srtUrl }, "[WaveSpeed] Whisper SRT uploaded ✓");
@@ -1930,13 +1929,13 @@ async function persistVideoAssetsToStorage(
   thumbnailUrl: string | null | undefined,
 ): Promise<{ videoUrl: string; thumbnailUrl: string | null }> {
   const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
-  const domain   = process.env.REPLIT_DEV_DOMAIN;
 
-  if (!bucketId || !domain) {
+  if (!bucketId) {
     logger.warn({ videoId }, "[PersistAssets] Object Storage not configured — keeping CDN URLs");
     return { videoUrl, thumbnailUrl: thumbnailUrl ?? null };
   }
 
+  const origin = getCanonicalOrigin();
   const bucket = objectStorageClient.bucket(bucketId);
   let persistentVideoUrl      = videoUrl;
   let persistentThumbnailUrl  = thumbnailUrl ?? null;
@@ -1950,7 +1949,7 @@ async function persistVideoAssetsToStorage(
     const buf = Buffer.from(await res.arrayBuffer());
     const objectName = `raw-videos/${videoId}.mp4`;
     await bucket.file(objectName).save(buf, { contentType: "video/mp4" });
-    persistentVideoUrl = `https://${domain}/api/captioned-objects/${objectName}`;
+    persistentVideoUrl = `${origin}/api/captioned-objects/${objectName}`;
     logger.info({ videoId, objectName, bytes: buf.length }, "[PersistAssets] Video uploaded to Object Storage");
   } catch (err) {
     logger.warn({ videoId, err }, "[PersistAssets] Video upload failed — keeping original URL");
@@ -1964,7 +1963,7 @@ async function persistVideoAssetsToStorage(
       const buf = Buffer.from(await res.arrayBuffer());
       const objectName = `thumbnails/${videoId}.jpg`;
       await bucket.file(objectName).save(buf, { contentType: "image/jpeg" });
-      persistentThumbnailUrl = `https://${domain}/api/captioned-objects/${objectName}`;
+      persistentThumbnailUrl = `${origin}/api/captioned-objects/${objectName}`;
       logger.info({ videoId, objectName }, "[PersistAssets] Thumbnail uploaded to Object Storage");
     } catch (err) {
       logger.warn({ videoId, err }, "[PersistAssets] Thumbnail upload failed — keeping original URL");
@@ -2719,22 +2718,23 @@ async function _publishVideoToInstagramInner(videoId: number, videoUrl?: string)
     const captionedUrl = video.captionedVideoUrl;
 
     if (captionedUrl.startsWith("https://")) {
-      // Stored captionedVideoUrl goes through Replit's mTLS proxy (REPLIT_DEV_DOMAIN)
-      // which Instagram's servers cannot reach in dev OR production.
-      // Generate a short-lived signed GCS URL instead — publicly accessible everywhere.
-      const devDomain = process.env.REPLIT_DEV_DOMAIN;
+      // Stored captionedVideoUrl is served through the API proxy (/api/captioned-objects/).
+      // Instagram's servers cannot reach Replit's proxy layer from outside, so we must
+      // generate a short-lived signed GCS URL that Instagram can fetch directly.
+      // Detection is path-based (not domain-based) so it works whether the stored URL
+      // uses reelsona.com, the dev domain, or any other canonical origin.
       const captionedObjectsPrefix = `/api/captioned-objects/`;
-      if (devDomain && captionedUrl.includes(devDomain) && captionedUrl.includes(captionedObjectsPrefix)) {
+      if (captionedUrl.includes(captionedObjectsPrefix)) {
         const objectName = captionedUrl.split(captionedObjectsPrefix)[1];
         try {
           url = await getSignedCaptionedVideoUrl(objectName);
           logger.info({ videoId, objectName }, "[Publish] Generated signed GCS URL for Instagram");
         } catch (signErr) {
-          // Signing failed — fall back to the ORIGINAL public HeyGen URL, NOT captionedUrl.
-          // captionedUrl points to the Replit dev domain (mTLS) which Instagram's servers cannot
-          // reach from outside, so using it as a fallback always causes "Container processing failed".
+          // Signing failed — fall back to the ORIGINAL public HeyGen/WaveSpeed URL, NOT captionedUrl.
+          // captionedUrl goes through the Replit proxy which Instagram cannot reach from outside,
+          // so using it as a fallback always causes "Container processing failed".
           url = rawUrl;
-          logger.warn({ videoId, signErr }, "[Publish] Could not sign GCS URL — falling back to original HeyGen URL (captions will be missing)");
+          logger.warn({ videoId, signErr }, "[Publish] Could not sign GCS URL — falling back to original source URL (captions will be missing)");
         }
       } else {
         url = captionedUrl;

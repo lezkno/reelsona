@@ -24,6 +24,7 @@ import { fileURLToPath } from "url";
 import axios from "axios";
 import { logger } from "./logger";
 import { objectStorageClient } from "./objectStorage";
+import { getCanonicalOrigin } from "./appOrigin";
 import type { CaptionResult } from "./caption-engine";
 import { CAPTION_DIR, buildPunchZoomArgs, findPunchZoomTimestampsAI } from "./caption-engine";
 import { applyBRoll } from "./broll-engine";
@@ -1144,10 +1145,11 @@ export async function applyCaptionsBrowser(
     const fileBuffer = await fs.readFile(uploadPath);
     await gcsFile.save(fileBuffer, { contentType: "video/mp4" });
 
-    // Serve through the API proxy route (public access prevention is enforced on bucket)
-    const domain = process.env.REPLIT_DEV_DOMAIN;
-    if (!domain) throw new Error("REPLIT_DEV_DOMAIN not set — cannot build captioned video URL");
-    const url = `https://${domain}/api/captioned-objects/${gcsObjectName}`;
+    // Serve through the API proxy route (public access prevention is enforced on bucket).
+    // Uses the canonical app origin (APP_URL) so the stored URL is always reachable
+    // in production and never points to the Replit dev domain.
+    const origin = getCanonicalOrigin();
+    const url = `${origin}/api/captioned-objects/${gcsObjectName}`;
 
     logger.info({ gcsObjectName, url }, "[BrowserEngine] Captioned video uploaded ✓");
 
@@ -1170,7 +1172,7 @@ export async function applyCaptionsBrowser(
       const thumbName = `thumbnails/browser_${runId}.jpg`;
       const thumbFile = bucket.file(thumbName);
       await thumbFile.save(await fs.readFile(thumbPath), { contentType: "image/jpeg" });
-      thumbnailUrl = `https://${domain}/api/captioned-objects/${thumbName}`;
+      thumbnailUrl = `${origin}/api/captioned-objects/${thumbName}`;
       logger.info({ thumbnailUrl }, "[BrowserEngine] Thumbnail uploaded ✓");
     } catch (thumbErr) {
       // Non-fatal — video still works without a thumbnail poster

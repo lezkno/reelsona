@@ -23,6 +23,7 @@ import axios from "axios";
 import { makeOpenAIClient } from "./openai-client";
 import { logger } from "./logger";
 import { objectStorageClient } from "./objectStorage";
+import { getCanonicalOrigin } from "./appOrigin";
 
 const execFileAsync = promisify(execFile);
 
@@ -1168,10 +1169,9 @@ export async function applyCaptions(
     await fs.unlink(outputPath).catch(() => {});
 
     // Build a stable public URL through the API server proxy.
-    // REPLIT_DEV_DOMAIN is always set on Replit (dev and production deployments).
-    const domain = process.env.REPLIT_DEV_DOMAIN;
-    if (!domain) throw new Error("REPLIT_DEV_DOMAIN not set — cannot build captioned video URL");
-    const publicUrl = `https://${domain}/api/captioned-objects/${gcsObjectName}`;
+    // Uses the canonical app origin (APP_URL) so the stored URL is always
+    // reachable in production and never points to the Replit dev domain.
+    const publicUrl = `${getCanonicalOrigin()}/api/captioned-objects/${gcsObjectName}`;
     logger.info({ publicUrl }, "[CaptionEngine] Captioned video persisted to Object Storage");
     return { url: publicUrl };
   } catch (err) {
