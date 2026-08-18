@@ -1,4 +1,5 @@
 import axios from "axios";
+import { pool } from "@workspace/db";
 import { logger } from "./logger";
 
 const IG_GRAPH_BASE = "https://graph.instagram.com";
@@ -248,19 +249,106 @@ export async function checkContainerStatus(accessToken: string, containerId: str
   }
 }
 
+type PublishAttemptRow = {
+  creation_id: string;
+  status: "attempting" | "confirmed" | "uncertain";
+  media_id: string | null;
+};
+
+async function getPublishAttempt(creationId: string): Promise<PublishAttemptRow | null> {
+  const result = await pool.query<PublishAttemptRow>(
+    `SELECT creation_id, status, media_id
+       FROM instagram_publish_attempts
+      WHERE creation_id = $1`,
+    [creationId],
+  );
+  return result.rows[0] ?? null;
+}
+
+/**
+ * Publish an already-finished Instagram container with a durable creation_id
+ * ledger. This gives Reelsona fail-safe at-most-once behavior around Meta's
+ * non-idempotency-keyed media_publish endpoint:
+ *
+ * - confirmed attempt -> return the previously persisted media_id
+ * - attempting/uncertain attempt -> never POST again automatically
+ * - deterministic 4xx -> remove the claim so a corrected retry is allowed
+ * - timeout/network/5xx/unknown -> retain an uncertain claim to prevent duplicates
+ */
 export async function publishContainer(
   accessToken: string,
   userId: string,
   creationId: string
 ): Promise<string> {
+  const existing = await getPublishAttempt(creationId);
+  if (existing?.status === "confirmed" && existing.media_id) {
+    logger.info({ creationId, mediaId: existing.media_id }, "[IG/Publish] Reusing confirmed publish result");
+    return existing.media_id;
+  }
+  if (existing) {
+    throw new Error(
+      "Instagram: el resultado de una publicación anterior es incierto. " +
+        "Reelsona bloqueó el reintento automático para evitar publicar el mismo Reel dos veces.",
+    );
+  }
+
+  const claimed = await pool.query<{ creation_id: string }>(
+    `INSERT INTO instagram_publish_attempts
+       (creation_id, ig_user_id, status, attempted_at, updated_at)
+     VALUES ($1, $2, 'attempting', NOW(), NOW())
+     ON CONFLICT (creation_id) DO NOTHING
+     RETURNING creation_id`,
+    [creationId, userId],
+  );
+
+  if (!claimed.rowCount) {
+    const raced = await getPublishAttempt(creationId);
+    if (raced?.status === "confirmed" && raced.media_id) return raced.media_id;
+    throw new Error(
+      "Instagram: esta publicación ya está siendo procesada o su resultado es incierto; no se repetirá automáticamente.",
+    );
+  }
+
   try {
     const res = await igHttp.post(`${IG_GRAPH_BASE}/${userId}/media_publish`, null, {
       params: { creation_id: creationId, access_token: accessToken },
     });
     const mediaId: string = res.data?.id;
-    if (!mediaId) throw new Error("Failed to publish container");
+    if (!mediaId) {
+      throw new Error("Instagram media_publish returned no media id");
+    }
+
+    await pool.query(
+      `UPDATE instagram_publish_attempts
+          SET status = 'confirmed', media_id = $2, last_error = NULL, updated_at = NOW()
+        WHERE creation_id = $1`,
+      [creationId, mediaId],
+    );
+
     return mediaId;
   } catch (err) {
+    const status = axios.isAxiosError(err) ? err.response?.status : undefined;
+    const deterministicClientError = status !== undefined && status >= 400 && status < 500;
+
+    if (deterministicClientError) {
+      // Meta explicitly rejected the request, so we know it was not accepted for
+      // publication and a corrected future retry is safe.
+      await pool.query(
+        "DELETE FROM instagram_publish_attempts WHERE creation_id = $1 AND status = 'attempting'",
+        [creationId],
+      ).catch((dbErr) => logger.error({ err: dbErr, creationId }, "[IG/Publish] Failed to release rejected publish claim"));
+    } else {
+      // Timeout, transport error, 5xx, process/DB uncertainty: fail closed. The
+      // container is not automatically published again because Meta does not expose
+      // an idempotency key for media_publish.
+      await pool.query(
+        `UPDATE instagram_publish_attempts
+            SET status = 'uncertain', last_error = $2, updated_at = NOW()
+          WHERE creation_id = $1`,
+        [creationId, err instanceof Error ? err.message : String(err)],
+      ).catch((dbErr) => logger.error({ err: dbErr, creationId }, "[IG/Publish] Failed to persist uncertain publish outcome"));
+    }
+
     throw igError(err, "Error al publicar en Instagram");
   }
 }
