@@ -1,6 +1,22 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { buildCheckoutSessionParams } from "../checkout-logic.js";
+import { buildCheckoutSessionParams, stripeKeyModesCompatible } from "../checkout-logic.js";
+
+describe("stripeKeyModesCompatible", () => {
+  test("accepts matching live keys", () => {
+    assert.equal(stripeKeyModesCompatible("sk_live_secret", "pk_live_public"), true);
+  });
+
+  test("accepts matching test keys", () => {
+    assert.equal(stripeKeyModesCompatible("sk_test_secret", "pk_test_public"), true);
+  });
+
+  test("rejects mixed live/test keys and missing keys", () => {
+    assert.equal(stripeKeyModesCompatible("sk_live_secret", "pk_test_public"), false);
+    assert.equal(stripeKeyModesCompatible("sk_test_secret", "pk_live_public"), false);
+    assert.equal(stripeKeyModesCompatible("sk_live_secret", null), false);
+  });
+});
 
 describe("buildCheckoutSessionParams", () => {
   test("creates embedded subscription checkout for landing plans", () => {
