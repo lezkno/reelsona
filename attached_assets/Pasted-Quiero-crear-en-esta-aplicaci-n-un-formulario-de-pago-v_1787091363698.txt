@@ -1,0 +1,63 @@
+Quiero crear en esta aplicación un formulario de pago visualmente muy similar al formulario de pago de esta página de referencia:
+
+[PEGA AQUÍ LA URL DE LA PÁGINA FAS O ADJUNTA UNA CAPTURA]
+
+La referencia debe utilizarse únicamente para estudiar y reproducir:
+
+- Estructura visual.
+- Distribución de los elementos.
+- Jerarquía de información.
+- Colores.
+- Tipografías.
+- Espaciados.
+- Bordes.
+- Radios de las tarjetas.
+- Botones.
+- Resumen del pedido.
+- Indicadores de seguridad.
+- Estados de carga, error y éxito.
+- Comportamiento responsive en móvil y escritorio.
+
+No copies código fuente, credenciales, claves privadas, textos legales propietarios ni datos de usuarios de la página de referencia. Reproduce la experiencia visual dentro de esta aplicación usando componentes propios.
+
+# 1. Inspección inicial obligatoria
+
+Antes de escribir código:
+
+- Inspecciona la arquitectura actual del proyecto.
+- Revisa si ya existe Stripe, otro proveedor de pagos o un sistema de billing.
+- Localiza los modelos de usuarios, planes, productos, créditos o suscripciones.
+- Revisa las rutas actuales de pago.
+- Revisa el sistema de autenticación.
+- Localiza cómo se muestran los modales, formularios, tarjetas y notificaciones.
+- Comprueba si existe sistema de webhooks.
+- Localiza las variables de entorno disponibles sin mostrar sus valores.
+- Revisa si hay ya un componente de Stripe Elements o Payment Element.
+
+No crees un segundo sistema de pagos si ya existe uno funcional. Reutiliza la integración existente y mejora únicamente la experiencia visual y el flujo que sea necesario.
+
+Antes de implementar, presenta:
+
+1. Qué elementos visuales identificaste en la referencia.
+2. Qué partes del sistema de pagos actual reutilizarás.
+3. Qué cambios de frontend y backend son necesarios.
+4. Qué proveedor de pagos utilizarás.
+5. Cómo garantizarás que ningún pago se confirme falsamente.
+
+# 2. Proveedor de pagos
+
+Si el proyecto ya utiliza Stripe, usa Stripe.
+
+Preferiblemente utiliza:
+
+- Stripe Payment Element para formularios embebidos.
+- Stripe Elements para campos de tarjeta.
+- PaymentIntent para pagos únicos.
+- Subscription para suscripciones.
+- SetupIntent si únicamente se quiere guardar una tarjeta para pagos futuros.
+
+No crees campos de tarjeta HTML propios como:
+
+```text
+<input name="card_number">
+<input name="cvv">

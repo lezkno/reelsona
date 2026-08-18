@@ -192,6 +192,21 @@ async function provisionTopup({
 
 // ── Subscription ───────────────────────────────────────────────────────────────
 
+/**
+ * Payment Element override bag — when provided to provisionSubscription, the
+ * Checkout Session retrieval step is skipped and these values are used directly.
+ *
+ * Used by the Payment Element path where no Checkout Session exists.  The
+ * scheduler cannot retry this path automatically (providerSessionId = "sub_…"
+ * is not a Checkout Session ID), but Stripe webhook retry (up to 3 days, exp
+ * backoff) is the primary recovery mechanism for Payment Element subscriptions.
+ */
+interface PaymentElementOverrides {
+  stripeSubId:       string;
+  periodEnd:         Date;
+  initialInvoiceId:  string | null;
+}
+
 async function provisionSubscription({
   purchase,
   email,
@@ -200,6 +215,7 @@ async function provisionSubscription({
   providerCustomerId,
   providerSessionId,
   stripe,
+  _paymentElementOverrides,
 }: {
   purchase: typeof purchases.$inferSelect;
   email: string;
@@ -208,52 +224,60 @@ async function provisionSubscription({
   providerCustomerId: string | null | undefined;
   providerSessionId: string | null | undefined;
   stripe: Stripe;
+  /** When set: skip Checkout Session retrieval and use these values directly. */
+  _paymentElementOverrides?: PaymentElementOverrides;
 }): Promise<void> {
-  // ── Fetch real Stripe subscription (REQUIRED) ────────────────────────────────
-  // Without the real Stripe subscription ID, every future lifecycle webhook
-  // (invoice.paid, subscription.updated, subscription.deleted) cannot find this
-  // subscription row → the subscriber's access and renewal credits silently break.
-  // If retrieval fails, throw so provisionedAt stays null and the scheduler retries.
-  if (!providerSessionId) {
-    throw new Error("Subscription provisioning requires providerSessionId to look up Stripe data");
-  }
-
   let stripeSubId: string | null = null;
   let realPeriodEnd: Date | null = null;
   let initialInvoiceId: string | null = null;
 
-  try {
-    const session = await stripe.checkout.sessions.retrieve(providerSessionId, {
-      expand: ["subscription", "subscription.latest_invoice"],
-    });
-    const stripeSub = session.subscription as any;
-    if (stripeSub?.id) stripeSubId = stripeSub.id;
-    // Stripe v22: current_period_end moved from Subscription root to subscription items.
-    // Read from first item; fall back to root for any API version compatibility.
-    const subPeriodEnd: number | undefined =
-      stripeSub?.items?.data?.[0]?.current_period_end ??
-      stripeSub?.current_period_end;
-    if (subPeriodEnd) {
-      realPeriodEnd = new Date(subPeriodEnd * 1000);
+  if (_paymentElementOverrides) {
+    // ── Payment Element path — caller already has the subscription data ────────
+    stripeSubId      = _paymentElementOverrides.stripeSubId;
+    realPeriodEnd    = _paymentElementOverrides.periodEnd;
+    initialInvoiceId = _paymentElementOverrides.initialInvoiceId;
+  } else {
+    // ── Checkout Session path — REQUIRED: fetch real Stripe subscription ───────
+    // Without the real Stripe subscription ID, every future lifecycle webhook
+    // (invoice.paid, subscription.updated, subscription.deleted) cannot find this
+    // subscription row → the subscriber's access and renewal credits silently break.
+    // If retrieval fails, throw so provisionedAt stays null and the scheduler retries.
+    if (!providerSessionId) {
+      throw new Error("Subscription provisioning requires providerSessionId to look up Stripe data");
     }
-    if (typeof stripeSub?.latest_invoice === "object" && stripeSub.latest_invoice?.id) {
-      initialInvoiceId = stripeSub.latest_invoice.id as string;
-    } else if (typeof stripeSub?.latest_invoice === "string") {
-      initialInvoiceId = stripeSub.latest_invoice;
+    try {
+      const session = await stripe.checkout.sessions.retrieve(providerSessionId, {
+        expand: ["subscription", "subscription.latest_invoice"],
+      });
+      const stripeSub = session.subscription as any;
+      if (stripeSub?.id) stripeSubId = stripeSub.id;
+      // Stripe v22: current_period_end moved from Subscription root to subscription items.
+      // Read from first item; fall back to root for any API version compatibility.
+      const subPeriodEnd: number | undefined =
+        stripeSub?.items?.data?.[0]?.current_period_end ??
+        stripeSub?.current_period_end;
+      if (subPeriodEnd) {
+        realPeriodEnd = new Date(subPeriodEnd * 1000);
+      }
+      if (typeof stripeSub?.latest_invoice === "object" && stripeSub.latest_invoice?.id) {
+        initialInvoiceId = stripeSub.latest_invoice.id as string;
+      } else if (typeof stripeSub?.latest_invoice === "string") {
+        initialInvoiceId = stripeSub.latest_invoice;
+      }
+    } catch (err: any) {
+      // REQUIRED: do not provision with fabricated data — leave unprovisioned for retry
+      logger.error(
+        { err: err?.message, providerSessionId },
+        "[provision-purchase] Stripe session retrieval failed — not provisioning; scheduler will retry",
+      );
+      throw new Error(`Stripe session retrieval failed: ${err?.message}`);
     }
-  } catch (err: any) {
-    // REQUIRED: do not provision with fabricated data — leave unprovisioned for retry
-    logger.error(
-      { err: err?.message, providerSessionId },
-      "[provision-purchase] Stripe session retrieval failed — not provisioning; scheduler will retry",
-    );
-    throw new Error(`Stripe session retrieval failed: ${err?.message}`);
-  }
 
-  if (!stripeSubId) {
-    throw new Error(
-      `Stripe session ${providerSessionId} has no subscription — cannot provision without Stripe subscription ID`,
-    );
+    if (!stripeSubId) {
+      throw new Error(
+        `Stripe session ${providerSessionId} has no subscription — cannot provision without Stripe subscription ID`,
+      );
+    }
   }
 
   const periodEnd = realPeriodEnd ?? defaultPeriodEnd();
@@ -739,6 +763,113 @@ async function provisionLegacyProgram({
     .update(purchases)
     .set({ userId: result.userId })
     .where(eq(purchases.id, purchase.id));
+}
+
+// ── Payment Element subscription provisioning ─────────────────────────────────
+//
+// Called by the invoice.paid webhook when billing_reason = "subscription_create"
+// and the subscription was created via /checkout/create-payment-intent (Payment
+// Element flow) — i.e. there is no Checkout Session to look up.
+//
+// This function creates a synthetic purchases row (audit trail + idempotency
+// claim) then delegates entirely to provisionSubscription with
+// _paymentElementOverrides so that ALL provisioning logic — advisory lock, seat
+// cap, Founder swap, credit grants — is handled by exactly one shared routine.
+//
+// Recovery note: the synthetic row has providerSessionId = stripeSubId ("sub_…").
+// The scheduler cannot retry via Checkout Session retrieval for that shape.
+// Stripe webhook retry (exponential, up to 3 days) is the primary recovery path.
+
+export async function provisionPaymentElementSubscription({
+  stripeSubId,
+  stripeCustomerId,
+  initialInvoiceId,
+  email,
+  fullName,
+  planSlug,
+  periodEnd,
+  stripe,
+}: {
+  stripeSubId:        string;
+  stripeCustomerId:   string | null;
+  initialInvoiceId:   string | null;
+  email:              string;
+  fullName:           string;
+  planSlug:           string;
+  periodEnd:          Date;
+  stripe:             Stripe;
+}): Promise<void> {
+  // ── Idempotency: look for an existing synthetic purchases row ───────────────
+  // providerSessionId = stripeSubId for Payment Element subscriptions.
+  const [existingPurchase] = await db
+    .select()
+    .from(purchases)
+    .where(eq(purchases.providerSessionId, stripeSubId))
+    .limit(1);
+
+  if (existingPurchase?.provisionedAt) {
+    logger.info({ stripeSubId, planSlug }, "[provision-payment-element] Already provisioned — skipping");
+    return;
+  }
+
+  // ── Upsert synthetic purchase row ──────────────────────────────────────────
+  // provisionSubscription marks purchases.provisionedAt inside its atomic
+  // transaction, giving us the same concurrent-retry idempotency as the
+  // Checkout Session path.
+  let purchase = existingPurchase;
+  if (!purchase) {
+    const [inserted] = await db
+      .insert(purchases)
+      .values({
+        provider:           "stripe",
+        providerSessionId:  stripeSubId,   // "sub_…" prefix — not a Checkout Session
+        providerCustomerId: stripeCustomerId,
+        email,
+        fullName,
+        amountTotal:        0,
+        currency:           "usd",
+        status:             "completed",
+        toolAccessDays:     0,
+        purchaseType:       "subscription",
+        planSlug,
+        creditsPurchased:   PLAN_CREDITS[planSlug] ?? 0,
+      })
+      .onConflictDoNothing()
+      .returning();
+
+    if (inserted) {
+      purchase = inserted;
+    } else {
+      // Concurrent insert won — fetch the winning row
+      const [raceRow] = await db
+        .select()
+        .from(purchases)
+        .where(eq(purchases.providerSessionId, stripeSubId))
+        .limit(1);
+      if (!raceRow) throw new Error(`Payment Element: purchase row vanished after conflict for sub ${stripeSubId}`);
+      if (raceRow.provisionedAt) {
+        logger.info({ stripeSubId }, "[provision-payment-element] Race winner already provisioned — skipping");
+        return;
+      }
+      purchase = raceRow;
+    }
+  }
+
+  // ── Delegate to provisionSubscription — shares ALL Founder/non-Founder logic ─
+  // This includes: advisory lock, seat cap, duplicate-Founder guard, swap marker,
+  // durable superseded-subscription cancellation, entitlement grant, and credits.
+  await provisionSubscription({
+    purchase,
+    email,
+    fullName,
+    planSlug,
+    providerCustomerId: stripeCustomerId,
+    providerSessionId:  stripeSubId,   // not used when _paymentElementOverrides is set
+    stripe,
+    _paymentElementOverrides: { stripeSubId, periodEnd, initialInvoiceId },
+  });
+
+  logger.info({ stripeSubId, planSlug }, "[provision-payment-element] Subscription provisioned ✓");
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

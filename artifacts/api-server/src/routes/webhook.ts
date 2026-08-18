@@ -15,7 +15,7 @@ import { PLAN_CREDITS } from "../lib/credits";
 import { upsertEntitlement } from "../lib/access";
 import { invalidateAccessCache } from "../middleware/requireToolAccess";
 import { invalidatePlanCache } from "../middleware/requirePlanAccess";
-import { provisionPurchase } from "../lib/provision-purchase";
+import { provisionPurchase, provisionPaymentElementSubscription } from "../lib/provision-purchase";
 import { db } from "@workspace/db";
 import { stripePriceConfigsTable } from "@workspace/db/schema";
 import {
@@ -82,13 +82,15 @@ router.post(
 );
 
 const EVENT_HANDLERS: Record<string, (obj: any, stripe: Stripe) => Promise<void>> = {
-  "checkout.session.completed": handleCheckoutCompleted,
+  "checkout.session.completed":          handleCheckoutCompleted,
   "checkout.session.async_payment_succeeded": handleCheckoutCompleted,
-  "customer.subscription.updated": handleSubscriptionUpdated,
-  "customer.subscription.deleted": handleSubscriptionDeleted,
-  "invoice.paid": handleInvoicePaid,
-  "invoice.payment_failed": handleInvoicePaymentFailed,
-  "subscription_schedule.released": handleSubscriptionScheduleReleased,
+  "customer.subscription.updated":       handleSubscriptionUpdated,
+  "customer.subscription.deleted":       handleSubscriptionDeleted,
+  "invoice.paid":                        handleInvoicePaid,
+  "invoice.payment_failed":              handleInvoicePaymentFailed,
+  "subscription_schedule.released":      handleSubscriptionScheduleReleased,
+  // Payment Element flow (no Checkout Session)
+  "payment_intent.succeeded":            handlePaymentIntentSucceeded,
 };
 
 async function handleCheckoutCompleted(session: Stripe.Checkout.Session, stripe: Stripe): Promise<void> {
@@ -306,15 +308,38 @@ async function handleInvoicePaid(invoice: Stripe.Invoice, stripe: Stripe): Promi
   if (billingReason !== "subscription_cycle") {
     logger.info(
       { stripeSubId, invoiceId, billingReason },
-      "[webhook/stripe] invoice.paid: not a subscription_cycle — skipping credit grant",
+      "[webhook/stripe] invoice.paid: not a subscription_cycle",
     );
-    if (billingReason === "subscription_update" || billingReason === "subscription_create") {
+
+    if (billingReason === "subscription_create") {
+      // Check if this subscription was already provisioned via the Checkout Session path.
+      // If so, the local subscription row already exists — just update its period.
+      // If not, this is a Payment Element subscription that needs provisioning here.
+      const [existingSub] = await db
+        .select({ id: subscriptionsTable.id })
+        .from(subscriptionsTable)
+        .where(eq(subscriptionsTable.stripeSubscriptionId, stripeSubId))
+        .limit(1);
+
+      if (existingSub) {
+        const periodEndTs = invoice.period_end;
+        await db
+          .update(subscriptionsTable)
+          .set({ status: "active", currentPeriodEnd: periodEndTs ? new Date(periodEndTs * 1000) : undefined, updatedAt: new Date() })
+          .where(eq(subscriptionsTable.stripeSubscriptionId, stripeSubId));
+        logger.info({ stripeSubId }, "[webhook/stripe] invoice.paid subscription_create: existing row updated (Checkout Session path)");
+      } else {
+        logger.info({ stripeSubId, invoiceId }, "[webhook/stripe] invoice.paid subscription_create: no local row — provisioning via Payment Element path");
+        await handlePaymentElementSubscriptionCreate(invoice, stripe);
+      }
+    } else if (billingReason === "subscription_update") {
       const periodEndTs = invoice.period_end;
       await db
         .update(subscriptionsTable)
         .set({ status: "active", currentPeriodEnd: periodEndTs ? new Date(periodEndTs * 1000) : undefined, updatedAt: new Date() })
         .where(eq(subscriptionsTable.stripeSubscriptionId, stripeSubId));
     }
+
     return;
   }
 
@@ -531,6 +556,147 @@ async function handleSubscriptionScheduleReleased(
     .where(eq(subscriptionsTable.stripeScheduleId, scheduleId));
 
   logger.info({ scheduleId }, "[webhook/stripe] Subscription schedule released — stripeScheduleId cleared ✓");
+}
+
+// ── Payment Element helpers ────────────────────────────────────────────────────
+
+/**
+ * Called by handleInvoicePaid when billing_reason=subscription_create and
+ * there is no local subscription row (i.e. Payment Element path, no Checkout Session).
+ * Expands the Stripe subscription for metadata + period, then provisions the user.
+ */
+async function handlePaymentElementSubscriptionCreate(
+  invoice: Stripe.Invoice,
+  stripe: Stripe,
+): Promise<void> {
+  const subRef    = invoice.parent?.subscription_details?.subscription;
+  const stripeSubId = typeof subRef === "string" ? subRef : (subRef as Stripe.Subscription | undefined)?.id ?? null;
+  if (!stripeSubId) throw new Error("Payment Element invoice.paid: no subscription ID on invoice");
+
+  const stripeSub = await stripe.subscriptions.retrieve(stripeSubId, { expand: ["items"] });
+  const metadata  = stripeSub.metadata ?? {};
+
+  const planSlug = metadata.plan_slug ?? "";
+  const email    = (metadata.email ?? "").toLowerCase().trim();
+  const fullName = (metadata.full_name ?? "").trim();
+
+  if (!planSlug || !email) {
+    throw new Error(
+      `Payment Element subscription ${stripeSubId} is missing plan_slug or email in metadata — cannot provision`,
+    );
+  }
+
+  const firstItem    = (stripeSub.items?.data?.[0] as any) ?? null;
+  const periodEndTs: number | null =
+    firstItem?.current_period_end ?? (stripeSub as any).current_period_end ?? null;
+  const periodEnd = periodEndTs
+    ? new Date(periodEndTs * 1000)
+    : (() => { const d = new Date(); d.setMonth(d.getMonth() + 1); return d; })();
+
+  const stripeCustomerId =
+    typeof stripeSub.customer === "string"
+      ? stripeSub.customer
+      : (stripeSub.customer as any)?.id ?? null;
+
+  const initialInvoiceId = invoice.id ?? null;
+
+  logger.info(
+    { stripeSubId, planSlug, email, periodEnd: periodEnd.toISOString() },
+    "[webhook/stripe] Provisioning Payment Element subscription",
+  );
+
+  await provisionPaymentElementSubscription({
+    stripeSubId,
+    stripeCustomerId,
+    initialInvoiceId,
+    email,
+    fullName,
+    planSlug,
+    periodEnd,
+    stripe,
+  });
+}
+
+/**
+ * Handles payment_intent.succeeded for topup purchases made via Payment Element.
+ * Subscription payment intents are handled through invoice.paid — this handler
+ * only acts on PIs with metadata.product === "reelsona_topup".
+ *
+ * IMPORTANT: Add payment_intent.succeeded to your Stripe webhook endpoint in the
+ * Stripe Dashboard for this to fire.
+ */
+async function handlePaymentIntentSucceeded(pi: Stripe.PaymentIntent, stripe: Stripe): Promise<void> {
+  const metadata = pi.metadata ?? {};
+  const product  = metadata.product ?? "";
+
+  if (product !== "reelsona_topup") {
+    logger.debug({ piId: pi.id, product }, "[webhook/stripe] payment_intent.succeeded: not a topup — skipping");
+    return;
+  }
+
+  const piId          = pi.id;
+  const planSlug      = metadata.plan_slug ?? "";
+  const email         = (metadata.email ?? "").toLowerCase().trim();
+  const fullName      = (metadata.full_name ?? "").trim();
+  const creditsAmount = parseInt(metadata.credits_amount ?? "0", 10);
+  const customerId    = typeof pi.customer === "string" ? pi.customer : (pi.customer as any)?.id ?? null;
+
+  logger.info({ piId, planSlug, email, creditsAmount }, "[webhook/stripe] payment_intent.succeeded (topup)");
+
+  if (!email || creditsAmount <= 0) {
+    logger.warn({ piId }, "[webhook/stripe] payment_intent.succeeded: missing email or credits — cannot provision");
+    return;
+  }
+
+  // Idempotency via providerSessionId = piId (same pattern as handleCheckoutCompleted)
+  const [existing] = await db
+    .select()
+    .from(purchases)
+    .where(eq(purchases.providerSessionId, piId))
+    .limit(1);
+
+  if (existing?.provisionedAt) {
+    logger.info({ piId }, "[webhook/stripe] payment_intent.succeeded: already provisioned — skipping");
+    return;
+  }
+
+  if (existing) {
+    logger.info({ piId }, "[webhook/stripe] payment_intent.succeeded: unprovisioned row found — retrying");
+    await provisionPurchase(existing, stripe);
+    return;
+  }
+
+  const [inserted] = await db
+    .insert(purchases)
+    .values({
+      provider:          "stripe",
+      providerSessionId: piId,
+      providerCustomerId: customerId,
+      email,
+      fullName,
+      amountTotal:       pi.amount_received ?? 0,
+      currency:          pi.currency ?? "usd",
+      status:            "completed",
+      toolAccessDays:    0,
+      purchaseType:      "topup",
+      planSlug:          planSlug || null,
+      creditsPurchased:  creditsAmount,
+    })
+    .onConflictDoNothing()
+    .returning();
+
+  if (!inserted) {
+    // Concurrent insert won the race — fetch and provision the winning row
+    const [race] = await db
+      .select()
+      .from(purchases)
+      .where(eq(purchases.providerSessionId, piId))
+      .limit(1);
+    if (race && !race.provisionedAt) await provisionPurchase(race, stripe);
+    return;
+  }
+
+  await provisionPurchase(inserted, stripe);
 }
 
 function mapStripeStatus(stripeStatus: string): string {

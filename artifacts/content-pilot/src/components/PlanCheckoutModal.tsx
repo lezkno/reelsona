@@ -1,131 +1,309 @@
 /**
- * PlanCheckoutModal — Reelsona embedded Stripe Checkout.
+ * PlanCheckoutModal — Reelsona embedded Stripe Payment Element.
  *
- * Landing (unauthenticated): collect name/email first, then mount Stripe Checkout.
- * Billing/topups (authenticated): email comes from the account; Checkout mounts
- * after the user confirms the purchase. Payment stays inside Reelsona.
+ * Uses Stripe Payment Element (not Embedded Checkout) so the payment form
+ * renders with Reelsona's own dark theme — no Stripe-hosted iframe.
  *
- * Architecture invariant (Stripe requirement):
- *   One EmbeddedCheckoutProvider must be mounted with a STABLE `options` object
- *   for its entire lifetime. Changing `options` on a mounted provider causes the
- *   "multiple Embedded Checkout objects" error.
+ * Flow:
+ *   1. Collect name + email (or use pre-filled email for authenticated users).
+ *   2. Call /api/checkout/create-payment-intent → get clientSecret.
+ *   3. Mount Stripe Elements + PaymentElement with clientSecret.
+ *   4. User fills card → stripe.confirmPayment() → redirect to /checkout/success.
  *
- *   We enforce this by delegating the provider to a child component
- *   (EmbeddedCheckoutPane) that receives immutable primitive props and builds a
- *   single stable `{ fetchClientSecret }` options object internally. The parent
- *   controls the lifetime by mounting/unmounting the pane via `identity` state.
- *   Clicking "Volver" sets identity=null → pane unmounts → Stripe cleans up →
- *   next Continue creates a fresh pane.
+ * Architecture invariant:
+ *   PaymentElementPane is a self-contained child that mounts once per attempt.
+ *   Props are stable primitive strings so fetchClientSecret / options are never
+ *   mutated while Elements is mounted. Parent controls lifetime via `identity`.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { loadStripe, type Stripe } from "@stripe/stripe-js";
-import { EmbeddedCheckout, EmbeddedCheckoutProvider } from "@stripe/react-stripe-js";
+import {
+  Elements,
+  PaymentElement,
+  useStripe,
+  useElements,
+} from "@stripe/react-stripe-js";
 import { ArrowLeft, Crown, Loader2, ShieldCheck, Sparkles, X, Zap } from "lucide-react";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
+// ── Stripe Appearance — Reelsona dark theme ──────────────────────────────────
+
+const STRIPE_APPEARANCE = {
+  theme: "night",
+  variables: {
+    colorPrimary:         "#4F6EF7",
+    colorBackground:      "#1a1a1a",
+    colorText:            "#ffffff",
+    colorTextSecondary:   "rgba(255,255,255,0.5)",
+    colorDanger:          "#f87171",
+    fontFamily:           "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+    fontSizeBase:         "14px",
+    borderRadius:         "8px",
+    spacingUnit:          "4px",
+  },
+  rules: {
+    ".Input": {
+      border:          "1px solid rgba(255,255,255,0.1)",
+      backgroundColor: "rgba(255,255,255,0.05)",
+      color:           "#ffffff",
+      boxShadow:       "none",
+      outline:         "none",
+    },
+    ".Input:hover": { border: "1px solid rgba(255,255,255,0.2)" },
+    ".Input:focus": {
+      border:    "1px solid #4F6EF7",
+      boxShadow: "0 0 0 1px #4F6EF7",
+    },
+    ".Input--invalid": { border: "1px solid #f87171" },
+    ".Label": {
+      color:         "rgba(255,255,255,0.6)",
+      fontSize:      "12px",
+      fontWeight:    "500",
+      letterSpacing: "0.02em",
+    },
+    ".Error": { color: "#f87171", fontSize: "12px" },
+    ".Tab": {
+      border:          "1px solid rgba(255,255,255,0.1)",
+      backgroundColor: "rgba(255,255,255,0.03)",
+      color:           "rgba(255,255,255,0.6)",
+    },
+    ".Tab:hover": {
+      border:          "1px solid rgba(255,255,255,0.2)",
+      backgroundColor: "rgba(255,255,255,0.07)",
+      color:           "#ffffff",
+    },
+    ".Tab--selected": {
+      border:          "1px solid #4F6EF7",
+      backgroundColor: "rgba(79,110,247,0.12)",
+      color:           "#ffffff",
+    },
+    ".Tab--selected:hover": {
+      backgroundColor: "rgba(79,110,247,0.18)",
+    },
+    ".TabIcon--selected": { fill: "#4F6EF7" },
+    ".CheckboxInput": { border: "1px solid rgba(255,255,255,0.2)" },
+    ".CheckboxInput--checked": {
+      backgroundColor: "#4F6EF7",
+      border:          "1px solid #4F6EF7",
+    },
+    ".PickerItem": {
+      border:          "1px solid rgba(255,255,255,0.1)",
+      backgroundColor: "rgba(255,255,255,0.03)",
+    },
+    ".PickerItem--selected": {
+      border:          "1px solid #4F6EF7",
+      backgroundColor: "rgba(79,110,247,0.12)",
+    },
+    ".TermsText": { color: "rgba(255,255,255,0.35)", fontSize: "11px" },
+    ".RedirectText": { color: "rgba(255,255,255,0.5)", fontSize: "12px" },
+  },
+} as const;
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
 export interface PlanCheckoutConfig {
-  planSlug: string;
-  planName: string;
-  amountCents: number;
-  currency: string;
-  credits: number;
-  interval: string | null;
+  planSlug:     string;
+  planName:     string;
+  amountCents:  number;
+  currency:     string;
+  credits:      number;
+  interval:     string | null;
   requireEmail?: boolean;
-  email?: string;
+  email?:       string;
 }
 
 interface Props {
-  config: PlanCheckoutConfig | null;
-  onClose: () => void;
+  config:   PlanCheckoutConfig | null;
+  onClose:  () => void;
 }
 
 type CheckoutIdentity = { email: string; fullName: string };
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
 function formatPrice(cents: number, currency: string): string {
   return new Intl.NumberFormat("es-MX", {
-    style: "currency",
-    currency: currency.toUpperCase(),
+    style:               "currency",
+    currency:            currency.toUpperCase(),
     minimumFractionDigits: 0,
   }).format(cents / 100);
 }
 
 function PlanIcon({ slug }: { slug: string }) {
-  if (slug === "founder") return <Crown size={20} className="text-amber-500" />;
-  if (slug === "pro") return <Sparkles size={20} className="text-violet-500" />;
-  return <Zap size={20} className="text-blue-500" />;
+  if (slug === "founder") return <Crown    size={20} className="text-amber-500"  />;
+  if (slug === "pro")     return <Sparkles size={20} className="text-violet-500" />;
+  return                         <Zap      size={20} className="text-blue-500"   />;
 }
 
-// ---------------------------------------------------------------------------
-// EmbeddedCheckoutPane — one instance per checkout attempt.
+// ── PaymentForm — inner component that uses Stripe hooks ──────────────────────
+
+function PaymentForm() {
+  const stripe   = useStripe();
+  const elements = useElements();
+  const [processing, setProcessing] = useState(false);
+  const [payError,   setPayError]   = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!stripe || !elements || processing) return;
+    setProcessing(true);
+    setPayError(null);
+
+    const { error } = await stripe.confirmPayment({
+      elements,
+      confirmParams: {
+        // Absolute URL required by Stripe; uses current origin so it works in
+        // dev preview and production without hardcoding a domain.
+        return_url: `${window.location.origin}${BASE}/checkout/success`,
+      },
+    });
+
+    if (error) {
+      // error.type === "card_error" | "validation_error" | ...
+      setPayError(error.message ?? "El pago no fue procesado. Inténtalo de nuevo.");
+      setProcessing(false);
+    }
+    // On success Stripe redirects to return_url — no extra handling needed here.
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <PaymentElement
+        options={{
+          layout:  "tabs",
+          wallets: { applePay: "auto", googlePay: "auto" },
+        }}
+      />
+
+      {payError && (
+        <div className="rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-sm text-red-400">
+          {payError}
+        </div>
+      )}
+
+      <button
+        type="submit"
+        disabled={!stripe || !elements || processing}
+        className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 px-4 py-3.5 font-semibold text-white shadow-lg shadow-blue-600/20 transition-opacity disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        {processing
+          ? <><Loader2 size={16} className="animate-spin" /> Procesando pago...</>
+          : <><ShieldCheck size={16} /> Pagar ahora</>
+        }
+      </button>
+
+      <p className="text-center text-[11px] text-muted-foreground">
+        Pago 100 % seguro · cifrado SSL · Stripe no almacena tu tarjeta en Reelsona
+      </p>
+    </form>
+  );
+}
+
+// ── PaymentElementPane — outer component that fetches clientSecret ─────────────
 //
-// Props are primitive strings so they are stable (no object identity churn).
-// fetchClientSecret and options are created once and never mutated while the
-// provider is alive.
-// ---------------------------------------------------------------------------
-function EmbeddedCheckoutPane({
+// Props are primitive strings so they are stable across parent re-renders.
+// The fetch runs exactly once on mount ([] deps). Elements mounts once the
+// clientSecret arrives and is never re-created while the pane is alive.
+
+function PaymentElementPane({
   planSlug,
   email,
   fullName,
   stripePromise,
+  onBack,
 }: {
-  planSlug: string;
-  email: string;
-  fullName: string;
+  planSlug:      string;
+  email:         string;
+  fullName:      string;
   stripePromise: Promise<Stripe | null>;
+  onBack:        () => void;
 }) {
-  const fetchClientSecret = useCallback(async () => {
-    const res = await fetch(`${BASE}/api/checkout/create-session`, {
-      method: "POST",
+  const [clientSecret, setClientSecret] = useState<string | null>(null);
+  const [fetchError,   setFetchError]   = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${BASE}/api/checkout/create-payment-intent`, {
+      method:  "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
-      body: JSON.stringify({
-        planSlug,
-        email: email || undefined,
-        fullName: fullName || undefined,
-        embedded: true,
-      }),
-    });
+      body: JSON.stringify({ planSlug, email, fullName }),
+    })
+      .then(async (r) => {
+        const data = (await r.json()) as {
+          clientSecret?: string;
+          error?: string;
+          message?: string;
+          code?: string;
+          devHint?: string;
+        };
+        if (cancelled) return;
+        if (data.clientSecret) {
+          setClientSecret(data.clientSecret);
+        } else {
+          // Show the dev hint when Stripe is blocked in non-prod environments.
+          setFetchError(data.devHint ?? data.message ?? data.error ?? "No se pudo iniciar el pago. Inténtalo de nuevo.");
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setFetchError("Error de conexión. Verifica tu internet e inténtalo de nuevo.");
+      });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // intentionally empty — props are stable primitives, run once on mount
 
-    const data = (await res.json()) as {
-      clientSecret?: string;
-      error?: string;
-      message?: string;
-    };
+  if (fetchError) {
+    return (
+      <div className="space-y-4 py-6 text-center">
+        <div className="rounded-lg border border-red-500/20 bg-red-500/5 px-4 py-3 text-sm text-red-400">
+          {fetchError}
+        </div>
+        <button
+          onClick={onBack}
+          className="text-sm text-muted-foreground underline hover:text-foreground"
+        >
+          Volver e intentar de nuevo
+        </button>
+      </div>
+    );
+  }
 
-    if (!res.ok || !data.clientSecret) {
-      throw new Error(data.message ?? data.error ?? "No se pudo iniciar el pago");
-    }
-
-    return data.clientSecret;
-  // planSlug / email / fullName are primitive strings — stable across renders.
-  }, [planSlug, email, fullName]);
-
-  // useMemo ensures the options object reference never changes while mounted.
-  const options = useMemo(() => ({ fetchClientSecret }), [fetchClientSecret]);
+  if (!clientSecret) {
+    return (
+      <div className="flex min-h-[200px] items-center justify-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="h-5 w-5 animate-spin" />
+        Preparando formulario de pago...
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-[420px] overflow-hidden rounded-xl bg-white">
-      <EmbeddedCheckoutProvider stripe={stripePromise} options={options}>
-        <EmbeddedCheckout />
-      </EmbeddedCheckoutProvider>
-    </div>
+    <Elements
+      stripe={stripePromise}
+      options={{
+        clientSecret,
+        appearance: STRIPE_APPEARANCE as Parameters<typeof Elements>[0]["options"] extends { appearance?: infer A } ? A : never,
+        locale: "es-419",
+      }}
+    >
+      <PaymentForm />
+    </Elements>
   );
 }
 
-// ---------------------------------------------------------------------------
-// PlanCheckoutModal — parent shell.
-// ---------------------------------------------------------------------------
+// ── PlanCheckoutModal — parent shell ─────────────────────────────────────────
+
 export function PlanCheckoutModal({ config, onClose }: Props) {
   const [stripePromise, setStripePromise] = useState<Promise<Stripe | null> | null>(null);
-  const [stripeError, setStripeError] = useState<string | null>(null);
-  const [email, setEmail] = useState(config?.email ?? "");
-  const [fullName, setFullName] = useState("");
-  // identity !== null ↔ EmbeddedCheckoutPane is mounted.
+  const [stripeError,   setStripeError]   = useState<string | null>(null);
+  const [email,         setEmail]         = useState(config?.email ?? "");
+  const [fullName,      setFullName]      = useState("");
+  // identity !== null  ↔  PaymentElementPane is mounted.
   const [identity, setIdentity] = useState<CheckoutIdentity | null>(null);
 
-  // Reset form whenever the plan slug changes (new modal open).
+  // Reset form when plan slug changes (new modal open).
   useEffect(() => {
     if (!config) return;
     setEmail(config.email ?? "");
@@ -134,7 +312,7 @@ export function PlanCheckoutModal({ config, onClose }: Props) {
     setStripeError(null);
   }, [config?.planSlug]);
 
-  // Load Stripe.js once per modal open; cache the promise.
+  // Load Stripe.js once per modal open.
   useEffect(() => {
     if (!config || stripePromise) return;
     fetch(`${BASE}/api/config/public`, { credentials: "include" })
@@ -150,38 +328,30 @@ export function PlanCheckoutModal({ config, onClose }: Props) {
       .catch((err: Error) => setStripeError(err.message));
   }, [config, stripePromise]);
 
-  const canContinue = email.trim().includes("@");
+  const canContinue  = email.trim().includes("@");
   const showCheckout = identity !== null;
 
   const handleContinue = (e: React.FormEvent) => {
     e.preventDefault();
     if (!config || !canContinue) return;
-    setIdentity({
-      email: email.trim().toLowerCase(),
-      fullName: fullName.trim(),
-    });
+    setIdentity({ email: email.trim().toLowerCase(), fullName: fullName.trim() });
   };
 
-  const handleBack = () => {
-    // Setting identity to null unmounts EmbeddedCheckoutPane → Stripe cleans up.
-    setIdentity(null);
-  };
+  const handleBack = () => setIdentity(null); // unmounts PaymentElementPane → Stripe cleans up
 
   if (!config) return null;
 
-  const intervalLabel =
-    config.interval === "month" ? "/mes" : config.interval === "year" ? "/año" : "";
-  const isTopup = config.planSlug.startsWith("topup");
+  const intervalLabel = config.interval === "month" ? "/mes" : config.interval === "year" ? "/año" : "";
+  const isTopup       = config.planSlug.startsWith("topup");
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/90 backdrop-blur-xl p-4 sm:p-8"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="relative w-full max-w-xl overflow-hidden rounded-2xl border border-white/10 bg-[#0d0d0d] shadow-2xl">
-        {/* Header */}
+      <div className="relative w-full max-w-lg overflow-hidden rounded-2xl border border-white/10 bg-[#0d0d0d] shadow-2xl">
+
+        {/* ── Header ── */}
         <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
           <div className="flex items-center gap-2">
             <img src={`${BASE}/logo.png`} alt="Reelsona" className="h-6 w-6 object-contain" />
@@ -196,7 +366,7 @@ export function PlanCheckoutModal({ config, onClose }: Props) {
           </button>
         </div>
 
-        {/* Plan summary */}
+        {/* ── Plan summary ── */}
         <div className="border-b border-white/10 bg-gradient-to-r from-blue-500/5 to-violet-500/5 px-5 py-4">
           <div className="mb-1 flex items-center gap-2">
             <PlanIcon slug={config.planSlug} />
@@ -217,14 +387,12 @@ export function PlanCheckoutModal({ config, onClose }: Props) {
           </p>
         </div>
 
-        {/* Body */}
+        {/* ── Body ── */}
         {!showCheckout ? (
-          /* ── Step 1: collect name + email ── */
+          /* Step 1 — collect name + email */
           <form onSubmit={handleContinue} className="space-y-4 p-5">
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">
-                Nombre completo
-              </label>
+              <label className="text-xs font-medium text-muted-foreground">Nombre completo</label>
               <input
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
@@ -257,9 +425,9 @@ export function PlanCheckoutModal({ config, onClose }: Props) {
               disabled={!canContinue || !!stripeError || !stripePromise}
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 px-4 py-3 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
             >
-              {!stripePromise && !stripeError ? (
-                <Loader2 size={16} className="animate-spin" />
-              ) : null}
+              {!stripePromise && !stripeError
+                ? <Loader2 size={16} className="animate-spin" />
+                : null}
               Continuar al pago
             </button>
 
@@ -268,25 +436,26 @@ export function PlanCheckoutModal({ config, onClose }: Props) {
             </div>
           </form>
         ) : (
-          /* ── Step 2: Stripe Embedded Checkout ── */
+          /* Step 2 — Stripe Payment Element */
           <div className="p-4 sm:p-5">
             <button
               type="button"
               onClick={handleBack}
-              className="mb-3 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+              className="mb-4 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
             >
               <ArrowLeft size={13} /> Volver
             </button>
 
             {stripePromise ? (
-              <EmbeddedCheckoutPane
+              <PaymentElementPane
                 planSlug={config.planSlug}
                 email={identity.email}
                 fullName={identity.fullName}
                 stripePromise={stripePromise}
+                onBack={handleBack}
               />
             ) : (
-              <div className="flex min-h-[320px] items-center justify-center">
+              <div className="flex min-h-[200px] items-center justify-center">
                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
               </div>
             )}
