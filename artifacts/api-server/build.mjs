@@ -57,7 +57,7 @@ async function buildAll() {
     outExtension: { ".js": ".mjs" },
     logLevel: "info",
     define: {
-      "process.env.BUILD_COMMIT_SHA": JSON.stringify(buildCommitSha),
+      "process.env.REPLIT_GIT_COMMIT_SHA": JSON.stringify(buildCommitSha),
     },
     // Some packages may not be bundleable, so we externalize them, we can add more here as needed.
     // Some of the packages below may not be imported or installed, but we're adding them in case they are in the future.
