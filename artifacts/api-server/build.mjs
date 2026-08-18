@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { execFileSync } from "node:child_process";
 import { build as esbuild } from "esbuild";
 import esbuildPluginPino from "esbuild-plugin-pino";
 import { rm, cp } from "node:fs/promises";
@@ -9,6 +10,24 @@ import { rm, cp } from "node:fs/promises";
 globalThis.require = createRequire(import.meta.url);
 
 const artifactDir = path.dirname(fileURLToPath(import.meta.url));
+
+function resolveBuildCommitSha() {
+  const envSha =
+    process.env.REPLIT_GIT_COMMIT_SHA ??
+    process.env.GIT_COMMIT_SHA ??
+    process.env.COMMIT_SHA;
+  if (envSha?.trim()) return envSha.trim();
+
+  try {
+    return execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: path.resolve(artifactDir, "../.."),
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return "unknown";
+  }
+}
 
 async function buildAll() {
   const distDir = path.resolve(artifactDir, "dist");
@@ -27,6 +46,8 @@ async function buildAll() {
   const distMigrations = path.resolve(artifactDir, "dist/migrations");
   await cp(srcMigrations, distMigrations, { recursive: true });
 
+  const buildCommitSha = resolveBuildCommitSha();
+
   await esbuild({
     entryPoints: [path.resolve(artifactDir, "src/index.ts")],
     platform: "node",
@@ -35,6 +56,9 @@ async function buildAll() {
     outdir: distDir,
     outExtension: { ".js": ".mjs" },
     logLevel: "info",
+    define: {
+      "process.env.REPLIT_GIT_COMMIT_SHA": JSON.stringify(buildCommitSha),
+    },
     // Some packages may not be bundleable, so we externalize them, we can add more here as needed.
     // Some of the packages below may not be imported or installed, but we're adding them in case they are in the future.
     // Examples of unbundleable packages:
