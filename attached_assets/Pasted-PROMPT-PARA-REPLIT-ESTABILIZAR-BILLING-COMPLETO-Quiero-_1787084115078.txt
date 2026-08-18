@@ -1,0 +1,139 @@
+PROMPT PARA REPLIT — ESTABILIZAR BILLING COMPLETO
+
+Quiero que arregles y pruebes de punta a punta todo el sistema de facturación de Reelsona. No quiero parches aislados ni botones que “parecen funcionar”. Todos los botones de Billing deben ejecutar una acción real y verificable en Stripe, DB y UI.
+
+Flujos que deben funcionar obligatoriamente:
+
+Alta nueva en Basic.
+Alta nueva en Pro.
+Alta nueva en Founder.
+Basic → Pro.
+Pro → Basic.
+Basic → Founder.
+Pro → Founder.
+Cancelar suscripción.
+Cancelar un downgrade programado.
+Cambiar método de pago.
+Agregar/reemplazar tarjeta.
+Administrar suscripción.
+Comprar packs de créditos.
+
+1. Basic → Pro
+
+Debe modificar la suscripción existente en Stripe, nunca crear una segunda.
+Debe actualizar el Price de la subscription item.
+Debe usar proration correctamente.
+Al confirmarse Stripe, actualizar DB, entitlements y créditos a Pro.
+La UI debe reflejar Pro inmediatamente tras respuesta exitosa y también después de refrescar.
+
+2. Pro → Basic
+
+Debe programarse para el final del período actual.
+El usuario conserva Pro hasta current_period_end.
+Debe existir evidencia visible en UI de que el downgrade está programado.
+Debe poder cancelarse ese downgrade antes de la fecha efectiva.
+Al llegar el período siguiente, Stripe y DB deben quedar en Basic.
+
+3. Basic/Pro → Founder
+
+Founder debe poder comprarse desde un plan activo.
+Crear el checkout Founder anual.
+No cancelar Basic/Pro antes de confirmar el pago.
+Tras checkout.session.completed, reemplazar/cancelar la suscripción anterior y dejar solo Founder activa.
+Limpiar cualquier schedule anterior.
+Inicializar correctamente lógica Founder, entitlements y grants.
+Si el pago Founder se abandona o falla, conservar el plan anterior intacto.
+Webhook idempotente: jamás duplicar créditos ni cancelar dos veces.
+
+4. Cancelar suscripción
+
+El botón Cancelar debe funcionar realmente.
+Preferiblemente usar cancel_at_period_end=true.
+Mostrar en UI la fecha exacta hasta la que mantiene acceso.
+No eliminar créditos purchased.
+Al refrescar, el estado debe mantenerse.
+
+5. Cambiar o agregar método de pago
+
+Los botones “Cambiar método de pago”, “Agregar tarjeta” o equivalentes no pueden ser botones muertos.
+Deben abrir una solución Stripe válida.
+Puede ser Stripe Billing Portal o un SetupIntent/Payment Element interno.
+Si se usa Billing Portal, crear una billingPortal.session para el customer correcto y redirigir al usuario.
+Configurar correctamente el return URL a Reelsona.
+Verificar que el portal permite cambiar tarjeta/método de pago según configuración Stripe.
+
+6. Administrar suscripción
+
+El botón debe abrir Stripe Billing Portal para el customer del usuario.
+Si el usuario no tiene stripeCustomerId, mostrar un error claro en UI.
+Nunca fallar silenciosamente.
+
+7. Packs de créditos
+
+300 / 600 / 1200 créditos.
+Stripe Embedded Checkout dentro de Reelsona.
+mode: payment.
+Reutilizar Stripe customer si existe.
+Webhook acredita purchased credits exactamente una vez.
+Purchased credits no vencen ni se sobrescriben al renovar plan.
+
+8. Landing
+
+Basic, Pro y Founder deben abrir Stripe Embedded Checkout dentro de Reelsona.
+No usar redirección hosted como flujo principal.
+Obtener publishable key desde runtime config.
+Crear session con ui_mode: embedded.
+Backend devuelve client_secret.
+
+9. Estado y errores
+Cada botón debe tener:
+
+loading state;
+success feedback;
+error visible;
+refetch de billing;
+persistencia después de refresh.
+
+Ningún catch puede tragarse errores sin mostrar algo al usuario.
+
+10. Stripe live vs test
+En producción verificar:
+
+STRIPE_SECRET_KEY live.
+STRIPE_PUBLISHABLE_KEY live.
+todos los Price IDs live.
+Webhook secret correcto.
+Billing Portal configurado.
+Payment methods habilitados.
+
+No mezclar test y live.
+
+11. Pruebas obligatorias
+No me digas que está listo porque compila. Ejecuta y documenta:
+
+A. nuevo usuario → Basic.
+B. nuevo usuario → Pro.
+C. nuevo usuario → Founder.
+D. Basic → Pro.
+E. Pro → Basic.
+F. cancelar downgrade.
+G. Basic → Founder.
+H. Pro → Founder.
+I. cancelar suscripción.
+J. cambiar tarjeta/método de pago.
+K. abrir Billing Portal.
+L. comprar pack 300.
+M. pack 600.
+N. pack 1200.
+O. refrescar navegador después de cada operación y confirmar persistencia.
+P. verificar en Stripe Dashboard que queda una sola suscripción activa cuando corresponde.
+Q. webhook duplicado no duplica créditos ni suscripciones.
+
+12. Regla principal
+Corrige solo Billing/Stripe. No toques avatar, Instagram, captions, scheduler ni otras funciones.
+
+Para cada flujo verifica:
+
+UI → endpoint API → Stripe → webhook → DB → wallet/entitlements → UI después de refresh.
+
+Si uno de esos pasos falla, el flujo no está terminado.
