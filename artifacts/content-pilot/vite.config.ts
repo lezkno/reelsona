@@ -19,7 +19,7 @@ function resolvePort(command: 'build' | 'serve'): number {
   return port;
 }
 
-export default defineConfig(({ command }) => {
+export default defineConfig(async ({ command }) => {
   const port = resolvePort(command);
   // BASE_PATH is a runtime/Replit mounting concern. A normal production build
   // is valid at root and must not depend on this environment variable existing.
