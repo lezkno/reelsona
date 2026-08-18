@@ -4,6 +4,8 @@ import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import pinoHttp from "pino-http";
 import cookieParser from "cookie-parser";
+import { db, videosTable } from "@workspace/db";
+import { and, eq } from "drizzle-orm";
 import { logger } from "./lib/logger";
 import { getSchedulerLeadershipState } from "./lib/scheduler-leader";
 import { requireAuth } from "./middleware/auth";
@@ -187,6 +189,35 @@ app.post("/api/instagram/callback", (req, res, next) => {
     return;
   }
   next();
+});
+
+// Cross-tenant guard: the recaption route historically looked up and updated
+// videos by id alone. Verify ownership before that route can run so a user can
+// never spend compute on, read from, or modify another user's video.
+app.post("/api/videos/:id/recaption", async (req, res, next) => {
+  const videoId = Number(req.params.id);
+  const userId = req.session.user?.userId;
+  if (!Number.isInteger(videoId) || videoId <= 0 || !userId) {
+    res.status(404).json({ error: "Video not found" });
+    return;
+  }
+
+  try {
+    const [ownedVideo] = await db
+      .select({ id: videosTable.id })
+      .from(videosTable)
+      .where(and(eq(videosTable.id, videoId), eq(videosTable.userId, userId)))
+      .limit(1);
+
+    if (!ownedVideo) {
+      res.status(404).json({ error: "Video not found" });
+      return;
+    }
+    next();
+  } catch (err) {
+    logger.error({ err, userId, videoId }, "[Recaption] Ownership check failed");
+    res.status(503).json({ error: "Unable to verify video ownership. Please retry." });
+  }
 });
 
 app.use("/api", usersRouter);
