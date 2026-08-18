@@ -199,7 +199,7 @@ export function PlanCheckoutModal({ config, onClose }: Props) {
                 onChange={(e) => setFullName(e.target.value)}
                 placeholder="Tu nombre"
                 autoComplete="name"
-                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white placeholder:text-white/30 outline-none focus:border-blue-500"
               />
             </div>
             <div className="space-y-1.5">
@@ -211,7 +211,7 @@ export function PlanCheckoutModal({ config, onClose }: Props) {
                 placeholder="tu@email.com"
                 required
                 autoComplete="email"
-                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white placeholder:text-white/30 outline-none focus:border-blue-500"
               />
             </div>
 
