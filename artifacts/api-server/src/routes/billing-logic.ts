@@ -290,6 +290,8 @@ export interface PortalParams {
   stripeCustomerId:  string | null;
   stripe:            Stripe;
   returnUrl:         string;
+  /** Optional deep-link flow, e.g. jump straight to updating the payment method. */
+  flow?:             "payment_method_update";
 }
 
 export type PortalResult =
@@ -309,6 +311,7 @@ export async function executeCreatePortal(p: PortalParams): Promise<PortalResult
     const session = await p.stripe.billingPortal.sessions.create({
       customer:   p.stripeCustomerId,
       return_url: p.returnUrl,
+      ...(p.flow ? { flow_data: { type: p.flow } } : {}),
     });
     return { ok: true, url: session.url };
   } catch (err: any) {

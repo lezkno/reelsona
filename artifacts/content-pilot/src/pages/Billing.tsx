@@ -34,6 +34,7 @@ import {
   Clock, ExternalLink, Loader2, Info, Receipt, CreditCard, XCircle,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useToast } from "@/hooks/use-toast"
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -256,6 +257,19 @@ function CurrentPlanCard({
   const portalMutation   = useOpenPortal()
   const cancelMutation   = useCancelSubscription()
   const [showCancelDialog, setShowCancelDialog] = useState(false)
+  const { toast } = useToast()
+
+  const openPortal = (flow?: "payment_method_update") => {
+    portalMutation.mutate(flow ? { flow } : undefined, {
+      onError: (err: any) => {
+        toast({
+          title: "No se pudo abrir el portal",
+          description: err?.data?.message ?? err?.data?.error ?? "Intenta de nuevo en unos minutos.",
+          variant: "destructive",
+        })
+      },
+    })
+  }
 
   const isActive = !!sub && ["active", "trialing"].includes(sub.status ?? "")
 
@@ -345,7 +359,7 @@ function CurrentPlanCard({
             <Button
               size="sm"
               variant="ghost"
-              onClick={() => portalMutation.mutate()}
+              onClick={() => openPortal()}
               disabled={portalMutation.isPending}
               className="gap-1.5 text-muted-foreground"
             >
@@ -355,11 +369,11 @@ function CurrentPlanCard({
               Administrar suscripción
             </Button>
 
-            {/* Change payment method — same portal handles this */}
+            {/* Change payment method — deep-links to the portal's payment-method form */}
             <Button
               size="sm"
               variant="ghost"
-              onClick={() => portalMutation.mutate()}
+              onClick={() => openPortal("payment_method_update")}
               disabled={portalMutation.isPending}
               className="gap-1.5 text-muted-foreground"
             >
@@ -877,8 +891,9 @@ export default function Billing() {
       const result = await changePlanMutation.mutateAsync(target)
       setPlanFeedback({ result, error: null })
     } catch (err: any) {
-      const msg = err?.message
-        ?? (err?.error as string | undefined)
+      const msg = err?.data?.message
+        ?? (err?.data?.error as string | undefined)
+        ?? err?.message
         ?? "No se pudo cambiar el plan. Intentá de nuevo."
       setPlanFeedback({ result: null, error: msg })
     }
@@ -980,7 +995,7 @@ export default function Billing() {
       {!isAdmin && <InvoiceSection />}
 
       {/* Checkout modal — only for no-subscription flows (topups & Founder) */}
-      <PlanCheckoutModal config={checkoutCfg} onClose={() => setCheckoutCfg(null)} />
+      <PlanCheckoutModal config={checkoutCfg} onClose={() => { setCheckoutCfg(null); refetch() }} />
     </div>
   )
 }

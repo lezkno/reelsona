@@ -151,7 +151,11 @@ router.post("/checkout/create-session", async (req: Request, res: Response): Pro
 
   const isSubscription = planConfig.isRecurring;
 
-  // Never create a second subscription for an authenticated active subscriber.
+  // Never create a second Basic/Pro subscription for an authenticated active
+  // subscriber — those must go through the change-plan endpoint. Founder is the
+  // exception: an active Basic/Pro subscriber may buy Founder (the old
+  // subscription is cancelled after the Founder purchase is provisioned), but a
+  // user who is ALREADY Founder can never buy Founder again.
   if (isSubscription && userId) {
     const [existingSub] = await db
       .select({ status: subscriptionsTable.status, planSlug: subscriptionsTable.planSlug })
@@ -160,13 +164,18 @@ router.post("/checkout/create-session", async (req: Request, res: Response): Pro
       .limit(1);
 
     if (existingSub && ["active", "trialing"].includes(existingSub.status)) {
-      res.status(409).json({
-        error: "existing_subscription",
-        code: "existing_subscription",
-        currentPlan: existingSub.planSlug,
-        message: "Ya tienes una suscripción activa. Usa el cambio de plan de Facturación.",
-      });
-      return;
+      const founderUpgradeAllowed = planSlug === "founder" && existingSub.planSlug !== "founder";
+      if (!founderUpgradeAllowed) {
+        res.status(409).json({
+          error: "existing_subscription",
+          code: "existing_subscription",
+          currentPlan: existingSub.planSlug,
+          message: existingSub.planSlug === "founder" && planSlug === "founder"
+            ? "Ya tienes el plan Founder activo."
+            : "Ya tienes una suscripción activa. Usa el cambio de plan de Facturación.",
+        });
+        return;
+      }
     }
   }
 

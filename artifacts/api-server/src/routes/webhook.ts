@@ -160,6 +160,22 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, stripe:
   await provisionPurchase(insertedRows[0], stripe);
 }
 
+/**
+ * True when this Stripe subscription id was replaced by a Founder purchase.
+ * Late lifecycle events (updated / invoice.paid / payment_failed) for the old
+ * subscription must be acknowledged as no-ops instead of erroring, or Stripe
+ * retries them forever. The superseded id mapping is kept permanently on the
+ * subscriptions row.
+ */
+async function isSupersededSubscription(stripeSubId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: subscriptionsTable.id })
+    .from(subscriptionsTable)
+    .where(eq(subscriptionsTable.supersededStripeSubscriptionId, stripeSubId))
+    .limit(1);
+  return !!row;
+}
+
 async function handleSubscriptionUpdated(sub: Stripe.Subscription, _stripe: Stripe): Promise<void> {
   const stripeSubId = sub.id;
   const status = mapStripeStatus(sub.status);
@@ -176,6 +192,10 @@ async function handleSubscriptionUpdated(sub: Stripe.Subscription, _stripe: Stri
     .limit(1);
 
   if (!existing) {
+    if (await isSupersededSubscription(stripeSubId)) {
+      logger.info({ stripeSubId }, "[webhook/stripe] subscription.updated for superseded (Founder-swapped) subscription — acknowledged no-op");
+      return;
+    }
     throw new Error(`subscription.updated arrived before local subscription ${stripeSubId} exists`);
   }
 
@@ -309,6 +329,10 @@ async function handleInvoicePaid(invoice: Stripe.Invoice, stripe: Stripe): Promi
     .limit(1);
 
   if (!sub) {
+    if (await isSupersededSubscription(stripeSubId)) {
+      logger.info({ stripeSubId, invoiceId }, "[webhook/stripe] invoice.paid for superseded (Founder-swapped) subscription — acknowledged no-op");
+      return;
+    }
     throw new Error(`invoice.paid arrived before local subscription ${stripeSubId} exists`);
   }
 
@@ -470,6 +494,10 @@ async function handleInvoicePaymentFailed(invoice: Stripe.Invoice, _stripe: Stri
     .limit(1);
 
   if (!sub) {
+    if (await isSupersededSubscription(stripeSubId)) {
+      logger.info({ stripeSubId }, "[webhook/stripe] invoice.payment_failed for superseded (Founder-swapped) subscription — acknowledged no-op");
+      return;
+    }
     throw new Error(`invoice.payment_failed arrived before local subscription ${stripeSubId} exists`);
   }
 

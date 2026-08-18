@@ -271,11 +271,16 @@ export function useChangePlan() {
   });
 }
 
-/** Opens a Stripe Billing Portal session for self-service plan/payment management. */
+/** Opens a Stripe Billing Portal session for self-service plan/payment management.
+ *  Pass { flow: "payment_method_update" } to deep-link straight to the payment-method form. */
 export function useOpenPortal() {
   return useMutation({
-    mutationFn: () =>
-      customFetch<{ url: string }>("/api/billing/portal", { method: "POST" }),
+    mutationFn: (opts?: { flow?: "payment_method_update" }) =>
+      customFetch<{ url: string }>("/api/billing/portal", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify(opts?.flow ? { flow: opts.flow } : {}),
+      }),
     onSuccess: ({ url }) => {
       window.location.href = url;
     },

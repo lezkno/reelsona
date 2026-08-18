@@ -54,6 +54,18 @@ export const subscriptionsTable = pgTable("subscriptions", {
    */
   stripeScheduleId:      varchar("stripe_schedule_id", { length: 256 }),
   /**
+   * Founder swap: the OLD Stripe subscription id that this Founder purchase
+   * replaced. Kept permanently so late webhooks for the old subscription can be
+   * acknowledged as no-ops instead of erroring.
+   */
+  supersededStripeSubscriptionId: varchar("superseded_stripe_subscription_id", { length: 256 }),
+  /**
+   * Set once Stripe confirms the superseded subscription was cancelled.
+   * NULL while supersededStripeSubscriptionId is set means the cancellation is
+   * still pending — the scheduler sweep retries it every cycle.
+   */
+  supersededCancelledAt:  timestamp("superseded_cancelled_at"),
+  /**
    * Immutable Stripe invoice ID of the last renewal that successfully granted credits.
    * Used as the idempotency key in invoice.paid so that subscription.updated writing
    * currentPeriodEnd cannot race-condition the credit-grant guard.

@@ -270,11 +270,14 @@ router.post("/billing/portal", requireAuth, async (req: Request, res: Response):
     return;
   }
 
+  const flow = req.body?.flow === "payment_method_update" ? "payment_method_update" as const : undefined;
+
   const result = await executeCreatePortal({
     userId,
     stripeCustomerId: sub?.stripeCustomerId ?? null,
     stripe,
     returnUrl: `${getAppUrl()}/billing`,
+    flow,
   });
 
   if (!result.ok) { res.status(result.status).json({ error: result.message, code: result.code }); return; }

@@ -127,12 +127,6 @@ export function PlanCheckoutModal({ config, onClose }: Props) {
 
   const intervalLabel = config.interval === "month" ? "/mes" : config.interval === "year" ? "/año" : "";
   const isTopup = config.planSlug.startsWith("topup");
-  // Billing opens this modal with requireEmail=false/undefined because the user is
-  // already authenticated. Founder is deliberately a separate annual V1 product
-  // and the original billing spec forbids converting an active Basic/Pro subscription
-  // through the plan-change endpoint. Do not send the user into a checkout that the
-  // backend must reject as a second subscription.
-  const founderBlockedForActiveSubscriber = config.planSlug === "founder" && !config.requireEmail;
 
   return (
     <div
@@ -166,24 +160,7 @@ export function PlanCheckoutModal({ config, onClose }: Props) {
           </p>
         </div>
 
-        {founderBlockedForActiveSubscriber ? (
-          <div className="space-y-4 p-5">
-            <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-4">
-              <div className="mb-2 flex items-center gap-2 font-semibold text-amber-400">
-                <Crown size={18} /> Founder es una suscripción anual separada
-              </div>
-              <p className="text-sm leading-6 text-muted-foreground">
-                Ya tienes una suscripción activa. Reelsona no creará una segunda suscripción Stripe ni intentará cobrar Founder encima de tu plan actual.
-              </p>
-              <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                Para RC1, los cambios entre planes activos se limitan a Basic ↔ Pro. Founder continúa disponible para nuevas altas anuales.
-              </p>
-            </div>
-            <button type="button" onClick={onClose} className="w-full rounded-xl border border-white/10 px-4 py-3 font-semibold hover:bg-white/5">
-              Entendido
-            </button>
-          </div>
-        ) : !showCheckout ? (
+        {!showCheckout ? (
           <form onSubmit={handleContinue} className="space-y-4 p-5">
             {config.requireEmail && (
               <>

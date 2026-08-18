@@ -41,7 +41,7 @@ import {
 import { isFounderGrantDue, nextFounderGrantDate } from "./founder-grant";
 import { getCanonicalOrigin } from "./appOrigin";
 import { provisionUser } from "./provision";
-import { provisionPurchase } from "./provision-purchase";
+import { provisionPurchase, sweepSupersededSubscriptions } from "./provision-purchase";
 import { getStripe } from "./stripe";
 import { enrichProfileWithApify } from "./apify";
 import { sendEmail, videoFailedEmail } from "./email";
@@ -2055,6 +2055,19 @@ export async function pollAndPublishVideos(): Promise<void> {
     }
   } catch (recoveryErr) {
     logger.warn({ recoveryErr }, "[ProvisionRecovery] Error en el barrido de provision recovery");
+  }
+
+  // ── Recovery: cancel superseded subscriptions from Founder swaps ──────────
+  // A Founder purchase from an active Basic/Pro subscriber marks the old Stripe
+  // subscription as superseded; if the immediate cancellation failed (crash or
+  // Stripe error), retry here until Stripe confirms — otherwise the user keeps
+  // being billed for the old plan.
+  try {
+    let stripeForSwap: ReturnType<typeof getStripe> | null = null;
+    try { stripeForSwap = getStripe(); } catch { /* Stripe not configured — skip */ }
+    if (stripeForSwap) await sweepSupersededSubscriptions(stripeForSwap);
+  } catch (swapErr) {
+    logger.warn({ swapErr }, "[FounderSwapRecovery] Error en el barrido de cancelaciones pendientes");
   }
 
   // ── Recovery: content items in "ready" state with null copy_status ────────

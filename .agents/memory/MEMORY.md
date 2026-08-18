@@ -39,4 +39,5 @@
 - [WaveSpeed caption sync via Whisper](wavespeed-caption-sync.md) — Whisper transcribes TTS audio after TTS completes → word-level SRT in Object Storage → saved to heygenSubtitleUrl → caption engine uses it like HeyGen SRT.
 - [WaveSpeed voice clone audio format](wavespeed-voice-format.md) — minimax/voice-clone rejects webm/ogg (error 2013); convert to 16 kHz mono WAV with ffmpeg server-side and upload with .wav extension so WaveSpeed can identify by URL.
 - [Global router middleware trap](global-router-middleware-trap.md) — `router.use(fn)` without a path in a sub-router blocks ALL requests passing through, not just the router's own routes.
+- [Founder swap billing pattern](founder-swap.md) — old sub cancel must be durable (superseded_* columns + sweep); late webhooks for superseded sub ids must no-op, never 500.
 - [Caption sync root causes](caption-sync-root-cause.md) — phrase-level SRT must NOT be split by char proportion; AAC batch re-encode accumulates delay; overlays must check !hasPlayable.

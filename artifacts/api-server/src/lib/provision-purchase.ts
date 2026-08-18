@@ -286,6 +286,48 @@ async function provisionSubscription({
       skipEntitlement:  true, // entitlement set inside locked tx below
     });
 
+    // Capture the user's PRE-EXISTING subscription (if any) BEFORE the upsert
+    // below replaces its row. If the user was an active Basic/Pro subscriber,
+    // the old Stripe subscription must be cancelled AFTER provisioning succeeds
+    // so a failed Founder provision leaves the old plan intact.
+    const [oldSub] = await db
+      .select({
+        stripeSubscriptionId: subscriptionsTable.stripeSubscriptionId,
+        stripeScheduleId:     subscriptionsTable.stripeScheduleId,
+        status:               subscriptionsTable.status,
+        planSlug:             subscriptionsTable.planSlug,
+      })
+      .from(subscriptionsTable)
+      .where(eq(subscriptionsTable.userId, result.userId))
+      .limit(1);
+
+    // A user who already holds an ACTIVE Founder subscription must never be
+    // provisioned a second Founder purchase (double charge). Leave the purchase
+    // unprovisioned — recurring ERROR logs flag it for manual refund/resolution,
+    // mirroring the seat-cap-exceeded handling.
+    const oldSubIsActive = !!oldSub && ["active", "trialing", "past_due"].includes(oldSub.status);
+    if (
+      oldSubIsActive &&
+      oldSub!.planSlug === "founder" &&
+      oldSub!.stripeSubscriptionId &&
+      oldSub!.stripeSubscriptionId !== stripeSubId
+    ) {
+      logger.error(
+        { purchaseId: purchase.id, email, existingSubId: oldSub!.stripeSubscriptionId, newSubId: stripeSubId },
+        "[provision-purchase] Duplicate Founder purchase for an already-Founder user — NOT provisioning; requires manual refund/resolution",
+      );
+      throw new Error(
+        `Duplicate Founder purchase: user already has active Founder subscription. Purchase ${purchase.id} requires admin resolution.`,
+      );
+    }
+
+    // Founder swap detection: an active Basic/Pro subscription is being replaced.
+    const isSwap = !!(
+      oldSubIsActive &&
+      oldSub!.stripeSubscriptionId &&
+      oldSub!.stripeSubscriptionId !== stripeSubId
+    );
+
     // Step 2: one atomic tx — advisory lock + seat count + claim + subscription +
     //          entitlement + invoice pre-claim + credits
     await db.transaction(async (tx) => {
@@ -353,6 +395,17 @@ async function provisionSubscription({
             founderMonthsGranted: planCredits > 0 ? 1 : 0,
             founderAnchorAt:      planCredits > 0 ? new Date() : undefined,
             founderLastGrantAt:   planCredits > 0 ? new Date() : undefined,
+            // Clear any leftover state from a previous Basic/Pro subscription
+            planSlug:             "founder",
+            cancelAtPeriodEnd:    false,
+            pendingPlanSlug:      null,
+            stripeScheduleId:     null,
+            // Durable swap marker: the old Stripe subscription must be cancelled.
+            // supersededCancelledAt stays NULL until Stripe confirms; the scheduler
+            // sweep retries the cancellation every cycle until then.
+            ...(isSwap
+              ? { supersededStripeSubscriptionId: oldSub!.stripeSubscriptionId, supersededCancelledAt: null }
+              : {}),
             updatedAt:            new Date(),
           },
         });
@@ -439,6 +492,20 @@ async function provisionSubscription({
     // Invalidate both caches after tx commits — entitlement and plan are now live
     invalidateAccessCache(result.userId);
     invalidatePlanCache(result.userId);
+
+    // ── Founder swap: cancel the OLD Stripe subscription (if any) ─────────────
+    // Runs only AFTER the Founder provision tx committed, so a failed provision
+    // never cancels the user's existing plan. The swap marker persisted in the
+    // tx above makes this durable: if this immediate attempt fails (crash,
+    // Stripe error), the scheduler sweep retries every cycle until Stripe
+    // confirms the cancellation (supersededCancelledAt stays NULL until then).
+    if (isSwap) {
+      await cancelSupersededStripeSubscription({
+        userId: result.userId,
+        oldSubscriptionId: oldSub!.stripeSubscriptionId!,
+        stripe,
+      });
+    }
 
   } else {
     // ── NON-FOUNDER PATH (Basic / Pro) ───────────────────────────────────────
@@ -544,6 +611,106 @@ async function provisionSubscription({
         subscriptionAmount: newSubCredits2,
         description: `Suscripción ${planSlug}: ${planCredits} créditos del ciclo inicial`,
       });
+    });
+  }
+}
+
+// ── Founder swap: durable old-subscription cancellation ───────────────────────
+
+/**
+ * Cancel a superseded (replaced-by-Founder) Stripe subscription and stamp
+ * supersededCancelledAt on success. Idempotent:
+ *   - already-canceled or missing subscriptions count as success
+ *   - any attached schedule is released first (Stripe requires it)
+ * Returns true when Stripe has confirmed the subscription no longer bills.
+ */
+export async function cancelSupersededStripeSubscription(opts: {
+  userId: number;
+  oldSubscriptionId: string;
+  stripe: Stripe;
+}): Promise<boolean> {
+  const { userId, oldSubscriptionId, stripe } = opts;
+
+  const stampCancelled = async () => {
+    await db
+      .update(subscriptionsTable)
+      .set({ supersededCancelledAt: new Date(), updatedAt: new Date() })
+      .where(eq(subscriptionsTable.supersededStripeSubscriptionId, oldSubscriptionId));
+  };
+
+  try {
+    const remote = await stripe.subscriptions.retrieve(oldSubscriptionId);
+
+    // Release any attached schedule (pending downgrade) so Stripe allows cancel
+    const scheduleId = typeof remote.schedule === "string" ? remote.schedule : remote.schedule?.id;
+    if (scheduleId) {
+      try {
+        await stripe.subscriptionSchedules.release(scheduleId);
+        logger.info({ userId, scheduleId }, "[provision-purchase] Founder swap: released attached schedule");
+      } catch (err: any) {
+        logger.warn(
+          { userId, scheduleId, err: err?.message },
+          "[provision-purchase] Founder swap: schedule release failed (may already be released)",
+        );
+      }
+    }
+
+    if (remote.status !== "canceled") {
+      await stripe.subscriptions.cancel(oldSubscriptionId);
+    }
+    await stampCancelled();
+    logger.info(
+      { userId, oldSubscriptionId },
+      "[provision-purchase] Founder swap: old subscription cancelled ✓",
+    );
+    return true;
+  } catch (err: any) {
+    if (err?.code === "resource_missing") {
+      // Subscription no longer exists in Stripe — nothing left to cancel
+      await stampCancelled();
+      logger.info(
+        { userId, oldSubscriptionId },
+        "[provision-purchase] Founder swap: old subscription already gone in Stripe — marked cancelled",
+      );
+      return true;
+    }
+    logger.error(
+      { userId, oldSubscriptionId, err: err?.message },
+      "[provision-purchase] Founder swap: cancellation failed — sweep will retry next cycle",
+    );
+    return false;
+  }
+}
+
+/**
+ * Scheduler sweep: retry pending superseded-subscription cancellations.
+ * Rows with supersededStripeSubscriptionId set and supersededCancelledAt NULL
+ * represent an old Basic/Pro subscription that is STILL BILLING the user after
+ * a Founder swap — retried until Stripe confirms.
+ */
+export async function sweepSupersededSubscriptions(stripe: Stripe): Promise<void> {
+  const pending = await db
+    .select({
+      userId: subscriptionsTable.userId,
+      oldSubscriptionId: subscriptionsTable.supersededStripeSubscriptionId,
+    })
+    .from(subscriptionsTable)
+    .where(and(
+      sql`${subscriptionsTable.supersededStripeSubscriptionId} IS NOT NULL`,
+      isNull(subscriptionsTable.supersededCancelledAt),
+    ))
+    .limit(5);
+
+  for (const row of pending) {
+    if (!row.oldSubscriptionId) continue;
+    logger.warn(
+      { userId: row.userId, oldSubscriptionId: row.oldSubscriptionId },
+      "[FounderSwapRecovery] Reintentando cancelación de suscripción reemplazada",
+    );
+    await cancelSupersededStripeSubscription({
+      userId: row.userId,
+      oldSubscriptionId: row.oldSubscriptionId,
+      stripe,
     });
   }
 }
