@@ -5058,7 +5058,11 @@ export default function Avatars() {
       {assignVoice && (
         <AssignVoiceDialog
           voice={assignVoice}
-          lookGroupMap={lookGroupMap}
+          // Only include selected looks so the dialog shows the correct count
+          // and assigns the voice exclusively to looks that are in rotation.
+          lookGroupMap={Object.fromEntries(
+            Object.entries(lookGroupMap).filter(([lid]) => selectedIds.has(lid))
+          )}
           allGroups={(() => {
             const base = assignVoice.is_mine ? [...myGroups, ...publicGroups] : publicGroups
             return base.filter(g =>
@@ -5073,7 +5077,7 @@ export default function Avatars() {
             setAssignVoice(null)
             toast({
               title: "Voz asignada",
-              description: `${lookIds.length} look${lookIds.length !== 1 ? "s" : ""} actualizados. Guarda para aplicar.`,
+              description: `${lookIds.length} look${lookIds.length !== 1 ? "s" : ""} actualizados.`,
             })
           }}
           onClose={() => setAssignVoice(null)}
@@ -5084,7 +5088,7 @@ export default function Avatars() {
       {showCreation && (
         <AvatarCreationDialog
           onClose={() => setShowCreation(false)}
-          voiceOptions={spanishVoices}
+          voiceOptions={allVoices}
           onPendingVideoJob={(job) => {
             setPendingVideoJob({ ...job, startedAt: Date.now() })
             setShowCreation(false)
@@ -5154,7 +5158,7 @@ export default function Avatars() {
           isOwned={openGroup.isOwned}
           selectedIds={selectedIds}
           voiceOverrides={voiceOverrides}
-          voiceOptions={spanishVoices}
+          voiceOptions={allVoices}
           onToggle={toggleLook}
           onChangeVoice={handleVoiceChange}
           onClose={() => { setOpenGroup(null); setDialogSaveStatus("idle") }}
