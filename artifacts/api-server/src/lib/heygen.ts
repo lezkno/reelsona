@@ -255,12 +255,29 @@ export function invalidateDefaultVoiceCache(apiKey?: string): void {
 
 export async function listVoices(apiKey?: string): Promise<HeyGenVoice[]> {
   const client = getClient(apiKey);
-  const res = await client.get("/v3/voices");
-  // v3 may return { data: { voices: [...] } } or { data: [...] }
-  const voices: HeyGenVoice[] =
-    res.data?.data?.voices ??
-    (Array.isArray(res.data?.data) ? res.data.data : []);
-  return voices;
+  const allVoices: HeyGenVoice[] = [];
+  let token: string | undefined;
+
+  // HeyGen v3 /voices is paginated (default 20 per page).
+  // Iterate cursor pages until has_more is false so all voices are returned.
+  do {
+    const params: Record<string, unknown> = { limit: 100 };
+    if (token) params.token = token;
+
+    const res = await client.get("/v3/voices", { params });
+
+    // v3 may return { data: { voices: [...] } } or { data: [...] }
+    const page: HeyGenVoice[] =
+      res.data?.data?.voices ??
+      (Array.isArray(res.data?.data) ? res.data.data : []);
+
+    allVoices.push(...page);
+
+    const hasMore: boolean = res.data?.has_more ?? false;
+    token = hasMore ? (res.data?.next_token ?? undefined) : undefined;
+  } while (token);
+
+  return allVoices;
 }
 
 /**
