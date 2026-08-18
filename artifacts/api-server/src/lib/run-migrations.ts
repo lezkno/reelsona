@@ -9,6 +9,20 @@ import { logger } from "./logger";
 const MIGRATION_LOCK_KEY = 1732050807;
 const MIGRATION_TABLE = "reelsona_schema_migrations";
 
+// The repository's SQL history began after these original tables had already
+// been created with drizzle-kit push. They must exist before migration 001/003
+// can run. Check them explicitly so a fresh/incorrect database fails before any
+// partial migration is applied.
+const LEGACY_BASE_TABLES = [
+  "settings",
+  "avatar_config",
+  "content_plan_items",
+  "videos",
+  "automation_config",
+  "caption_config",
+  "instagram_accounts",
+] as const;
+
 function migrationsDir(): string {
   // build.mjs copies lib/db/migrations into dist/migrations. Because this module
   // is bundled into dist/index.mjs, import.meta.url resolves to dist/index.mjs.
@@ -19,10 +33,31 @@ function checksum(sql: string): string {
   return createHash("sha256").update(sql).digest("hex");
 }
 
+async function assertLegacyBaseSchema(client: Awaited<ReturnType<typeof pool.connect>>): Promise<void> {
+  const missing: string[] = [];
+  for (const table of LEGACY_BASE_TABLES) {
+    const result = await client.query<{ relation: string | null }>(
+      "SELECT to_regclass($1) AS relation",
+      [`public.${table}`],
+    );
+    if (!result.rows[0]?.relation) missing.push(table);
+  }
+
+  if (missing.length > 0) {
+    throw new Error(
+      "Database is missing Reelsona legacy base tables: " +
+        missing.join(", ") +
+        ". This SQL migration history is an upgrade path, not a fresh-database bootstrap. " +
+        "Bootstrap the base schema with @workspace/db before starting the API.",
+    );
+  }
+}
+
 export async function runMigrations(): Promise<void> {
   const client = await pool.connect();
   try {
     await client.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK_KEY]);
+    await assertLegacyBaseSchema(client);
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS ${MIGRATION_TABLE} (
