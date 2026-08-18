@@ -26,9 +26,31 @@ export interface ApifyProfileData {
   topPosts: ApifyTopPost[];
 }
 
+const APIFY_MAX_CONCURRENT = 3;
+let apifyActive = 0;
+const apifyWaiters: Array<() => void> = [];
+
+async function acquireApifySlot(): Promise<void> {
+  if (apifyActive < APIFY_MAX_CONCURRENT) {
+    apifyActive += 1;
+    return;
+  }
+  await new Promise<void>((resolve) => apifyWaiters.push(resolve));
+  apifyActive += 1;
+}
+
+function releaseApifySlot(): void {
+  apifyActive = Math.max(0, apifyActive - 1);
+  const next = apifyWaiters.shift();
+  if (next) next();
+}
+
 /**
  * Enrich an Instagram profile using the Apify instagram-profile-scraper Actor.
  * Returns null if APIFY_TOKEN is not configured or the run fails.
+ *
+ * POST Actor runs are intentionally not auto-retried because a lost response can
+ * still represent a billable run. Concurrency is bounded per process instead.
  */
 export async function enrichProfileWithApify(
   igUsername: string
@@ -39,11 +61,12 @@ export async function enrichProfileWithApify(
     return null;
   }
 
-  const actorId = "apify~instagram-profile-scraper";
-  const runUrl = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${token}&timeout=60`;
-
+  await acquireApifySlot();
   try {
-    logger.info({ igUsername }, "Starting Apify profile enrichment");
+    const actorId = "apify~instagram-profile-scraper";
+    const runUrl = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${token}&timeout=60`;
+
+    logger.info({ igUsername, apifyActive }, "Starting Apify profile enrichment");
 
     const response = await fetch(runUrl, {
       method: "POST",
@@ -73,13 +96,14 @@ export async function enrichProfileWithApify(
     const topPosts: ApifyTopPost[] = (item.latestPosts ?? [])
       .slice(0, 6)
       .map((p: any) => ({
-        url: p.url ?? p.shortCode ? `https://www.instagram.com/p/${p.shortCode}/` : null,
+        url: p.url ?? (p.shortCode ? `https://www.instagram.com/p/${p.shortCode}/` : null),
         caption: p.caption?.substring(0, 300) ?? null,
         likesCount: p.likesCount ?? 0,
         commentsCount: p.commentsCount ?? 0,
         timestamp: p.timestamp ?? null,
         type: p.type ?? null,
-      }));
+      }))
+      .filter((p: ApifyTopPost) => !!p.url);
 
     return {
       username: item.username ?? igUsername,
@@ -98,5 +122,7 @@ export async function enrichProfileWithApify(
       logger.error({ err, igUsername }, "Apify enrichment error");
     }
     return null;
+  } finally {
+    releaseApifySlot();
   }
 }
