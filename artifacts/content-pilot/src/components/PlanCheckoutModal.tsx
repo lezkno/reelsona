@@ -6,7 +6,7 @@
  * after the user confirms the purchase. Payment stays inside Reelsona.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { loadStripe, type Stripe } from "@stripe/stripe-js";
 import { EmbeddedCheckout, EmbeddedCheckoutProvider } from "@stripe/react-stripe-js";
 import { ArrowLeft, Crown, Loader2, ShieldCheck, Sparkles, X, Zap } from "lucide-react";
@@ -53,6 +53,20 @@ export function PlanCheckoutModal({ config, onClose }: Props) {
   const [identity, setIdentity] = useState<CheckoutIdentity | null>(null);
   const [showCheckout, setShowCheckout] = useState(false);
 
+  /**
+   * Snapshot of the checkout params captured at the moment the user clicks
+   * "Continuar al pago". We read from this ref inside fetchClientSecret so the
+   * callback has *no* reactive dependencies and therefore never changes
+   * reference while an EmbeddedCheckoutProvider is mounted.
+   *
+   * Changing the options prop on a live EmbeddedCheckoutProvider causes Stripe
+   * to attempt a second mount before the first one is destroyed, which throws
+   * "You cannot have multiple Embedded Checkout objects."
+   */
+  const checkoutSnapRef = useRef<{ planSlug: string; email: string; fullName: string } | null>(null);
+  /** Bump on each deliberate new session so the provider gets a fresh key. */
+  const checkoutKeyRef = useRef(0);
+
   useEffect(() => {
     if (!config) return;
     setEmail(config.email ?? "");
@@ -60,6 +74,7 @@ export function PlanCheckoutModal({ config, onClose }: Props) {
     setIdentity(null);
     setShowCheckout(false);
     setStripeError(null);
+    checkoutSnapRef.current = null;
   }, [config?.planSlug]);
 
   useEffect(() => {
@@ -81,25 +96,35 @@ export function PlanCheckoutModal({ config, onClose }: Props) {
   const handleContinue = (e: React.FormEvent) => {
     e.preventDefault();
     if (!config || !canContinue) return;
-    setIdentity({
-      email: (config.requireEmail ? email : (config.email ?? email)).trim().toLowerCase(),
+    const resolvedEmail = (config.requireEmail ? email : (config.email ?? email)).trim().toLowerCase();
+    // Snapshot all values into the ref before incrementing the key/showing checkout.
+    checkoutSnapRef.current = {
+      planSlug: config.planSlug,
+      email: resolvedEmail,
       fullName: fullName.trim(),
-    });
+    };
+    checkoutKeyRef.current += 1;
+    setIdentity({ email: resolvedEmail, fullName: fullName.trim() });
     setShowCheckout(true);
     setStripeError(null);
   };
 
+  /**
+   * Reads exclusively from the stable ref — intentionally no reactive deps —
+   * so this function reference never changes while the provider is mounted.
+   */
   const fetchClientSecret = useCallback(async () => {
-    if (!config || !identity) throw new Error("Checkout incompleto");
+    const snap = checkoutSnapRef.current;
+    if (!snap) throw new Error("Checkout incompleto");
 
     const res = await fetch(`${BASE}/api/checkout/create-session`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
       body: JSON.stringify({
-        planSlug: config.planSlug,
-        email: identity.email || undefined,
-        fullName: identity.fullName || undefined,
+        planSlug: snap.planSlug,
+        email: snap.email || undefined,
+        fullName: snap.fullName || undefined,
         embedded: true,
       }),
     });
@@ -116,11 +141,12 @@ export function PlanCheckoutModal({ config, onClose }: Props) {
     }
 
     return data.clientSecret;
-  }, [config, identity]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // intentionally empty — reads from ref, never needs to change
 
   const embeddedOptions = useMemo(
-    () => showCheckout && identity ? { fetchClientSecret } : null,
-    [showCheckout, identity, fetchClientSecret],
+    () => showCheckout ? { fetchClientSecret } : null,
+    [showCheckout, fetchClientSecret],
   );
 
   if (!config) return null;
@@ -218,7 +244,11 @@ export function PlanCheckoutModal({ config, onClose }: Props) {
 
             {stripePromise && embeddedOptions ? (
               <div className="min-h-[420px] overflow-hidden rounded-xl bg-white">
-                <EmbeddedCheckoutProvider stripe={stripePromise} options={embeddedOptions}>
+                <EmbeddedCheckoutProvider
+                  key={checkoutKeyRef.current}
+                  stripe={stripePromise}
+                  options={embeddedOptions}
+                >
                   <EmbeddedCheckout />
                 </EmbeddedCheckoutProvider>
               </div>

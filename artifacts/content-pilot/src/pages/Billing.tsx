@@ -262,9 +262,14 @@ function CurrentPlanCard({
   const openPortal = (flow?: "payment_method_update") => {
     portalMutation.mutate(flow ? { flow } : undefined, {
       onError: (err: any) => {
+        const code = err?.data?.code as string | undefined;
+        const description =
+          code === "no_customer"
+            ? "Este plan no tiene un cliente de pago registrado en Stripe. Contacta a soporte si necesitas ayuda con tu facturación."
+            : (err?.data?.message ?? err?.data?.error ?? "Intenta de nuevo en unos minutos.");
         toast({
           title: "No se pudo abrir el portal",
-          description: err?.data?.message ?? err?.data?.error ?? "Intenta de nuevo en unos minutos.",
+          description,
           variant: "destructive",
         })
       },
