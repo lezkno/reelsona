@@ -21,6 +21,12 @@ async function buildAll() {
     // src/assets may not exist in all envs — not fatal
   });
 
+  // Startup migrations are runtime assets. Keep the canonical SQL files in
+  // lib/db/migrations and copy them next to dist/index.mjs for run-migrations.ts.
+  const srcMigrations = path.resolve(artifactDir, "../../lib/db/migrations");
+  const distMigrations = path.resolve(artifactDir, "dist/migrations");
+  await cp(srcMigrations, distMigrations, { recursive: true });
+
   await esbuild({
     entryPoints: [path.resolve(artifactDir, "src/index.ts")],
     platform: "node",
@@ -78,7 +84,6 @@ async function buildAll() {
       "firebase-admin",
       "@parcel/watcher",
       "@sentry/profiling-node",
-      "@tree-sitter/*",
       "aws-sdk",
       "classic-level",
       "dd-trace",

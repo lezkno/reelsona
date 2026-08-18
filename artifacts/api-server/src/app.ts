@@ -47,6 +47,16 @@ if (!process.env.NODE_ENV) {
 // ────────────────────────────────────────────────────────────────────────────
 
 const app = express();
+let applicationReady = false;
+
+/**
+ * Called only after required startup migrations finish successfully.
+ * Until then, health checks can reach the process but application API traffic
+ * is rejected with 503 so no request can observe a partially-migrated schema.
+ */
+export function markApplicationReady(): void {
+  applicationReady = true;
+}
 
 // Replit (and most cloud providers) terminate TLS at the reverse proxy.
 // Without trust proxy, req.secure is always false and express-session will
@@ -71,19 +81,62 @@ app.use(
   })
 );
 
-// CORS — restrict to the Replit dev domain when available; open in local dev
+// CORS — never fall back to an unrestricted credentialed policy in production.
+// Requests without an Origin header (same-origin navigation, server-to-server,
+// Stripe webhooks, health checks) are allowed; browser cross-origin requests
+// must match the explicit allowlist.
 const devDomain = process.env.REPLIT_DEV_DOMAIN;
+const appUrl = process.env.APP_URL ?? "https://reelsona.com";
+const allowedOrigins = new Set<string>([
+  "https://reelsona.com",
+  "https://www.reelsona.com",
+]);
+try {
+  allowedOrigins.add(new URL(appUrl).origin);
+} catch {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("FATAL: APP_URL is not a valid absolute URL");
+  }
+}
+if (devDomain) allowedOrigins.add(`https://${devDomain}`);
+if (process.env.NODE_ENV !== "production") {
+  allowedOrigins.add("http://localhost:3000");
+  allowedOrigins.add("http://localhost:5173");
+  allowedOrigins.add("http://127.0.0.1:3000");
+  allowedOrigins.add("http://127.0.0.1:5173");
+}
+
 app.use(
   cors({
-    origin: devDomain ? [`https://${devDomain}`] : true,
+    origin(origin, callback) {
+      if (!origin || allowedOrigins.has(origin)) {
+        callback(null, true);
+        return;
+      }
+      logger.warn({ origin }, "[CORS] Rejected origin");
+      callback(null, false);
+    },
     credentials: true,
   })
 );
 
-// Health check — registered BEFORE session middleware so it always returns 200
-// even during cold start when the PostgreSQL session store isn't ready yet.
+// Liveness endpoint is intentionally available before database readiness. Replit
+// Autoscale performs an HTTP health check during startup; opening the port fast
+// avoids a deployment failure while migrations acquire a cold DB connection.
 app.get("/api/healthz", (_req, res) => {
-  res.json({ status: "ok" });
+  res.json({ status: applicationReady ? "ok" : "starting" });
+});
+
+// Readiness gate: no application API request (including Stripe webhooks) may run
+// before migrations complete. A 503 + Retry-After is preferable to processing a
+// request against a stale schema; external webhook providers can safely retry.
+app.use("/api", (_req, res, next) => {
+  if (applicationReady) {
+    next();
+    return;
+  }
+  res.setHeader("Retry-After", "5");
+  res.status(503).json({ error: "Reelsona is starting. Please retry shortly." });
 });
 
 // Stripe webhook — MUST be mounted before express.json() to receive raw body.
@@ -136,6 +189,30 @@ app.use("/api", configRouter);
 
 // Require a valid session for all other /api routes
 app.use("/api", requireAuth);
+
+// Instagram OAuth callback must always have a server-stored state nonce.
+// This closes the legacy bypass in routes/instagram.ts where a missing session
+// nonce was previously allowed to proceed. The downstream handler still does
+// the equality check and clears the nonce after successful validation.
+app.post("/api/instagram/callback", (req, res, next) => {
+  const expectedState = req.session.igOauthState;
+  const returnedState = typeof req.body?.state === "string" ? req.body.state : undefined;
+  if (!expectedState || !returnedState || returnedState !== expectedState) {
+    logger.warn(
+      {
+        userId: req.session.user?.userId,
+        hasExpectedState: !!expectedState,
+        hasReturnedState: !!returnedState,
+      },
+      "[IG/Callback] Missing or mismatched server-side OAuth state — rejecting"
+    );
+    res.status(400).json({
+      error: "El estado de conexión de Instagram no es válido o expiró. Intenta conectar de nuevo.",
+    });
+    return;
+  }
+  next();
+});
 
 // Admin user management (requires auth, handled by requireAuth above)
 app.use("/api", usersRouter);

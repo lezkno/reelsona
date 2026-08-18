@@ -1,5 +1,6 @@
-import app from "./app";
+import app, { markApplicationReady } from "./app";
 import { logger } from "./lib/logger";
+import { runMigrations } from "./lib/run-migrations";
 import { startScheduler } from "./lib/scheduler";
 import { seedAdminUser } from "./lib/seed";
 
@@ -17,19 +18,32 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
-// Start listening immediately so health checks succeed during cold start.
-// Do NOT wait for seedAdminUser() — that requires a DB connection which
-// can take several seconds in production, and the health check would fail.
+// Open the port immediately so Replit Autoscale health checks can reach the
+// process during a cold DB start. app.ts keeps every application API route
+// behind a readiness gate until migrations have completed successfully.
 app.listen(port, (err?: Error) => {
   if (err) {
     logger.error({ err }, "Error listening on port");
     process.exit(1);
   }
-  logger.info({ port }, "Server listening");
-  startScheduler();
+  logger.info({ port }, "Server listening; waiting for database readiness");
 });
 
-// Seed in the background — non-blocking, non-fatal on failure.
-seedAdminUser().catch((err) => {
-  logger.error({ err }, "Error seeding admin user (non-fatal)");
+async function initialize(): Promise<void> {
+  await runMigrations();
+  markApplicationReady();
+  logger.info("Database ready; application traffic enabled");
+
+  // Background workers must never run against a stale/partially migrated schema.
+  startScheduler();
+
+  // Seeding is not schema-critical and may run after readiness.
+  seedAdminUser().catch((err) => {
+    logger.error({ err }, "Error seeding admin user (non-fatal)");
+  });
+}
+
+initialize().catch((err) => {
+  logger.fatal({ err }, "Database migration/startup failed");
+  process.exit(1);
 });

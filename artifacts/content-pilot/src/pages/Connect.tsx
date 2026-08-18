@@ -78,9 +78,15 @@ export default function Connect() {
         return
       }
       localStorage.removeItem(IG_STATE_KEY)
-      // Include the returned state so the server can validate it against the
-      // session-stored value as a server-side CSRF check.
-      handleCallback.mutate({ data: { code, redirect_uri: redirectUri, state: returnedState ?? undefined } }, {
+      // The canonical API/Zod contract already includes `state`, but the older
+      // generated React client type has not been regenerated yet. Keep the
+      // runtime payload correct and isolate the temporary type bridge here.
+      const callbackData = {
+        code,
+        redirect_uri: redirectUri,
+        state: returnedState ?? undefined,
+      } as any
+      handleCallback.mutate({ data: callbackData }, {
         onSuccess: () => {
           toast({ title: "Cuenta Conectada", description: "Tu cuenta de Instagram se vinculó correctamente." })
           queryClient.invalidateQueries({ queryKey: getGetInstagramAccountQueryKey() })

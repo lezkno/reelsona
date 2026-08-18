@@ -1,5 +1,7 @@
 import { Readable } from 'stream';
 import { Router, type IRouter, type Request, type Response } from 'express';
+import { db } from '@workspace/db';
+import { sql } from 'drizzle-orm';
 
 import {
   ObjectNotFoundError,
@@ -13,12 +15,14 @@ const objectStorageService = new ObjectStorageService();
  * POST /storage/uploads/request-url
  *
  * Request a presigned URL for file upload.
- * Requires an active session.
+ * Requires an active session. The generated private object path is registered
+ * to the authenticated user before it is returned, so a later download cannot
+ * cross tenant boundaries merely by knowing another object's path.
  */
 router.post(
   '/storage/uploads/request-url',
   async (req: Request, res: Response) => {
-    if (!req.session?.authenticated) {
+    if (!req.session?.authenticated || !req.session?.user?.userId) {
       res.status(401).json({ error: 'Unauthorized' });
       return;
     }
@@ -34,6 +38,16 @@ router.post(
     try {
       const uploadURL = await objectStorageService.getObjectEntityUploadURL();
       const objectPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
+      const userId = req.session.user.userId;
+
+      // Bind this exact private object path to its owner before handing the
+      // signed PUT URL to the browser. Random UUID paths make collisions
+      // effectively impossible; ON CONFLICT never reassigns an existing owner.
+      await db.execute(sql`
+        INSERT INTO private_object_ownership (object_path, user_id)
+        VALUES (${objectPath}, ${userId})
+        ON CONFLICT (object_path) DO NOTHING
+      `);
 
       res.json({ uploadURL, objectPath, metadata: { name, size, contentType } });
     } catch (error) {
@@ -85,13 +99,15 @@ router.get(
 /**
  * GET /storage/objects/*
  *
- * Serve object entities from PRIVATE_OBJECT_DIR.
- * These are served from a separate path from /public-objects and can optionally
- * be protected with authentication or ACL checks based on the use case.
+ * Serve private object entities from PRIVATE_OBJECT_DIR only to their recorded
+ * owner. Authentication alone is not sufficient: the object path must also be
+ * registered to the current user in private_object_ownership.
+ *
+ * Legacy objects that predate the ownership registry are denied by default.
+ * They can be backfilled explicitly if a user-owned feature still references
+ * them; we never guess ownership from an untrusted URL.
  */
 router.get('/storage/objects/*path', async (req: Request, res: Response) => {
-  // Require an authenticated session.  Unauthenticated requests must never be
-  // able to enumerate or download private user objects.
   if (!req.session?.authenticated || !req.session?.user?.userId) {
     res.status(401).json({ error: 'Unauthorized' });
     return;
@@ -101,9 +117,23 @@ router.get('/storage/objects/*path', async (req: Request, res: Response) => {
     const raw = req.params.path;
     const wildcardPath = Array.isArray(raw) ? raw.join('/') : raw;
     const objectPath = `/objects/${wildcardPath}`;
-    const objectFile =
-      await objectStorageService.getObjectEntityFile(objectPath);
+    const userId = req.session.user.userId;
 
+    const ownershipResult = await db.execute(sql`
+      SELECT 1
+      FROM private_object_ownership
+      WHERE object_path = ${objectPath}
+        AND user_id = ${userId}
+      LIMIT 1
+    `);
+    const ownershipRows = (ownershipResult as unknown as { rows?: unknown[] }).rows;
+    if (!ownershipRows || ownershipRows.length === 0) {
+      req.log.warn({ userId, objectPath }, 'Private object ownership check denied');
+      res.status(403).json({ error: 'Forbidden' });
+      return;
+    }
+
+    const objectFile = await objectStorageService.getObjectEntityFile(objectPath);
     const response = await objectStorageService.downloadObject(objectFile);
 
     res.status(response.status);
