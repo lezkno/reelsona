@@ -41,3 +41,4 @@
 - [Global router middleware trap](global-router-middleware-trap.md) — `router.use(fn)` without a path in a sub-router blocks ALL requests passing through, not just the router's own routes.
 - [Founder swap billing pattern](founder-swap.md) — old sub cancel must be durable (superseded_* columns + sweep); late webhooks for superseded sub ids must no-op, never 500.
 - [Caption sync root causes](caption-sync-root-cause.md) — phrase-level SRT must NOT be split by char proportion; AAC batch re-encode accumulates delay; overlays must check !hasPlayable.
+- [Voice overrides clean bug](voice-overrides-clean-bug.md) — debounce doSave must NOT filter cleanedOverrides by selectedIds; public look voice assignments are silently deleted otherwise.

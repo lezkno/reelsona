@@ -4085,7 +4085,11 @@ export default function Avatars() {
     const doSave = () => {
       const cleanedOverrides: Record<string, string> = {}
       for (const [lookId, voiceId] of Object.entries(snapshotOverrides)) {
-        if (snapshotIds.has(lookId) && voiceId && voiceId !== LOOK_DEFAULT_VOICE_SENTINEL) {
+        // Preserve voice overrides for ALL looks — both selected and public/unselected.
+        // Previously this filtered by snapshotIds.has(lookId), which stripped any
+        // voice assignment made to a public look that wasn't yet in the active
+        // rotation, causing the assignment to vanish on the next debounce cycle.
+        if (voiceId && voiceId !== LOOK_DEFAULT_VOICE_SENTINEL) {
           cleanedOverrides[lookId] = voiceId
         }
       }
