@@ -13,6 +13,7 @@
  */
 
 const WAVESPEED_BASE = "https://api.wavespeed.ai";
+const WAVESPEED_HTTP_TIMEOUT_MS = 30_000;
 
 // ── Model registry ─────────────────────────────────────────────────────────────
 
@@ -58,14 +59,23 @@ async function wavespeedFetch<T>(
   apiKey?: string,
 ): Promise<T> {
   const key = apiKey ?? getApiKey();
-  const res = await fetch(`${WAVESPEED_BASE}${path}`, {
-    method,
-    headers: {
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "application/json",
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${WAVESPEED_BASE}${path}`, {
+      method,
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(WAVESPEED_HTTP_TIMEOUT_MS),
+    });
+  } catch (err) {
+    if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) {
+      throw new Error(`WaveSpeed ${method} ${path} → timeout after ${WAVESPEED_HTTP_TIMEOUT_MS}ms`);
+    }
+    throw err;
+  }
 
   const text = await res.text();
   if (!res.ok) {
