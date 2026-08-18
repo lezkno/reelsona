@@ -2,13 +2,17 @@
  * Checkout routes.
  *
  * POST /api/checkout/create-session
- *   body: { planSlug, email?, fullName?, embedded? }
+ *   body: { planSlug, email?, fullName? }
  *   planSlug: 'basic' | 'pro' | 'founder' | 'topup-300' | 'topup-600' | 'topup-1200'
  *
  * POST /api/checkout/create-payment-intent  (legacy — kept for old PaymentElement form)
  *
  * Founder plan: checked server-side for ≤ FOUNDER_MAX_SEATS active subscriptions
  * before creating a checkout session.
+ *
+ * NOTE: Stripe Embedded Checkout (ui_mode: "embedded_page") requires the account
+ * owner to enable it in the Stripe Dashboard → Settings → Checkout. Until that is
+ * done we use standard hosted checkout which always works and returns a redirect URL.
  */
 
 import { Router } from "express";
@@ -18,6 +22,7 @@ import { getAppUrl } from "../lib/email";
 import { FOUNDER_MAX_SEATS } from "../lib/credits";
 import { db } from "@workspace/db";
 import { subscriptionsTable } from "@workspace/db/schema";
+import { users as usersTable } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
 
 const router = Router();
@@ -40,15 +45,17 @@ router.post("/checkout/create-payment-intent", (_req: Request, res: Response): v
  *   - Subscription plans  (basic / pro / founder) — mode: 'subscription'
  *   - One-time topups     (topup-300 / 600 / 1200) — mode: 'payment'
  *
- * Returns: { clientSecret }  for embedded checkout,
- *          { url }           for hosted checkout.
+ * Returns: { url }  — redirect the browser to this Stripe-hosted checkout URL.
+ *
+ * If the caller is authenticated and does not provide an email, the user's
+ * stored email is looked up from the database automatically.
  */
 router.post("/checkout/create-session", async (req: Request, res: Response): Promise<void> => {
-  const { planSlug, email, fullName, embedded } = (req.body ?? {}) as {
+  let { planSlug, email, fullName } = (req.body ?? {}) as {
     planSlug?: string;
     email?:    string;
     fullName?: string;
-    embedded?: boolean;
+    embedded?: boolean; // accepted but ignored — we always use hosted checkout
   };
 
   if (!planSlug) {
@@ -62,8 +69,18 @@ router.post("/checkout/create-session", async (req: Request, res: Response): Pro
     return;
   }
 
-  if (!embedded && (!email || !email.includes("@"))) {
-    res.status(400).json({ error: "Se requiere un email válido para checkout alojado" });
+  // For authenticated users without a provided email, look it up from the DB.
+  if (!email && req.session?.user?.userId) {
+    const [user] = await db
+      .select({ email: usersTable.email })
+      .from(usersTable)
+      .where(eq(usersTable.id, req.session.user.userId))
+      .limit(1);
+    email = user?.email ?? undefined;
+  }
+
+  if (!email || !email.includes("@")) {
+    res.status(400).json({ error: "Se requiere un email válido para el checkout" });
     return;
   }
 
@@ -124,42 +141,31 @@ router.post("/checkout/create-session", async (req: Request, res: Response): Pro
       return;
     }
   }
+
   const appUrl = getAppUrl();
 
   try {
     const metadata: Record<string, string> = {
-      plan_slug:        planSlug,
-      product:          isSubscription ? "reelsona_subscription" : "reelsona_topup",
-      full_name:        (fullName ?? "").trim(),
-      credits_amount:   String(planConfig.creditAmount),
+      plan_slug:      planSlug,
+      product:        isSubscription ? "reelsona_subscription" : "reelsona_topup",
+      full_name:      (fullName ?? "").trim(),
+      credits_amount: String(planConfig.creditAmount),
     };
 
-    if (embedded) {
-      const session = await stripe.checkout.sessions.create({
-        mode:      isSubscription ? "subscription" : "payment",
-        line_items: [{ price: planConfig.stripePriceId, quantity: 1 }],
-        ui_mode:   "embedded",
-        return_url: `${appUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
-        metadata,
-        ...(isSubscription ? {
-          subscription_data: { metadata },
-        } : {}),
-      });
-      res.json({ clientSecret: session.client_secret });
-    } else {
-      const session = await stripe.checkout.sessions.create({
-        mode:           isSubscription ? "subscription" : "payment",
-        customer_email: email!.trim().toLowerCase(),
-        line_items:     [{ price: planConfig.stripePriceId, quantity: 1 }],
-        metadata,
-        success_url: `${appUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url:  `${appUrl}/checkout/cancel`,
-        ...(isSubscription ? {
-          subscription_data: { metadata },
-        } : {}),
-      });
-      res.json({ url: session.url });
-    }
+    // Hosted checkout — always works regardless of Stripe account settings.
+    const session = await stripe.checkout.sessions.create({
+      mode:           isSubscription ? "subscription" : "payment",
+      customer_email: email.trim().toLowerCase(),
+      line_items:     [{ price: planConfig.stripePriceId, quantity: 1 }],
+      metadata,
+      success_url: `${appUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url:  `${appUrl}/checkout/cancel`,
+      ...(isSubscription ? {
+        subscription_data: { metadata },
+      } : {}),
+    });
+
+    res.json({ url: session.url });
   } catch (err: any) {
     console.error("[checkout/create-session]", err?.message);
     res.status(500).json({ error: "No se pudo crear la sesión de pago" });

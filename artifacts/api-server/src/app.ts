@@ -54,6 +54,12 @@ app.use(
   })
 );
 
+// Health check — registered BEFORE session middleware so it always returns 200
+// even during cold start when the PostgreSQL session store isn't ready yet.
+app.get("/api/healthz", (_req, res) => {
+  res.json({ status: "ok" });
+});
+
 // Stripe webhook — MUST be mounted before express.json() to receive raw body.
 // The route applies express.raw() itself; all other routes remain unaffected.
 app.use("/api", webhookRouter);

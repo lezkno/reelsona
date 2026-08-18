@@ -17,22 +17,19 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
-seedAdminUser()
-  .then(() => {
-    app.listen(port, (err) => {
-      if (err) {
-        logger.error({ err }, "Error listening on port");
-        process.exit(1);
-      }
+// Start listening immediately so health checks succeed during cold start.
+// Do NOT wait for seedAdminUser() — that requires a DB connection which
+// can take several seconds in production, and the health check would fail.
+app.listen(port, (err?: Error) => {
+  if (err) {
+    logger.error({ err }, "Error listening on port");
+    process.exit(1);
+  }
+  logger.info({ port }, "Server listening");
+  startScheduler();
+});
 
-      logger.info({ port }, "Server listening");
-      startScheduler();
-    });
-  })
-  .catch((err) => {
-    logger.error({ err }, "Error seeding admin user — starting anyway");
-    app.listen(port, () => {
-      logger.info({ port }, "Server listening (seed failed)");
-      startScheduler();
-    });
-  });
+// Seed in the background — non-blocking, non-fatal on failure.
+seedAdminUser().catch((err) => {
+  logger.error({ err }, "Error seeding admin user (non-fatal)");
+});
