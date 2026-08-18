@@ -9,7 +9,7 @@
  *   • Generated via WaveSpeed (Seedream text-to-image) at 1024×1536 (portrait 2:3)
  *   • Guided by a per-video visual direction (shared lighting, palette, atmosphere)
  *   • Selected for scroll-stopping impact, not literal illustration
- *   • Animated with a Ken Burns variant (zoom-in / zoom-out / pan-right / pan-left)
+ *   • Animated with stable Ken Burns-style pan motion using scale+crop (no zoompan)
  *   • Duration varies per segment based on sentence length (2.5 – 4.5 s)
  *   • Faded in (0.3 s) and out (0.3 s) over the avatar video
  *
@@ -57,6 +57,7 @@ const FADE_DUR        = 0.3;   // seconds for fade in and fade out
 const MIN_GAP_SEC     = 10;    // minimum gap between B-roll segments
 const MIN_START_SEC   = 4;     // don't start in the first N seconds (hook / opening)
 const MIN_END_MARGIN  = 5;     // don't start within last N seconds
+const MOTION_OVERSCAN = 1.10;  // enlarge stills so crop can pan without exposing edges
 
 /**
  * Safety suffix appended to every image prompt.
@@ -78,18 +79,13 @@ function bRollCount(durationSec: number): number {
 /** Estimate hold duration from sentence complexity (word count). */
 function estimateHoldDuration(sentence: string): number {
   const wordCount = sentence.split(/\s+/).filter((w) => w.length > 0).length;
-  if (wordCount <= 8)  return 2.5; // short sentence — quick cut
-  if (wordCount <= 14) return 3.5; // medium sentence
-  return 4.5;                       // long/dense sentence — more time to absorb
+  if (wordCount <= 8)  return 2.5;
+  if (wordCount <= 14) return 3.5;
+  return 4.5;
 }
 
 // ── Step 0: Visual direction generation ──────────────────────────────────────
 
-/**
- * Generate a one-time cinematographic brief for the entire video.
- * All B-roll images in this video share this visual direction for coherence.
- * Returns empty string on any failure (caller uses a generic fallback).
- */
 async function generateVisualDirection(
   visualSuggestions: string | null,
   visualContext?: BRollVisualContext | null,
@@ -146,10 +142,6 @@ interface RawAISegment {
   imagePrompt: string;
 }
 
-/**
- * Ask GPT-4o-mini to select which sentences deserve B-roll and what to show.
- * Prioritizes scroll-stopping impact over literal illustration.
- */
 async function analyzeScriptForBRoll(
   sentences: string[],
   count: number,
@@ -227,10 +219,6 @@ async function analyzeScriptForBRoll(
     .slice(0, count);
 }
 
-/**
- * Map a sentence index to its best SRT timestamp using the same closest-match
- * proportional technique as the punch zoom engine.
- */
 function sentenceToTimestamp(
   sentences: string[],
   idx: number,
@@ -243,7 +231,7 @@ function sentenceToTimestamp(
 
   const sentenceStart = sentences.slice(0, idx).reduce((s, x) => s + x.length, 0);
   const expectedMs = (sentenceStart / totalChars) * videoDuration * 1000;
-  const windowMs = videoDuration * 350; // ±35 % window
+  const windowMs = videoDuration * 350;
 
   const candidates = sentence
     .replace(/[^a-záéíóúüñA-ZÁÉÍÓÚÜÑ0-9\s]/g, "")
@@ -275,10 +263,6 @@ function sentenceToTimestamp(
   return t >= MIN_START_SEC && t < videoDuration - MIN_END_MARGIN ? t : null;
 }
 
-/**
- * Analyze the script and return timed B-roll segments with image prompts.
- * Generates a shared visual direction first, then selects moments.
- */
 export async function analyzeBRollSegments(
   script: string,
   wordTimings: PunchWordTiming[],
@@ -299,15 +283,12 @@ export async function analyzeBRollSegments(
   }
 
   const totalChars = sentences.reduce((s, x) => s + x.length, 0) || 1;
-
-  // Generate shared visual direction for this video
   const visualDirection = await generateVisualDirection(
     visualSuggestions ?? null,
     visualContext,
     openaiApiKey,
   );
 
-  // Skip first 2 sentences (hook) — same convention as punch zoom
   const bodyStart = Math.min(2, sentences.length - 1);
   const bodySentences = sentences.slice(bodyStart);
 
@@ -320,7 +301,6 @@ export async function analyzeBRollSegments(
     return { segments: [], visualDirection };
   }
 
-  // Map sentence indices to timestamps (adjust for bodyStart offset)
   const segments: BRollSegment[] = [];
   for (const raw of rawSegments) {
     const globalIdx = raw.sentenceIdx + bodyStart;
@@ -333,7 +313,6 @@ export async function analyzeBRollSegments(
     });
   }
 
-  // Sort by time, then enforce minimum gap between segments
   segments.sort((a, b) => a.startSec - b.startSec);
   const result: BRollSegment[] = [];
   for (const seg of segments) {
@@ -356,10 +335,6 @@ export async function analyzeBRollSegments(
 
 // ── Step 2: Image generation ─────────────────────────────────────────────────
 
-/**
- * Poll a WaveSpeed prediction until it completes, fails, or times out.
- * Returns the first output URL, or null on failure/timeout.
- */
 async function pollBRollJob(requestId: string, maxMs = 120_000): Promise<string | null> {
   const start = Date.now();
   const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -379,14 +354,6 @@ async function pollBRollJob(requestId: string, maxMs = 120_000): Promise<string 
   return null;
 }
 
-/**
- * Generate a B-roll image for each segment using WaveSpeed (Seedream text-to-image).
- * The full prompt = [visualDirection + ". "] + PHOTO_SAFETY_SUFFIX + segment.imagePrompt
- * All jobs are submitted in parallel; polling and download happen concurrently.
- * Individual failures are logged and skipped — does not throw.
- *
- * @param openaiApiKey  Kept for backward-compat; not used for image generation.
- */
 export async function generateBRollImages(
   segments: BRollSegment[],
   tmpDir: string,
@@ -395,7 +362,6 @@ export async function generateBRollImages(
 ): Promise<BRollImageAsset[]> {
   const directionPrefix = visualDirection ? `${visualDirection}. ` : "";
 
-  // ── Phase 1: Submit all prediction jobs in parallel ──────────────────────
   type Submission = { segment: BRollSegment; i: number; requestId: string };
   const submissions: (Submission | null)[] = await Promise.all(
     segments.map(async (segment, i) => {
@@ -414,7 +380,6 @@ export async function generateBRollImages(
     }),
   );
 
-  // ── Phase 2: Poll each job and download the image ────────────────────────
   const results: BRollImageAsset[] = [];
   await Promise.all(
     submissions.map(async (sub) => {
@@ -442,23 +407,33 @@ export async function generateBRollImages(
   return results;
 }
 
-// ── Step 3: FFmpeg compositing with Ken Burns ─────────────────────────────────
+// ── Step 3: FFmpeg compositing with stable Ken Burns-style motion ─────────────
 
 /**
- * Composite B-roll images onto the source video.
+ * Build a crop expression for one B-roll asset.
  *
- * Each image:
- *   • Is scaled+cropped to exact video dimensions (center crop)
- *   • Is converted to yuva420p (alpha channel required for fade)
- *   • Fades in over FADE_DUR seconds, holds, then fades out over FADE_DUR seconds
- *   • Is overlaid on top of the base video during its time window
- *   • Audio track is copied unchanged
- *
- * Note: zoompan (Ken Burns) is intentionally avoided — it is broken in FFmpeg 6.1.2
- * via execFile and causes silent compositing failures. Simple scale+crop is reliable.
- *
- * Returns the path to the composited video, or sourcePath if compositing failed.
+ * We intentionally avoid FFmpeg's zoompan filter because it has been unstable in
+ * the deployment image. Instead each still is overscaled by 10% and the crop
+ * window moves smoothly during the segment. This produces a subtle cinematic
+ * Ken Burns-style movement while staying on the reliable scale+crop path.
  */
+function motionCropExpressions(index: number, segment: BRollSegment): { x: string; y: string } {
+  const start = segment.startSec.toFixed(3);
+  const dur = Math.max(segment.durationSec, 0.5).toFixed(3);
+  const progress = `min(max((t-${start})/${dur},0),1)`;
+
+  switch (index % 4) {
+    case 0:
+      return { x: `(in_w-out_w)*${progress}`, y: `(in_h-out_h)/2` };
+    case 1:
+      return { x: `(in_w-out_w)*(1-${progress})`, y: `(in_h-out_h)/2` };
+    case 2:
+      return { x: `(in_w-out_w)/2`, y: `(in_h-out_h)*${progress}` };
+    default:
+      return { x: `(in_w-out_w)/2`, y: `(in_h-out_h)*(1-${progress})` };
+  }
+}
+
 export async function composeBRoll(
   sourcePath: string,
   assets: BRollImageAsset[],
@@ -471,21 +446,22 @@ export async function composeBRoll(
 
   const outputPath = path.join(tmpDir, "broll_composited.mp4");
 
-  // Build input args: one -loop 1 -t <duration> -i <path> per image
   const inputArgs: string[] = [];
   for (const asset of assets) {
     inputArgs.push("-loop", "1", "-t", String(Math.ceil(videoDuration + 1)), "-i", asset.tmpPath);
   }
 
-  // Build filter_complex — simple scale+crop (no zoompan; zoompan is broken in FFmpeg 6.1.2 via execFile)
   const filterParts: string[] = [];
   let prevLabel = "[0:v]";
+  const overscanW = Math.ceil(videoWidth * MOTION_OVERSCAN);
+  const overscanH = Math.ceil(videoHeight * MOTION_OVERSCAN);
 
   for (let i = 0; i < assets.length; i++) {
     const { segment } = assets[i];
-    const inputIdx = i + 1; // [0] is the source video
+    const inputIdx = i + 1;
     const bvLabel  = `[bv${i}]`;
     const outLabel = i === assets.length - 1 ? "[vout]" : `[ov${i}]`;
+    const motion = motionCropExpressions(i, segment);
 
     const fadeInSt  = segment.startSec.toFixed(3);
     const fadeOutSt = Math.max(
@@ -495,13 +471,10 @@ export async function composeBRoll(
 
     filterParts.push(
       `[${inputIdx}:v]` +
-        // 1. Scale to cover exact video dims, then center-crop
-        `scale=${videoWidth}:${videoHeight}:force_original_aspect_ratio=increase,` +
-        `crop=${videoWidth}:${videoHeight},` +
+        `scale=${overscanW}:${overscanH}:force_original_aspect_ratio=increase,` +
+        `crop=${videoWidth}:${videoHeight}:x='${motion.x}':y='${motion.y}',` +
         `setsar=1,` +
-        // 2. Alpha channel for fade
         `format=yuva420p,` +
-        // 3. Fade in / out
         `fade=t=in:st=${fadeInSt}:d=${FADE_DUR}:alpha=1,` +
         `fade=t=out:st=${fadeOutSt}:d=${FADE_DUR}:alpha=1` +
         `${bvLabel}`,
@@ -513,8 +486,8 @@ export async function composeBRoll(
   const filterComplex = filterParts.join(";");
 
   logger.info(
-    { assetCount: assets.length, videoWidth, videoHeight, videoDuration },
-    "[BRoll] Running FFmpeg B-roll compositing...",
+    { assetCount: assets.length, videoWidth, videoHeight, videoDuration, motionOverscan: MOTION_OVERSCAN },
+    "[BRoll] Running FFmpeg B-roll compositing with motion...",
   );
 
   try {
@@ -544,13 +517,6 @@ export async function composeBRoll(
 
 // ── Convenience: full B-roll pipeline ────────────────────────────────────────
 
-/**
- * Run the full B-roll pipeline: analyze → generate → composite.
- * Returns the composited video path, or sourcePath on any unrecoverable failure.
- *
- * @param visualContext  Optional niche/topic context for richer visual direction.
- *   Existing callers that omit this param continue to work unchanged.
- */
 export async function applyBRoll(
   sourcePath: string,
   script: string,
