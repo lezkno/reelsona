@@ -1,15 +1,22 @@
 import axios from "axios";
 import { pool } from "@workspace/db";
 import { logger } from "./logger";
+import { decryptInstagramToken, encryptInstagramToken } from "./instagram-token-crypto";
 
 const IG_GRAPH_BASE = "https://graph.instagram.com";
 const IG_API_BASE = "https://api.instagram.com";
 const IG_HTTP_TIMEOUT_MS = 30_000;
 
-// Instagram API with Instagram Login officially uses graph.instagram.com.
-// Keep the host unversioned for this API family, but never allow a network call
-// to hang the worker indefinitely.
 const igHttp = axios.create({ timeout: IG_HTTP_TIMEOUT_MS });
+
+igHttp.interceptors.request.use((config) => {
+  const params = config.params as Record<string, unknown> | undefined;
+  const storedToken = params?.access_token;
+  if (typeof storedToken === "string" && storedToken) {
+    config.params = { ...params, access_token: decryptInstagramToken(storedToken) };
+  }
+  return config;
+});
 
 export function getAuthUrl(redirectUri: string, state?: string): string {
   const appId = process.env.INSTAGRAM_APP_ID;
@@ -29,10 +36,6 @@ export function getAuthUrl(redirectUri: string, state?: string): string {
   return `https://www.instagram.com/oauth/authorize?${params.toString()}`;
 }
 
-/**
- * Exchange an authorization code for a long-lived Instagram token.
- * Returns the token and its expiry date.
- */
 export async function exchangeCodeForToken(
   code: string,
   redirectUri: string
@@ -56,7 +59,6 @@ export async function exchangeCodeForToken(
   const shortToken: string = res.data?.access_token;
   if (!shortToken) throw new Error("Failed to get access token from Instagram");
 
-  // Exchange short-lived token for long-lived (~60 days)
   const longRes = await igHttp.get(`${IG_GRAPH_BASE}/access_token`, {
     params: {
       grant_type: "ig_exchange_token",
@@ -68,21 +70,14 @@ export async function exchangeCodeForToken(
   const longToken: string = longRes.data?.access_token;
   if (!longToken) throw new Error("Failed to get long-lived token");
 
-  // Meta returns expires_in in seconds; fall back to a conservative 60-day estimate
   const expiresInSec: number | undefined = longRes.data?.expires_in;
   const expiresAt = expiresInSec
     ? new Date(Date.now() + expiresInSec * 1000)
     : new Date(Date.now() + 60 * 24 * 60 * 60 * 1000);
 
-  return { accessToken: longToken, expiresAt };
+  return { accessToken: encryptInstagramToken(longToken), expiresAt };
 }
 
-/**
- * Refresh a long-lived Instagram token using grant_type=ig_refresh_token.
- * Instagram allows refreshing tokens that have at least 1 day remaining.
- * Call when token_expires_at is within 30 days.
- * Throws if the token is already expired or Meta rejects the refresh.
- */
 export async function refreshInstagramToken(
   accessToken: string
 ): Promise<{ accessToken: string; expiresAt: Date }> {
@@ -101,14 +96,9 @@ export async function refreshInstagramToken(
     ? new Date(Date.now() + expiresInSec * 1000)
     : new Date(Date.now() + 60 * 24 * 60 * 60 * 1000);
 
-  return { accessToken: newToken, expiresAt };
+  return { accessToken: encryptInstagramToken(newToken), expiresAt };
 }
 
-/**
- * Fetch basic account info.
- * account_type will be "BUSINESS", "MEDIA_CREATOR", or "PERSONAL".
- * Personal accounts cannot use instagram_business_* scopes.
- */
 export async function getAccountInfo(accessToken: string) {
   const res = await igHttp.get(`${IG_GRAPH_BASE}/me`, {
     params: {
@@ -122,7 +112,6 @@ export async function getAccountInfo(accessToken: string) {
 export async function getMediaList(accessToken: string, userId: string, limit = 20) {
   const res = await igHttp.get(`${IG_GRAPH_BASE}/${userId}/media`, {
     params: {
-      // thumbnail_url only exists for videos; media_url is the image itself for IMAGE/CAROUSEL_ALBUM
       fields: "id,media_type,media_url,thumbnail_url,permalink,caption,like_count,comments_count,timestamp",
       limit,
       access_token: accessToken,
@@ -131,32 +120,23 @@ export async function getMediaList(accessToken: string, userId: string, limit = 
   return res.data?.data ?? [];
 }
 
-// ── Typed insight result ────────────────────────────────────────────────────
 export type InsightErrorType =
-  | "token_expired"      // 401 / igCode 190 — token expired or revoked
-  | "permission_denied"  // 403 / igCode 10,200 — missing instagram_business_manage_insights
-  | "rate_limited"       // 429 — transient; will recover on next cycle
-  | "not_found"          // 404 — media too old for insights
-  | "unknown";           // any other error
+  | "token_expired"
+  | "permission_denied"
+  | "rate_limited"
+  | "not_found"
+  | "unknown";
 
 export type InsightResult = {
   values: Record<string, number>;
   error?: InsightErrorType;
 };
 
-/**
- * Fetch per-post insights from the Instagram Business API.
- *
- * Returns a typed result instead of silently swallowing errors.
- * Callers should inspect `.error` to distinguish between empty data
- * and a real problem (expired token, missing permission, rate limit).
- */
 export async function getMediaInsights(
   accessToken: string,
   mediaId: string,
   _mediaType: string,
 ): Promise<InsightResult> {
-  // Both video and image types use the same available metrics in the current IG API
   const metrics = "reach,views,likes,comments,saved";
   try {
     const res = await igHttp.get(`${IG_GRAPH_BASE}/${mediaId}/insights`, {
@@ -197,14 +177,11 @@ export async function getMediaInsights(
   }
 }
 
-/** Extract a human-readable message from an Instagram Graph API axios error */
 function igError(err: unknown, fallback: string): Error {
   if (axios.isAxiosError(err)) {
     const data = err.response?.data;
-    // Instagram wraps errors as { error: { message, code, type } }
     const igMsg: string | undefined = data?.error?.message;
     if (igMsg) return new Error(`Instagram: ${igMsg}`);
-    // Fallback: raw status
     const status = err.response?.status;
     if (status) return new Error(`${fallback} (HTTP ${status})`);
     if (err.code === "ECONNABORTED" || err.code === "ETIMEDOUT") {
@@ -243,7 +220,9 @@ export async function checkContainerStatus(accessToken: string, containerId: str
     const res = await igHttp.get(`${IG_GRAPH_BASE}/${containerId}`, {
       params: { fields: "status_code,status", access_token: accessToken },
     });
-    return res.data?.status_code ?? "IN_PROGRESS";
+    const status: string = res.data?.status_code ?? "IN_PROGRESS";
+    // EXPIRED is terminal and should follow the same recovery path as ERROR.
+    return status === "EXPIRED" ? "ERROR" : status;
   } catch (err) {
     throw igError(err, "Error al verificar el estado del contenedor");
   }
@@ -265,16 +244,6 @@ async function getPublishAttempt(creationId: string): Promise<PublishAttemptRow 
   return result.rows[0] ?? null;
 }
 
-/**
- * Publish an already-finished Instagram container with a durable creation_id
- * ledger. This gives Reelsona fail-safe at-most-once behavior around Meta's
- * non-idempotency-keyed media_publish endpoint:
- *
- * - confirmed attempt -> return the previously persisted media_id
- * - attempting/uncertain attempt -> never POST again automatically
- * - deterministic 4xx -> remove the claim so a corrected retry is allowed
- * - timeout/network/5xx/unknown -> retain an uncertain claim to prevent duplicates
- */
 export async function publishContainer(
   accessToken: string,
   userId: string,
@@ -289,6 +258,16 @@ export async function publishContainer(
     throw new Error(
       "Instagram: el resultado de una publicación anterior es incierto. " +
         "Reelsona bloqueó el reintento automático para evitar publicar el mismo Reel dos veces.",
+    );
+  }
+
+  // Defense in depth: the scheduler polls first, but publishing itself must never
+  // trust that polling completed. This prevents an exhausted/stale poll loop from
+  // sending media_publish while Meta still reports IN_PROGRESS or EXPIRED.
+  const containerStatus = await checkContainerStatus(accessToken, creationId);
+  if (containerStatus !== "FINISHED") {
+    throw new Error(
+      `Instagram: el contenedor todavía no está listo para publicar (estado ${containerStatus}).`,
     );
   }
 
@@ -314,9 +293,7 @@ export async function publishContainer(
       params: { creation_id: creationId, access_token: accessToken },
     });
     const mediaId: string = res.data?.id;
-    if (!mediaId) {
-      throw new Error("Instagram media_publish returned no media id");
-    }
+    if (!mediaId) throw new Error("Instagram media_publish returned no media id");
 
     await pool.query(
       `UPDATE instagram_publish_attempts
@@ -331,16 +308,11 @@ export async function publishContainer(
     const deterministicClientError = status !== undefined && status >= 400 && status < 500;
 
     if (deterministicClientError) {
-      // Meta explicitly rejected the request, so we know it was not accepted for
-      // publication and a corrected future retry is safe.
       await pool.query(
         "DELETE FROM instagram_publish_attempts WHERE creation_id = $1 AND status = 'attempting'",
         [creationId],
       ).catch((dbErr) => logger.error({ err: dbErr, creationId }, "[IG/Publish] Failed to release rejected publish claim"));
     } else {
-      // Timeout, transport error, 5xx, process/DB uncertainty: fail closed. The
-      // container is not automatically published again because Meta does not expose
-      // an idempotency key for media_publish.
       await pool.query(
         `UPDATE instagram_publish_attempts
             SET status = 'uncertain', last_error = $2, updated_at = NOW()

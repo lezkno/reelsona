@@ -14,6 +14,16 @@ function getResend(): Resend {
   return _resend
 }
 
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  })[char]!)
+}
+
 export interface SendEmailOptions {
   to: string | string[]
   subject: string
@@ -21,10 +31,6 @@ export interface SendEmailOptions {
   text?: string
 }
 
-/**
- * Returns the canonical app URL for building links inside emails.
- * Logs a warning on first use if APP_URL is not configured.
- */
 let _appUrlWarningLogged = false
 export function getAppUrl(): string {
   const url = process.env.APP_URL?.trim().replace(/\/$/, "")
@@ -58,15 +64,14 @@ export async function sendEmail(opts: SendEmailOptions) {
   return data
 }
 
-// ── Plantillas ────────────────────────────────────────────────────────────────
-
 export function welcomeEmail(name: string, appUrl?: string) {
   const baseUrl = appUrl ?? getAppUrl()
+  const safeName = escapeHtml(name)
   return {
     subject: "¡Bienvenido a Reelsona!",
     html: `
       <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#111">
-        <h1 style="font-size:24px;margin-bottom:8px">Hola${name ? `, ${name}` : ""}! 👋</h1>
+        <h1 style="font-size:24px;margin-bottom:8px">Hola${safeName ? `, ${safeName}` : ""}! 👋</h1>
         <p style="color:#555">Ya eres parte de <strong>Reelsona</strong> — tu máquina de contenido con IA para Instagram.</p>
         <p style="color:#555">Conecta tu cuenta de Instagram y en minutos estarás generando reels automatizados con avatar.</p>
         <a href="${baseUrl}" style="display:inline-block;margin-top:16px;padding:12px 24px;background:#6366f1;color:#fff;border-radius:8px;text-decoration:none;font-weight:600">
@@ -80,11 +85,12 @@ export function welcomeEmail(name: string, appUrl?: string) {
 
 export function activationEmail(name: string, activateUrl: string, toolAccessDays: number) {
   const plural = toolAccessDays === 1 ? "día" : "días"
+  const safeName = escapeHtml(name)
   return {
     subject: "Tu acceso a Reelsona está listo 🎉",
     html: `
       <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#111">
-        <h1 style="font-size:22px;margin-bottom:8px">¡Hola${name ? `, ${name}` : ""}! 👋</h1>
+        <h1 style="font-size:22px;margin-bottom:8px">¡Hola${safeName ? `, ${safeName}` : ""}! 👋</h1>
         <p style="color:#555">Tu acceso a <strong>Reelsona</strong> está listo. Tienes <strong>${toolAccessDays} ${plural}</strong> de acceso completo a la herramienta y acceso permanente al curso de implementación.</p>
         <p style="color:#555">Haz clic en el botón para elegir tu contraseña y comenzar:</p>
         <a href="${activateUrl}"
@@ -99,11 +105,12 @@ export function activationEmail(name: string, activateUrl: string, toolAccessDay
 }
 
 export function verificationEmail(name: string, verifyUrl: string) {
+  const safeName = escapeHtml(name)
   return {
     subject: "Confirma tu correo — Reelsona",
     html: `
       <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#111">
-        <h1 style="font-size:22px;margin-bottom:8px">Hola${name ? `, ${name}` : ""}! 👋</h1>
+        <h1 style="font-size:22px;margin-bottom:8px">Hola${safeName ? `, ${safeName}` : ""}! 👋</h1>
         <p style="color:#555">Gracias por registrarte en <strong>Reelsona</strong>. Solo falta un paso: confirma tu correo electrónico para activar tu cuenta.</p>
         <a href="${verifyUrl}"
            style="display:inline-block;margin-top:20px;padding:12px 28px;background:#6366f1;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;font-size:15px">
@@ -117,12 +124,13 @@ export function verificationEmail(name: string, verifyUrl: string) {
 }
 
 export function passwordResetEmail(name: string, resetUrl: string) {
+  const safeName = escapeHtml(name)
   return {
     subject: "Recupera tu contraseña — Reelsona",
     html: `
       <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#111">
         <h1 style="font-size:22px;margin-bottom:8px">Recuperar contraseña</h1>
-        <p style="color:#555">Hola${name ? ` ${name}` : ""}, recibimos una solicitud para restablecer la contraseña de tu cuenta en <strong>Reelsona</strong>.</p>
+        <p style="color:#555">Hola${safeName ? ` ${safeName}` : ""}, recibimos una solicitud para restablecer la contraseña de tu cuenta en <strong>Reelsona</strong>.</p>
         <p style="color:#555">Haz clic en el botón para elegir una nueva contraseña:</p>
         <a href="${resetUrl}"
            style="display:inline-block;margin-top:20px;padding:14px 32px;background:#6366f1;color:#fff;border-radius:8px;text-decoration:none;font-weight:700;font-size:16px">
@@ -136,12 +144,13 @@ export function passwordResetEmail(name: string, resetUrl: string) {
 }
 
 export function passwordChangedEmail(name: string) {
+  const safeName = escapeHtml(name)
   return {
     subject: "Tu contraseña fue cambiada — Reelsona",
     html: `
       <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#111">
         <h1 style="font-size:20px">Contraseña actualizada</h1>
-        <p style="color:#555">Hola${name ? ` ${name}` : ""}, te confirmamos que tu contraseña de Reelsona fue cambiada exitosamente.</p>
+        <p style="color:#555">Hola${safeName ? ` ${safeName}` : ""}, te confirmamos que tu contraseña de Reelsona fue cambiada exitosamente.</p>
         <p style="color:#555">Si no fuiste tú, contáctanos de inmediato respondiendo este correo.</p>
         <p style="margin-top:32px;font-size:12px;color:#999">Reelsona · info@reelsona.com</p>
       </div>`,
@@ -156,6 +165,8 @@ export function videoFailedEmail(
   appUrl?: string
 ) {
   const baseUrl = appUrl ?? getAppUrl()
+  const safeName = escapeHtml(name)
+  const safeTopic = escapeHtml(topic)
   const scheduledStr = scheduledAt
     ? scheduledAt.toLocaleDateString("es-MX", {
         weekday: "long",
@@ -170,7 +181,7 @@ export function videoFailedEmail(
     html: `
       <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#111">
         <h1 style="font-size:20px;margin-bottom:8px">Hubo un problema con tu Reel 😔</h1>
-        <p style="color:#555">Hola${name ? ` ${name}` : ""}, el Reel <strong>"${topic}"</strong>${scheduledStr ? ` programado para el <strong>${scheduledStr}</strong>` : ""} no pudo generarse automáticamente.</p>
+        <p style="color:#555">Hola${safeName ? ` ${safeName}` : ""}, el Reel <strong>"${safeTopic}"</strong>${scheduledStr ? ` programado para el <strong>${scheduledStr}</strong>` : ""} no pudo generarse automáticamente.</p>
         <p style="color:#555">Puedes ver el detalle y reagendarlo desde tu Plan de Contenido:</p>
         <a href="${baseUrl}/content-plan"
            style="display:inline-block;margin-top:16px;padding:12px 24px;background:#6366f1;color:#fff;border-radius:8px;text-decoration:none;font-weight:600">
