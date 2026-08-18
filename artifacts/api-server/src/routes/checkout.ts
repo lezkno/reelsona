@@ -208,8 +208,14 @@ router.post("/checkout/create-payment-intent", async (req: Request, res: Respons
       customerId = stripeCustomerId;
     } else {
       // New subscriber (anonymous or authenticated before first purchase).
+      // Include a hash of email+name in the key so that different name/email
+      // inputs within the same 10-min window never collide.  Without this, a
+      // subscription checkout with name="A" and a topup checkout with name="B"
+      // share the same key → Stripe 400 "same key, different params" → 502.
+      const identity = `${normalizedEmail}|${(fullName ?? "").trim()}`;
+      const identityTag = Buffer.from(identity).toString("base64url").slice(0, 12);
       const customerIdempotencyKey = userId
-        ? `new-customer-uid-${userId}-${idemBucket}`
+        ? `new-customer-uid-${userId}-${identityTag}-${idemBucket}`
         : `new-customer-email-${Buffer.from(normalizedEmail).toString("base64url")}-${planSlug}-${idemBucket}`;
       const newCustomer = await stripe.customers.create(
         { email: normalizedEmail, name: (fullName ?? "").trim() || undefined },
