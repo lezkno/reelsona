@@ -138,7 +138,7 @@ router.post("/checkout/create-session", async (req: Request, res: Response): Pro
       const session = await stripe.checkout.sessions.create({
         mode:      isSubscription ? "subscription" : "payment",
         line_items: [{ price: planConfig.stripePriceId, quantity: 1 }],
-        ui_mode:   "embedded_page",
+        ui_mode:   "embedded",
         return_url: `${appUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
         metadata,
         ...(isSubscription ? {

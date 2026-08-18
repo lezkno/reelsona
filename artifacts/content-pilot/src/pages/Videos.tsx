@@ -519,7 +519,7 @@ export default function Videos() {
                   />
                 )}
                 {/* Full-card applying-effects overlay — same design as generating */}
-                {video.status === 'ready' && (captionStatus === null || captionStatus === 'processing') && !selectMode && (
+                {!hasPlayable && video.status === 'ready' && (captionStatus === null || captionStatus === 'processing') && !selectMode && (
                   <GeneratingCardOverlay
                     createdAt={(video as any).created_at ?? (video as any).updated_at}
                     avatarBgUrl={avatarBgUrl}
@@ -600,10 +600,10 @@ export default function Videos() {
                   {/* Main status badge */}
                   <div className="absolute top-3 left-3">
                     {video.status === 'generating' && <Badge variant="warning" className="shadow-lg"><Clock className="w-3 h-3 mr-1"/> Generando</Badge>}
-                    {video.status === 'ready' && (captionStatus === null || captionStatus === 'processing') && (
+                    {!hasPlayable && video.status === 'ready' && (captionStatus === null || captionStatus === 'processing') && (
                       <Badge variant="warning" className="shadow-lg"><Clock className="w-3 h-3 mr-1"/> Aplicando captions…</Badge>
                     )}
-                    {video.status === 'ready' && (captionStatus === 'done' || captionStatus === 'failed' || captionStatus === 'disabled') && (
+                    {video.status === 'ready' && (captionStatus === 'done' || captionStatus === 'failed' || captionStatus === 'disabled' || (hasPlayable && (captionStatus === null || captionStatus === 'processing'))) && (
                       <Badge variant="success" className="shadow-lg"><CheckCircle2 className="w-3 h-3 mr-1"/> Listo</Badge>
                     )}
                     {video.status === 'publishing' && (
