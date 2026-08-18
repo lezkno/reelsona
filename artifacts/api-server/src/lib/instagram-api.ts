@@ -7,14 +7,8 @@ const IG_GRAPH_BASE = "https://graph.instagram.com";
 const IG_API_BASE = "https://api.instagram.com";
 const IG_HTTP_TIMEOUT_MS = 30_000;
 
-// Instagram API with Instagram Login officially uses graph.instagram.com.
-// Keep the host unversioned for this API family, but never allow a network call
-// to hang the worker indefinitely.
 const igHttp = axios.create({ timeout: IG_HTTP_TIMEOUT_MS });
 
-// DB callers pass the token exactly as stored. New tokens are encrypted at rest,
-// while legacy plaintext remains readable during the transition. Only the HTTP
-// boundary ever receives plaintext.
 igHttp.interceptors.request.use((config) => {
   const params = config.params as Record<string, unknown> | undefined;
   const storedToken = params?.access_token;
@@ -42,11 +36,6 @@ export function getAuthUrl(redirectUri: string, state?: string): string {
   return `https://www.instagram.com/oauth/authorize?${params.toString()}`;
 }
 
-/**
- * Exchange an authorization code for a long-lived Instagram token.
- * Returns the encrypted-at-rest token and its expiry date. All API helpers in
- * this module transparently decrypt it only when making the outbound request.
- */
 export async function exchangeCodeForToken(
   code: string,
   redirectUri: string
@@ -70,7 +59,6 @@ export async function exchangeCodeForToken(
   const shortToken: string = res.data?.access_token;
   if (!shortToken) throw new Error("Failed to get access token from Instagram");
 
-  // Exchange short-lived token for long-lived (~60 days)
   const longRes = await igHttp.get(`${IG_GRAPH_BASE}/access_token`, {
     params: {
       grant_type: "ig_exchange_token",
@@ -90,7 +78,6 @@ export async function exchangeCodeForToken(
   return { accessToken: encryptInstagramToken(longToken), expiresAt };
 }
 
-/** Refresh a long-lived Instagram token. Returned token remains encrypted at rest. */
 export async function refreshInstagramToken(
   accessToken: string
 ): Promise<{ accessToken: string; expiresAt: Date }> {
@@ -233,7 +220,9 @@ export async function checkContainerStatus(accessToken: string, containerId: str
     const res = await igHttp.get(`${IG_GRAPH_BASE}/${containerId}`, {
       params: { fields: "status_code,status", access_token: accessToken },
     });
-    return res.data?.status_code ?? "IN_PROGRESS";
+    const status: string = res.data?.status_code ?? "IN_PROGRESS";
+    // EXPIRED is terminal and should follow the same recovery path as ERROR.
+    return status === "EXPIRED" ? "ERROR" : status;
   } catch (err) {
     throw igError(err, "Error al verificar el estado del contenedor");
   }
@@ -269,6 +258,16 @@ export async function publishContainer(
     throw new Error(
       "Instagram: el resultado de una publicación anterior es incierto. " +
         "Reelsona bloqueó el reintento automático para evitar publicar el mismo Reel dos veces.",
+    );
+  }
+
+  // Defense in depth: the scheduler polls first, but publishing itself must never
+  // trust that polling completed. This prevents an exhausted/stale poll loop from
+  // sending media_publish while Meta still reports IN_PROGRESS or EXPIRED.
+  const containerStatus = await checkContainerStatus(accessToken, creationId);
+  if (containerStatus !== "FINISHED") {
+    throw new Error(
+      `Instagram: el contenedor todavía no está listo para publicar (estado ${containerStatus}).`,
     );
   }
 
