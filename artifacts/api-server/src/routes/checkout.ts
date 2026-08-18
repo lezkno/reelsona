@@ -68,8 +68,11 @@ export function buildCheckoutSessionParams(args: {
     return {
       ...common,
       ui_mode: "embedded",
+      // keep return_url for redirect-based payment methods (e.g. bank redirects)
       return_url: `${args.appUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
-      redirect_on_completion: "always",
+      // "if_required" means Stripe only redirects when the payment method needs it
+      // (e.g. bank redirects); card payments complete inside the embedded form.
+      redirect_on_completion: "if_required",
     };
   }
 
