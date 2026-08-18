@@ -76,7 +76,7 @@ export function PlanCheckoutModal({ config, onClose }: Props) {
     fetch(`${BASE}/api/config/public`, { credentials: "include" })
       .then(async (res) => {
         if (!res.ok) throw new Error("No se pudo cargar la configuración de pagos");
-        return res.json() as Promise<{ stripePublishableKey: string | null }>;
+        return res.json() as Promise<{ stripePublishableKey: string | null; stripeConfigured?: boolean }>;
       })
       .then(({ stripePublishableKey }) => {
         if (cancelled) return;
@@ -140,14 +140,18 @@ export function PlanCheckoutModal({ config, onClose }: Props) {
     }
   }, [config]);
 
+  // Authenticated topups/basic/pro checkouts may prepare the embedded form
+  // immediately. Founder is excluded because changing an existing subscription
+  // can issue an immediate invoice and therefore requires explicit confirmation.
   useEffect(() => {
-    if (!config || config.requireEmail || !stripePromise || clientSecret || loading || startedRef.current) return;
+    if (!config || config.requireEmail || config.planSlug === "founder" || !stripePromise || clientSecret || loading || startedRef.current) return;
     void createEmbeddedSession(config.email);
   }, [config, stripePromise, clientSecret, loading, createEmbeddedSession]);
 
   if (!config) return null;
 
   const isTopup = config.planSlug.startsWith("topup");
+  const requiresFounderConfirmation = config.planSlug === "founder" && !config.requireEmail && !clientSecret;
   const priceLabel = formatPrice(config.amountCents, config.currency);
   const intervalLabel = config.interval === "month" ? "/mes" : config.interval === "year" ? "/año" : "";
 
@@ -171,13 +175,8 @@ export function PlanCheckoutModal({ config, onClose }: Props) {
       onClick={(e) => { if (e.target === e.currentTarget && !loading) onClose(); }}
     >
       <div style={{
-        position: "relative",
-        width: "100%",
-        maxWidth: 520,
-        backgroundColor: "#0d0d0d",
-        borderRadius: 20,
-        border: "1px solid #1e1e1e",
-        overflow: "hidden",
+        position: "relative", width: "100%", maxWidth: 520, backgroundColor: "#0d0d0d",
+        borderRadius: 20, border: "1px solid #1e1e1e", overflow: "hidden",
         boxShadow: "0 0 80px rgba(79,110,247,0.12), 0 32px 80px rgba(0,0,0,0.85)",
       }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: "1px solid #181818" }}>
@@ -230,6 +229,21 @@ export function PlanCheckoutModal({ config, onClose }: Props) {
                 {loading ? <><Loader2 size={16} className="animate-spin" /> Preparando pago…</> : <>Continuar al pago <ArrowRight size={15} /></>}
               </button>
             </form>
+          ) : requiresFounderConfirmation ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <p style={{ color: "#aaa", fontSize: "0.82rem", lineHeight: 1.55, margin: 0 }}>
+                Confirmarás el cambio de tu suscripción actual a Founder. Stripe calculará el ajuste correspondiente y puede generar un cargo inmediato con tu método de pago guardado.
+              </p>
+              {error && <p style={{ color: "#f87171", fontSize: "0.8rem", margin: 0 }}>{error}</p>}
+              <button
+                type="button"
+                disabled={loading || !stripePromise}
+                onClick={() => void createEmbeddedSession(config.email)}
+                style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: accentFor(config.planSlug), color: "#fff", border: "none", borderRadius: 12, padding: 14, fontWeight: 700, cursor: "pointer" }}
+              >
+                {loading ? <><Loader2 size={16} className="animate-spin" /> Procesando cambio…</> : <><Crown size={16} /> Confirmar cambio a Founder</>}
+              </button>
+            </div>
           ) : clientSecret && stripePromise ? (
             <EmbeddedCheckoutProvider stripe={stripePromise} options={{ clientSecret }}>
               <EmbeddedCheckout />
