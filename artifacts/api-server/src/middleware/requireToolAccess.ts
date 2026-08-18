@@ -9,6 +9,8 @@
  *
  * Returns 403 { error: "plan_required", courseAccess }
  * for non-admin users with no active plan on blocked paths.
+ * Returns 503 when entitlement verification is unavailable; protected tools
+ * never fail open on a DB outage.
  *
  * Uses a 90-second in-memory cache per userId to avoid a DB hit on every request.
  */
@@ -192,6 +194,10 @@ export const requireToolAccess: RequestHandler = async (req, res, next): Promise
     });
   } catch (err) {
     console.error("[requireToolAccess] DB error:", err);
-    next(); // fail open — don't block on DB error
+    res.setHeader("Retry-After", "5");
+    res.status(503).json({
+      error: "access_check_unavailable",
+      message: "No se pudo verificar temporalmente el acceso al plan. Intenta de nuevo en unos segundos.",
+    });
   }
 };
