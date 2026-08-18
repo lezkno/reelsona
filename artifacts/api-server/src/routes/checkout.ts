@@ -5,28 +5,26 @@
  *   body: { planSlug, email?, fullName?, embedded? }
  *   planSlug: 'basic' | 'pro' | 'founder' | 'topup-300' | 'topup-600' | 'topup-1200'
  *
- * New subscriptions and topups use Stripe Checkout Sessions. The preferred UI
- * is Stripe Embedded Checkout inside Reelsona; hosted checkout remains a safe
- * fallback when explicitly requested.
+ * New subscriptions and topups use Stripe Checkout Sessions. Existing subscribers
+ * upgrading to Founder update the existing Stripe subscription instead of creating
+ * a second recurring subscription.
  */
 
 import { Router } from "express";
 import type { Request, Response } from "express";
 import { getStripe, getPlanConfig, getActiveFounderCount } from "../lib/stripe";
 import { getAppUrl } from "../lib/email";
-import { FOUNDER_MAX_SEATS } from "../lib/credits";
+import { FOUNDER_MAX_SEATS, PLAN_CREDITS, provisionSubscriptionCredits } from "../lib/credits";
 import { db } from "@workspace/db";
 import { subscriptionsTable, users as usersTable } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
 import { buildCheckoutSessionParams } from "./checkout-logic";
+import { upsertEntitlement } from "../lib/access";
+import { invalidateAccessCache } from "../middleware/requireToolAccess";
+import { invalidatePlanCache } from "../middleware/requirePlanAccess";
 
 const router = Router();
 
-/**
- * Legacy PaymentIntent endpoint. The current product uses Checkout Sessions for
- * both recurring subscriptions and one-time credit packs so webhook semantics
- * stay consistent.
- */
 router.post("/checkout/create-payment-intent", (_req: Request, res: Response): void => {
   res.status(410).json({
     error: "Este endpoint fue reemplazado por Checkout Sessions.",
@@ -55,8 +53,6 @@ router.post("/checkout/create-session", async (req: Request, res: Response): Pro
 
   const authenticatedUserId = req.session?.user?.userId ?? null;
 
-  // Authenticated checkouts always use the account email from DB. Never accept a
-  // different destination email from the browser for wallet/subscription crediting.
   if (authenticatedUserId) {
     const [user] = await db
       .select({ email: usersTable.email })
@@ -90,10 +86,7 @@ router.post("/checkout/create-session", async (req: Request, res: Response): Pro
   }
 
   if (!planConfig) {
-    res.status(503).json({
-      error: `Plan '${planSlug}' no está configurado todavía.`,
-      code: "plan_not_configured",
-    });
+    res.status(503).json({ error: `Plan '${planSlug}' no está configurado todavía.`, code: "plan_not_configured" });
     return;
   }
 
@@ -111,17 +104,101 @@ router.post("/checkout/create-session", async (req: Request, res: Response): Pro
 
   const isSubscription = planConfig.isRecurring;
 
-  // Existing subscribers MUST change the current Stripe subscription instead of
-  // creating a second recurring subscription. The Billing page routes those
-  // transitions through /api/billing/change-plan.
   if (isSubscription && authenticatedUserId) {
     const [existingSub] = await db
-      .select({ status: subscriptionsTable.status })
+      .select()
       .from(subscriptionsTable)
       .where(eq(subscriptionsTable.userId, authenticatedUserId))
       .limit(1);
 
     if (existingSub && ["active", "trialing"].includes(existingSub.status)) {
+      if (existingSub.planSlug === planSlug) {
+        res.status(409).json({ error: "Ya estás en este plan.", code: "same_plan" });
+        return;
+      }
+
+      // Founder is a paid upgrade of the EXISTING subscription. Never create a
+      // second subscription for an authenticated Basic/Pro user.
+      if (planSlug === "founder" && ["basic", "pro"].includes(existingSub.planSlug)) {
+        if (!existingSub.stripeSubscriptionId) {
+          res.status(422).json({ error: "Tu suscripción no está vinculada correctamente con Stripe.", code: "no_stripe_subscription" });
+          return;
+        }
+
+        try {
+          if (existingSub.stripeScheduleId) {
+            await stripe.subscriptionSchedules.release(existingSub.stripeScheduleId).catch(() => undefined);
+          }
+
+          const stripeSub = await stripe.subscriptions.retrieve(existingSub.stripeSubscriptionId);
+          const item = stripeSub.items.data[0];
+          if (!item) throw new Error("Stripe subscription has no items");
+
+          // Founder changes billing period, so anchor a fresh Founder period now.
+          // error_if_incomplete guarantees the previous plan remains unchanged if
+          // the card cannot complete the immediate invoice.
+          const updated = await stripe.subscriptions.update(existingSub.stripeSubscriptionId, {
+            items: [{ id: item.id, price: planConfig.stripePriceId, quantity: 1 }],
+            billing_cycle_anchor: "now",
+            proration_behavior: "always_invoice",
+            payment_behavior: "error_if_incomplete",
+            cancel_at_period_end: false,
+            metadata: { plan_slug: "founder" },
+          });
+
+          const updatedItem = updated.items.data[0] as any;
+          const now = new Date();
+          const periodStart = updatedItem?.current_period_start
+            ? new Date(updatedItem.current_period_start * 1000)
+            : now;
+          const periodEnd = updatedItem?.current_period_end
+            ? new Date(updatedItem.current_period_end * 1000)
+            : existingSub.currentPeriodEnd;
+
+          await db.update(subscriptionsTable)
+            .set({
+              planSlug: "founder",
+              status: "active",
+              currentPeriodStart: periodStart,
+              currentPeriodEnd: periodEnd ?? undefined,
+              cancelAtPeriodEnd: false,
+              pendingPlanSlug: null,
+              stripeScheduleId: null,
+              founderMonthsGranted: 1,
+              founderAnchorAt: now,
+              founderLastGrantAt: now,
+              updatedAt: now,
+            })
+            .where(eq(subscriptionsTable.userId, authenticatedUserId));
+
+          await provisionSubscriptionCredits(
+            authenticatedUserId,
+            PLAN_CREDITS.founder,
+            `Upgrade a Founder: pool mensual actualizado a ${PLAN_CREDITS.founder} créditos`,
+          );
+          await upsertEntitlement({
+            userId: authenticatedUserId,
+            courseAccess: true,
+            toolAccessStatus: "active",
+            toolAccessEndsAt: periodEnd ?? null,
+            source: "stripe_subscription",
+            planSlug: "founder",
+          });
+          invalidateAccessCache(authenticatedUserId);
+          invalidatePlanCache(authenticatedUserId);
+
+          res.json({ subscriptionChanged: true, plan: "founder", mode: "subscription_update" });
+          return;
+        } catch (err: any) {
+          req.log?.error?.({ err, userId: authenticatedUserId }, "Founder subscription upgrade failed");
+          res.status(402).json({
+            error: "No se pudo completar el cambio a Founder con tu método de pago actual. Actualiza el método de pago e intenta nuevamente.",
+            code: "founder_upgrade_payment_failed",
+          });
+          return;
+        }
+      }
+
       res.status(409).json({
         error: "Ya tienes una suscripción activa. Cambia el plan desde Facturación.",
         code: "existing_subscription",
@@ -152,23 +229,16 @@ router.post("/checkout/create-session", async (req: Request, res: Response): Pro
     const session = await stripe.checkout.sessions.create(params, { idempotencyKey });
 
     if (embedded) {
-      if (!session.client_secret) {
-        throw new Error("Stripe Embedded Checkout did not return a client_secret");
-      }
+      if (!session.client_secret) throw new Error("Stripe Embedded Checkout did not return a client_secret");
       res.json({ clientSecret: session.client_secret, sessionId: session.id, mode: "embedded" });
       return;
     }
 
-    if (!session.url) {
-      throw new Error("Stripe hosted checkout did not return a URL");
-    }
+    if (!session.url) throw new Error("Stripe hosted checkout did not return a URL");
     res.json({ url: session.url, sessionId: session.id, mode: "hosted" });
   } catch (err: any) {
     req.log?.error?.({ err, planSlug, embedded }, "Failed to create Stripe Checkout Session");
-    res.status(502).json({
-      error: "No se pudo iniciar el pago. Intenta nuevamente.",
-      code: "checkout_session_failed",
-    });
+    res.status(502).json({ error: "No se pudo iniciar el pago. Intenta nuevamente.", code: "checkout_session_failed" });
   }
 });
 
