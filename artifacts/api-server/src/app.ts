@@ -71,11 +71,41 @@ app.use(
   })
 );
 
-// CORS — restrict to the Replit dev domain when available; open in local dev
+// CORS — never fall back to an unrestricted credentialed policy in production.
+// Requests without an Origin header (same-origin navigation, server-to-server,
+// Stripe webhooks, health checks) are allowed; browser cross-origin requests
+// must match the explicit allowlist.
 const devDomain = process.env.REPLIT_DEV_DOMAIN;
+const appUrl = process.env.APP_URL ?? "https://reelsona.com";
+const allowedOrigins = new Set<string>([
+  "https://reelsona.com",
+  "https://www.reelsona.com",
+]);
+try {
+  allowedOrigins.add(new URL(appUrl).origin);
+} catch {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("FATAL: APP_URL is not a valid absolute URL");
+  }
+}
+if (devDomain) allowedOrigins.add(`https://${devDomain}`);
+if (process.env.NODE_ENV !== "production") {
+  allowedOrigins.add("http://localhost:3000");
+  allowedOrigins.add("http://localhost:5173");
+  allowedOrigins.add("http://127.0.0.1:3000");
+  allowedOrigins.add("http://127.0.0.1:5173");
+}
+
 app.use(
   cors({
-    origin: devDomain ? [`https://${devDomain}`] : true,
+    origin(origin, callback) {
+      if (!origin || allowedOrigins.has(origin)) {
+        callback(null, true);
+        return;
+      }
+      logger.warn({ origin }, "[CORS] Rejected origin");
+      callback(null, false);
+    },
     credentials: true,
   })
 );
