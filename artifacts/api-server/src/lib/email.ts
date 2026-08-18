@@ -1,7 +1,18 @@
 import { Resend } from "resend"
 
-const resend = new Resend(process.env.RESEND_API_KEY)
+let _resend: Resend | null = null
 const FROM = process.env.RESEND_FROM_EMAIL ?? "info@reelsona.com"
+
+function getResend(): Resend {
+  const apiKey = process.env.RESEND_API_KEY?.trim()
+  if (!apiKey) {
+    throw new Error(
+      "RESEND_API_KEY is not configured. Add it to the production environment before sending email."
+    )
+  }
+  if (!_resend) _resend = new Resend(apiKey)
+  return _resend
+}
 
 export interface SendEmailOptions {
   to: string | string[]
@@ -31,6 +42,7 @@ export function getAppUrl(): string {
 }
 
 export async function sendEmail(opts: SendEmailOptions) {
+  const resend = getResend()
   const { data, error } = await resend.emails.send({
     from: `Reelsona <${FROM}>`,
     to: Array.isArray(opts.to) ? opts.to : [opts.to],
