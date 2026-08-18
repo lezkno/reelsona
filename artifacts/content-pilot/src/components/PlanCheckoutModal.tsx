@@ -1,10 +1,9 @@
 /**
  * PlanCheckoutModal — one checkout UI for Landing, Billing and credit topups.
  *
- * New subscriptions and one-time packs are created as Stripe Checkout Sessions
- * with ui_mode:"embedded" and mounted inside Reelsona. Existing subscriptions
- * never use this component for recurring plan changes; Billing updates the
- * existing Stripe subscription through /api/billing/change-plan instead.
+ * New subscriptions and one-time packs use Stripe Embedded Checkout inside
+ * Reelsona. When an authenticated Basic/Pro subscriber selects Founder, the
+ * server upgrades the existing subscription instead of creating a duplicate.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -106,10 +105,7 @@ export function PlanCheckoutModal({ config, onClose }: Props) {
     setError(null);
 
     try {
-      const body: Record<string, unknown> = {
-        planSlug: config.planSlug,
-        embedded: true,
-      };
+      const body: Record<string, unknown> = { planSlug: config.planSlug, embedded: true };
       if (resolvedEmail) body.email = resolvedEmail.trim().toLowerCase();
       if (resolvedName) body.fullName = resolvedName.trim();
 
@@ -119,10 +115,22 @@ export function PlanCheckoutModal({ config, onClose }: Props) {
         credentials: "include",
         body: JSON.stringify(body),
       });
-      const data = await res.json() as { clientSecret?: string; error?: string; code?: string };
-      if (!res.ok || !data.clientSecret) {
-        throw new Error(data.error ?? "No se pudo iniciar el pago");
+      const data = await res.json() as {
+        clientSecret?: string;
+        subscriptionChanged?: boolean;
+        plan?: string;
+        error?: string;
+        code?: string;
+      };
+
+      if (!res.ok) throw new Error(data.error ?? "No se pudo iniciar el pago");
+
+      if (data.subscriptionChanged) {
+        window.location.href = `${BASE}/billing?plan_changed=${encodeURIComponent(data.plan ?? config.planSlug)}`;
+        return;
       }
+
+      if (!data.clientSecret) throw new Error("Stripe no devolvió el formulario de pago");
       setClientSecret(data.clientSecret);
     } catch (err: unknown) {
       startedRef.current = false;
@@ -132,8 +140,6 @@ export function PlanCheckoutModal({ config, onClose }: Props) {
     }
   }, [config]);
 
-  // Authenticated Billing/topup flow: account email is resolved server-side, so
-  // start Embedded Checkout as soon as Stripe.js is ready.
   useEffect(() => {
     if (!config || config.requireEmail || !stripePromise || clientSecret || loading || startedRef.current) return;
     void createEmbeddedSession(config.email);
