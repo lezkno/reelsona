@@ -197,50 +197,54 @@ router.get("/heygen/avatars", async (req, res): Promise<void> => {
 });
 
 router.get("/heygen/voices", async (req, res): Promise<void> => {
-  const apiKey = await getUserHeyGenKey(req.session.user!.userId);
-  const userId = req.session.user!.userId;
-  const [voices, myClones] = await Promise.all([
-    listVoices(apiKey),
-    db.select().from(heygenClonedVoicesTable).where(eq(heygenClonedVoicesTable.userId, userId)),
-  ]);
-  const myCloneIds      = new Set(myClones.map(c => c.voiceId));
-  const myCloneSpeedMap = new Map(myClones.map(c => [c.voiceId, c.speed ?? null]));
-  const myClonePitchMap = new Map(myClones.map(c => [c.voiceId, (c as any).pitch ?? null]));
-  const myCloneStatusMap = new Map(myClones.map(c => [c.voiceId, c.status]));
-  const myCloneIdMap    = new Map(myClones.map(c => [c.voiceId, c.id]));
-  const mapped = voices.map((v) => ({
-    voice_id: v.voice_id,
-    name: v.name,
-    language: v.language ?? "es",
-    gender: v.gender ?? null,
-    preview_audio_url: (v as any).preview_audio ?? v.preview_audio_url ?? null,
-    is_cloned: v.is_clone ?? false,
-    is_mine: myCloneIds.has(v.voice_id),
-    speed: myCloneIds.has(v.voice_id) ? (myCloneSpeedMap.get(v.voice_id) ?? null) : null,
-    pitch: myCloneIds.has(v.voice_id) ? (myClonePitchMap.get(v.voice_id) ?? null) : null,
-    status: myCloneIds.has(v.voice_id) ? (myCloneStatusMap.get(v.voice_id) ?? null) : null,
-    clone_id: myCloneIds.has(v.voice_id) ? (myCloneIdMap.get(v.voice_id) ?? undefined) : undefined,
-  }));
+  try {
+    const userId = req.session.user!.userId;
+    const apiKey = await getUserHeyGenKey(userId);
+    const [voices, myClones] = await Promise.all([
+      listVoices(apiKey),
+      db.select().from(heygenClonedVoicesTable).where(eq(heygenClonedVoicesTable.userId, userId)),
+    ]);
+    const myCloneIds       = new Set(myClones.map(c => c.voiceId));
+    const myCloneSpeedMap  = new Map(myClones.map(c => [c.voiceId, c.speed ?? null]));
+    const myClonePitchMap  = new Map(myClones.map(c => [c.voiceId, (c as any).pitch ?? null]));
+    const myCloneStatusMap = new Map(myClones.map(c => [c.voiceId, c.status]));
+    const myCloneIdMap     = new Map(myClones.map(c => [c.voiceId, c.id]));
+    const mapped = voices.map((v) => ({
+      voice_id: v.voice_id,
+      name: v.name,
+      language: v.language ?? "es",
+      gender: v.gender ?? null,
+      preview_audio_url: (v as any).preview_audio ?? v.preview_audio_url ?? null,
+      is_cloned: v.is_clone ?? false,
+      is_mine: myCloneIds.has(v.voice_id),
+      speed: myCloneIds.has(v.voice_id) ? (myCloneSpeedMap.get(v.voice_id) ?? null) : null,
+      pitch: myCloneIds.has(v.voice_id) ? (myClonePitchMap.get(v.voice_id) ?? null) : null,
+      status: myCloneIds.has(v.voice_id) ? (myCloneStatusMap.get(v.voice_id) ?? null) : null,
+      clone_id: myCloneIds.has(v.voice_id) ? (myCloneIdMap.get(v.voice_id) ?? undefined) : undefined,
+    }));
 
-  const listedVoiceIds = new Set(voices.map(v => v.voice_id));
-  for (const clone of myClones) {
-    if (!listedVoiceIds.has(clone.voiceId) && (clone.status === "pending" || clone.status === "failed")) {
-      mapped.push({
-        voice_id: clone.voiceId,
-        name: clone.displayName,
-        language: "es",
-        gender: null,
-        preview_audio_url: null,
-        is_cloned: true,
-        is_mine: true,
-        speed: clone.speed ?? null,
-        pitch: (clone as any).pitch ?? null,
-        status: clone.status,
-        clone_id: clone.id,
-      });
+    const listedVoiceIds = new Set(voices.map(v => v.voice_id));
+    for (const clone of myClones) {
+      if (!listedVoiceIds.has(clone.voiceId) && (clone.status === "pending" || clone.status === "failed")) {
+        mapped.push({
+          voice_id: clone.voiceId,
+          name: clone.displayName,
+          language: "es",
+          gender: null,
+          preview_audio_url: null,
+          is_cloned: true,
+          is_mine: true,
+          speed: clone.speed ?? null,
+          pitch: (clone as any).pitch ?? null,
+          status: clone.status,
+          clone_id: clone.id,
+        });
+      }
     }
+    res.json(GetHeyGenVoicesResponse.parse(mapped));
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "Error fetching voices" });
   }
-  res.json(GetHeyGenVoicesResponse.parse(mapped));
 });
 
 /**
@@ -845,8 +849,9 @@ router.delete("/heygen/account", async (req, res): Promise<void> => {
 /** GET /heygen/my-avatar-groups — user's own private avatar groups (v3) */
 router.get("/heygen/my-avatar-groups", async (req, res): Promise<void> => {
   try {
-    const token = typeof req.query.token === "string" ? req.query.token : undefined;
-    const result = await listV3AvatarGroups("private", token, 50);
+    const apiKey = await getUserHeyGenKey(req.session.user!.userId);
+    const token  = typeof req.query.token === "string" ? req.query.token : undefined;
+    const result = await listV3AvatarGroups("private", token, 50, apiKey);
     res.json(result);
   } catch (err: any) {
     res.status(500).json({ error: err?.message ?? "Error fetching avatar groups" });
@@ -856,8 +861,12 @@ router.get("/heygen/my-avatar-groups", async (req, res): Promise<void> => {
 /** GET /heygen/public-avatar-groups — HeyGen stock public avatars (v3, paginated) */
 router.get("/heygen/public-avatar-groups", async (req, res): Promise<void> => {
   try {
-    const token = typeof req.query.token === "string" ? req.query.token : undefined;
-    const result = await listV3AvatarGroups("public", token, 24);
+    // Use the authenticated user's resolved API key so the user's own connected
+    // HeyGen account is used for public-avatar queries — not just the global
+    // platform env var that may be absent or belong to a different account.
+    const apiKey = await getUserHeyGenKey(req.session.user!.userId);
+    const token  = typeof req.query.token === "string" ? req.query.token : undefined;
+    const result = await listV3AvatarGroups("public", token, 24, apiKey);
     res.json(result);
   } catch (err: any) {
     res.status(500).json({ error: err?.message ?? "Error fetching public avatars" });
@@ -867,9 +876,10 @@ router.get("/heygen/public-avatar-groups", async (req, res): Promise<void> => {
 /** GET /heygen/v3-groups/:groupId/looks — looks for any group via v3 API */
 router.get("/heygen/v3-groups/:groupId/looks", async (req, res): Promise<void> => {
   try {
+    const apiKey  = await getUserHeyGenKey(req.session.user!.userId);
     const groupId = req.params.groupId;
-    const token = typeof req.query.token === "string" ? req.query.token : undefined;
-    const result = await listV3GroupLooks(groupId, token);
+    const token   = typeof req.query.token === "string" ? req.query.token : undefined;
+    const result  = await listV3GroupLooks(groupId, token, apiKey);
     res.json(result);
   } catch (err: any) {
     res.status(500).json({ error: err?.message ?? "Error fetching looks" });

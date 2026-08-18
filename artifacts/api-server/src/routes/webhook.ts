@@ -198,7 +198,12 @@ async function handleSubscriptionUpdated(sub: Stripe.Subscription, _stripe: Stri
       logger.info({ stripeSubId }, "[webhook/stripe] subscription.updated for superseded (Founder-swapped) subscription — acknowledged no-op");
       return;
     }
-    throw new Error(`subscription.updated arrived before local subscription ${stripeSubId} exists`);
+    // Race condition: subscription.updated may arrive before invoice.paid completes
+    // provisioning (especially with Payment Element flow). Log and return 200 so
+    // Stripe does not retry — the subscription state will be synced when the next
+    // event arrives or on the next invoice cycle.
+    logger.warn({ stripeSubId }, "[webhook/stripe] subscription.updated arrived before local subscription exists — acknowledged no-op (will be provisioned by invoice.paid)");
+    return;
   }
 
   const priceId = firstItem?.price?.id ?? null;
