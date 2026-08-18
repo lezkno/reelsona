@@ -1,5 +1,6 @@
 import app from "./app";
 import { logger } from "./lib/logger";
+import { runMigrations } from "./lib/run-migrations";
 import { startScheduler } from "./lib/scheduler";
 import { seedAdminUser } from "./lib/seed";
 
@@ -17,19 +18,27 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
-// Start listening immediately so health checks succeed during cold start.
-// Do NOT wait for seedAdminUser() — that requires a DB connection which
-// can take several seconds in production, and the health check would fail.
-app.listen(port, (err?: Error) => {
-  if (err) {
-    logger.error({ err }, "Error listening on port");
-    process.exit(1);
-  }
-  logger.info({ port }, "Server listening");
-  startScheduler();
-});
+async function start(): Promise<void> {
+  // Fail closed: never accept application traffic or start background workers
+  // against a database whose required schema has not been applied.
+  await runMigrations();
 
-// Seed in the background — non-blocking, non-fatal on failure.
-seedAdminUser().catch((err) => {
-  logger.error({ err }, "Error seeding admin user (non-fatal)");
+  app.listen(port, (err?: Error) => {
+    if (err) {
+      logger.error({ err }, "Error listening on port");
+      process.exit(1);
+    }
+    logger.info({ port }, "Server listening");
+    startScheduler();
+  });
+
+  // Seeding is not schema-critical and may run after the server becomes ready.
+  seedAdminUser().catch((err) => {
+    logger.error({ err }, "Error seeding admin user (non-fatal)");
+  });
+}
+
+start().catch((err) => {
+  logger.fatal({ err }, "Database migration/startup failed");
+  process.exit(1);
 });
