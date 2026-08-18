@@ -9,6 +9,7 @@ export interface CheckoutSessionParamsInput {
   creditsAmount: number;
   appUrl: string;
   embedded: boolean;
+  userId?: number | null;
 }
 
 /** Returns true only when Stripe secret/publishable keys belong to the same mode. */
@@ -32,6 +33,7 @@ export function buildCheckoutSessionParams(input: CheckoutSessionParamsInput): S
     full_name: (input.fullName ?? "").trim(),
     credits_amount: String(input.creditsAmount),
   };
+  if (input.userId != null) metadata.user_id = String(input.userId);
 
   const common: Stripe.Checkout.SessionCreateParams = {
     mode: input.isSubscription ? "subscription" : "payment",
