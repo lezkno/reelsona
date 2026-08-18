@@ -177,8 +177,8 @@ export function PlanCheckoutModal({ config, onClose }: Props) {
             <span className="font-semibold">{config.planName}</span>
           </div>
           <div className="flex items-baseline gap-1">
-            <span className="text-3xl font-bold">{formatPrice(config.amountCents, config.currency)}</span>
-            {intervalLabel && <span className="text-sm text-muted-foreground">{intervalLabel}</span>}
+            <span className="text-3xl font-bold text-amber-400">{formatPrice(config.amountCents, config.currency)}</span>
+            {intervalLabel && <span className="text-sm text-amber-400/70">{intervalLabel}</span>}
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
             {isTopup
