@@ -999,7 +999,7 @@ export default function Billing() {
       {/* Payment history — shown to all users (empty state when no Stripe customer) */}
       {!isAdmin && <InvoiceSection />}
 
-      {/* Checkout modal — only for no-subscription flows (topups & Founder) */}
+      {/* Checkout modal — used for all purchases: plans (no active sub), Founder, and topup packs */}
       <PlanCheckoutModal config={checkoutCfg} onClose={() => { setCheckoutCfg(null); refetch() }} />
     </div>
   )

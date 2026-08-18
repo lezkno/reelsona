@@ -133,13 +133,48 @@ router.post("/billing/change-plan", requireAuth, async (req: Request, res: Respo
   const { targetPlan } = (req.body ?? {}) as { targetPlan?: string };
 
   // 1. Load subscription from DB
-  const [sub] = await db.select().from(subscriptionsTable)
+  let [sub] = await db.select().from(subscriptionsTable)
     .where(eq(subscriptionsTable.userId, userId)).limit(1);
+
+  // 1b. Recovery: if the local row has a Stripe customer but no subscription ID,
+  //     try to look it up from Stripe before failing.  This can happen when
+  //     provision-purchase ran but the subscription-updated webhook that would
+  //     have stamped stripeSubscriptionId arrived before or never arrived.
+  if (sub && !sub.stripeSubscriptionId && sub.stripeCustomerId) {
+    let stripeForRecovery: ReturnType<typeof getStripe> | null = null;
+    try { stripeForRecovery = getStripe(); } catch { /* Stripe not configured — skip */ }
+    if (stripeForRecovery) {
+      try {
+        const activeSubs = await stripeForRecovery.subscriptions.list({
+          customer: sub.stripeCustomerId,
+          status:   "active",
+          limit:    1,
+        });
+        const found = activeSubs.data[0];
+        if (found?.id) {
+          await db.update(subscriptionsTable)
+            .set({ stripeSubscriptionId: found.id, updatedAt: new Date() })
+            .where(eq(subscriptionsTable.userId, userId));
+          // Re-read so the rest of the handler sees the recovered value
+          const [refreshed] = await db.select().from(subscriptionsTable)
+            .where(eq(subscriptionsTable.userId, userId)).limit(1);
+          if (refreshed) sub = refreshed;
+          logger.info({ userId, stripeSubId: found.id }, "[billing/change-plan] Recovered missing stripeSubscriptionId from Stripe");
+        }
+      } catch (recErr: any) {
+        logger.warn({ userId, err: recErr?.message }, "[billing/change-plan] stripeSubscriptionId recovery attempt failed — continuing to validation");
+      }
+    }
+  }
 
   // 2. Validate (pure function — testable independently)
   const validationError = validateChangePlan(targetPlan, sub ?? null);
   if (validationError) {
-    res.status(validationError.status).json({ error: validationError.message, code: validationError.code });
+    // Translate internal messages that may surface to users
+    const userMessage = validationError.code === "no_stripe_sub"
+      ? "No se encontró la suscripción de Stripe asociada a tu cuenta. Contactá a soporte para resolverlo."
+      : validationError.message;
+    res.status(validationError.status).json({ error: userMessage, code: validationError.code });
     return;
   }
 

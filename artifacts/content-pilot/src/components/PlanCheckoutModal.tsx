@@ -91,12 +91,13 @@ export function PlanCheckoutModal({ config, onClose }: Props) {
       .catch((err: Error) => setStripeError(err.message));
   }, [config, stripePromise]);
 
-  const canContinue = !config?.requireEmail || email.trim().includes("@");
+  // Email is always shown and always validated — authenticated users get it pre-filled.
+  const canContinue = email.trim().includes("@");
 
   const handleContinue = (e: React.FormEvent) => {
     e.preventDefault();
     if (!config || !canContinue) return;
-    const resolvedEmail = (config.requireEmail ? email : (config.email ?? email)).trim().toLowerCase();
+    const resolvedEmail = email.trim().toLowerCase();
     // Snapshot all values into the ref before incrementing the key/showing checkout.
     checkoutSnapRef.current = {
       planSlug: config.planSlug,
@@ -188,30 +189,31 @@ export function PlanCheckoutModal({ config, onClose }: Props) {
 
         {!showCheckout ? (
           <form onSubmit={handleContinue} className="space-y-4 p-5">
-            {config.requireEmail && (
-              <>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">Nombre completo</label>
-                  <input
-                    value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
-                    placeholder="Tu nombre"
-                    className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">Email</label>
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="tu@email.com"
-                    required
-                    className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-                  />
-                </div>
-              </>
-            )}
+            {/* Name + email are always shown.
+                For authenticated users email is pre-filled (editable in case they want a different billing address).
+                For unauthenticated users (landing) both fields start empty and email is required. */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Nombre completo</label>
+              <input
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                placeholder="Tu nombre"
+                autoComplete="name"
+                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Email</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="tu@email.com"
+                required
+                autoComplete="email"
+                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+              />
+            </div>
 
             {stripeError && (
               <div className="rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-sm text-red-400">
