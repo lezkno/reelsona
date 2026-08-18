@@ -5,6 +5,15 @@ import { startScheduler } from "./lib/scheduler";
 import { seedAdminUser } from "./lib/seed";
 import { migrateInstagramTokensAtRest } from "./lib/instagram-token-crypto";
 
+process.on("unhandledRejection", (reason) => {
+  logger.error({ reason }, "Unhandled promise rejection");
+});
+
+process.on("uncaughtException", (err) => {
+  logger.fatal({ err }, "Uncaught exception — terminating process");
+  process.exit(1);
+});
+
 const rawPort = process.env["PORT"];
 
 if (!rawPort) {
