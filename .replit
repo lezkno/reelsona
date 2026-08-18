@@ -28,3 +28,6 @@ channel = "stable-25_05"
 RESEND_FROM_EMAIL = "info@reelsona.com"
 STRIPE_PRICE_ID_PROGRAM = "price_1U2cvoLYaLaJwNz7MidD0ltU"
 STRIPE_PUBLISHABLE_KEY = "pk_live_Csu9kKtqZGsG7hVk63kJTjLF"
+
+[objectStorage]
+defaultBucketID = "replit-objstore-7b666776-9072-4e04-9f8f-cad91fbd313e"

@@ -290,6 +290,11 @@ async function renderCueFrame(
     : cue.words;
   const displayWords = visibleWords.map((w) => formatWord(w.text, template));
 
+  // activeWordIndex === -1 means phrase mode: all words are "active" (shown
+  // in activeWordColor at full opacity). This is set by buildPhraseCues when
+  // the SRT only provides phrase-level timing, not per-word timestamps.
+  const phraseMode = cue.activeWordIndex === -1;
+
   /**
    * Measure all words at `fontSize` first, then auto-scale the font down if
    * any single word is wider than availableW.  This prevents long words like
@@ -372,11 +377,14 @@ async function renderCueFrame(
 
     for (const wi of wordIndices) {
       const word       = displayWords[wi];
-      const isActive   = wi === cue.activeWordIndex;
-      const isMixed    = template.highlightMode === "mixed";
+      // phraseMode (activeWordIndex === -1): every word is shown as "active" —
+      // the whole phrase is speaking. No per-word fabrication of timing.
+      const isActive   = phraseMode ? true : (wi === cue.activeWordIndex);
+      const isMixed    = !phraseMode && template.highlightMode === "mixed";
       const isFuncWord = isMixed && BROWSER_FUNCTION_WORDS.has(word.toLowerCase());
       const wordScale  =
-        template.highlightMode === "scale" ? (isActive ? template.activeWordScale : 1.0)
+        phraseMode ? 1.0
+        : template.highlightMode === "scale" ? (isActive ? template.activeWordScale : 1.0)
         : isMixed ? (isFuncWord ? 0.55 : 1.0)
         : 1.0;
       const wordFontSz = Math.round(effectiveFontSize * wordScale);
@@ -455,7 +463,20 @@ export interface WordTiming {
   endMs: number;
 }
 
-/** Parse an SRT file (word-level or phrase-level blocks) into WordTimings. */
+/**
+ * Parse an SRT file into WordTimings.
+ *
+ * Each SRT block is kept as ONE WordTiming entry regardless of how many words
+ * it contains. Multi-word blocks are NOT split by character proportion because
+ * that fabricates per-word timestamps that are always wrong — Spanish phonetic
+ * duration is not proportional to orthographic length. Splitting causes captions
+ * to change at the wrong moment (errors of 200–600 ms per phrase).
+ *
+ * If the SRT is word-level (one word per block), text will be a single token
+ * and the cue builder picks the word-level path. If it is phrase-level (multiple
+ * words per block), the cue builder uses buildPhraseCues which preserves the
+ * block timing exactly.
+ */
 export function parseSRT(srtContent: string): WordTiming[] {
   // Normalise: strip UTF-8 BOM, unify all line-ending styles to \n.
   const normalised = srtContent
@@ -480,33 +501,61 @@ export function parseSRT(srtContent: string): WordTiming[] {
       +h * 3_600_000 + +min * 60_000 + +s * 1000 + +ms;
     const startMs = ms(m[1], m[2], m[3], m[4]);
     const endMs   = ms(m[5], m[6], m[7], m[8]);
-    // Skip cues where end ≤ start — invalid timing that would cause negative durations.
+    // Skip cues where end ≤ start — invalid timing that would cause zero/negative durations.
     if (endMs <= startMs) continue;
     const text = lines.slice(tcIdx + 1).join(" ").trim();
-    // Each SRT entry may contain a single word (Whisper word-level) or a phrase.
-    // Split multi-word entries so each word gets proportional timing weighted by
-    // character count — longer words take more time, which is more accurate for
-    // Spanish than equal-time splitting (e.g. "sí" vs "constitución").
-    const words = text.split(/\s+/).filter(Boolean);
-    if (words.length === 0) continue;
-    if (words.length === 1) {
-      out.push({ text: words[0], startMs, endMs });
-    } else {
-      const totalMs    = endMs - startMs;
-      const totalChars = words.reduce((sum, w) => sum + w.length, 0) || 1;
-      let offset = 0;
-      words.forEach((w) => {
-        const wMs = (w.length / totalChars) * totalMs;
-        out.push({
-          text:    w,
-          startMs: Math.round(startMs + offset),
-          endMs:   Math.round(startMs + offset + wMs),
-        });
-        offset += wMs;
+    if (!text) continue;
+    // Keep the whole block text as one entry — preserves the original timing exactly.
+    out.push({ text, startMs, endMs });
+  }
+  return out;
+}
+
+/**
+ * Build CaptionCues from phrase-level SRT timings (multiple words per block).
+ *
+ * Unlike buildCaptionCues (which requires one WordTiming per word), this
+ * function accepts one WordTiming per SRT block and:
+ *  1. Splits the phrase text into display words.
+ *  2. Groups words into chunks of wordsPerLine, distributing the block's
+ *     time equally across chunks (no character-proportion fabrication).
+ *  3. Sets activeWordIndex = -1 so renderCueFrame shows all words in the
+ *     active color at full opacity — the whole phrase is "speaking" at once.
+ *
+ * This is the correct strategy when the SRT has only phrase-level timing:
+ * the caption text appears exactly when the phrase starts and disappears
+ * exactly when it ends, with no fabricated per-word transitions.
+ */
+export function buildPhraseCues(
+  phrases: WordTiming[],
+  template: Pick<CaptionTemplate, "wordsPerLine">,
+): import("@workspace/caption-templates").CaptionCue[] {
+  const { wordsPerLine } = template;
+  const cues: import("@workspace/caption-templates").CaptionCue[] = [];
+  let globalIndex = 0;
+
+  for (const phrase of phrases) {
+    const words    = phrase.text.split(/\s+/).filter(Boolean);
+    const phraseMs = phrase.endMs - phrase.startMs;
+    const numChunks = Math.ceil(words.length / wordsPerLine);
+
+    for (let c = 0; c < numChunks; c++) {
+      const chunkWords = words.slice(c * wordsPerLine, (c + 1) * wordsPerLine);
+      // Divide phrase time equally across chunks (not by character count)
+      const chunkStart = phrase.startMs + Math.round((c / numChunks) * phraseMs);
+      const chunkEnd   = phrase.startMs + Math.round(((c + 1) / numChunks) * phraseMs);
+
+      cues.push({
+        index:           globalIndex++,
+        startMs:         chunkStart,
+        endMs:           chunkEnd,
+        words:           chunkWords.map(w => ({ text: w })),
+        activeWordIndex: -1,  // -1 = phrase mode: all words shown as active
       });
     }
   }
-  return out;
+
+  return cues;
 }
 
 /** Proportional fallback timing when no SRT is available. */
