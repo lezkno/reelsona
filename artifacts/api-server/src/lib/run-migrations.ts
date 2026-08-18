@@ -9,6 +9,22 @@ import { logger } from "./logger";
 const MIGRATION_LOCK_KEY = 1732050807;
 const MIGRATION_TABLE = "reelsona_schema_migrations";
 
+// @workspace/db exports pg.Pool through a package boundary where TypeScript can
+// select the callback overload of connect() (returning void). Keep the runtime
+// pool unchanged and narrow only the small client surface this runner needs.
+type MigrationClient = {
+  query<T extends Record<string, unknown> = Record<string, unknown>>(
+    text: string,
+    params?: unknown[],
+  ): Promise<{ rows: T[]; rowCount: number | null }>;
+  release(): void;
+};
+
+async function connectMigrationClient(): Promise<MigrationClient> {
+  const connect = pool.connect as unknown as () => Promise<MigrationClient>;
+  return connect.call(pool);
+}
+
 // The repository's SQL history began after these original tables had already
 // been created with drizzle-kit push. They must exist before migration 001/003
 // can run. Check them explicitly so a fresh/incorrect database fails before any
@@ -33,7 +49,7 @@ function checksum(sql: string): string {
   return createHash("sha256").update(sql).digest("hex");
 }
 
-async function assertLegacyBaseSchema(client: Awaited<ReturnType<typeof pool.connect>>): Promise<void> {
+async function assertLegacyBaseSchema(client: MigrationClient): Promise<void> {
   const missing: string[] = [];
   for (const table of LEGACY_BASE_TABLES) {
     const result = await client.query<{ relation: string | null }>(
@@ -54,7 +70,7 @@ async function assertLegacyBaseSchema(client: Awaited<ReturnType<typeof pool.con
 }
 
 export async function runMigrations(): Promise<void> {
-  const client = await pool.connect();
+  const client = await connectMigrationClient();
   try {
     await client.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK_KEY]);
     await assertLegacyBaseSchema(client);
