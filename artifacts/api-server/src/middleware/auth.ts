@@ -34,7 +34,12 @@ async function isSuspended(userId: number): Promise<boolean> {
     .where(eq(users.id, userId))
     .limit(1);
 
-  const suspended = row?.isSuspended ?? false;
+  // A session that points at a user row that no longer exists is not valid.
+  if (!row) {
+    throw new Error(`Authenticated session references missing user ${userId}`);
+  }
+
+  const suspended = row.isSuspended ?? false;
   suspensionCache.set(userId, { suspended, expires: Date.now() + 30_000 });
   return suspended;
 }
@@ -60,35 +65,48 @@ export const requireAuth: RequestHandler = async (req, res, next): Promise<void>
     next();
     return;
   }
-  if (req.session?.authenticated) {
-    // Back-fill userId = 1 for sessions created before multi-user was added.
-    // Forces a fresh login on next request after the current session expires.
-    if (req.session.user && !req.session.user.userId) {
-      req.session.user.userId = 1;
-    }
 
-    // Suspension check — cache-first, 30 s TTL.
-    // On failure we allow through to avoid locking everyone out on a DB hiccup.
-    const userId = req.session.user?.userId;
-    if (userId) {
-      try {
-        if (await isSuspended(userId)) {
-          req.session.destroy(() => {});
-          res.status(403).json({
-            error: "Tu cuenta ha sido suspendida. Contacta al administrador.",
-            code:  "ACCOUNT_SUSPENDED",
-          });
-          return;
-        }
-      } catch {
-        // DB error — fail open rather than locking out all users
-      }
-    }
-
-    next();
+  if (!req.session?.authenticated) {
+    res.status(401).json({ error: "Unauthorized" });
     return;
   }
-  res.status(401).json({ error: "Unauthorized" });
+
+  // Never map an incomplete legacy session to a real account. Older sessions
+  // created before multi-user support must authenticate again so identity is
+  // established explicitly instead of defaulting to userId=1.
+  const sessionUser = req.session.user;
+  if (!sessionUser?.userId) {
+    req.session.destroy(() => {});
+    res.status(401).json({
+      error: "Tu sesión necesita renovarse. Inicia sesión nuevamente.",
+      code: "SESSION_REAUTH_REQUIRED",
+    });
+    return;
+  }
+
+  // Suspension check — cache-first, 30 s TTL. This check fails closed: if DB
+  // state cannot be verified we return 503 rather than accidentally allowing a
+  // suspended/deleted account through protected routes.
+  try {
+    if (await isSuspended(sessionUser.userId)) {
+      req.session.destroy(() => {});
+      res.status(403).json({
+        error: "Tu cuenta ha sido suspendida. Contacta al administrador.",
+        code:  "ACCOUNT_SUSPENDED",
+      });
+      return;
+    }
+  } catch (err) {
+    console.error("[requireAuth] suspension/user-state DB error:", err);
+    res.setHeader("Retry-After", "5");
+    res.status(503).json({
+      error: "auth_state_unavailable",
+      message: "No se pudo verificar temporalmente el estado de tu cuenta. Intenta de nuevo en unos segundos.",
+    });
+    return;
+  }
+
+  next();
 };
 
 /**
