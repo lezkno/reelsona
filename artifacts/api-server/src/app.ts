@@ -47,6 +47,16 @@ if (!process.env.NODE_ENV) {
 // ────────────────────────────────────────────────────────────────────────────
 
 const app = express();
+let applicationReady = false;
+
+/**
+ * Called only after required startup migrations finish successfully.
+ * Until then, health checks can reach the process but application API traffic
+ * is rejected with 503 so no request can observe a partially-migrated schema.
+ */
+export function markApplicationReady(): void {
+  applicationReady = true;
+}
 
 // Replit (and most cloud providers) terminate TLS at the reverse proxy.
 // Without trust proxy, req.secure is always false and express-session will
@@ -110,10 +120,23 @@ app.use(
   })
 );
 
-// Health check — registered BEFORE session middleware so it always returns 200
-// even during cold start when the PostgreSQL session store isn't ready yet.
+// Liveness endpoint is intentionally available before database readiness. Replit
+// Autoscale performs an HTTP health check during startup; opening the port fast
+// avoids a deployment failure while migrations acquire a cold DB connection.
 app.get("/api/healthz", (_req, res) => {
-  res.json({ status: "ok" });
+  res.json({ status: applicationReady ? "ok" : "starting" });
+});
+
+// Readiness gate: no application API request (including Stripe webhooks) may run
+// before migrations complete. A 503 + Retry-After is preferable to processing a
+// request against a stale schema; external webhook providers can safely retry.
+app.use("/api", (_req, res, next) => {
+  if (applicationReady) {
+    next();
+    return;
+  }
+  res.setHeader("Retry-After", "5");
+  res.status(503).json({ error: "Reelsona is starting. Please retry shortly." });
 });
 
 // Stripe webhook — MUST be mounted before express.json() to receive raw body.
