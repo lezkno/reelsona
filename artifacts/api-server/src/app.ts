@@ -137,6 +137,30 @@ app.use("/api", configRouter);
 // Require a valid session for all other /api routes
 app.use("/api", requireAuth);
 
+// Instagram OAuth callback must always have a server-stored state nonce.
+// This closes the legacy bypass in routes/instagram.ts where a missing session
+// nonce was previously allowed to proceed. The downstream handler still does
+// the equality check and clears the nonce after successful validation.
+app.post("/api/instagram/callback", (req, res, next) => {
+  const expectedState = req.session.igOauthState;
+  const returnedState = typeof req.body?.state === "string" ? req.body.state : undefined;
+  if (!expectedState || !returnedState || returnedState !== expectedState) {
+    logger.warn(
+      {
+        userId: req.session.user?.userId,
+        hasExpectedState: !!expectedState,
+        hasReturnedState: !!returnedState,
+      },
+      "[IG/Callback] Missing or mismatched server-side OAuth state — rejecting"
+    );
+    res.status(400).json({
+      error: "El estado de conexión de Instagram no es válido o expiró. Intenta conectar de nuevo.",
+    });
+    return;
+  }
+  next();
+});
+
 // Admin user management (requires auth, handled by requireAuth above)
 app.use("/api", usersRouter);
 
