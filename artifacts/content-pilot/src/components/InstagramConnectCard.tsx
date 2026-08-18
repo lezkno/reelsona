@@ -34,7 +34,7 @@ export function InstagramConnectCard() {
     const popup = window.open(
       "about:blank",
       "_blank",
-      "width=640,height=720,left=200,top=80,noopener,noreferrer",
+      "width=640,height=720,left=200,top=80",
     )
 
     try {
