@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { instagramAccountsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import {
   GetInstagramAuthUrlResponse,
   HandleInstagramCallbackBody,
@@ -117,6 +117,17 @@ router.post("/instagram/callback", async (req, res): Promise<void> => {
   }
 
   const userId = req.session.user!.userId;
+
+  // Release any stale ownership of this IG account by another user.
+  // This prevents a UNIQUE (ig_user_id) violation when the same Instagram
+  // account was previously connected under a different Reelsona user_id
+  // (e.g. a seed/admin row created during onboarding).
+  await db.delete(instagramAccountsTable).where(
+    and(
+      eq(instagramAccountsTable.igUserId, accountInfo.id),
+      ne(instagramAccountsTable.userId, userId),
+    ),
+  );
 
   // Upsert account — one Instagram account per app user
   const existing = await db
