@@ -134,9 +134,6 @@ router.post("/checkout/create-session", async (req: Request, res: Response): Pro
           const item = stripeSub.items.data[0];
           if (!item) throw new Error("Stripe subscription has no items");
 
-          // Founder changes billing period, so anchor a fresh Founder period now.
-          // error_if_incomplete guarantees the previous plan remains unchanged if
-          // the card cannot complete the immediate invoice.
           const updated = await stripe.subscriptions.update(existingSub.stripeSubscriptionId, {
             items: [{ id: item.id, price: planConfig.stripePriceId, quantity: 1 }],
             billing_cycle_anchor: "now",
@@ -224,6 +221,7 @@ router.post("/checkout/create-session", async (req: Request, res: Response): Pro
       creditsAmount: planConfig.creditAmount,
       appUrl,
       embedded,
+      userId: authenticatedUserId,
     });
 
     const session = await stripe.checkout.sessions.create(params, { idempotencyKey });
