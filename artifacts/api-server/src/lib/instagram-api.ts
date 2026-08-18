@@ -3,6 +3,12 @@ import { logger } from "./logger";
 
 const IG_GRAPH_BASE = "https://graph.instagram.com";
 const IG_API_BASE = "https://api.instagram.com";
+const IG_HTTP_TIMEOUT_MS = 30_000;
+
+// Instagram API with Instagram Login officially uses graph.instagram.com.
+// Keep the host unversioned for this API family, but never allow a network call
+// to hang the worker indefinitely.
+const igHttp = axios.create({ timeout: IG_HTTP_TIMEOUT_MS });
 
 export function getAuthUrl(redirectUri: string, state?: string): string {
   const appId = process.env.INSTAGRAM_APP_ID;
@@ -42,7 +48,7 @@ export async function exchangeCodeForToken(
     code,
   });
 
-  const res = await axios.post(`${IG_API_BASE}/oauth/access_token`, form.toString(), {
+  const res = await igHttp.post(`${IG_API_BASE}/oauth/access_token`, form.toString(), {
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
   });
 
@@ -50,7 +56,7 @@ export async function exchangeCodeForToken(
   if (!shortToken) throw new Error("Failed to get access token from Instagram");
 
   // Exchange short-lived token for long-lived (~60 days)
-  const longRes = await axios.get(`${IG_GRAPH_BASE}/access_token`, {
+  const longRes = await igHttp.get(`${IG_GRAPH_BASE}/access_token`, {
     params: {
       grant_type: "ig_exchange_token",
       client_secret: appSecret,
@@ -79,7 +85,7 @@ export async function exchangeCodeForToken(
 export async function refreshInstagramToken(
   accessToken: string
 ): Promise<{ accessToken: string; expiresAt: Date }> {
-  const res = await axios.get(`${IG_GRAPH_BASE}/refresh_access_token`, {
+  const res = await igHttp.get(`${IG_GRAPH_BASE}/refresh_access_token`, {
     params: {
       grant_type: "ig_refresh_token",
       access_token: accessToken,
@@ -103,7 +109,7 @@ export async function refreshInstagramToken(
  * Personal accounts cannot use instagram_business_* scopes.
  */
 export async function getAccountInfo(accessToken: string) {
-  const res = await axios.get(`${IG_GRAPH_BASE}/me`, {
+  const res = await igHttp.get(`${IG_GRAPH_BASE}/me`, {
     params: {
       fields: "id,username,name,profile_picture_url,followers_count,media_count,account_type",
       access_token: accessToken,
@@ -113,7 +119,7 @@ export async function getAccountInfo(accessToken: string) {
 }
 
 export async function getMediaList(accessToken: string, userId: string, limit = 20) {
-  const res = await axios.get(`${IG_GRAPH_BASE}/${userId}/media`, {
+  const res = await igHttp.get(`${IG_GRAPH_BASE}/${userId}/media`, {
     params: {
       // thumbnail_url only exists for videos; media_url is the image itself for IMAGE/CAROUSEL_ALBUM
       fields: "id,media_type,media_url,thumbnail_url,permalink,caption,like_count,comments_count,timestamp",
@@ -152,7 +158,7 @@ export async function getMediaInsights(
   // Both video and image types use the same available metrics in the current IG API
   const metrics = "reach,views,likes,comments,saved";
   try {
-    const res = await axios.get(`${IG_GRAPH_BASE}/${mediaId}/insights`, {
+    const res = await igHttp.get(`${IG_GRAPH_BASE}/${mediaId}/insights`, {
       params: { metric: metrics, access_token: accessToken },
     });
     const values: Record<string, number> = {};
@@ -200,6 +206,9 @@ function igError(err: unknown, fallback: string): Error {
     // Fallback: raw status
     const status = err.response?.status;
     if (status) return new Error(`${fallback} (HTTP ${status})`);
+    if (err.code === "ECONNABORTED" || err.code === "ETIMEDOUT") {
+      return new Error(`${fallback} (timeout)`);
+    }
   }
   return err instanceof Error ? err : new Error(String(err));
 }
@@ -219,7 +228,7 @@ export async function createReelContainer(
       access_token: accessToken,
     };
     if (coverUrl) params.cover_url = coverUrl;
-    const res = await axios.post(`${IG_GRAPH_BASE}/${userId}/media`, null, { params });
+    const res = await igHttp.post(`${IG_GRAPH_BASE}/${userId}/media`, null, { params });
     const creationId: string = res.data?.id;
     if (!creationId) throw new Error("Failed to create media container");
     return creationId;
@@ -230,7 +239,7 @@ export async function createReelContainer(
 
 export async function checkContainerStatus(accessToken: string, containerId: string): Promise<string> {
   try {
-    const res = await axios.get(`${IG_GRAPH_BASE}/${containerId}`, {
+    const res = await igHttp.get(`${IG_GRAPH_BASE}/${containerId}`, {
       params: { fields: "status_code,status", access_token: accessToken },
     });
     return res.data?.status_code ?? "IN_PROGRESS";
@@ -245,7 +254,7 @@ export async function publishContainer(
   creationId: string
 ): Promise<string> {
   try {
-    const res = await axios.post(`${IG_GRAPH_BASE}/${userId}/media_publish`, null, {
+    const res = await igHttp.post(`${IG_GRAPH_BASE}/${userId}/media_publish`, null, {
       params: { creation_id: creationId, access_token: accessToken },
     });
     const mediaId: string = res.data?.id;
@@ -258,7 +267,7 @@ export async function publishContainer(
 
 export async function getPermalink(accessToken: string, mediaId: string): Promise<string | null> {
   try {
-    const res = await axios.get(`${IG_GRAPH_BASE}/${mediaId}`, {
+    const res = await igHttp.get(`${IG_GRAPH_BASE}/${mediaId}`, {
       params: { fields: "permalink", access_token: accessToken },
     });
     return res.data?.permalink ?? null;
