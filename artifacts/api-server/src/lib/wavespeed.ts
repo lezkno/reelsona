@@ -14,6 +14,8 @@
 
 const WAVESPEED_BASE = "https://api.wavespeed.ai";
 const WAVESPEED_HTTP_TIMEOUT_MS = 30_000;
+const WAVESPEED_GET_MAX_ATTEMPTS = 4;
+const WAVESPEED_RETRYABLE_GET_STATUSES = new Set([429, 500, 502, 503, 504]);
 
 // ── Model registry ─────────────────────────────────────────────────────────────
 
@@ -48,8 +50,28 @@ function getApiKey(): string {
 // ── Core HTTP ──────────────────────────────────────────────────────────────────
 
 interface WavespeedResponse<T> {
+  code?: number;
   data: T;
   message?: string;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function getRetryDelayMs(response: Response, attempt: number): number {
+  const retryAfter = response.headers.get("retry-after");
+  if (retryAfter) {
+    const seconds = Number(retryAfter);
+    if (Number.isFinite(seconds) && seconds >= 0) {
+      return Math.min(seconds * 1000, 10_000);
+    }
+    const dateMs = Date.parse(retryAfter);
+    if (Number.isFinite(dateMs)) {
+      return Math.max(0, Math.min(dateMs - Date.now(), 10_000));
+    }
+  }
+  return Math.min(500 * 2 ** (attempt - 1), 5_000);
 }
 
 async function wavespeedFetch<T>(
@@ -59,48 +81,81 @@ async function wavespeedFetch<T>(
   apiKey?: string,
 ): Promise<T> {
   const key = apiKey ?? getApiKey();
-  let res: Response;
-  try {
-    res = await fetch(`${WAVESPEED_BASE}${path}`, {
-      method,
-      headers: {
-        Authorization: `Bearer ${key}`,
-        "Content-Type": "application/json",
-      },
-      body: body ? JSON.stringify(body) : undefined,
-      signal: AbortSignal.timeout(WAVESPEED_HTTP_TIMEOUT_MS),
-    });
-  } catch (err) {
-    if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) {
-      throw new Error(`WaveSpeed ${method} ${path} → timeout after ${WAVESPEED_HTTP_TIMEOUT_MS}ms`);
+  const maxAttempts = method === "GET" ? WAVESPEED_GET_MAX_ATTEMPTS : 1;
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    let res: Response;
+    try {
+      res = await fetch(`${WAVESPEED_BASE}${path}`, {
+        method,
+        headers: {
+          Authorization: `Bearer ${key}`,
+          "Content-Type": "application/json",
+        },
+        body: body ? JSON.stringify(body) : undefined,
+        signal: AbortSignal.timeout(WAVESPEED_HTTP_TIMEOUT_MS),
+      });
+    } catch (err) {
+      lastError = err;
+      // Safe GET polling may be retried. Submission POSTs deliberately are NOT
+      // retried because the remote job may have been accepted even when the
+      // response was lost, which could create duplicate/billable predictions.
+      if (method === "GET" && attempt < maxAttempts) {
+        await sleep(Math.min(500 * 2 ** (attempt - 1), 5_000));
+        continue;
+      }
+      if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) {
+        throw new Error(`WaveSpeed ${method} ${path} → timeout after ${WAVESPEED_HTTP_TIMEOUT_MS}ms`);
+      }
+      throw err;
     }
-    throw err;
+
+    const text = await res.text();
+    if (!res.ok) {
+      const error = new Error(`WaveSpeed ${method} ${path} → HTTP ${res.status}: ${text}`);
+      lastError = error;
+      if (
+        method === "GET" &&
+        WAVESPEED_RETRYABLE_GET_STATUSES.has(res.status) &&
+        attempt < maxAttempts
+      ) {
+        await sleep(getRetryDelayMs(res, attempt));
+        continue;
+      }
+      throw error;
+    }
+
+    let json: unknown;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      throw new Error(`WaveSpeed ${method} ${path} → non-JSON response: ${text.slice(0, 200)}`);
+    }
+
+    // WaveSpeed normally wraps responses in { code, message, data }. Detect an
+    // application-level error even when the HTTP status itself was 200.
+    const wrapped = json as WavespeedResponse<T>;
+    if (typeof wrapped.code === "number" && wrapped.code !== 200) {
+      throw new Error(
+        `WaveSpeed ${method} ${path} → API code ${wrapped.code}: ${wrapped.message ?? "unknown error"}`,
+      );
+    }
+
+    // Some result endpoints may return the object directly. Support both shapes.
+    return (wrapped.data ?? json) as T;
   }
 
-  const text = await res.text();
-  if (!res.ok) {
-    throw new Error(`WaveSpeed ${method} ${path} → HTTP ${res.status}: ${text}`);
-  }
-
-  let json: unknown;
-  try {
-    json = JSON.parse(text);
-  } catch {
-    throw new Error(`WaveSpeed ${method} ${path} → non-JSON response: ${text.slice(0, 200)}`);
-  }
-
-  // WaveSpeed wraps successful responses in { data: T }.
-  // Some endpoints (e.g. GET /outputs/:id) may return the object directly.
-  // Support both shapes to avoid silent undefined errors.
-  const wrapped = json as WavespeedResponse<T>;
-  return (wrapped.data ?? json) as T;
+  throw lastError instanceof Error
+    ? lastError
+    : new Error(`WaveSpeed ${method} ${path} failed after ${maxAttempts} attempts`);
 }
 
 // ── Job types ──────────────────────────────────────────────────────────────────
 
 export interface WavespeedJobResult {
   id: string;
-  status: "queued" | "processing" | "completed" | "failed";
+  status: "created" | "queued" | "processing" | "completed" | "failed" | "cancelled" | "timeout";
   /** WaveSpeed returns outputs as a plain string[] (CloudFront URLs) for most models.
    *  Typed as unknown to force callers to handle both array and object shapes. */
   outputs?: unknown;
@@ -131,17 +186,32 @@ export async function submitJob(
  * Poll the status of a previously submitted job.
  * WaveSpeed v3 result endpoint: GET /api/v3/predictions/{task-id}/result
  * https://wavespeed.ai/docs/get-result
+ *
+ * Normalize WaveSpeed terminal states so existing callers only need to handle
+ * completed/failed and never leave cancelled/timeout tasks stuck forever.
  */
 export async function getJobStatus(
   requestId: string,
   apiKey?: string,
 ): Promise<WavespeedJobResult> {
-  return wavespeedFetch<WavespeedJobResult>(
+  const result = await wavespeedFetch<WavespeedJobResult>(
     "GET",
     `/api/v3/predictions/${requestId}/result`,
     undefined,
     apiKey,
   );
+
+  if (result.status === "created") {
+    return { ...result, status: "queued" };
+  }
+  if (result.status === "cancelled" || result.status === "timeout") {
+    return {
+      ...result,
+      status: "failed",
+      error: result.error ?? `WaveSpeed task ${result.status}`,
+    };
+  }
+  return result;
 }
 
 // ── Model-specific helpers ────────────────────────────────────────────────────
