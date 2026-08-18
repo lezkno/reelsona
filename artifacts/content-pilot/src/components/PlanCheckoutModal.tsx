@@ -6,7 +6,7 @@
  * after the user confirms the purchase. Payment stays inside Reelsona.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { loadStripe, type Stripe } from "@stripe/stripe-js";
 import { EmbeddedCheckout, EmbeddedCheckoutProvider } from "@stripe/react-stripe-js";
 import { ArrowLeft, Crown, Loader2, ShieldCheck, Sparkles, X, Zap } from "lucide-react";
@@ -52,20 +52,16 @@ export function PlanCheckoutModal({ config, onClose }: Props) {
   const [fullName, setFullName] = useState("");
   const [identity, setIdentity] = useState<CheckoutIdentity | null>(null);
   const [showCheckout, setShowCheckout] = useState(false);
-
   /**
-   * Snapshot of the checkout params captured at the moment the user clicks
-   * "Continuar al pago". We read from this ref inside fetchClientSecret so the
-   * callback has *no* reactive dependencies and therefore never changes
-   * reference while an EmbeddedCheckoutProvider is mounted.
+   * Incremented each time the user clicks "Continuar al pago" so the
+   * EmbeddedCheckoutProvider gets a new React key and mounts cleanly.
    *
-   * Changing the options prop on a live EmbeddedCheckoutProvider causes Stripe
-   * to attempt a second mount before the first one is destroyed, which throws
-   * "You cannot have multiple Embedded Checkout objects."
+   * Using useState (not useRef) guarantees React sees the new value during the
+   * same batched render that sets showCheckout=true, preventing the
+   * "You cannot have multiple Embedded Checkout objects" error that occurs
+   * when the provider receives a new `options` object without unmounting first.
    */
-  const checkoutSnapRef = useRef<{ planSlug: string; email: string; fullName: string } | null>(null);
-  /** Bump on each deliberate new session so the provider gets a fresh key. */
-  const checkoutKeyRef = useRef(0);
+  const [checkoutKey, setCheckoutKey] = useState(0);
 
   useEffect(() => {
     if (!config) return;
@@ -74,7 +70,6 @@ export function PlanCheckoutModal({ config, onClose }: Props) {
     setIdentity(null);
     setShowCheckout(false);
     setStripeError(null);
-    checkoutSnapRef.current = null;
   }, [config?.planSlug]);
 
   useEffect(() => {
@@ -98,34 +93,33 @@ export function PlanCheckoutModal({ config, onClose }: Props) {
     e.preventDefault();
     if (!config || !canContinue) return;
     const resolvedEmail = email.trim().toLowerCase();
-    // Snapshot all values into the ref before incrementing the key/showing checkout.
-    checkoutSnapRef.current = {
-      planSlug: config.planSlug,
-      email: resolvedEmail,
-      fullName: fullName.trim(),
-    };
-    checkoutKeyRef.current += 1;
+    // All four setters are batched by React 18 into one render, so the new
+    // checkoutKey, identity, and showCheckout all land simultaneously.
+    setCheckoutKey((k) => k + 1);
     setIdentity({ email: resolvedEmail, fullName: fullName.trim() });
     setShowCheckout(true);
     setStripeError(null);
   };
 
   /**
-   * Reads exclusively from the stable ref — intentionally no reactive deps —
-   * so this function reference never changes while the provider is mounted.
+   * fetchClientSecret captures config and identity from the closure.
+   * A new function is created each time identity changes (i.e. each time the
+   * user submits the pre-checkout form). Combined with the key-based remount
+   * above, the provider always receives a fresh fetchClientSecret on a clean
+   * mount — never as an in-place options update that would trigger the
+   * "multiple Embedded Checkout objects" error.
    */
   const fetchClientSecret = useCallback(async () => {
-    const snap = checkoutSnapRef.current;
-    if (!snap) throw new Error("Checkout incompleto");
+    if (!config || !identity) throw new Error("Checkout incompleto");
 
     const res = await fetch(`${BASE}/api/checkout/create-session`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
       body: JSON.stringify({
-        planSlug: snap.planSlug,
-        email: snap.email || undefined,
-        fullName: snap.fullName || undefined,
+        planSlug: config.planSlug,
+        email: identity.email || undefined,
+        fullName: identity.fullName || undefined,
         embedded: true,
       }),
     });
@@ -142,12 +136,11 @@ export function PlanCheckoutModal({ config, onClose }: Props) {
     }
 
     return data.clientSecret;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // intentionally empty — reads from ref, never needs to change
+  }, [config, identity]);
 
   const embeddedOptions = useMemo(
-    () => showCheckout ? { fetchClientSecret } : null,
-    [showCheckout, fetchClientSecret],
+    () => showCheckout && identity ? { fetchClientSecret } : null,
+    [showCheckout, identity, fetchClientSecret],
   );
 
   if (!config) return null;
@@ -247,7 +240,7 @@ export function PlanCheckoutModal({ config, onClose }: Props) {
             {stripePromise && embeddedOptions ? (
               <div className="min-h-[420px] overflow-hidden rounded-xl bg-white">
                 <EmbeddedCheckoutProvider
-                  key={checkoutKeyRef.current}
+                  key={checkoutKey}
                   stripe={stripePromise}
                   options={embeddedOptions}
                 >
