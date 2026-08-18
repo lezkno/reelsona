@@ -31,7 +31,9 @@ router.post("/wavespeed/personas/:id/finalize", async (req: Request, res: Respon
   }
 
   const userId = req.session.user.userId;
-  const personaId = Number.parseInt(req.params.id, 10);
+  const rawPersonaId = req.params.id;
+  const personaIdParam = Array.isArray(rawPersonaId) ? rawPersonaId[0] : rawPersonaId;
+  const personaId = Number.parseInt(personaIdParam ?? "", 10);
   const { lookIds, voiceId } = (req.body ?? {}) as { lookIds?: unknown; voiceId?: unknown };
 
   if (!Number.isInteger(personaId)) {
