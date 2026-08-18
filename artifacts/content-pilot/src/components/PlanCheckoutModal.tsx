@@ -164,7 +164,7 @@ export function PlanCheckoutModal({ config, onClose }: Props) {
         <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
           <div className="flex items-center gap-2">
             <img src={`${BASE}/logo.png`} alt="Reelsona" className="h-6 w-6 object-contain" />
-            <span className="font-semibold">Reelsona</span>
+            <span className="font-semibold text-white">Reelsona</span>
           </div>
           <button onClick={onClose} aria-label="Cerrar" className="rounded-lg p-1.5 text-muted-foreground hover:bg-white/5 hover:text-foreground">
             <X size={17} />
