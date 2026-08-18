@@ -42,7 +42,7 @@ describe("buildCheckoutSessionParams", () => {
     assert.equal(params.subscription_data?.metadata?.plan_slug, "pro");
   });
 
-  test("creates embedded one-time checkout for credit topups", () => {
+  test("creates embedded one-time checkout for credit topups and binds authenticated user", () => {
     const params = buildCheckoutSessionParams({
       planSlug: "topup-600",
       isSubscription: false,
@@ -51,12 +51,14 @@ describe("buildCheckoutSessionParams", () => {
       creditsAmount: 600,
       appUrl: "https://reelsona.com",
       embedded: true,
+      userId: 42,
     });
 
     assert.equal(params.mode, "payment");
     assert.equal(params.ui_mode, "embedded");
     assert.equal(params.metadata?.product, "reelsona_topup");
     assert.equal(params.metadata?.credits_amount, "600");
+    assert.equal(params.metadata?.user_id, "42");
     assert.equal(params.subscription_data, undefined);
   });
 
