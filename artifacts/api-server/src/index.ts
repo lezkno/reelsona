@@ -43,9 +43,21 @@ async function initialize(): Promise<void> {
   markApplicationReady();
   logger.info("Database ready; application traffic enabled");
 
-  // Only the PostgreSQL-elected leader starts cron. Follower Autoscale instances
-  // continue serving HTTP and periodically retry leadership if the leader exits.
-  await startSchedulerLeaderElection();
+  // Scheduler jobs can trigger billable provider calls. Never run cron
+  // automatically from a development process unless explicitly opted in.
+  const schedulerAllowed =
+    process.env.NODE_ENV === "production" ||
+    process.env.ALLOW_SCHEDULER_IN_DEV === "true";
+
+  if (schedulerAllowed) {
+    // Only the PostgreSQL-elected leader starts cron. Follower Autoscale instances
+    // continue serving HTTP and periodically retry leadership if the leader exits.
+    await startSchedulerLeaderElection();
+  } else {
+    logger.warn(
+      "Scheduler disabled outside production. Set ALLOW_SCHEDULER_IN_DEV=true only for intentional live-provider testing.",
+    );
+  }
 
   seedAdminUser().catch((err) => {
     logger.error({ err }, "Error seeding admin user (non-fatal)");
