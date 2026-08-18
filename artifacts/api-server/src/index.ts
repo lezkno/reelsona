@@ -1,7 +1,7 @@
 import app, { markApplicationReady } from "./app";
 import { logger } from "./lib/logger";
 import { runMigrations } from "./lib/run-migrations";
-import { startScheduler } from "./lib/scheduler";
+import { startSchedulerLeaderElection } from "./lib/scheduler-leader";
 import { seedAdminUser } from "./lib/seed";
 import { migrateInstagramTokensAtRest } from "./lib/instagram-token-crypto";
 
@@ -28,9 +28,6 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
-// Open the port immediately so Replit Autoscale health checks can reach the
-// process during a cold DB start. app.ts keeps every application API route
-// behind a readiness gate until migrations and security data migrations finish.
 app.listen(port, (err?: Error) => {
   if (err) {
     logger.error({ err }, "Error listening on port");
@@ -41,18 +38,15 @@ app.listen(port, (err?: Error) => {
 
 async function initialize(): Promise<void> {
   await runMigrations();
-
-  // Existing Instagram rows may predate at-rest encryption. Migrate them before
-  // any route or background worker can read the token column.
   await migrateInstagramTokensAtRest();
 
   markApplicationReady();
   logger.info("Database ready; application traffic enabled");
 
-  // Background workers must never run against a stale/partially migrated schema.
-  startScheduler();
+  // Only the PostgreSQL-elected leader starts cron. Follower Autoscale instances
+  // continue serving HTTP and periodically retry leadership if the leader exits.
+  await startSchedulerLeaderElection();
 
-  // Seeding is not schema-critical and may run after readiness.
   seedAdminUser().catch((err) => {
     logger.error({ err }, "Error seeding admin user (non-fatal)");
   });
