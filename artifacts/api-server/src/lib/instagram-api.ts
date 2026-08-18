@@ -1,8 +1,15 @@
 import axios from "axios";
+import { pool } from "@workspace/db";
 import { logger } from "./logger";
 
 const IG_GRAPH_BASE = "https://graph.instagram.com";
 const IG_API_BASE = "https://api.instagram.com";
+const IG_HTTP_TIMEOUT_MS = 30_000;
+
+// Instagram API with Instagram Login officially uses graph.instagram.com.
+// Keep the host unversioned for this API family, but never allow a network call
+// to hang the worker indefinitely.
+const igHttp = axios.create({ timeout: IG_HTTP_TIMEOUT_MS });
 
 export function getAuthUrl(redirectUri: string, state?: string): string {
   const appId = process.env.INSTAGRAM_APP_ID;
@@ -42,7 +49,7 @@ export async function exchangeCodeForToken(
     code,
   });
 
-  const res = await axios.post(`${IG_API_BASE}/oauth/access_token`, form.toString(), {
+  const res = await igHttp.post(`${IG_API_BASE}/oauth/access_token`, form.toString(), {
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
   });
 
@@ -50,7 +57,7 @@ export async function exchangeCodeForToken(
   if (!shortToken) throw new Error("Failed to get access token from Instagram");
 
   // Exchange short-lived token for long-lived (~60 days)
-  const longRes = await axios.get(`${IG_GRAPH_BASE}/access_token`, {
+  const longRes = await igHttp.get(`${IG_GRAPH_BASE}/access_token`, {
     params: {
       grant_type: "ig_exchange_token",
       client_secret: appSecret,
@@ -79,7 +86,7 @@ export async function exchangeCodeForToken(
 export async function refreshInstagramToken(
   accessToken: string
 ): Promise<{ accessToken: string; expiresAt: Date }> {
-  const res = await axios.get(`${IG_GRAPH_BASE}/refresh_access_token`, {
+  const res = await igHttp.get(`${IG_GRAPH_BASE}/refresh_access_token`, {
     params: {
       grant_type: "ig_refresh_token",
       access_token: accessToken,
@@ -103,7 +110,7 @@ export async function refreshInstagramToken(
  * Personal accounts cannot use instagram_business_* scopes.
  */
 export async function getAccountInfo(accessToken: string) {
-  const res = await axios.get(`${IG_GRAPH_BASE}/me`, {
+  const res = await igHttp.get(`${IG_GRAPH_BASE}/me`, {
     params: {
       fields: "id,username,name,profile_picture_url,followers_count,media_count,account_type",
       access_token: accessToken,
@@ -113,7 +120,7 @@ export async function getAccountInfo(accessToken: string) {
 }
 
 export async function getMediaList(accessToken: string, userId: string, limit = 20) {
-  const res = await axios.get(`${IG_GRAPH_BASE}/${userId}/media`, {
+  const res = await igHttp.get(`${IG_GRAPH_BASE}/${userId}/media`, {
     params: {
       // thumbnail_url only exists for videos; media_url is the image itself for IMAGE/CAROUSEL_ALBUM
       fields: "id,media_type,media_url,thumbnail_url,permalink,caption,like_count,comments_count,timestamp",
@@ -152,7 +159,7 @@ export async function getMediaInsights(
   // Both video and image types use the same available metrics in the current IG API
   const metrics = "reach,views,likes,comments,saved";
   try {
-    const res = await axios.get(`${IG_GRAPH_BASE}/${mediaId}/insights`, {
+    const res = await igHttp.get(`${IG_GRAPH_BASE}/${mediaId}/insights`, {
       params: { metric: metrics, access_token: accessToken },
     });
     const values: Record<string, number> = {};
@@ -200,6 +207,9 @@ function igError(err: unknown, fallback: string): Error {
     // Fallback: raw status
     const status = err.response?.status;
     if (status) return new Error(`${fallback} (HTTP ${status})`);
+    if (err.code === "ECONNABORTED" || err.code === "ETIMEDOUT") {
+      return new Error(`${fallback} (timeout)`);
+    }
   }
   return err instanceof Error ? err : new Error(String(err));
 }
@@ -219,7 +229,7 @@ export async function createReelContainer(
       access_token: accessToken,
     };
     if (coverUrl) params.cover_url = coverUrl;
-    const res = await axios.post(`${IG_GRAPH_BASE}/${userId}/media`, null, { params });
+    const res = await igHttp.post(`${IG_GRAPH_BASE}/${userId}/media`, null, { params });
     const creationId: string = res.data?.id;
     if (!creationId) throw new Error("Failed to create media container");
     return creationId;
@@ -230,7 +240,7 @@ export async function createReelContainer(
 
 export async function checkContainerStatus(accessToken: string, containerId: string): Promise<string> {
   try {
-    const res = await axios.get(`${IG_GRAPH_BASE}/${containerId}`, {
+    const res = await igHttp.get(`${IG_GRAPH_BASE}/${containerId}`, {
       params: { fields: "status_code,status", access_token: accessToken },
     });
     return res.data?.status_code ?? "IN_PROGRESS";
@@ -239,26 +249,113 @@ export async function checkContainerStatus(accessToken: string, containerId: str
   }
 }
 
+type PublishAttemptRow = {
+  creation_id: string;
+  status: "attempting" | "confirmed" | "uncertain";
+  media_id: string | null;
+};
+
+async function getPublishAttempt(creationId: string): Promise<PublishAttemptRow | null> {
+  const result = await pool.query<PublishAttemptRow>(
+    `SELECT creation_id, status, media_id
+       FROM instagram_publish_attempts
+      WHERE creation_id = $1`,
+    [creationId],
+  );
+  return result.rows[0] ?? null;
+}
+
+/**
+ * Publish an already-finished Instagram container with a durable creation_id
+ * ledger. This gives Reelsona fail-safe at-most-once behavior around Meta's
+ * non-idempotency-keyed media_publish endpoint:
+ *
+ * - confirmed attempt -> return the previously persisted media_id
+ * - attempting/uncertain attempt -> never POST again automatically
+ * - deterministic 4xx -> remove the claim so a corrected retry is allowed
+ * - timeout/network/5xx/unknown -> retain an uncertain claim to prevent duplicates
+ */
 export async function publishContainer(
   accessToken: string,
   userId: string,
   creationId: string
 ): Promise<string> {
+  const existing = await getPublishAttempt(creationId);
+  if (existing?.status === "confirmed" && existing.media_id) {
+    logger.info({ creationId, mediaId: existing.media_id }, "[IG/Publish] Reusing confirmed publish result");
+    return existing.media_id;
+  }
+  if (existing) {
+    throw new Error(
+      "Instagram: el resultado de una publicación anterior es incierto. " +
+        "Reelsona bloqueó el reintento automático para evitar publicar el mismo Reel dos veces.",
+    );
+  }
+
+  const claimed = await pool.query<{ creation_id: string }>(
+    `INSERT INTO instagram_publish_attempts
+       (creation_id, ig_user_id, status, attempted_at, updated_at)
+     VALUES ($1, $2, 'attempting', NOW(), NOW())
+     ON CONFLICT (creation_id) DO NOTHING
+     RETURNING creation_id`,
+    [creationId, userId],
+  );
+
+  if (!claimed.rowCount) {
+    const raced = await getPublishAttempt(creationId);
+    if (raced?.status === "confirmed" && raced.media_id) return raced.media_id;
+    throw new Error(
+      "Instagram: esta publicación ya está siendo procesada o su resultado es incierto; no se repetirá automáticamente.",
+    );
+  }
+
   try {
-    const res = await axios.post(`${IG_GRAPH_BASE}/${userId}/media_publish`, null, {
+    const res = await igHttp.post(`${IG_GRAPH_BASE}/${userId}/media_publish`, null, {
       params: { creation_id: creationId, access_token: accessToken },
     });
     const mediaId: string = res.data?.id;
-    if (!mediaId) throw new Error("Failed to publish container");
+    if (!mediaId) {
+      throw new Error("Instagram media_publish returned no media id");
+    }
+
+    await pool.query(
+      `UPDATE instagram_publish_attempts
+          SET status = 'confirmed', media_id = $2, last_error = NULL, updated_at = NOW()
+        WHERE creation_id = $1`,
+      [creationId, mediaId],
+    );
+
     return mediaId;
   } catch (err) {
+    const status = axios.isAxiosError(err) ? err.response?.status : undefined;
+    const deterministicClientError = status !== undefined && status >= 400 && status < 500;
+
+    if (deterministicClientError) {
+      // Meta explicitly rejected the request, so we know it was not accepted for
+      // publication and a corrected future retry is safe.
+      await pool.query(
+        "DELETE FROM instagram_publish_attempts WHERE creation_id = $1 AND status = 'attempting'",
+        [creationId],
+      ).catch((dbErr) => logger.error({ err: dbErr, creationId }, "[IG/Publish] Failed to release rejected publish claim"));
+    } else {
+      // Timeout, transport error, 5xx, process/DB uncertainty: fail closed. The
+      // container is not automatically published again because Meta does not expose
+      // an idempotency key for media_publish.
+      await pool.query(
+        `UPDATE instagram_publish_attempts
+            SET status = 'uncertain', last_error = $2, updated_at = NOW()
+          WHERE creation_id = $1`,
+        [creationId, err instanceof Error ? err.message : String(err)],
+      ).catch((dbErr) => logger.error({ err: dbErr, creationId }, "[IG/Publish] Failed to persist uncertain publish outcome"));
+    }
+
     throw igError(err, "Error al publicar en Instagram");
   }
 }
 
 export async function getPermalink(accessToken: string, mediaId: string): Promise<string | null> {
   try {
-    const res = await axios.get(`${IG_GRAPH_BASE}/${mediaId}`, {
+    const res = await igHttp.get(`${IG_GRAPH_BASE}/${mediaId}`, {
       params: { fields: "permalink", access_token: accessToken },
     });
     return res.data?.permalink ?? null;
