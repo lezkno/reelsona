@@ -1,0 +1,309 @@
+PROMPT PARA REPLIT — AUDITORÍA Y CORRECCIÓN DEL SISTEMA DE CRÉDITOS
+
+Quiero que revises y corrijas completamente el sistema de créditos de Reelsona. Actualmente la app no está descontando créditos correctamente en producción.
+
+No quiero que crees un wallet nuevo. Ya existe un sistema de créditos con availableCredits, subscriptionCredits, purchasedCredits, reservedCredits, totalConsumed y credit_ledger. Debes usar y estabilizar ese sistema existente.
+
+REGLAS DE COSTO QUE DEBEN QUEDAR IMPLEMENTADAS
+
+Avatar / Looks
+
+Los primeros 3 looks iniciales creados para un Avatar AI: 0 créditos
+Cada look adicional: 2 créditos
+
+Voz
+
+Primera voz clonada del usuario: 0 créditos
+Cada voz clonada adicional: 10 créditos
+Preview/prueba de voz: 0 créditos
+
+Generación de Reel
+Usar una única tarifa sin importar el proveedor interno:
+
+15 segundos = 25 créditos
+30 segundos = 50 créditos
+45 segundos = 75 créditos
+60 segundos = 100 créditos
+
+Fórmula:
+
+ceil(duracion_segundos * 50 / 30)
+
+con mínimo de 15 créditos por generación.
+
+Debe aplicarse igual para:
+
+WaveSpeed / Avatar AI propio
+HeyGen / avatares públicos
+
+El proveedor interno NO cambia el costo visible al usuario.
+
+B-roll AI
+
+Cada imagen de B-roll realmente generada por IA: 2 créditos
+
+Operaciones gratuitas
+No descontar créditos por:
+
+generar guion
+regenerar guion
+título
+caption
+hashtags
+subtítulos
+cambiar estilo de subtítulos
+Text Cards
+zoom/movimientos FFmpeg
+análisis de Instagram
+estrategia de contenido
+publicación Instagram
+programación / AutoPilot
+descarga del video
+REVISIÓN TÉCNICA OBLIGATORIA
+
+Audita todas las rutas y procesos que generan costo externo y comprueba si realmente llaman al wallet.
+
+No quiero una revisión superficial. Sigue cada flujo completo:
+
+UI → API → wallet → proveedor → resultado → ledger → UI después de refresh
+
+Revisa específicamente:
+
+Generación manual de Reel.
+Generación desde AutoPilot.
+Reintento de video.
+WaveSpeed.
+HeyGen.
+Creación de looks.
+Clonación de voz.
+B-roll AI.
+Regeneraciones que puedan volver a llamar a un proveedor externo.
+FLUJO CORRECTO PARA VIDEO
+
+Debe utilizarse el sistema existente:
+
+Antes de enviar el job al proveedor
+
+calcular créditos
+comprobar saldo
+ejecutar reserveCredits()
+
+El usuario debe ver inmediatamente reducido su saldo disponible.
+
+Si el video termina correctamente
+
+ejecutar consumeVideoCredits()
+mover la reserva a consumo definitivo
+
+Si el video falla, timeout, API error o cancelación
+
+ejecutar releaseVideoCredits()
+devolver exactamente los créditos reservados
+
+Nunca dejar créditos bloqueados.
+
+Nunca cobrar dos veces el mismo video.
+
+IDEMPOTENCIA
+
+Esta parte es crítica.
+
+Si:
+
+el webhook llega dos veces
+el scheduler procesa dos veces
+el usuario refresca
+el frontend reintenta una request
+una callback se ejecuta nuevamente
+
+NO se pueden volver a descontar créditos.
+
+Cada operación facturable debe tener una referencia única en credit_ledger.
+
+Antes de descontar, comprobar si la misma operación ya fue reservada/consumida.
+
+LOOKS
+
+Revisar cómo identifica Reelsona cuáles son los 3 looks iniciales gratuitos.
+
+No asumir simplemente “los primeros 3 registros” si eso puede romperse con reintentos.
+
+Debe quedar una forma persistente de saber:
+
+look incluido/gratuito
+look adicional/facturable
+
+Para un look adicional:
+
+comprobar saldo ≥ 2
+reservar/descontar 2 créditos
+llamar al proveedor
+si falla, devolver 2
+si funciona, registrar consumo en ledger
+VOZ
+
+Revisar cómo se identifica la primera voz gratuita.
+
+La primera voz clonada debe costar 0.
+
+Segunda voz en adelante:
+
+10 créditos cada una
+
+Debe quedar persistido en DB que el usuario ya usó su clon gratuito.
+
+Si la clonación falla, los 10 créditos deben regresar.
+
+B-ROLL
+
+Si un Reel genera 3 imágenes AI para B-roll:
+
+3 × 2 = 6 créditos
+
+Cobrar solo las imágenes que realmente se envían al proveedor.
+
+Si una imagen falla:
+
+no cobrarla definitivamente
+devolver su reserva
+
+No cobrar B-roll si simplemente se reutiliza un asset existente.
+
+SALDO Y POOLS
+
+Mantener esta lógica:
+
+availableCredits = subscriptionCredits + purchasedCredits
+
+Gastar primero:
+
+subscriptionCredits
+purchasedCredits
+
+Los purchased credits:
+
+nunca vencen
+nunca se eliminan al renovar plan
+
+Los subscription credits:
+
+se reemplazan en cada renovación mensual según el plan
+
+Planes:
+
+Basic: 400 créditos
+Pro: 1500 créditos
+Founder: 1500 créditos
+UI
+
+Después de cualquier consumo o devolución:
+
+invalidar/refrescar query de balance
+actualizar saldo sin necesidad de recargar manualmente
+
+Y después de hacer refresh del navegador el saldo debe permanecer exactamente igual.
+
+Mostrar mensajes claros:
+
+“Saldo insuficiente”
+“Se reservaron X créditos”
+“Se consumieron X créditos”
+“La generación falló y se devolvieron X créditos”
+
+No dejar errores silenciosos.
+
+AUDITORÍA DE DATOS
+
+Antes de modificar balances actuales:
+
+revisa user_credits y credit_ledger y busca:
+
+saldos negativos
+availableCredits != subscriptionCredits + purchasedCredits
+reservas sin consume/release
+consumos duplicados
+usuarios con créditos consumidos pero sin ledger
+ledger duplicado
+videos terminados con reservas todavía abiertas
+videos fallidos sin devolución
+
+No hagas correcciones masivas automáticas sin primero reportar exactamente qué inconsistencias encuentras.
+
+PRUEBAS OBLIGATORIAS
+
+No digas que está listo porque compila.
+
+Ejecuta estos casos:
+
+A. Reel 15 s
+
+saldo inicial
+reservar 25
+completar
+saldo final = inicial - 25
+
+B. Reel 30 s
+
+descontar 50
+
+C. Reel 60 s
+
+descontar 100
+
+D. Video falla
+
+reservar
+provocar fallo
+devolver 100%
+
+E. Doble callback
+
+no cobrar dos veces
+
+F. 3 looks iniciales
+
+costo total 0
+
+G. cuarto look
+
+costo 2
+
+H. primera voz clonada
+
+costo 0
+
+I. segunda voz
+
+costo 10
+
+J. B-roll 3 imágenes
+
+costo 6
+
+K. Usuario con subscription credits + purchased credits
+
+gastar primero subscription
+después purchased
+
+L. Refresh
+
+saldo sigue exactamente igual
+
+M. Saldo insuficiente
+
+bloquear operación antes de llamar al proveedor
+REGLA FINAL
+
+Corrige únicamente el sistema de créditos y los puntos necesarios para conectarlo a las operaciones facturables.
+
+No cambies billing, Instagram, avatars UI, captions, scheduler ni otras funciones salvo que sea estrictamente necesario para conectar el descuento de créditos.
+
+Al terminar quiero un reporte con:
+
+qué operaciones no estaban descontando
+qué archivos/rutas fueron corregidos
+pruebas ejecutadas
+saldo antes/después en cada prueba
+confirmación de que los fallos devuelven créditos
+confirmación de que no existe doble cobro
+confirmación de que el ledger queda consistente.
