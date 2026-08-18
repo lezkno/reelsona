@@ -27,66 +27,39 @@ const router = Router();
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /**
- * Resolves a Stripe PaymentIntent client_secret from a subscription's
- * latest_invoice field, handling three response shapes that Stripe can return:
+ * Resolves the confirmation_secret.client_secret from a subscription's
+ * latest_invoice field.
  *
- *   1. Fully-expanded object  → use directly
- *   2. String invoice ID      → fetch invoice with payment_intent expanded
- *   3. String PI ID on object → fetch PaymentIntent directly
+ * In Stripe API version 2026-07-29.dahlia, Invoice.payment_intent was replaced
+ * by Invoice.confirmation_secret — an object whose client_secret is what the
+ * Payment Element needs. The old payment_intent field is no longer serialised
+ * on the invoice root, which is why every previous attempt returned undefined.
  *
- * Case 2 occurs when Stripe replays an idempotency-key-cached response that
- * was originally created without the `expand` parameter (the root cause of the
- * "Stripe did not return a client_secret" production error).
+ * Handles two response shapes:
+ *   1. Fully-expanded invoice object → read confirmation_secret.client_secret
+ *   2. String invoice ID (idempotency replay without expand) → re-fetch first
  *
- * Returns null when there is no actionable PaymentIntent (e.g. zero-amount
- * first invoice from a trial period or a customer credit covering the full
- * amount).  The caller must handle null explicitly.
+ * Returns null when there is no actionable secret (zero-amount invoice, trial,
+ * send_invoice collection method, etc.).
  */
-async function resolveInvoicePaymentIntentSecret(
+async function resolveInvoiceConfirmationSecret(
   stripe: ReturnType<typeof getStripe>,
   latestInvoiceRaw: unknown,
-): Promise<{ secret: string; piId: string } | null> {
+): Promise<string | null> {
   if (!latestInvoiceRaw) return null;
 
-  // Resolve invoice object — may arrive as a string ID when replay has no expand
   let invoice: Record<string, any>;
   if (typeof latestInvoiceRaw === "string") {
-    // Fetch with payment_intent expanded so we get the full object in one call
-    invoice = await stripe.invoices.retrieve(latestInvoiceRaw as string, {
-      expand: ["payment_intent"],
+    // Idempotency replay returned a string invoice ID — fetch with expand
+    invoice = await stripe.invoices.retrieve(latestInvoiceRaw, {
+      expand: ["confirmation_secret"],
     }) as unknown as Record<string, any>;
   } else {
     invoice = latestInvoiceRaw as Record<string, any>;
   }
 
-  // If the invoice object is present but payment_intent is null/undefined,
-  // explicitly re-fetch the invoice. This handles the case where:
-  //   (a) The expand worked but the PI wasn't created yet (async creation in
-  //       API v2026-07-29.dahlia when payment_method_types is unspecified), or
-  //   (b) A cached idempotency response returned the invoice without PI data.
-  // A re-fetch will reflect the current PI state from Stripe.
-  if (!invoice?.payment_intent && invoice?.id && typeof invoice.id === "string") {
-    invoice = await stripe.invoices.retrieve(invoice.id as string, {
-      expand: ["payment_intent"],
-    }) as unknown as Record<string, any>;
-  }
-
-  const piRaw = invoice?.payment_intent;
-  if (!piRaw) return null; // truly no PI (trial, send_invoice collection method, etc.)
-
-  // Resolve PI — may also arrive as a string ID
-  let pi: Record<string, any>;
-  if (typeof piRaw === "string") {
-    pi = await stripe.paymentIntents.retrieve(piRaw as string) as unknown as Record<string, any>;
-  } else {
-    pi = piRaw as Record<string, any>;
-  }
-
-  if (!pi?.client_secret) return null;
-  // Succeeded / canceled PIs no longer accept confirmation — skip them
-  if (pi.status === "succeeded" || pi.status === "canceled") return null;
-
-  return { secret: pi.client_secret as string, piId: pi.id as string };
+  const secret: string | undefined = invoice?.confirmation_secret?.client_secret;
+  return secret ?? null;
 }
 
 /**
@@ -260,7 +233,7 @@ router.post("/checkout/create-payment-intent", async (req: Request, res: Respons
         const existingList = await stripe.subscriptions.list({
           customer: customerId,
           status:   "incomplete",
-          expand:   ["data.latest_invoice.payment_intent"],
+          expand:   ["data.latest_invoice.confirmation_secret"],
           limit:    5,
         });
         for (const sub of existingList.data) {
@@ -268,10 +241,10 @@ router.post("/checkout/create-payment-intent", async (req: Request, res: Respons
             (item: { price: { id: string } }) => item.price.id === planConfig.stripePriceId,
           );
           if (priceMatch) {
-            const resolved = await resolveInvoicePaymentIntentSecret(stripe, sub.latest_invoice);
-            if (resolved) {
-              console.info(`[checkout/create-payment-intent] Reusing incomplete subscription ${sub.id} pi=${resolved.piId}`);
-              res.json({ clientSecret: resolved.secret, type: "subscription", customerId });
+            const secret = await resolveInvoiceConfirmationSecret(stripe, sub.latest_invoice);
+            if (secret) {
+              console.info(`[checkout/create-payment-intent] Reusing incomplete subscription ${sub.id}`);
+              res.json({ clientSecret: secret, type: "subscription", customerId });
               return;
             }
           }
@@ -279,61 +252,58 @@ router.post("/checkout/create-payment-intent", async (req: Request, res: Respons
       }
 
       // ── Step 2: create a new subscription ───────────────────────────────
-      // Idempotency key: prefix is versioned (pe-sub-v5) so deploying a new
-      // version with different expand params never replays an old cached
-      // response that lacks the expanded payment_intent.
+      // Idempotency key versioned at v6: bumped when changing the expand path
+      // from payment_intent (old/wrong) to confirmation_secret (dahlia correct).
+      // Each version change busts Stripe's cached response so the new expand
+      // is honoured and the correct field is returned.
       const subIdempotencyKey = userId
-        ? `pe-sub-v5-uid-${userId}-${planSlug}-${idemBucket}`
-        : `pe-sub-v5-cid-${customerId}-${planSlug}-${idemBucket}`;
+        ? `pe-sub-v6-uid-${userId}-${planSlug}-${idemBucket}`
+        : `pe-sub-v6-cid-${customerId}-${planSlug}-${idemBucket}`;
 
+      // Root fix for API 2026-07-29.dahlia:
+      // Invoice.payment_intent was replaced by Invoice.confirmation_secret.
+      // Expanding "latest_invoice.payment_intent" always returns undefined in dahlia.
+      // Must expand "latest_invoice.confirmation_secret" instead.
       const subscription = await stripe.subscriptions.create(
         {
-          customer:            customerId,
-          items:               [{ price: planConfig.stripePriceId }],
-          payment_behavior:    "default_incomplete",
-          collection_method:   "charge_automatically",
-          payment_settings: {
-            save_default_payment_method: "on_subscription",
-            // Must specify payment_method_types explicitly in API v2026-07-29.dahlia
-            // or Stripe does not create a PaymentIntent for the initial invoice.
-            payment_method_types: ["card", "link"],
-          },
-          expand:   ["latest_invoice.payment_intent"],
+          customer:          customerId,
+          items:             [{ price: planConfig.stripePriceId }],
+          payment_behavior:  "default_incomplete",
+          collection_method: "charge_automatically",
+          payment_settings:  { save_default_payment_method: "on_subscription" },
+          expand:            ["latest_invoice.confirmation_secret"],
           metadata,
         },
         { idempotencyKey: subIdempotencyKey },
       );
 
-      // ── Step 3: resolve the client_secret with explicit fallbacks ────────
-      // resolveInvoicePaymentIntentSecret handles all three shapes Stripe can
-      // return for latest_invoice.payment_intent (full object / invoice ID /
-      // PI ID string) by fetching the missing pieces explicitly.
-      const resolved = await resolveInvoicePaymentIntentSecret(stripe, subscription.latest_invoice);
+      // ── Step 3: resolve the confirmation secret ──────────────────────────
+      const secret = await resolveInvoiceConfirmationSecret(stripe, subscription.latest_invoice);
 
-      if (!resolved) {
-        // Diagnostic log — never log client_secret or API key
+      if (!secret) {
+        // Diagnostic log — never log the secret value itself
         const inv = subscription.latest_invoice as any;
-        console.error("[checkout/create-payment-intent] No actionable PaymentIntent found", {
-          subscriptionId:     subscription.id,
-          subscriptionStatus: subscription.status,
-          latestInvoiceShape: typeof inv,
-          latestInvoiceId:    typeof inv === "string" ? inv : inv?.id,
-          invoiceStatus:      typeof inv !== "string" ? inv?.status : undefined,
-          invoiceAmountDue:   typeof inv !== "string" ? inv?.amount_due : undefined,
-          piShape:            typeof inv !== "string" ? typeof inv?.payment_intent : undefined,
+        console.error("[checkout/create-payment-intent] No confirmation_secret on invoice", {
+          subscriptionId:        subscription.id,
+          subscriptionStatus:    subscription.status,
+          latestInvoiceShape:    typeof inv,
+          latestInvoiceId:       typeof inv === "string" ? inv : inv?.id,
+          invoiceStatus:         typeof inv !== "string" ? inv?.status : undefined,
+          invoiceAmountDue:      typeof inv !== "string" ? inv?.amount_due : undefined,
+          confirmationSecretSet: typeof inv !== "string" ? Boolean(inv?.confirmation_secret) : undefined,
         });
         res.status(422).json({
           error: "No se pudo iniciar el pago con Stripe.",
-          code:  "payment_intent_unavailable",
+          code:  "confirmation_secret_unavailable",
           message: process.env.NODE_ENV === "production"
             ? "Error al iniciar el pago. Inténtalo de nuevo."
-            : `Subscription ${subscription.id} status='${subscription.status}' returned no actionable PaymentIntent. ` +
-              `Check plan trial settings or zero-amount first invoice. Invoice type: ${typeof inv}`,
+            : `Subscription ${subscription.id} status='${subscription.status}' has no confirmation_secret. ` +
+              `Invoice type: ${typeof inv}`,
         });
         return;
       }
 
-      res.json({ clientSecret: resolved.secret, type: "subscription", customerId });
+      res.json({ clientSecret: secret, type: "subscription", customerId });
     } else {
       // ── One-time topup via Payment Element ──────────────────────────────
       // Topups require authentication (checked above), so customerId is always
