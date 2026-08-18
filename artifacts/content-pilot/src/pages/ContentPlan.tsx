@@ -285,6 +285,28 @@ export default function ContentPlan() {
     const item = scriptModalItem
     const draft = scriptDraft
 
+    // ── Voice guard ────────────────────────────────────────────────────────────
+    // WaveSpeed avatars require an explicit voice assignment per look.
+    // Block generation early (before any API call) so the user gets an
+    // actionable message instead of a cryptic backend 400 or a timeout.
+    if (item.wavespeed_look_id != null) {
+      const wsLook =
+        wavespeedAllLookById.get(item.wavespeed_look_id) ??
+        wavespeedLookById.get(item.wavespeed_look_id)
+      const lookCfg = (() => {
+        try { return JSON.parse(wsLook?.config ?? "{}") as { voiceId?: number | null } }
+        catch { return {} }
+      })()
+      if (!lookCfg.voiceId) {
+        toast({
+          title: "Este avatar no tiene voz asignada",
+          description: "Ve a Avatares, selecciona el look y asígnale una voz antes de generar el video.",
+          variant: "destructive",
+        })
+        return
+      }
+    }
+
     // Lock controls immediately — before any API call so the UI responds
     // at click time rather than after two round-trips.
     setPendingGenerateId(item.id)

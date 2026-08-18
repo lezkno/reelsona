@@ -826,7 +826,11 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
             </span>
             <Button variant="outline" onClick={onClose}>Cancelar</Button>
             <Button
-              onClick={() => setStep("voice")}
+              onClick={() => {
+                // Default to "existing" picker when the user already has cloned voices
+                if (readyVoices.length > 0) setVoiceMode("existing")
+                setStep("voice")
+              }}
               disabled={selectedLookIds.size === 0}
               className="gap-2"
             >
