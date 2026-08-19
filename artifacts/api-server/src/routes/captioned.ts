@@ -1,27 +1,77 @@
 /**
  * Serve Reelsona media stored in Object Storage or the legacy /tmp caption dir.
  *
- * These app-proxy URLs are for authenticated Reelsona users only. External
- * services such as Instagram must receive short-lived signed GCS URLs instead
- * of using this proxy. Session middleware is mounted before this router in
- * app.ts, even though requireAuth itself is mounted later.
+ * App-proxy URLs are available only to the authenticated owner of the video.
+ * External services such as Instagram must receive a short-lived signed GCS URL
+ * instead of calling this proxy directly.
  */
 import { Router } from "express";
 import path from "path";
 import fs from "fs";
+import { db, videosTable } from "@workspace/db";
+import { and, eq, or, like } from "drizzle-orm";
 import { CAPTION_DIR } from "../lib/caption-engine";
 import { objectStorageClient } from "../lib/objectStorage";
 
 const router = Router();
 
-function hasAuthenticatedSession(req: any): boolean {
-  return Boolean(req.session?.authenticated && req.session?.user?.userId);
+function sessionUserId(req: any): number | null {
+  const userId = req.session?.authenticated ? req.session?.user?.userId : null;
+  return Number.isInteger(userId) && userId > 0 ? userId : null;
 }
 
-// ── GCS Object Storage (browser caption engine / persisted provider assets) ──
+async function ownsStoredMedia(userId: number, objectName: string): Promise<boolean> {
+  // Fast path for provider assets whose canonical object name embeds the video id.
+  const predictableMatch = objectName.match(/^(?:raw-videos|thumbnails|subtitles)\/(\d+)\.(?:mp4|jpg|srt)$/);
+  if (predictableMatch) {
+    const videoId = Number(predictableMatch[1]);
+    const [owned] = await db
+      .select({ id: videosTable.id })
+      .from(videosTable)
+      .where(and(eq(videosTable.id, videoId), eq(videosTable.userId, userId)))
+      .limit(1);
+    return Boolean(owned);
+  }
+
+  // Browser-caption outputs use a timestamp-based name. Resolve ownership from
+  // the URLs persisted on the owner's video row instead of treating the path as
+  // an authorization token.
+  const suffix = `%/api/captioned-objects/${objectName}`;
+  const [owned] = await db
+    .select({ id: videosTable.id })
+    .from(videosTable)
+    .where(and(
+      eq(videosTable.userId, userId),
+      or(
+        like(videosTable.captionedVideoUrl, suffix),
+        like(videosTable.videoUrl, suffix),
+        like(videosTable.thumbnailUrl, suffix),
+        like(videosTable.heygenSubtitleUrl, suffix),
+      ),
+    ))
+    .limit(1);
+  return Boolean(owned);
+}
+
+async function ownsLegacyCaption(userId: number, filename: string): Promise<boolean> {
+  const suffix = `%/api/captioned/${filename}`;
+  const [owned] = await db
+    .select({ id: videosTable.id })
+    .from(videosTable)
+    .where(and(
+      eq(videosTable.userId, userId),
+      like(videosTable.captionedVideoUrl, suffix),
+    ))
+    .limit(1);
+  return Boolean(owned);
+}
+
+// ── GCS Object Storage ────────────────────────────────────────────────────────
 router.use("/captioned-objects", async (req, res, next): Promise<void> => {
   if (req.method !== "GET") { next(); return; }
-  if (!hasAuthenticatedSession(req)) {
+
+  const userId = sessionUserId(req);
+  if (!userId) {
     res.status(401).json({ error: "Authentication required" });
     return;
   }
@@ -35,6 +85,12 @@ router.use("/captioned-objects", async (req, res, next): Promise<void> => {
     objectName.split("/").some((part) => part === "")
   ) {
     res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+
+  if (!(await ownsStoredMedia(userId, objectName))) {
+    // Return 404 rather than 403 so object existence is not disclosed across tenants.
+    res.status(404).json({ error: "Not found" });
     return;
   }
 
@@ -84,9 +140,10 @@ router.use("/captioned-objects", async (req, res, next): Promise<void> => {
   }
 });
 
-// ── /tmp legacy files (ASS/FFmpeg caption engine) ────────────────────────────
-router.get("/captioned/:filename", (req, res): void => {
-  if (!hasAuthenticatedSession(req)) {
+// ── Legacy /tmp files ─────────────────────────────────────────────────────────
+router.get("/captioned/:filename", async (req, res): Promise<void> => {
+  const userId = sessionUserId(req);
+  if (!userId) {
     res.status(401).json({ error: "Authentication required" });
     return;
   }
@@ -94,6 +151,11 @@ router.get("/captioned/:filename", (req, res): void => {
   const filename = path.basename(req.params.filename);
   if (!filename.endsWith(".mp4")) {
     res.status(400).json({ error: "Invalid file" });
+    return;
+  }
+
+  if (!(await ownsLegacyCaption(userId, filename))) {
+    res.status(404).json({ error: "Captioned video not found" });
     return;
   }
 
@@ -125,7 +187,6 @@ router.get("/captioned/:filename", (req, res): void => {
     res.status(206);
     res.setHeader("Content-Length", chunkSize);
     res.setHeader("Content-Range", `bytes ${start}-${end}/${fileSize}`);
-
     fs.createReadStream(filePath, { start, end }).pipe(res);
   } else {
     res.setHeader("Content-Length", fileSize);
