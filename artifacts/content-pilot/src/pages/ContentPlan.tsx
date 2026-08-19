@@ -618,27 +618,27 @@ export default function ContentPlan() {
       )}
 
       <div className="flex flex-col gap-3 shrink-0">
-        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 lg:flex-nowrap">
           <div>
-            <h1 className="text-3xl md:text-4xl font-display font-bold tracking-tight">Plan de Contenido</h1>
+            <h1 className="text-3xl md:text-4xl lg:text-3xl lg:whitespace-nowrap font-display font-bold tracking-tight">Plan de Contenido</h1>
             <p className="text-muted-foreground mt-1">Tu calendario de ideas a videos publicados.</p>
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap lg:flex-nowrap lg:gap-1.5 lg:shrink-0">
             {/* View toggle */}
             <div className="flex rounded-lg border overflow-hidden">
               <button type="button" onClick={() => setViewMode("list")}
-                className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors border-r ${viewMode === "list" ? "bg-primary text-primary-foreground" : "hover:bg-muted text-muted-foreground"}`}>
+                className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors border-r lg:px-2 lg:py-1.5 lg:text-xs ${viewMode === "list" ? "bg-primary text-primary-foreground" : "hover:bg-muted text-muted-foreground"}`}>
                 <List className="w-4 h-4" /> Lista
               </button>
               <button type="button" onClick={() => setViewMode("calendar")}
-                className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors ${viewMode === "calendar" ? "bg-primary text-primary-foreground" : "hover:bg-muted text-muted-foreground"}`}>
+                className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors lg:px-2 lg:py-1.5 lg:text-xs ${viewMode === "calendar" ? "bg-primary text-primary-foreground" : "hover:bg-muted text-muted-foreground"}`}>
                 <Calendar className="w-4 h-4" /> Calendario
               </button>
             </div>
 
             <Button
               variant="outline"
-              className="gap-2"
+              className="gap-2 whitespace-nowrap lg:gap-1.5 lg:px-2.5 lg:text-xs"
               disabled={reanalyzePlan.isPending}
               onClick={() => reanalyzePlan.mutate(undefined, {
                 onSuccess: (data) => {
@@ -655,7 +655,7 @@ export default function ContentPlan() {
 
             <Button
               variant="outline"
-              className="gap-2 border-red-600 bg-red-600 text-white hover:border-red-700 hover:bg-red-700 hover:text-white"
+              className="gap-2 whitespace-nowrap border-red-600 bg-red-600 text-white hover:border-red-700 hover:bg-red-700 hover:text-white lg:gap-1.5 lg:px-2.5 lg:text-xs"
               onClick={() => setExpressOpen(true)}
             >
               <Zap className="w-4 h-4" /> Video Express
@@ -664,7 +664,7 @@ export default function ContentPlan() {
 
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
-              <Button className="gap-2 shadow-lg shadow-primary/20 bg-gradient-to-r from-primary to-violet-600">
+              <Button className="gap-2 whitespace-nowrap shadow-lg shadow-primary/20 bg-gradient-to-r from-primary to-violet-600 lg:gap-1.5 lg:px-2.5 lg:text-xs">
                 <Wand2 className="w-4 h-4" />
                 Generar Ideas
               </Button>
