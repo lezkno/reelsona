@@ -21,7 +21,7 @@ import { format } from "date-fns"
 import { es } from "date-fns/locale"
 import { useToast } from "@/hooks/use-toast"
 import { useQueryClient } from "@tanstack/react-query"
-import { useState, useCallback, useEffect } from "react"
+import { useState, useCallback, useEffect, useRef } from "react"
 
 // ── Video preview modal with caption/hashtag editing ─────────────────────────
 function VideoPreviewModal({ video, onClose }: { video: Video | null; onClose: () => void }) {
@@ -292,6 +292,22 @@ export default function Videos() {
       } as any,
     }
   )
+
+  // Al pasar de "en curso" a "sin actividad", los créditos reservados acaban
+  // de liquidarse (consume/release) — refrescar saldo del wallet.
+  const anyVideoActive = Array.isArray(videos) && videos.some((v: any) =>
+    v.status === 'generating' ||
+    v.status === 'publishing' ||
+    ((v.caption_status === null || v.caption_status === 'processing') &&
+      (v.status === 'ready' || v.status === 'published'))
+  )
+  const wasActiveRef = useRef(false)
+  useEffect(() => {
+    if (wasActiveRef.current && !anyVideoActive) {
+      queryClient.invalidateQueries({ queryKey: ["credits", "balance"] })
+    }
+    wasActiveRef.current = anyVideoActive
+  }, [anyVideoActive, queryClient])
 
   const publishVideo = usePublishVideo()
   const scheduleVideo = useScheduleVideo()

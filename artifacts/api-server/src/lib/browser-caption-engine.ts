@@ -674,6 +674,8 @@ export async function applyCaptionsBrowser(
     cardTemplate?: import("./text-cards-engine").MultiCardConfig | import("./text-cards-engine").SavedCardTemplate;
     /** User's personal OpenAI API key — required for B-roll image generation and other AI effects. */
     openaiApiKey?: string | null;
+    /** Billing context for B-roll image credits. Absent = free re-render (no charge). */
+    brollBilling?: import("./broll-engine").BRollBillingContext | null;
   },
 ): Promise<CaptionResult> {
   logger.info({ templateId }, "[BrowserEngine] applyCaptionsBrowser invoked");
@@ -850,6 +852,8 @@ export async function applyCaptionsBrowser(
         tmpDir,
         opts.visualSuggestions,
         opts.openaiApiKey,
+        null,
+        opts.brollBilling ?? null,
       );
       logger.info("[BrowserEngine] B-roll overlay done ✓");
     }

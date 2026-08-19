@@ -343,6 +343,8 @@ export default function ContentPlan() {
                 setScriptDraft(null)
                 toast({ title: "Video Generándose", description: "Tu video está siendo creado. Esto puede tardar unos minutos." })
                 queryClient.invalidateQueries({ queryKey: getGetContentPlanQueryKey() })
+                // La reserva de créditos se hace al enviar — refrescar saldo de inmediato
+                queryClient.invalidateQueries({ queryKey: ["credits", "balance"] })
                 queryClient.invalidateQueries({ queryKey: getGetVideosQueryKey() })
               },
               onError: (err: any) => {

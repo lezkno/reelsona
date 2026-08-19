@@ -30,6 +30,7 @@ import {
   reserveCredits,
   consumeVideoCredits,
   releaseVideoCredits,
+  releaseStaleBRollReserves,
   consumeVoiceCredits,
   releaseVoiceCredits,
   computeReelCreditCost,
@@ -1595,6 +1596,8 @@ export async function runCaptionProcessing(
       visualSuggestions,
       // Pass saved card template so the engine can skip AI generation when a fixed template is configured
       cardTemplate: captionCfg.cardTemplate ?? undefined,
+      // Bill B-roll images (2 cr each) — only in the primary generation path
+      brollBilling: userId ? { userId, videoId } : null,
     });
 
     if (browserResult.url) {
@@ -1674,6 +1677,8 @@ export async function runCaptionProcessing(
       videoEffects: videoEffects ?? undefined,
       visualSuggestions,
       cardTemplate: captionCfg.cardTemplate ?? undefined,
+      // Bill B-roll images (2 cr each) — only in the primary generation path
+      brollBilling: userId ? { userId, videoId } : null,
     });
 
     if (captionResult.url) {
@@ -2009,6 +2014,13 @@ async function sendVideoFailedAlert(userId: number, contentPlanItemId: number | 
 }
 
 export async function pollAndPublishVideos(): Promise<void> {
+  // ── Recovery: release orphaned B-roll image reserves (crash mid-pipeline) ──
+  try {
+    await releaseStaleBRollReserves();
+  } catch (err) {
+    logger.error({ err }, "[Credits] Stale B-roll reserve sweep failed");
+  }
+
   // ── Recovery: provision payments that failed after the purchase was recorded ──
   // Finds purchases paid > 30 min ago where provisionedAt is still null.
   // Retries provision and stamps provisionedAt on success to prevent re-runs.

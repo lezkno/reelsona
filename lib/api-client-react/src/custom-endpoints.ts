@@ -3,6 +3,7 @@
  * These are hand-written and can be imported from @workspace/api-client-react.
  */
 import { useMutation, useQuery, useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { customFetch } from "./custom-fetch";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -122,11 +123,16 @@ export function useDeleteVideo() {
 }
 
 export function useRetryVideo() {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id }: { id: number }) =>
       customFetch<RetryVideoResult>(`/api/videos/${id}/retry`, {
         method: "POST",
       }),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: CREDITS_BALANCE_KEY });
+      queryClient.invalidateQueries({ queryKey: ["videos"] });
+    },
   });
 }
 
@@ -1022,6 +1028,7 @@ export function useUploadHeyGenAsset() {
 
 /** Create a photo avatar from an uploaded asset. */
 export function useCreatePhotoAvatar() {
+  const qc = useQueryClient();
   return useMutation<{ look_id: string; group_id: string }, Error, { name: string; asset_id: string }>({
     mutationFn: (data) =>
       customFetch<{ look_id: string; group_id: string }>("/api/heygen/avatars/create", {
@@ -1029,6 +1036,7 @@ export function useCreatePhotoAvatar() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       }),
+    onSettled: () => qc.invalidateQueries({ queryKey: CREDITS_BALANCE_KEY }),
   });
 }
 
@@ -1039,6 +1047,7 @@ export function useCreatePhotoAvatar() {
  * HeyGen typically takes 10–20 min to process a Digital Twin.
  */
 export function useCreateDigitalTwinAvatar() {
+  const qc = useQueryClient();
   return useMutation<{ look_id: string; group_id: string }, Error, FormData>({
     mutationFn: (formData) =>
       customFetch<{ look_id: string; group_id: string }>("/api/heygen/avatars/create-digital-twin", {
@@ -1046,6 +1055,7 @@ export function useCreateDigitalTwinAvatar() {
         body: formData,
         // No Content-Type — browser sets multipart/form-data with boundary automatically
       }),
+    onSettled: () => qc.invalidateQueries({ queryKey: CREDITS_BALANCE_KEY }),
   });
 }
 
@@ -1074,6 +1084,7 @@ export function useDeleteAvatarGroup() {
  * Uses HeyGen's prompt pipeline with avatar_id + avatar_group_id.
  */
 export function useCreateAvatarLook() {
+  const qc = useQueryClient();
   return useMutation<
     { look_id: string; group_id: string },
     Error,
@@ -1088,6 +1099,7 @@ export function useCreateAvatarLook() {
           body: JSON.stringify({ name: data.name, prompt: data.prompt, group_id: data.group_id, pose: data.pose }),
         },
       ),
+    onSettled: () => qc.invalidateQueries({ queryKey: CREDITS_BALANCE_KEY }),
   });
 }
 
@@ -1109,7 +1121,8 @@ export function useCreatePromptAvatar() {
 
 /** Poll avatar look training status. Auto-refetches every 5 s while processing. */
 export function useHeyGenLookStatus(lookId: string | null) {
-  return useQuery<AvatarLookStatus>({
+  const qc = useQueryClient();
+  const query = useQuery<AvatarLookStatus>({
     queryKey: ["heygen", "look-status", lookId],
     queryFn: () =>
       customFetch<AvatarLookStatus>(
@@ -1122,6 +1135,14 @@ export function useHeyGenLookStatus(lookId: string | null) {
     },
     staleTime: 0,
   });
+  // Terminal state → the look credit reservation settled server-side; refresh balance
+  const lookStatus = query.data?.status;
+  useEffect(() => {
+    if (lookStatus && lookStatus !== "processing" && lookStatus !== "pending_consent") {
+      qc.invalidateQueries({ queryKey: CREDITS_BALANCE_KEY });
+    }
+  }, [lookStatus, qc]);
+  return query;
 }
 
 // ── Voice management ──────────────────────────────────────────────────────────
@@ -1131,12 +1152,14 @@ export function useHeyGenLookStatus(lookId: string | null) {
  * Accepts FormData with fields: audio (File), name (string).
  */
 export function useCloneVoice() {
+  const qc = useQueryClient();
   return useMutation<{ voice_id: string; display_name: string; status: string }, Error, FormData>({
     mutationFn: (formData) =>
       customFetch<{ voice_id: string; display_name: string; status: string }>(
         "/api/heygen/voices/clone",
         { method: "POST", body: formData },
       ),
+    onSettled: () => qc.invalidateQueries({ queryKey: CREDITS_BALANCE_KEY }),
   });
 }
 
@@ -1275,12 +1298,14 @@ export function useCreateWavespeedPersona() {
         },
       ),
     onSuccess: () => qc.invalidateQueries({ queryKey: WAVESPEED_PERSONAS_KEY }),
+    onSettled: () => qc.invalidateQueries({ queryKey: CREDITS_BALANCE_KEY }),
   });
 }
 
 /** Poll look generation status for a persona. Returns updated looks + allDone flag. */
 export function useWavespeedPersonaLooksStatus(personaId: number | null, enabled = true) {
-  return useQuery<{ looks: WavespeedLookRow[]; allDone: boolean }>({
+  const qc = useQueryClient();
+  const query = useQuery<{ looks: WavespeedLookRow[]; allDone: boolean }>({
     queryKey: ["wavespeed", "persona-looks-status", personaId],
     queryFn: () =>
       customFetch<{ looks: WavespeedLookRow[]; allDone: boolean }>(
@@ -1293,6 +1318,12 @@ export function useWavespeedPersonaLooksStatus(personaId: number | null, enabled
     },
     staleTime: 0,
   });
+  // All looks done → look credit reservations settled server-side; refresh balance
+  const allDone = query.data?.allDone ?? false;
+  useEffect(() => {
+    if (allDone) qc.invalidateQueries({ queryKey: CREDITS_BALANCE_KEY });
+  }, [allDone, qc]);
+  return query;
 }
 
 /** Delete a WaveSpeed persona and all its looks. */
@@ -1307,12 +1338,14 @@ export function useDeleteWavespeedPersona() {
 
 /** Upload audio and submit a WaveSpeed voice clone job. */
 export function useCloneWavespeedVoice() {
+  const qc = useQueryClient();
   return useMutation<{ voiceId: number; displayName: string; status: string }, Error, FormData>({
     mutationFn: (formData) =>
       customFetch<{ voiceId: number; displayName: string; status: string }>(
         "/api/wavespeed/voices/clone",
         { method: "POST", body: formData },
       ),
+    onSettled: () => qc.invalidateQueries({ queryKey: CREDITS_BALANCE_KEY }),
   });
 }
 
@@ -1352,7 +1385,8 @@ export function useWavespeedVoices() {
 
 /** Poll WaveSpeed voice clone status. Auto-refetches until ready/failed. */
 export function useWavespeedVoiceStatus(voiceId: number | null, enabled = true) {
-  return useQuery<WavespeedVoiceRow>({
+  const qc = useQueryClient();
+  const query = useQuery<WavespeedVoiceRow>({
     queryKey: ["wavespeed", "voice-status", voiceId],
     queryFn: () =>
       customFetch<WavespeedVoiceRow>(`/api/wavespeed/voices/${voiceId}/status`),
@@ -1363,6 +1397,14 @@ export function useWavespeedVoiceStatus(voiceId: number | null, enabled = true) 
     },
     staleTime: 0,
   });
+  // Terminal state → voice credit reservation settled server-side; refresh balance
+  const voiceStatus = query.data?.status;
+  useEffect(() => {
+    if (voiceStatus && voiceStatus !== "pending") {
+      qc.invalidateQueries({ queryKey: CREDITS_BALANCE_KEY });
+    }
+  }, [voiceStatus, qc]);
+  return query;
 }
 
 /** Rename a WaveSpeed persona (avatar). */
@@ -1484,6 +1526,7 @@ export function useGenerateWavespeedPersonaLooks() {
         },
       ),
     onSuccess: () => qc.invalidateQueries({ queryKey: WAVESPEED_PERSONAS_KEY }),
+    onSettled: () => qc.invalidateQueries({ queryKey: CREDITS_BALANCE_KEY }),
   });
 }
 

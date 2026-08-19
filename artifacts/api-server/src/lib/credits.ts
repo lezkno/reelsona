@@ -393,7 +393,11 @@ export async function consumeVideoCredits(videoId: number): Promise<void> {
     const [reservation] = await tx
       .select()
       .from(creditLedgerTable)
-      .where(and(eq(creditLedgerTable.videoId, videoId), eq(creditLedgerTable.type, "reserve")))
+      .where(and(
+        eq(creditLedgerTable.videoId, videoId),
+        eq(creditLedgerTable.type, "reserve"),
+        isNull(creditLedgerTable.feature), // exclude B-roll per-image reserves
+      ))
       .for("update")
       .limit(1);
 
@@ -467,7 +471,11 @@ export async function releaseVideoCredits(videoId: number, reason: string): Prom
     const [reservation] = await tx
       .select()
       .from(creditLedgerTable)
-      .where(and(eq(creditLedgerTable.videoId, videoId), eq(creditLedgerTable.type, "reserve")))
+      .where(and(
+        eq(creditLedgerTable.videoId, videoId),
+        eq(creditLedgerTable.type, "reserve"),
+        isNull(creditLedgerTable.feature), // exclude B-roll per-image reserves
+      ))
       .for("update")
       .limit(1);
 
@@ -1073,6 +1081,269 @@ export async function releaseVoiceCredits(
   });
 
   logger.info({ voiceCloneId, voiceCloneType, reason }, "[Credits] Voice released");
+}
+
+// ── B-roll image credit lifecycle ─────────────────────────────────────────────
+// Each AI-generated B-roll image costs BROLL_IMAGE_CREDIT_COST credits.
+// Reservations are per-image (one ledger row each), keyed by videoId +
+// feature='broll', and settled directly by reservation ledger id.
+// Video-level consume/release lookups explicitly exclude feature='broll'.
+
+/** Flat credit cost per AI-generated B-roll image. */
+export const BROLL_IMAGE_CREDIT_COST = 2;
+
+/**
+ * Reserve credits for one B-roll image about to be submitted to the provider.
+ * Returns:
+ *   - a reservation ledger id → proceed and settle it later
+ *   - "already_paid" → this video+segment was already charged in a prior
+ *     attempt (e.g. browser-engine run before FFmpeg fallback, or a recovery
+ *     re-run); regenerate the image WITHOUT charging again
+ *   - null → insufficient balance; skip the segment
+ */
+export async function reserveBRollImageCredits(
+  userId:     number,
+  videoId:    number,
+  segmentIdx: number,
+): Promise<number | "already_paid" | null> {
+  const amount = BROLL_IMAGE_CREDIT_COST;
+  const idempotencyKey = `B-roll imagen ${segmentIdx + 1} (video ${videoId})`;
+  let reservationId: number | "already_paid" | null = null;
+
+  await db.transaction(async (tx) => {
+    // Serialize concurrent reserves for the same video+segment (e.g. recovery
+    // restarting caption processing while the original run is alive). Without
+    // this, two transactions can both pass the prior-reserve check below and
+    // double-charge. Lock is transaction-scoped (released on commit/rollback).
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${'broll:' + videoId + ':' + segmentIdx}))`);
+
+    // Idempotency: if a prior attempt for this exact video+segment was already
+    // charged (consumed) or is still pending settlement, don't charge again.
+    // Released reserves (failed attempts) do NOT count — a retry re-charges.
+    const [prior] = await tx
+      .select({ id: creditLedgerTable.id })
+      .from(creditLedgerTable)
+      .where(and(
+        eq(creditLedgerTable.userId, userId),
+        eq(creditLedgerTable.videoId, videoId),
+        eq(creditLedgerTable.type, "reserve"),
+        eq(creditLedgerTable.feature, "broll"),
+        eq(creditLedgerTable.description, idempotencyKey),
+        sql`NOT EXISTS (
+          SELECT 1 FROM credit_ledger s
+          WHERE s.related_ledger_id = ${creditLedgerTable.id} AND s.type = 'release'
+        )`,
+      ))
+      .limit(1);
+    if (prior) {
+      logger.info({ userId, videoId, segmentIdx }, "[Credits] B-roll ya cobrado para este segmento — sin nuevo cargo");
+      reservationId = "already_paid";
+      return;
+    }
+    const [wallet] = await tx
+      .select()
+      .from(userCreditsTable)
+      .where(eq(userCreditsTable.userId, userId))
+      .for("update")
+      .limit(1);
+
+    const available = wallet?.availableCredits ?? 0;
+    if (available < amount) {
+      logger.warn({ userId, videoId, segmentIdx, available }, "[Credits] Saldo insuficiente para imagen B-roll — se omite");
+      return; // reservationId stays null
+    }
+
+    const subCr  = wallet?.subscriptionCredits ?? 0;
+    const purCr  = wallet?.purchasedCredits    ?? 0;
+    const fromSub = Math.min(subCr, amount);
+    const fromPur = amount - fromSub;
+    const pool = fromSub > 0 && fromPur > 0 ? "mixed" : fromSub > 0 ? "subscription" : "purchased";
+
+    await tx
+      .update(userCreditsTable)
+      .set({
+        availableCredits:    available - amount,
+        subscriptionCredits: subCr - fromSub,
+        purchasedCredits:    purCr - fromPur,
+        reservedCredits:     (wallet?.reservedCredits ?? 0) + amount,
+        updatedAt:           new Date(),
+      })
+      .where(eq(userCreditsTable.userId, userId));
+
+    const [row] = await tx.insert(creditLedgerTable).values({
+      userId,
+      type:               "reserve",
+      amount:             -amount,
+      balanceBefore:      available,
+      balanceAfter:       available - amount,
+      pool,
+      subscriptionAmount: fromSub > 0 ? fromSub : undefined,
+      purchasedAmount:    fromPur > 0 ? fromPur : undefined,
+      videoId,
+      feature:            "broll",
+      description:        idempotencyKey,
+    }).returning({ id: creditLedgerTable.id });
+
+    reservationId = row.id;
+  });
+
+  if (typeof reservationId === "number") {
+    logger.info({ userId, videoId, segmentIdx, reservationId }, "[Credits] B-roll reserve");
+  }
+  return reservationId;
+}
+
+/** Settle a B-roll reservation by ledger id. Idempotent (same pattern as video settle). */
+async function settleBRollReservation(
+  reservationId: number,
+  mode: "consume" | "release",
+  reason: string,
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    const [reservation] = await tx
+      .select()
+      .from(creditLedgerTable)
+      .where(and(
+        eq(creditLedgerTable.id, reservationId),
+        eq(creditLedgerTable.type, "reserve"),
+        eq(creditLedgerTable.feature, "broll"),
+      ))
+      .for("update")
+      .limit(1);
+
+    if (!reservation) {
+      logger.debug({ reservationId }, "[Credits] No B-roll reserve — skipping settle");
+      return;
+    }
+
+    const [alreadySettled] = await tx
+      .select({ id: creditLedgerTable.id })
+      .from(creditLedgerTable)
+      .where(
+        and(
+          eq(creditLedgerTable.relatedLedgerId, reservation.id),
+          inArray(creditLedgerTable.type, ["consume", "release"]),
+        ),
+      )
+      .limit(1);
+    if (alreadySettled) return;
+
+    const amount = Math.abs(reservation.amount);
+    const userId = reservation.userId;
+
+    const [wallet] = await tx
+      .select()
+      .from(userCreditsTable)
+      .where(eq(userCreditsTable.userId, userId))
+      .for("update")
+      .limit(1);
+    if (!wallet) return;
+
+    if (mode === "consume") {
+      await tx
+        .update(userCreditsTable)
+        .set({
+          reservedCredits: Math.max(0, wallet.reservedCredits - amount),
+          totalConsumed:   wallet.totalConsumed + amount,
+          updatedAt:       new Date(),
+        })
+        .where(eq(userCreditsTable.userId, userId));
+
+      await tx.insert(creditLedgerTable).values({
+        userId,
+        type:               "consume",
+        amount:             -amount,
+        balanceBefore:      wallet.availableCredits,
+        balanceAfter:       wallet.availableCredits,
+        pool:               reservation.pool ?? undefined,
+        subscriptionAmount: reservation.subscriptionAmount ?? undefined,
+        purchasedAmount:    reservation.purchasedAmount    ?? undefined,
+        videoId:            reservation.videoId ?? undefined,
+        feature:            "broll",
+        relatedLedgerId:    reservation.id,
+        description:        reason,
+      });
+    } else {
+      const fromSub = reservation.subscriptionAmount ?? 0;
+      const fromPur = reservation.purchasedAmount    ?? 0;
+      const restoreToSub = fromSub > 0 ? fromSub : reservation.pool === "subscription" ? amount : 0;
+      const restoreToPur = fromPur > 0 ? fromPur : amount - restoreToSub;
+
+      await tx
+        .update(userCreditsTable)
+        .set({
+          availableCredits:    wallet.availableCredits + amount,
+          subscriptionCredits: wallet.subscriptionCredits + restoreToSub,
+          purchasedCredits:    wallet.purchasedCredits    + restoreToPur,
+          reservedCredits:     Math.max(0, wallet.reservedCredits - amount),
+          updatedAt:           new Date(),
+        })
+        .where(eq(userCreditsTable.userId, userId));
+
+      await tx.insert(creditLedgerTable).values({
+        userId,
+        type:               "release",
+        amount,
+        balanceBefore:      wallet.availableCredits,
+        balanceAfter:       wallet.availableCredits + amount,
+        pool:               reservation.pool ?? undefined,
+        subscriptionAmount: fromSub > 0 ? fromSub : undefined,
+        purchasedAmount:    fromPur > 0 ? fromPur : undefined,
+        videoId:            reservation.videoId ?? undefined,
+        feature:            "broll",
+        relatedLedgerId:    reservation.id,
+        description:        reason,
+      });
+    }
+  });
+
+  logger.info({ reservationId, mode, reason }, "[Credits] B-roll settled");
+}
+
+/** Consume a B-roll image reservation after the image was successfully generated. */
+export async function consumeBRollImageCredits(reservationId: number, videoId: number): Promise<void> {
+  return settleBRollReservation(reservationId, "consume", `B-roll imagen generada (video ${videoId})`);
+}
+
+/** Release a B-roll image reservation after generation failed or timed out. */
+export async function releaseBRollImageCredits(reservationId: number, reason: string): Promise<void> {
+  return settleBRollReservation(reservationId, "release", reason);
+}
+
+/**
+ * Safety sweep: release B-roll reservations older than maxAgeMinutes that were
+ * never settled (e.g. server crash mid-pipeline). Called from the scheduler.
+ */
+export async function releaseStaleBRollReserves(maxAgeMinutes = 60): Promise<void> {
+  const cutoff = new Date(Date.now() - maxAgeMinutes * 60_000);
+  const stale = await db
+    .select({ id: creditLedgerTable.id })
+    .from(creditLedgerTable)
+    .where(and(
+      eq(creditLedgerTable.type, "reserve"),
+      eq(creditLedgerTable.feature, "broll"),
+      sql`${creditLedgerTable.createdAt} < ${cutoff}`,
+      sql`NOT EXISTS (
+        SELECT 1 FROM credit_ledger s
+        WHERE s.related_ledger_id = ${creditLedgerTable.id}
+          AND s.type IN ('consume', 'release')
+      )`,
+      // Never release reserves whose video still has an ACTIVE caption job —
+      // the worker may still be alive and about to consume this reservation.
+      sql`NOT EXISTS (
+        SELECT 1 FROM videos v
+        WHERE v.id = ${creditLedgerTable.videoId}
+          AND v.caption_status = 'processing'
+          AND v.updated_at > NOW() - INTERVAL '6 hours'
+      )`,
+    ));
+
+  for (const row of stale) {
+    await releaseBRollImageCredits(row.id, "B-roll: reserva huérfana liberada por barrido de recuperación");
+  }
+  if (stale.length > 0) {
+    logger.warn({ count: stale.length }, "[Credits] Stale B-roll reserves released");
+  }
 }
 
 // ── Recovery ──────────────────────────────────────────────────────────────────

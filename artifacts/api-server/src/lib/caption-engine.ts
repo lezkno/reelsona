@@ -947,6 +947,8 @@ export async function applyCaptions(
     openaiApiKey?: string | null;
     /** Saved card template — when set, skips AI analysis and uses the configured cards directly */
     cardTemplate?: import("./text-cards-engine").MultiCardConfig | import("./text-cards-engine").SavedCardTemplate | null;
+    /** Billing context for B-roll image credits. Absent = free re-render (no charge). */
+    brollBilling?: import("./broll-engine").BRollBillingContext | null;
   }
 ): Promise<CaptionResult> {
   const subtitleUrl   = options?.subtitleUrl ?? null;
@@ -1098,6 +1100,8 @@ export async function applyCaptions(
         brollTmpDir,
         options?.visualSuggestions,
         options?.openaiApiKey,
+        null,
+        options?.brollBilling ?? null,
       );
       logger.info("[CaptionEngine] B-roll overlay done ✓");
     }

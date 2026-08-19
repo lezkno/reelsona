@@ -88,6 +88,12 @@ export const creditLedgerTable = pgTable("credit_ledger", {
    * Values: 'wavespeed' | 'heygen'
    */
   voiceCloneType:  varchar("voice_clone_type", { length: 16 }),
+  /**
+   * Feature discriminator for reservations that share a video_id with the
+   * video's own generation reserve. NULL = video/look/voice (legacy);
+   * 'broll' = per-image B-roll reservation.
+   */
+  feature:         varchar("feature", { length: 16 }),
   /** For consume/release rows: the id of the original reserve entry. */
   relatedLedgerId: integer("related_ledger_id"), // intentional: no FK to avoid self-reference complexity
   description:     text("description"),

@@ -23,6 +23,11 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import { makeOpenAIClient } from "./openai-client";
 import { submitJob, getJobStatus, WAVESPEED_MODELS } from "./wavespeed";
+import {
+  reserveBRollImageCredits,
+  consumeBRollImageCredits,
+  releaseBRollImageCredits,
+} from "./credits";
 import { logger } from "./logger";
 import type { PunchWordTiming } from "./caption-engine";
 
@@ -49,6 +54,16 @@ export interface BRollImageAsset {
 export interface BRollVisualContext {
   niche?: string | null;
   topic?: string | null;
+}
+
+/**
+ * Billing context: when set, each AI-generated image reserves 2 credits before
+ * submission, consumes on success, releases on failure. When absent (e.g. a
+ * free caption-style re-render), no credits are charged.
+ */
+export interface BRollBillingContext {
+  userId:  number;
+  videoId: number;
 }
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -359,12 +374,32 @@ export async function generateBRollImages(
   tmpDir: string,
   visualDirection: string,
   openaiApiKey?: string | null,
+  billing?: BRollBillingContext | null,
 ): Promise<BRollImageAsset[]> {
   const directionPrefix = visualDirection ? `${visualDirection}. ` : "";
 
-  type Submission = { segment: BRollSegment; i: number; requestId: string };
+  type Submission = { segment: BRollSegment; i: number; requestId: string; reservationId: number | null };
   const submissions: (Submission | null)[] = await Promise.all(
     segments.map(async (segment, i) => {
+      // Reserve credits BEFORE submitting to the provider. If the balance is
+      // insufficient, skip this segment — never generate an unpaid image.
+      let reservationId: number | null = null;
+      if (billing) {
+        let reserved: number | "already_paid" | null;
+        try {
+          reserved = await reserveBRollImageCredits(billing.userId, billing.videoId, i);
+        } catch (err) {
+          logger.warn({ idx: i, err }, "[BRoll] Credit reservation failed — skipping segment");
+          return null;
+        }
+        if (reserved === null) {
+          logger.warn({ idx: i, userId: billing.userId }, "[BRoll] Saldo insuficiente — segmento omitido");
+          return null;
+        }
+        // "already_paid" → prior attempt charged this segment; regenerate free
+        reservationId = reserved === "already_paid" ? null : reserved;
+      }
+
       const prompt = directionPrefix + PHOTO_SAFETY_SUFFIX + segment.imagePrompt;
       try {
         logger.info({ idx: i, prompt: prompt.slice(0, 100) }, "[BRoll] Submitting image job…");
@@ -372,9 +407,14 @@ export async function generateBRollImages(
           WAVESPEED_MODELS.TEXT_TO_IMAGE,
           { prompt, size: "1024x1536" },
         );
-        return { segment, i, requestId };
+        return { segment, i, requestId, reservationId };
       } catch (err) {
         logger.warn({ idx: i, err }, "[BRoll] Job submission failed — skipping segment");
+        if (reservationId !== null) {
+          await releaseBRollImageCredits(reservationId, "B-roll: fallo al enviar el job al proveedor").catch((e) =>
+            logger.error({ reservationId, e }, "[BRoll] Credit release failed after submit error"),
+          );
+        }
         return null;
       }
     }),
@@ -384,11 +424,14 @@ export async function generateBRollImages(
   await Promise.all(
     submissions.map(async (sub) => {
       if (!sub) return;
-      const { segment, i, requestId } = sub;
+      const { segment, i, requestId, reservationId } = sub;
       try {
         const imageUrl = await pollBRollJob(requestId);
         if (!imageUrl) {
           logger.warn({ idx: i, requestId }, "[BRoll] No image URL — skipping segment");
+          if (reservationId !== null) {
+            await releaseBRollImageCredits(reservationId, "B-roll: la generación de imagen falló o expiró");
+          }
           return;
         }
         const res = await fetch(imageUrl);
@@ -398,8 +441,18 @@ export async function generateBRollImages(
         await fs.writeFile(tmpPath, buf);
         results.push({ segment, tmpPath });
         logger.info({ idx: i, path: tmpPath }, "[BRoll] Image generated ✓");
+        if (reservationId !== null && billing) {
+          await consumeBRollImageCredits(reservationId, billing.videoId).catch((e) =>
+            logger.error({ reservationId, e }, "[BRoll] Credit consume failed after successful image"),
+          );
+        }
       } catch (err) {
         logger.warn({ idx: i, requestId, err }, "[BRoll] Image generation failed — skipping segment");
+        if (reservationId !== null) {
+          await releaseBRollImageCredits(reservationId, "B-roll: fallo al descargar/procesar la imagen").catch((e) =>
+            logger.error({ reservationId, e }, "[BRoll] Credit release failed after image error"),
+          );
+        }
       }
     }),
   );
@@ -528,6 +581,7 @@ export async function applyBRoll(
   visualSuggestions?: string | null,
   openaiApiKey?: string | null,
   visualContext?: BRollVisualContext | null,
+  billing?: BRollBillingContext | null,
 ): Promise<string> {
   try {
     const { segments, visualDirection } = await analyzeBRollSegments(
@@ -543,7 +597,7 @@ export async function applyBRoll(
       return sourcePath;
     }
 
-    const assets = await generateBRollImages(segments, tmpDir, visualDirection, openaiApiKey);
+    const assets = await generateBRollImages(segments, tmpDir, visualDirection, openaiApiKey, billing);
     if (assets.length === 0) {
       logger.warn(
         { hasPersonalKey: !!openaiApiKey },
