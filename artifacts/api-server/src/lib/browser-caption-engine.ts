@@ -798,7 +798,7 @@ export async function applyCaptionsBrowser(
         "-c:a", "copy",
         "-movflags", "+faststart",
         "-y", normPath,
-      ], { maxBuffer: 500 * 1024 * 1024 });
+      ], { maxBuffer: 500 * 1024 * 1024, timeout: 6 * 60 * 1000 });
       captionSourcePath = normPath;
       // Re-probe so all downstream steps (zoom args, canvas size) use new dims
       const normInfo = await probeVideoInfo(normPath);
@@ -829,7 +829,7 @@ export async function applyCaptionsBrowser(
           "-c:a", "aac", "-b:a", "192k",
           "-movflags", "+faststart",
           "-y", zoomedPath,
-        ], { maxBuffer: 500 * 1024 * 1024 });
+        ], { maxBuffer: 500 * 1024 * 1024, timeout: 12 * 60 * 1000 }); // 12 min: zoom concat is the slowest step
         captionSourcePath = zoomedPath;
         logger.info({ count: punchTs.length }, "[BrowserEngine] Punch zoom applied ✓");
       }
@@ -1086,7 +1086,7 @@ export async function applyCaptionsBrowser(
         "-b:a", "128k",
         "-avoid_negative_ts", "make_zero",
         "-y", segOut,
-      ], { maxBuffer: 100 * 1024 * 1024 });
+      ], { maxBuffer: 100 * 1024 * 1024, timeout: 3 * 60 * 1000 }); // 3 min per ~10s caption batch
 
       segmentFiles.push(segOut);
       logger.debug({ batch: b + 1, total: batches.length }, "[BrowserEngine] Batch done");
@@ -1102,7 +1102,7 @@ export async function applyCaptionsBrowser(
       "-i", segListPath,
       "-c", "copy",
       "-y", outputPath,
-    ], { maxBuffer: 200 * 1024 * 1024 });
+    ], { maxBuffer: 200 * 1024 * 1024, timeout: 2 * 60 * 1000 }); // concat copy is fast, 2 min ceiling
 
     logger.info("[BrowserEngine] FFmpeg composite done");
 
@@ -1131,7 +1131,7 @@ export async function applyCaptionsBrowser(
         "-c:a", "copy",
         "-movflags", "+faststart",
         "-y", igPath,
-      ], { maxBuffer: 500 * 1024 * 1024 });
+      ], { maxBuffer: 500 * 1024 * 1024, timeout: 6 * 60 * 1000 }); // 6 min for IG upscale
       uploadPath = igPath;
       logger.info({ to: `${IG_TARGET_W}×${IG_TARGET_H}` }, "[BrowserEngine] Instagram upscale done ✓");
     }

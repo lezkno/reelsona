@@ -543,6 +543,11 @@ export async function composeBRoll(
     "[BRoll] Running FFmpeg B-roll compositing with motion...",
   );
 
+  // Timeout: ~10× real-time for a fast-preset encode is generous even on autoscale.
+  // Without a timeout, an OOM-killed or hung FFmpeg process leaves the promise
+  // permanently unresolved, blocking the entire caption pipeline indefinitely.
+  const FFMPEG_TIMEOUT_MS = 10 * 60 * 1000; // 10 min ceiling
+
   try {
     await execFileAsync(
       "ffmpeg",
@@ -557,13 +562,21 @@ export async function composeBRoll(
         "-movflags", "+faststart",
         "-y", outputPath,
       ],
-      { maxBuffer: 500 * 1024 * 1024 },
+      { maxBuffer: 500 * 1024 * 1024, timeout: FFMPEG_TIMEOUT_MS },
     );
 
     logger.info({ outputPath }, "[BRoll] B-roll compositing done ✓");
     return outputPath;
-  } catch (err) {
-    logger.warn({ err }, "[BRoll] FFmpeg compositing failed — returning source video unchanged");
+  } catch (err: any) {
+    const isTimeout = err?.killed === true || err?.code === "ETIMEDOUT" || err?.signal === "SIGTERM";
+    if (isTimeout) {
+      logger.error(
+        { videoDuration, videoWidth, videoHeight, assetCount: assets.length },
+        "[BRoll] FFmpeg compositing timed out — returning source video unchanged",
+      );
+    } else {
+      logger.warn({ err }, "[BRoll] FFmpeg compositing failed — returning source video unchanged");
+    }
     return sourcePath;
   }
 }

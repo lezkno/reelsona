@@ -2158,11 +2158,16 @@ export async function pollAndPublishVideos(): Promise<void> {
       // Wrap in a 12-minute timeout so a hung AI image call
       // never blocks the entire polling loop indefinitely.
       logger.info({ videoId: v.id }, "[CaptionEngine] Recovery: re-processing stuck caption");
-      const RECOVERY_TIMEOUT_MS = 12 * 60 * 1000;
+      // 25 min covers the worst case: browser engine on a 60s video requires
+      // ~2 min download + ~10 min zoom FFmpeg + ~5 min B-roll FFmpeg + ~5 min
+      // caption batches + ~2 min IG upscale. Individual FFmpeg steps now have
+      // their own per-call timeouts so a hung step surfaces an error instead of
+      // silently blocking until this outer limit fires.
+      const RECOVERY_TIMEOUT_MS = 25 * 60 * 1000;
       await Promise.race([
         runCaptionProcessing(v.id, v.videoUrl, v.contentPlanId ?? null, null, v.durationSeconds),
         new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("Recovery timeout after 12 min")), RECOVERY_TIMEOUT_MS)
+          setTimeout(() => reject(new Error("Recovery timeout after 25 min")), RECOVERY_TIMEOUT_MS)
         ),
       ]).catch((err) =>
         logger.error({ videoId: v.id, err }, "[CaptionEngine] Recovery failed")

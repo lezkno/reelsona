@@ -1075,7 +1075,7 @@ export async function applyCaptions(
           "-c:a", "aac", "-b:a", "192k",
           "-movflags", "+faststart",
           "-y", zoomPath,
-        ], { maxBuffer: 500 * 1024 * 1024 });
+        ], { maxBuffer: 500 * 1024 * 1024, timeout: 12 * 60 * 1000 }); // 12 min ceiling for zoom concat
         captionInputPath = zoomPath;
         logger.info({ count: punchTs.length }, "[CaptionEngine] Punch zoom applied ✓");
       }
