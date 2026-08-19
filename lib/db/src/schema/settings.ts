@@ -1,10 +1,10 @@
-import { pgTable, serial, text, integer, boolean, real, uniqueIndex, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, boolean, real, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
 export const settingsTable = pgTable("settings", {
   id: serial("id").primaryKey(),
-  userId: integer("user_id").notNull(),
+  userId: integer("user_id").notNull().unique(),
   niche: text("niche").notNull().default(""),
   nicheDescription: text("niche_description"),
   topicKeywords: text("topic_keywords").array().notNull().default([]),
@@ -13,34 +13,22 @@ export const settingsTable = pgTable("settings", {
   videoDurationSeconds: integer("video_duration_seconds").notNull().default(60),
   includeCaptions: boolean("include_captions").notNull().default(true),
   watermarkText: text("watermark_text"),
+  /** Legacy BYOK field. No new product flow should write this. */
   heygenApiKey: text("heygen_api_key"),
-  /** Voice speed multiplier for HeyGen TTS. null = HeyGen default (1.0). Range: 0.5–1.5 */
   heygenVoiceSpeed: real("heygen_voice_speed"),
-  /** Whether the user has dismissed the welcome modal (stored server-side so it persists across devices) */
   welcomeDismissed: boolean("welcome_dismissed").notNull().default(false),
-  /** Account-level video effects defaults applied to every new video */
   videoEffects: jsonb("video_effects").notNull().default({ zoom: false, ai_broll: false, text_cards: false }),
-  /** Object storage path of the brand logo uploaded by the user */
   brandLogoUrl: text("brand_logo_url"),
-  /** Primary brand color (hex, e.g. #1A2B3C) chosen by the user */
   brandPrimaryColor: text("brand_primary_color"),
-  /** Accent brand color (hex) chosen by the user */
   brandAccentColor: text("brand_accent_color"),
-  /** Full extracted palette from the logo (array of hex strings) */
   brandPaletteColors: text("brand_palette_colors").array(),
-  /** User's own OpenAI API key — when set, bypasses the shared platform key */
+  /** Legacy BYOK field. No new product flow should write this. */
   openaiApiKey: text("openai_api_key"),
-  /** What the creator offers (product / service / course) */
   offer: text("offer"),
-  /** Ideal audience description */
   idealAudience: text("ideal_audience"),
-  /** Unique value proposition */
   uniqueValueProp: text("unique_value_prop"),
-  /** Communication style and voice traits */
   voiceStyle: text("voice_style"),
-  /** Common objections from the audience and how to handle them */
   commonObjections: text("common_objections"),
-  /** Custom CTA phrase the avatar says at the end of every video */
   customCta: text("custom_cta"),
 });
 
