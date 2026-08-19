@@ -699,6 +699,29 @@ async function pruneDeletedAvatars(
   return updated;
 }
 
+/**
+ * Insert a `videos` row with status "generating" ONLY if the user has no other
+ * video currently generating. A per-user pg advisory xact lock serialises the
+ * check+insert across Express orders, manual generation, and scheduler ticks —
+ * on any instance. Returns null when the user's generation slot is taken.
+ */
+export async function insertVideoClaimingUserSlot(
+  userId: number,
+  values: typeof videosTable.$inferInsert,
+): Promise<typeof videosTable.$inferSelect | null> {
+  return await db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(${userId}::bigint * 31 + 11)`);
+    const [existing] = await tx
+      .select({ id: videosTable.id })
+      .from(videosTable)
+      .where(and(eq(videosTable.status, "generating"), eq(videosTable.userId, userId)))
+      .limit(1);
+    if (existing) return null;
+    const [row] = await tx.insert(videosTable).values(values).returning();
+    return row;
+  });
+}
+
 export async function runAutomationCycle(userId: number, targetItemId?: number): Promise<{
   success: boolean;
   message: string;
@@ -1273,9 +1296,7 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
     }
   }
 
-  const [videoRow] = await db
-    .insert(videosTable)
-    .values({
+  const videoRow = await insertVideoClaimingUserSlot(userId, {
       userId,
       contentPlanId: contentItem.id,
       topic: contentItem.topic,
@@ -1288,8 +1309,17 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
       videoEffects: (settings.videoEffects as object | null) ?? null,
       // Start the timeout clock at submission, not at first poll
       generatingStartedAt: new Date(),
-    })
-    .returning();
+    });
+
+  if (!videoRow) {
+    // Another video for this user is already generating (claim lost at the DB
+    // level). Reset the item so it can be retried once the slot frees up.
+    await db
+      .update(contentPlanItemsTable)
+      .set({ status: "scripted", updatedAt: new Date() })
+      .where(eq(contentPlanItemsTable.id, contentItem.id));
+    return { success: false, message: "Ya hay un video generándose para este usuario. El item quedó listo para reintentar." };
+  }
 
   // ── Reserve credits ───────────────────────────────────────────────────────
   // Reserve now (before HeyGen call) so a crash between submission and

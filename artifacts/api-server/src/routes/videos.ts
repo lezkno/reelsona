@@ -18,7 +18,7 @@ import {
 } from "@workspace/api-zod";
 import { generateVideo } from "../lib/heygen";
 import { reserveCredits, releaseVideoCredits, estimateDurationFromScript, computeReelCreditCost, hasEnoughCredits } from "../lib/credits";
-import { publishVideoToInstagram, pickNextAvatar, resolveVoiceId, runCaptionProcessing, runAutomationCycle } from "../lib/scheduler";
+import { publishVideoToInstagram, pickNextAvatar, resolveVoiceId, runCaptionProcessing, runAutomationCycle, insertVideoClaimingUserSlot } from "../lib/scheduler";
 // brand-cover import removed — AI cover generation is discontinued
 import { logger } from "../lib/logger";
 
@@ -305,20 +305,26 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
 
   // Create video row — set captionStatus upfront so the pipeline UI knows
   // whether Caption Studio will run even before HeyGen finishes
-  const [videoRow] = await db
-    .insert(videosTable)
-    .values({
-      userId,
-      contentPlanId: item.id,
-      topic: item.topic,
-      avatarId: item.avatarId,
-      status: "generating",
-      captionStatus: captionCfg ? null : "disabled",
-      videoEffects: effectsSnapshot,
-      // Start the timeout clock at submission, not at first poll
-      generatingStartedAt: new Date(),
-    })
-    .returning();
+  const videoRow = await insertVideoClaimingUserSlot(userId, {
+    userId,
+    contentPlanId: item.id,
+    topic: item.topic,
+    avatarId: item.avatarId,
+    status: "generating",
+    captionStatus: captionCfg ? null : "disabled",
+    videoEffects: effectsSnapshot,
+    // Start the timeout clock at submission, not at first poll
+    generatingStartedAt: new Date(),
+  });
+  if (!videoRow) {
+    // Slot lost at the DB level (concurrent launch) — release the item claim.
+    await db
+      .update(contentPlanItemsTable)
+      .set({ status: "scripted", updatedAt: new Date() })
+      .where(eq(contentPlanItemsTable.id, item.id));
+    res.status(409).json({ error: "Ya tienes un video generándose. Espera a que termine para generar otro." });
+    return;
+  }
 
   await db
     .update(contentPlanItemsTable)

@@ -327,6 +327,8 @@ export async function generateScript(
     voiceStyle?: string | null;
     commonObjections?: string | null;
     customCta?: string | null;
+    /** Extra editorial directives dictated by the user (Video Express). Take priority over defaults. */
+    extraDirectives?: string[];
   }
 ): Promise<ScriptOutput> {
   const client = makeOpenAIClient();
@@ -381,6 +383,10 @@ export async function generateScript(
     ? `\nCONTEXTO DEL CREADOR — usá esta información para personalizar el guion con su voz, oferta y audiencia real:\n${creatorBrainLines.join("\n")}\n`
     : "";
 
+  const extraDirectivesContext = options?.extraDirectives?.length
+    ? `\nINSTRUCCIONES EXPLÍCITAS DEL USUARIO (dictadas por voz — tienen PRIORIDAD ABSOLUTA sobre cualquier otra regla editorial de estilo):\n${options.extraDirectives.map((d) => `- ${d}`).join("\n")}\n`
+    : "";
+
   const ctaInstruction = options?.customCta
     ? `2. La ÚLTIMA oración del guion DEBE ser EXACTAMENTE esta frase del creador (no la modifiques, no la parafrasees, úsala tal cual):\n   "${options.customCta}"`
     : `2. La ÚLTIMA oración del guion SIEMPRE debe ser una de estas frases — elige UNA distinta cada vez (varía, no repitas siempre la misma):\n${ctaList}`;
@@ -390,7 +396,7 @@ export async function generateScript(
 ${TALKING_HEAD_CONSTRAINT}
 
 ${getLanguageInstruction(language)}
-${criterionInstruction}${auditContext}${creatorBrainContext}
+${criterionInstruction}${auditContext}${creatorBrainContext}${extraDirectivesContext}
 Crea un guion de video para un Reel de Instagram con estas especificaciones:
 - Nicho: ${niche}
 - Tema: ${topic}
@@ -1003,4 +1009,90 @@ export async function regenerateScriptWithCriterion(
   openaiApiKey?: string | null,
 ): Promise<ScriptOutput> {
   return generateScript(topic, niche, tone, language, durationSeconds, { criterion, auditInsights, openaiApiKey });
+}
+
+// ── Video Express: interpretación de órdenes habladas ────────────────────────
+
+export interface ExpressOrderInterpretation {
+  /** Whether the transcript contains an intelligible content request. */
+  comprehensible: boolean;
+  /** Why it was rejected, when comprehensible=false (user-facing, Spanish). */
+  rejection_reason: string | null;
+  /** Video topic extracted from the order. */
+  topic: string;
+  /** Exact CTA dictated by the user, or null when none was given. */
+  explicit_cta: string | null;
+  /** Requested duration in seconds, or null when not specified. */
+  duration_seconds: number | null;
+  /** Requested tone, or null. */
+  tone: string | null;
+  /** Target audience mentioned, or null. */
+  audience: string | null;
+  /** Other editorial constraints (structure, banned words, examples to use...). */
+  extra_instructions: string[];
+}
+
+/**
+ * Interpret a spoken Video Express order: separate the CONTENT request from
+ * the EDITORIAL constraints (explicit CTA, duration, tone, audience, etc.).
+ * Explicit user instructions always take priority over generated defaults.
+ */
+export async function interpretExpressOrder(
+  transcript: string,
+  language: string,
+): Promise<ExpressOrderInterpretation> {
+  const client = makeOpenAIClient({ timeout: 60_000 });
+
+  const prompt = `Eres el intérprete de órdenes de una app que crea videos cortos con avatar hablando a cámara.
+El usuario grabó una instrucción por voz pidiendo un video. Transcripción literal (puede tener errores de dictado):
+
+"""${transcript}"""
+
+Idioma del usuario: ${language}
+
+Tu tarea: extraer QUÉ video quiere y QUÉ restricciones editoriales dictó.
+Reglas:
+- "topic" debe ser un tema de video claro y autocontenido (no una orden; ej: "por qué los emprendedores deben publicar contenido a diario").
+- "explicit_cta": SOLO si el usuario dictó una llamada a la acción concreta, cópiala lo más literal posible (limpia solo puntuación). Si no dictó CTA, null.
+- "duration_seconds": solo si mencionó duración (ej. "de 30 segundos"). Si no, null.
+- "tone", "audience": solo si los mencionó. Si no, null.
+- "extra_instructions": otras restricciones editoriales dictadas (estructura, palabras prohibidas, ejemplos a usar, cosas que NO mencionar...). Lista vacía si no hay.
+- "comprehensible": false SOLO si la transcripción no contiene ninguna petición de contenido inteligible (ruido, frases sueltas sin intención). En ese caso "rejection_reason" debe explicar en español, en una frase amable, qué faltó.
+
+Devuelve SOLO JSON válido:
+{
+  "comprehensible": true,
+  "rejection_reason": null,
+  "topic": "...",
+  "explicit_cta": null,
+  "duration_seconds": null,
+  "tone": null,
+  "audience": null,
+  "extra_instructions": []
+}`;
+
+  const res = await client.chat.completions.create({
+    model: "gpt-5.6-luna",
+    messages: [{ role: "user", content: prompt }],
+    response_format: { type: "json_object" },
+  });
+
+  const content = res.choices[0]?.message?.content;
+  if (!content) throw new Error("Empty response from AI");
+  const parsed = JSON.parse(content) as Partial<ExpressOrderInterpretation>;
+
+  const durationRaw = typeof parsed.duration_seconds === "number" ? Math.round(parsed.duration_seconds) : null;
+  return {
+    comprehensible: parsed.comprehensible !== false && !!(parsed.topic && String(parsed.topic).trim().length >= 8),
+    rejection_reason: typeof parsed.rejection_reason === "string" ? parsed.rejection_reason : null,
+    topic: String(parsed.topic ?? "").trim(),
+    explicit_cta: typeof parsed.explicit_cta === "string" && parsed.explicit_cta.trim() ? parsed.explicit_cta.trim() : null,
+    // Clamp dictated durations to what the pipeline actually produces well.
+    duration_seconds: durationRaw ? Math.max(15, Math.min(90, durationRaw)) : null,
+    tone: typeof parsed.tone === "string" && parsed.tone.trim() ? parsed.tone.trim() : null,
+    audience: typeof parsed.audience === "string" && parsed.audience.trim() ? parsed.audience.trim() : null,
+    extra_instructions: Array.isArray(parsed.extra_instructions)
+      ? parsed.extra_instructions.filter((s): s is string => typeof s === "string" && !!s.trim()).slice(0, 10)
+      : [],
+  };
 }

@@ -1656,3 +1656,36 @@ export function useDeleteWavespeedLook() {
     onSuccess: () => qc.invalidateQueries({ queryKey: WAVESPEED_PERSONAS_KEY }),
   });
 }
+
+// ── Video Express ─────────────────────────────────────────────────────────────
+
+export interface VideoExpressDetected {
+  topic: string;
+  explicit_cta: string | null;
+  duration_seconds: number;
+  tone: string | null;
+  audience: string | null;
+}
+
+export interface VideoExpressResult {
+  item: { id: number; topic: string; status: string };
+  transcript: string;
+  status: "generating" | "queued";
+  warning: string | null;
+  detected: VideoExpressDetected;
+}
+
+/**
+ * Video Express: send a spoken order (FormData with "audio") and get back the
+ * created plan item plus launch status. Invalidate credits + plan on settle.
+ */
+export function useVideoExpress() {
+  const qc = useQueryClient();
+  return useMutation<VideoExpressResult, Error, FormData>({
+    mutationFn: (formData) =>
+      customFetch<VideoExpressResult>("/api/content/express", { method: "POST", body: formData }),
+    onSettled: () => {
+      invalidateCreditState(qc);
+    },
+  });
+}

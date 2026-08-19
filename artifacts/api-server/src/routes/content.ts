@@ -1,6 +1,11 @@
 import { Router } from "express";
 import fs from "fs";
 import path from "path";
+import os from "os";
+import { execFile } from "child_process";
+import { promisify } from "util";
+import multer from "multer";
+import { toFile } from "openai";
 import { CAPTION_DIR } from "../lib/caption-engine";
 import { db } from "@workspace/db";
 import { contentPlanItemsTable, settingsTable, automationConfigTable, videosTable } from "@workspace/db";
@@ -25,7 +30,9 @@ import {
   DeleteContentItemParams,
   DeleteContentItemResponse,
 } from "@workspace/api-zod";
-import { generateScript, generateContentTopics, regenerateCaption, regenerateScriptWithCriterion, reanalyzeTopicsWithStrategy, type RegenerateCriterion } from "../lib/ai-scripts";
+import { generateScript, generateContentTopics, regenerateCaption, regenerateScriptWithCriterion, reanalyzeTopicsWithStrategy, interpretExpressOrder, type RegenerateCriterion } from "../lib/ai-scripts";
+import { makeOpenAIClient } from "../lib/openai-client";
+import { hasEnoughCredits, computeReelCreditCost, estimateDurationFromScript } from "../lib/credits";
 import { runAutomationCycle, triggerFillEmptySlots } from "../lib/scheduler";
 import { getLatestAuditCache } from "../lib/audit-cache";
 import { getStrategyProfile, toStrategyContext } from "../lib/strategy-profile";
@@ -347,6 +354,275 @@ router.post("/content", async (req, res): Promise<void> => {
     .returning();
 
   res.status(201).json(CreateContentItemResponse.parse(mapItem(inserted)));
+});
+
+// ── Video Express ─────────────────────────────────────────────────────────────
+
+const execFileAsync = promisify(execFile);
+const expressUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 } });
+
+/** Per-user in-flight lock: one Video Express order processing at a time. */
+const expressInFlight = new Set<number>();
+/**
+ * Users whose express-launched generation cycle hasn't claimed a video row
+ * yet. Closes the race between firing runAutomationCycle (fire-and-forget)
+ * and the videos.status='generating' row appearing: a second order arriving
+ * in that window is queued instead of double-generating.
+ */
+const expressLaunching = new Set<number>();
+
+const EXPRESS_MIN_SECONDS = 2;
+const EXPRESS_MAX_SECONDS = 120;
+
+/** Probe audio duration (seconds) with ffprobe; returns null when unreadable. */
+async function probeAudioDuration(filePath: string): Promise<number | null> {
+  try {
+    const { stdout } = await execFileAsync("ffprobe", [
+      "-v", "error",
+      "-show_entries", "format=duration",
+      "-of", "default=noprint_wrappers=1:nokey=1",
+      filePath,
+    ], { timeout: 15_000 });
+    const dur = parseFloat(stdout.trim());
+    return Number.isFinite(dur) ? dur : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Convert an uploaded audio buffer to 16 kHz mono WAV for transcription. */
+async function convertExpressAudioToWav(inputBuffer: Buffer, ext: string): Promise<{ wav: Buffer; durationSec: number | null }> {
+  const tmpDir = os.tmpdir();
+  const id = `express_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const inputPath = path.join(tmpDir, `${id}_in${ext}`);
+  const outputPath = path.join(tmpDir, `${id}_out.wav`);
+  try {
+    await fs.promises.writeFile(inputPath, inputBuffer);
+    const durationSec = await probeAudioDuration(inputPath);
+    // -t caps decoded output so a malformed/compressed bomb can't fill disk;
+    // the process timeout caps CPU. Duration validity is enforced by caller.
+    await execFileAsync("ffmpeg", [
+      "-y", "-i", inputPath,
+      "-t", String(EXPRESS_MAX_SECONDS + 5),
+      "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
+      outputPath,
+    ], { timeout: 60_000 });
+    return { wav: await fs.promises.readFile(outputPath), durationSec };
+  } finally {
+    // The command audio is transient by design: nothing is persisted anywhere.
+    await fs.promises.unlink(inputPath).catch(() => {});
+    await fs.promises.unlink(outputPath).catch(() => {});
+  }
+}
+
+/**
+ * POST /content/express
+ *
+ * Video Express: receive a spoken order (multipart "audio"), transcribe it,
+ * interpret the editorial instructions, create a scripted content-plan item
+ * and kick off the normal generation pipeline. Available to all plans; the
+ * video bills through the normal credit lifecycle (no extra cost here).
+ */
+router.post("/content/express", (req, res, next) => {
+  expressUpload.single("audio")(req, res, (err: unknown) => {
+    if (err) {
+      const isSize = err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE";
+      res.status(isSize ? 413 : 400).json({
+        error: isSize ? "El audio supera el máximo de 16 MB." : "No se pudo recibir el audio. Inténtalo de nuevo.",
+      });
+      return;
+    }
+    next();
+  });
+}, async (req, res): Promise<void> => {
+  const userId = req.session.user!.userId;
+
+  if (!req.file || !req.file.buffer?.length) {
+    res.status(400).json({ error: "No se recibió ningún audio. Graba tu orden e inténtalo de nuevo." });
+    return;
+  }
+  const mime = req.file.mimetype ?? "";
+  if (!mime.startsWith("audio/") && !mime.startsWith("video/webm")) {
+    res.status(400).json({ error: "Formato no válido: solo se aceptan archivos de audio." });
+    return;
+  }
+
+  if (expressInFlight.has(userId)) {
+    res.status(429).json({ error: "Ya estamos procesando una orden tuya. Espera a que termine antes de enviar otra." });
+    return;
+  }
+  expressInFlight.add(userId);
+
+  try {
+    // 1 ── Normalize + validate the recording
+    const ext = path.extname(req.file.originalname || "").toLowerCase() || ".webm";
+    let wav: Buffer; let durationSec: number | null;
+    try {
+      ({ wav, durationSec } = await convertExpressAudioToWav(req.file.buffer, ext));
+    } catch (err) {
+      logger.error({ err, userId }, "[VideoExpress] Audio conversion failed");
+      res.status(400).json({ error: "No se pudo leer el audio. Graba de nuevo o sube otro archivo." });
+      return;
+    }
+    if (durationSec === null) {
+      // Unprobeable media: reject instead of trusting it (resource-abuse guard).
+      res.status(400).json({ error: "No se pudo leer el audio. Graba de nuevo o sube otro archivo." });
+      return;
+    }
+    if (durationSec < EXPRESS_MIN_SECONDS) {
+      res.status(400).json({ error: "El audio es demasiado corto. Describe qué video quieres en unos segundos." });
+      return;
+    }
+    if (durationSec > EXPRESS_MAX_SECONDS) {
+      res.status(400).json({ error: `El audio supera el máximo de ${EXPRESS_MAX_SECONDS} segundos para una orden. Grábala más breve.` });
+      return;
+    }
+
+    // 2 ── Transcribe (the WAV lives only in memory; nothing is persisted)
+    const [settings] = await db.select().from(settingsTable).where(eq(settingsTable.userId, userId)).limit(1);
+    const language = settings?.language ?? "es";
+    let transcript = "";
+    try {
+      const openai = makeOpenAIClient({ timeout: 120_000 });
+      const tr = await openai.audio.transcriptions.create({
+        model: "gpt-4o-mini-transcribe",
+        file: await toFile(wav, "orden.wav"),
+        ...(language === "es" || language === "en" ? { language } : {}),
+      });
+      transcript = (tr.text ?? "").trim();
+    } catch (err) {
+      logger.error({ err, userId }, "[VideoExpress] Transcription failed");
+      res.status(502).json({ error: "No se pudo transcribir el audio. Inténtalo de nuevo en unos minutos." });
+      return;
+    }
+    if (transcript.replace(/\s+/g, " ").length < 10) {
+      res.status(422).json({ error: "No se detectó una instrucción en el audio. Cuéntanos qué video quieres crear." });
+      return;
+    }
+
+    // 3 ── Interpret the order (topic + explicit editorial constraints)
+    let order;
+    try {
+      order = await interpretExpressOrder(transcript, language);
+    } catch (err) {
+      logger.error({ err, userId }, "[VideoExpress] Order interpretation failed");
+      res.status(502).json({ error: "No se pudo interpretar la orden. Inténtalo de nuevo." });
+      return;
+    }
+    if (!order.comprehensible || !order.topic) {
+      res.status(422).json({
+        error: order.rejection_reason ?? "No entendimos qué video quieres. Intenta describirlo con una frase como: «créame un video sobre…».",
+      });
+      return;
+    }
+
+    // 4 ── Generate the full script honoring the dictated constraints
+    const durationTarget = order.duration_seconds ?? settings?.videoDurationSeconds ?? 60;
+    const extraDirectives = [
+      ...(order.audience ? [`Dirigido a esta audiencia: ${order.audience}`] : []),
+      ...order.extra_instructions,
+    ];
+    let script;
+    try {
+      script = await generateScript(
+        order.topic,
+        settings?.niche ?? "marketing digital",
+        order.tone ?? settings?.tone ?? "casual",
+        language,
+        durationTarget,
+        {
+          customCta: order.explicit_cta ?? settings?.customCta,
+          extraDirectives,
+          nicheDescription: settings?.nicheDescription,
+          topicKeywords: (settings?.topicKeywords as string[] | null) ?? undefined,
+          offer: settings?.offer,
+          idealAudience: settings?.idealAudience,
+          uniqueValueProp: settings?.uniqueValueProp,
+          voiceStyle: settings?.voiceStyle,
+          commonObjections: settings?.commonObjections,
+        },
+      );
+    } catch (err) {
+      logger.error({ err, userId }, "[VideoExpress] Script generation failed");
+      res.status(502).json({ error: "No se pudo crear el guion. Inténtalo de nuevo en unos minutos." });
+      return;
+    }
+    // A literally dictated CTA always wins over the generated one.
+    if (order.explicit_cta) script.cta = order.explicit_cta;
+
+    // 5 ── Create the plan item, already scripted and due now
+    const [inserted] = await db
+      .insert(contentPlanItemsTable)
+      .values({
+        userId,
+        topic: order.topic,
+        hook: script.hook,
+        script: script.script,
+        cta: script.cta,
+        caption: script.caption,
+        hashtags: script.hashtags,
+        hookCandidates: script.hook_candidates?.length ? JSON.stringify(script.hook_candidates) : null,
+        hookSelectionReason: script.hook_selection_reason || null,
+        status: "scripted",
+        scheduledAt: new Date(),
+      })
+      .returning();
+
+    // 6 ── Launch generation through the normal pipeline (credits included),
+    //      or leave the item queued if another video is already generating.
+    const [alreadyGenerating] = await db
+      .select({ id: videosTable.id })
+      .from(videosTable)
+      .where(and(eq(videosTable.status, "generating"), eq(videosTable.userId, userId)))
+      .limit(1);
+
+    let launch: "generating" | "queued" = "queued";
+    let warning: string | null = null;
+
+    const estimatedCost = computeReelCreditCost(estimateDurationFromScript(script.script));
+    const isAdminUser = req.session.user!.role === "admin";
+    // Fail closed: if the credit store can't be read, queue instead of launching.
+    const enoughCredits = isAdminUser || await hasEnoughCredits(userId, estimatedCost).catch(() => false);
+
+    if (alreadyGenerating || expressLaunching.has(userId)) {
+      warning = "Ya hay un video generándose. Este quedó listo en tu plan y podrás generarlo en cuanto termine.";
+    } else if (!enoughCredits) {
+      warning = "El guion quedó guardado en tu plan, pero no tienes créditos suficientes para generar el video ahora. Recarga tu saldo y genéralo desde el plan.";
+    } else {
+      // Await the cycle (same contract as /content/:id/process): only report
+      // "generating" when a video was actually claimed and launched.
+      expressLaunching.add(userId);
+      try {
+        const result = await runAutomationCycle(userId, inserted.id);
+        if (result.success) {
+          launch = "generating";
+        } else {
+          warning = `No se pudo iniciar la generación automáticamente: ${result.message}. El guion quedó en tu plan — revisa tu configuración y genéralo desde ahí.`;
+        }
+      } catch (err) {
+        logger.error({ err, itemId: inserted.id, userId }, "[VideoExpress] runAutomationCycle failed");
+        warning = "No se pudo iniciar la generación automáticamente. El guion quedó en tu plan, listo para generar desde ahí.";
+      } finally {
+        expressLaunching.delete(userId);
+      }
+    }
+
+    res.status(201).json({
+      item: mapItem(inserted),
+      transcript,
+      status: launch,
+      warning,
+      detected: {
+        topic: order.topic,
+        explicit_cta: order.explicit_cta,
+        duration_seconds: durationTarget,
+        tone: order.tone,
+        audience: order.audience,
+      },
+    });
+  } finally {
+    expressInFlight.delete(userId);
+  }
 });
 
 router.post("/content/:id/process", async (req, res): Promise<void> => {

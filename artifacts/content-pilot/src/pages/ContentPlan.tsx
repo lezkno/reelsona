@@ -1,5 +1,6 @@
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { VideoExpressDialog } from "@/components/VideoExpressDialog"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
@@ -75,6 +76,7 @@ export default function ContentPlan() {
   const { data: settings } = useGetSettings()
   const [localEffects, setLocalEffects] = useState<VideoEffects>(DEFAULT_VIDEO_EFFECTS)
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [expressOpen, setExpressOpen] = useState(false)
   const [days, setDays] = useState(7)
   const [location, navigate] = useLocation()
 
@@ -650,6 +652,15 @@ export default function ContentPlan() {
                 ? <><Loader2 className="w-4 h-4 animate-spin" /> Analizando…</>
                 : <><Sparkles className="w-4 h-4" /> Re-analizar con estrategia</>}
             </Button>
+
+            <Button
+              variant="outline"
+              className="gap-2 border-primary/40 text-primary hover:bg-primary/10"
+              onClick={() => setExpressOpen(true)}
+            >
+              <Zap className="w-4 h-4" /> Video Express
+            </Button>
+            <VideoExpressDialog open={expressOpen} onOpenChange={setExpressOpen} />
 
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
