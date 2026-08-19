@@ -655,7 +655,7 @@ export default function ContentPlan() {
 
             <Button
               variant="outline"
-              className="gap-2 border-primary/40 text-primary hover:bg-primary/10"
+              className="gap-2 border-red-600 bg-red-600 text-white hover:border-red-700 hover:bg-red-700 hover:text-white"
               onClick={() => setExpressOpen(true)}
             >
               <Zap className="w-4 h-4" /> Video Express
