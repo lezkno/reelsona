@@ -5,7 +5,7 @@ import { users } from "./users";
 
 export const automationConfigTable = pgTable("automation_config", {
   id: serial("id").primaryKey(),
-  userId: integer("user_id").notNull().references(() => users.id),
+  userId: integer("user_id").notNull().unique().references(() => users.id),
   enabled: boolean("enabled").notNull().default(false),
   postingTimes: text("posting_times").array().notNull().default(["09:00", "18:00"]),
   daysOfWeek: integer("days_of_week").array().notNull().default([1, 2, 3, 4, 5]),
