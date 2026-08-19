@@ -130,7 +130,7 @@ export function useRetryVideo() {
         method: "POST",
       }),
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: CREDITS_BALANCE_KEY });
+      invalidateCreditState(queryClient);
       queryClient.invalidateQueries({ queryKey: ["videos"] });
     },
   });
@@ -163,12 +163,60 @@ export interface CreditsBalance {
 
 export const CREDITS_BALANCE_KEY = ["credits", "balance"] as const;
 
+/**
+ * Refresh everything that displays credit state: wallet balance, the paginated
+ * ledger history, and the billing snapshot (the header chip reads both).
+ */
+export function invalidateCreditState(qc: ReturnType<typeof useQueryClient>) {
+  qc.invalidateQueries({ queryKey: ["credits"] });     // balance + history (prefix)
+  qc.invalidateQueries({ queryKey: BILLING_QUERY_KEY });
+}
+
 /** Authenticated user's credit wallet. Accessible even when tool access is expired. */
 export function useCreditsBalance() {
   return useQuery<CreditsBalance>({
     queryKey: CREDITS_BALANCE_KEY,
     queryFn:  () => customFetch<CreditsBalance>("/api/credits/balance"),
     staleTime: 1000 * 30,
+  });
+}
+
+export interface CreditLedgerEntryRow {
+  id:          number;
+  type:        string;          // provision | reserve | consume | release | adjustment
+  amount:      number;          // signed: positive = added, negative = spent
+  description: string | null;
+  feature:     string | null;   // null = video/look/voice; 'broll' = per-image B-roll
+  videoId:     number | null;
+  createdAt:   string;
+}
+
+export interface CreditsHistoryResponse {
+  entries:  CreditLedgerEntryRow[];
+  total:    number;
+  page:     number;
+  pageSize: number;
+}
+
+export interface CreditsHistoryParams {
+  page:  number;         // 1-based
+  from?: string | null;  // ISO date (YYYY-MM-DD)
+  to?:   string | null;  // ISO date (YYYY-MM-DD), inclusive
+}
+
+export const CREDITS_HISTORY_KEY = ["credits", "history"] as const;
+
+/** Paginated credit ledger (20 per page) with optional date range filter. */
+export function useCreditsHistory(params: CreditsHistoryParams, enabled = true) {
+  const qs = new URLSearchParams({ page: String(params.page) });
+  if (params.from) qs.set("from", params.from);
+  if (params.to)   qs.set("to", params.to);
+  return useQuery<CreditsHistoryResponse>({
+    queryKey: [...CREDITS_HISTORY_KEY, params.page, params.from ?? null, params.to ?? null],
+    queryFn:  () => customFetch<CreditsHistoryResponse>(`/api/credits/history?${qs.toString()}`),
+    enabled,
+    staleTime: 0,
+    placeholderData: (prev) => prev,
   });
 }
 
@@ -272,7 +320,7 @@ export function useChangePlan() {
         body:    JSON.stringify({ targetPlan }),
       }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: BILLING_QUERY_KEY });
+      invalidateCreditState(qc);
     },
   });
 }
@@ -300,7 +348,7 @@ export function useCancelPlanChange() {
     mutationFn: () =>
       customFetch<{ success: boolean }>("/api/billing/cancel-plan-change", { method: "POST" }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: BILLING_QUERY_KEY });
+      invalidateCreditState(qc);
     },
   });
 }
@@ -339,7 +387,7 @@ export function useCancelSubscription() {
         method: "POST",
       }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: BILLING_QUERY_KEY });
+      invalidateCreditState(qc);
     },
   });
 }
@@ -376,7 +424,7 @@ export function useAdjustUserCredits() {
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ADMIN_CREDITS_KEY });
-      qc.invalidateQueries({ queryKey: CREDITS_BALANCE_KEY });
+      invalidateCreditState(qc);
       qc.invalidateQueries({ queryKey: ADMIN_ENTITLEMENTS_KEY });
     },
   });
@@ -1036,7 +1084,7 @@ export function useCreatePhotoAvatar() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       }),
-    onSettled: () => qc.invalidateQueries({ queryKey: CREDITS_BALANCE_KEY }),
+    onSettled: () => invalidateCreditState(qc),
   });
 }
 
@@ -1055,7 +1103,7 @@ export function useCreateDigitalTwinAvatar() {
         body: formData,
         // No Content-Type — browser sets multipart/form-data with boundary automatically
       }),
-    onSettled: () => qc.invalidateQueries({ queryKey: CREDITS_BALANCE_KEY }),
+    onSettled: () => invalidateCreditState(qc),
   });
 }
 
@@ -1099,7 +1147,7 @@ export function useCreateAvatarLook() {
           body: JSON.stringify({ name: data.name, prompt: data.prompt, group_id: data.group_id, pose: data.pose }),
         },
       ),
-    onSettled: () => qc.invalidateQueries({ queryKey: CREDITS_BALANCE_KEY }),
+    onSettled: () => invalidateCreditState(qc),
   });
 }
 
@@ -1139,7 +1187,7 @@ export function useHeyGenLookStatus(lookId: string | null) {
   const lookStatus = query.data?.status;
   useEffect(() => {
     if (lookStatus && lookStatus !== "processing" && lookStatus !== "pending_consent") {
-      qc.invalidateQueries({ queryKey: CREDITS_BALANCE_KEY });
+      invalidateCreditState(qc);
     }
   }, [lookStatus, qc]);
   return query;
@@ -1159,7 +1207,7 @@ export function useCloneVoice() {
         "/api/heygen/voices/clone",
         { method: "POST", body: formData },
       ),
-    onSettled: () => qc.invalidateQueries({ queryKey: CREDITS_BALANCE_KEY }),
+    onSettled: () => invalidateCreditState(qc),
   });
 }
 
@@ -1298,7 +1346,7 @@ export function useCreateWavespeedPersona() {
         },
       ),
     onSuccess: () => qc.invalidateQueries({ queryKey: WAVESPEED_PERSONAS_KEY }),
-    onSettled: () => qc.invalidateQueries({ queryKey: CREDITS_BALANCE_KEY }),
+    onSettled: () => invalidateCreditState(qc),
   });
 }
 
@@ -1321,7 +1369,7 @@ export function useWavespeedPersonaLooksStatus(personaId: number | null, enabled
   // All looks done → look credit reservations settled server-side; refresh balance
   const allDone = query.data?.allDone ?? false;
   useEffect(() => {
-    if (allDone) qc.invalidateQueries({ queryKey: CREDITS_BALANCE_KEY });
+    if (allDone) invalidateCreditState(qc);
   }, [allDone, qc]);
   return query;
 }
@@ -1345,7 +1393,7 @@ export function useCloneWavespeedVoice() {
         "/api/wavespeed/voices/clone",
         { method: "POST", body: formData },
       ),
-    onSettled: () => qc.invalidateQueries({ queryKey: CREDITS_BALANCE_KEY }),
+    onSettled: () => invalidateCreditState(qc),
   });
 }
 
@@ -1401,7 +1449,7 @@ export function useWavespeedVoiceStatus(voiceId: number | null, enabled = true) 
   const voiceStatus = query.data?.status;
   useEffect(() => {
     if (voiceStatus && voiceStatus !== "pending") {
-      qc.invalidateQueries({ queryKey: CREDITS_BALANCE_KEY });
+      invalidateCreditState(qc);
     }
   }, [voiceStatus, qc]);
   return query;
@@ -1526,7 +1574,7 @@ export function useGenerateWavespeedPersonaLooks() {
         },
       ),
     onSuccess: () => qc.invalidateQueries({ queryKey: WAVESPEED_PERSONAS_KEY }),
-    onSettled: () => qc.invalidateQueries({ queryKey: CREDITS_BALANCE_KEY }),
+    onSettled: () => invalidateCreditState(qc),
   });
 }
 

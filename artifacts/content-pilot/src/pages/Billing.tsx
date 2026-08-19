@@ -7,6 +7,7 @@
  */
 
 import { useState, useRef } from "react"
+import { Input } from "@/components/ui/input"
 import {
   useBilling,
   useChangePlan,
@@ -14,8 +15,10 @@ import {
   useOpenPortal,
   useInvoices,
   useCancelSubscription,
+  useCreditsHistory,
   type ChangePlanResult,
   type InvoiceItem,
+  type CreditLedgerEntryRow,
 } from "@workspace/api-client-react"
 import { useAuthStatus } from "@workspace/api-client-react"
 import { PlanCheckoutModal, type PlanCheckoutConfig } from "@/components/PlanCheckoutModal"
@@ -32,6 +35,7 @@ import {
   Coins, Crown, Sparkles, Zap, ArrowRight, CheckCircle2, Calendar,
   TrendingUp, TrendingDown, ShoppingBag, Infinity, RefreshCw, AlertCircle,
   Clock, ExternalLink, Loader2, Info, Receipt, CreditCard, XCircle,
+  ChevronLeft, ChevronRight, History,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useToast } from "@/hooks/use-toast"
@@ -501,6 +505,7 @@ function CreditsCard({
   const credits = data?.credits ?? {
     available: 0, subscription: 0, purchased: 0, reserved: 0, totalConsumed: 0,
   }
+  const [historyOpen, setHistoryOpen] = useState(false)
 
   return (
     <Card>
@@ -551,7 +556,24 @@ function CreditsCard({
                 <span className="text-muted-foreground">Reservados</span>
                 <span className="font-semibold tabular-nums text-muted-foreground">{credits.reserved.toLocaleString()}</span>
               </div>
+              <button
+                type="button"
+                onClick={() => setHistoryOpen(true)}
+                className="w-full flex items-center justify-between px-3 py-2.5 text-left hover:bg-muted/40 transition-colors cursor-pointer"
+                data-testid="button-credits-consumed"
+              >
+                <span className="text-muted-foreground flex items-center gap-1.5">
+                  Consumidos
+                  <History className="w-3.5 h-3.5 opacity-60" />
+                </span>
+                <span className="font-semibold tabular-nums flex items-center gap-1">
+                  {credits.totalConsumed.toLocaleString()}
+                  <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
+                </span>
+              </button>
             </div>
+
+            <CreditsHistoryDialog open={historyOpen} onOpenChange={setHistoryOpen} />
 
             {/* No-plan + purchased credits: saved-credits notice */}
             {!hasActiveSub && credits.purchased > 0 && (
@@ -567,6 +589,182 @@ function CreditsCard({
         )}
       </CardContent>
     </Card>
+  )
+}
+
+// ── Credits history dialog ────────────────────────────────────────────────────
+
+const LEDGER_TYPE_LABEL: Record<string, string> = {
+  provision:  "Acreditación",
+  reserve:    "Reserva",
+  consume:    "Consumo",
+  release:    "Devolución",
+  adjustment: "Ajuste",
+}
+
+function ledgerDescription(e: CreditLedgerEntryRow): string {
+  if (e.description) return e.description
+  const base = LEDGER_TYPE_LABEL[e.type] ?? e.type
+  if (e.feature === "broll") return `${base} — B-roll AI`
+  if (e.videoId != null) return `${base} — video #${e.videoId}`
+  return base
+}
+
+function CreditsHistoryDialog({
+  open,
+  onOpenChange,
+}: {
+  open:         boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const [page, setPage] = useState(1)
+  const [from, setFrom] = useState("")
+  const [to, setTo]     = useState("")
+
+  // Convert bare YYYY-MM-DD inputs to the user's LOCAL day boundaries as ISO
+  // instants, so the server filter matches the calendar dates the user sees.
+  const fromInstant = from ? new Date(`${from}T00:00:00`).toISOString() : null
+  const toInstant   = to   ? new Date(`${to}T23:59:59.999`).toISOString() : null
+
+  const { data, isLoading, isError } = useCreditsHistory(
+    { page, from: fromInstant, to: toInstant },
+    open,
+  )
+
+  const total      = data?.total ?? 0
+  const pageSize   = data?.pageSize ?? 20
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+
+  const setDateFilter = (setter: (v: string) => void) => (e: React.ChangeEvent<HTMLInputElement>) => {
+    setter(e.target.value)
+    setPage(1)
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-2xl max-h-[85vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <History className="w-4 h-4 text-primary" />
+            Historial de créditos
+          </DialogTitle>
+          <DialogDescription>
+            Cada movimiento de tu saldo: acreditaciones, reservas, consumos y devoluciones.
+          </DialogDescription>
+        </DialogHeader>
+
+        {/* Date range filter */}
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground" htmlFor="history-from">Desde</label>
+            <Input
+              id="history-from"
+              type="date"
+              value={from}
+              onChange={setDateFilter(setFrom)}
+              className="h-8 w-[150px]"
+              data-testid="input-history-from"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground" htmlFor="history-to">Hasta</label>
+            <Input
+              id="history-to"
+              type="date"
+              value={to}
+              onChange={setDateFilter(setTo)}
+              className="h-8 w-[150px]"
+              data-testid="input-history-to"
+            />
+          </div>
+          {(from || to) && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 text-xs"
+              onClick={() => { setFrom(""); setTo(""); setPage(1) }}
+              data-testid="button-history-clear-filter"
+            >
+              Limpiar filtro
+            </Button>
+          )}
+        </div>
+
+        {/* Entries */}
+        <div className="flex-1 overflow-y-auto min-h-[200px]">
+          {isLoading ? (
+            <div className="space-y-2 py-2">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <Skeleton key={i} className="h-11 w-full" />
+              ))}
+            </div>
+          ) : isError ? (
+            <div className="flex flex-col items-center gap-2 py-10 text-center">
+              <AlertCircle className="w-6 h-6 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">No pudimos cargar el historial. Intenta de nuevo.</p>
+            </div>
+          ) : !data?.entries.length ? (
+            <div className="flex flex-col items-center gap-2 py-10 text-center">
+              <Receipt className="w-6 h-6 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">
+                {from || to ? "Sin movimientos en el rango seleccionado." : "Aún no tienes movimientos de créditos."}
+              </p>
+            </div>
+          ) : (
+            <div className="divide-y divide-border rounded-lg border overflow-hidden">
+              {data.entries.map((e) => (
+                <div key={e.id} className="flex items-center justify-between gap-3 px-3 py-2.5 text-sm" data-testid={`row-history-${e.id}`}>
+                  <div className="min-w-0">
+                    <p className="truncate">{ledgerDescription(e)}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {new Intl.DateTimeFormat("es-MX", { dateStyle: "medium", timeStyle: "short" }).format(new Date(e.createdAt))}
+                    </p>
+                  </div>
+                  <span className={cn(
+                    "font-semibold tabular-nums shrink-0",
+                    e.amount > 0 ? "text-emerald-500" : e.amount < 0 ? "text-foreground" : "text-muted-foreground",
+                  )}>
+                    {e.amount > 0 ? "+" : ""}{e.amount.toLocaleString()}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Pagination */}
+        <div className="flex items-center justify-between pt-1">
+          <p className="text-xs text-muted-foreground" data-testid="text-history-pagination">
+            {total > 0
+              ? `${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, total)} de ${total.toLocaleString()}`
+              : "0 movimientos"}
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8"
+              disabled={page <= 1 || isLoading}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              data-testid="button-history-prev"
+            >
+              <ChevronLeft className="w-4 h-4" /> Anterior
+            </Button>
+            <span className="text-xs text-muted-foreground tabular-nums">{page} / {totalPages}</span>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8"
+              disabled={page >= totalPages || isLoading}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              data-testid="button-history-next"
+            >
+              Siguiente <ChevronRight className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 

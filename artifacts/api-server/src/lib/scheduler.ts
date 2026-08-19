@@ -1576,10 +1576,29 @@ export async function runCaptionProcessing(
       "[Scheduler] Using Browser Caption Engine (experimental)",
     );
 
-    // Parse stored template overrides JSON (set via Caption Studio advanced settings)
+    // Parse stored template overrides JSON (set via Caption Studio advanced settings).
+    // Current format is a map keyed by template id; older installs stored one
+    // flat override object, which remains supported for backwards compatibility.
     let parsedTemplateOverrides: Partial<import("@workspace/caption-templates").CaptionTemplate> | undefined;
     if (captionCfg.templateOverrides) {
-      try { parsedTemplateOverrides = JSON.parse(captionCfg.templateOverrides); } catch { /* ignore malformed */ }
+      try {
+        const parsed: unknown = JSON.parse(captionCfg.templateOverrides);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          const raw = parsed as Record<string, unknown>;
+          const { BROWSER_CAPTION_TEMPLATES } = await import("@workspace/caption-templates");
+          const isPerTemplateMap = Object.keys(raw).some((key) =>
+            BROWSER_CAPTION_TEMPLATES.some((template) => template.id === key),
+          );
+          if (isPerTemplateMap) {
+            const selected = raw[effectiveTemplateId];
+            parsedTemplateOverrides = selected && typeof selected === "object" && !Array.isArray(selected)
+              ? selected as Partial<import("@workspace/caption-templates").CaptionTemplate>
+              : undefined;
+          } else {
+            parsedTemplateOverrides = raw as Partial<import("@workspace/caption-templates").CaptionTemplate>;
+          }
+        }
+      } catch { /* ignore malformed JSON */ }
     }
     const browserResult = await applyCaptionsBrowser(videoUrl, script, effectiveTemplateId, {
       subtitleUrl:          resolvedSubtitleUrl ?? undefined,

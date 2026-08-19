@@ -20,7 +20,7 @@ import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
 import {
   Camera, CameraOff, Upload, Loader2, CheckCircle2, Image as ImageIcon, Mic,
-  Square, Sparkles, X, RefreshCw, AlertCircle, ChevronRight,
+  Square, Sparkles, X, RefreshCw, AlertCircle, ChevronRight, Play, Pause,
 } from "lucide-react"
 import {
   useCreateWavespeedPersona,
@@ -149,6 +149,7 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
   const [voiceDbId, setVoiceDbId] = useState<number | null>(null)
   const [voiceName, setVoiceName] = useState("Mi voz")
   const [assigning, setAssigning] = useState(false)
+  const [regeneratingVoice, setRegeneratingVoice] = useState(false)
 
   // "record" = grab new audio; "existing" = pick an already-cloned voice
   const [voiceMode, setVoiceMode] = useState<"record" | "existing">("record")
@@ -170,7 +171,10 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
   const [reached30s, setReached30s] = useState(false)
   const [audioQuality, setAudioQuality] = useState<AudioQualityResult | null>(null)
   const [analyzingAudio, setAnalyzingAudio] = useState(false)
+  const [recordedAudioUrl, setRecordedAudioUrl] = useState<string | null>(null)
+  const [isPreviewPlaying, setIsPreviewPlaying] = useState(false)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const previewAudioRef = useRef<HTMLAudioElement | null>(null)
   const audioChunksRef = useRef<BlobPart[]>([])
   const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const audioStreamRef = useRef<MediaStream | null>(null)
@@ -222,8 +226,28 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
       stopWebcam()
       if (recordTimerRef.current) clearInterval(recordTimerRef.current)
       audioStreamRef.current?.getTracks().forEach((t) => t.stop())
+      if (previewAudioRef.current) previewAudioRef.current.pause()
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Keep one object URL for the recorded sample so the confirmation step can
+  // play it without uploading the audio a second time.
+  useEffect(() => {
+    if (!recordedBlob) {
+      setRecordedAudioUrl(null)
+      return
+    }
+    const url = URL.createObjectURL(recordedBlob)
+    setRecordedAudioUrl(url)
+    setIsPreviewPlaying(false)
+    return () => {
+      URL.revokeObjectURL(url)
+      if (previewAudioRef.current) {
+        previewAudioRef.current.pause()
+        previewAudioRef.current.currentTime = 0
+      }
+    }
+  }, [recordedBlob])
 
   // Attach the acquired stream to the <video> element after it mounts.
   // startWebcam() only acquires the MediaStream and sets webcamActive=true;
@@ -484,6 +508,40 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
     }
   }
 
+  /** Re-submit the same recording from the confirmation step for a new clone. */
+  const handleRegenerateVoice = async () => {
+    if (!recordedBlob || !voiceName.trim() || cloneVoice.isPending || regeneratingVoice) return
+    const fd = new FormData()
+    fd.append("audio", recordedBlob, "voice.webm")
+    fd.append("name", voiceName.trim())
+    setRegeneratingVoice(true)
+    try {
+      const result = await cloneVoice.mutateAsync(fd)
+      setVoiceDbId(result.voiceId)
+      toast({
+        title: "Regenerando tu voz",
+        description: "La nueva versión se está procesando. La anterior sigue disponible mientras tanto.",
+      })
+    } catch (err: any) {
+      toast({ title: "No se pudo regenerar la voz", description: err.message, variant: "destructive" })
+    } finally {
+      setRegeneratingVoice(false)
+    }
+  }
+
+  const togglePreviewAudio = () => {
+    const audio = previewAudioRef.current
+    if (!audio || !recordedAudioUrl) return
+    if (audio.paused) {
+      audio.play().then(() => setIsPreviewPlaying(true)).catch(() => {
+        toast({ title: "No se pudo reproducir la grabación", variant: "destructive" })
+      })
+    } else {
+      audio.pause()
+      setIsPreviewPlaying(false)
+    }
+  }
+
   const handleUseExistingVoice = () => {
     if (!selectedExistingVoiceId) return
     const voice = readyVoices.find((v) => v.id === selectedExistingVoiceId)
@@ -495,8 +553,8 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
   // ── Final assignment ────────────────────────────────────────────────────────
 
   const voiceStatus = voiceStatusQuery.data
-  const voiceReady = voiceStatus?.status === "ready"
-  const voiceFailed = voiceStatus?.status === "failed"
+  const voiceReady = !regeneratingVoice && voiceStatus?.status === "ready"
+  const voiceFailed = !regeneratingVoice && voiceStatus?.status === "failed"
 
   const handleCreateAvatar = async () => {
     if (!voiceReady || !voiceDbId) return
@@ -507,7 +565,7 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
         await patchLook.mutateAsync({ id: lookId, config: { voiceId: voiceDbId, selected: true } })
       }
       queryClient.invalidateQueries({ queryKey: WAVESPEED_PERSONAS_KEY })
-      toast({ title: "¡Avatar AI creado!", description: "Ya puedes usar tus looks en la generación de videos." })
+      toast({ title: "¡Avatar creado!", description: "Ya puedes usar tus looks en la generación de videos." })
       onCreated()
     } catch (err: any) {
       toast({ title: "Error al guardar el avatar", description: err.message, variant: "destructive" })
@@ -1078,7 +1136,75 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
             </div>
           </div>
 
-          {/* Voice status */}
+           {/* Recorded voice preview and regeneration */}
+           {recordedAudioUrl && (
+             <div className="rounded-lg border border-primary/20 bg-primary/[0.03] px-4 py-3 space-y-2.5">
+               <div className="flex items-center justify-between gap-3">
+                 <div className="min-w-0">
+                   <p className="text-sm font-medium">Escucha tu grabación</p>
+                   <p className="text-xs text-muted-foreground">Comprueba tu voz antes de guardarla.</p>
+                 </div>
+                 <Button
+                   type="button"
+                   variant="outline"
+                   size="icon"
+                   onClick={togglePreviewAudio}
+                   aria-label={isPreviewPlaying ? "Pausar grabación" : "Reproducir grabación"}
+                   title={isPreviewPlaying ? "Pausar grabación" : "Reproducir grabación"}
+                   className="shrink-0 rounded-full"
+                   data-testid="button-preview-recorded-voice"
+                 >
+                   {isPreviewPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
+                 </Button>
+               </div>
+               <audio
+                 ref={previewAudioRef}
+                 src={recordedAudioUrl}
+                 preload="metadata"
+                 className="hidden"
+                 onEnded={() => setIsPreviewPlaying(false)}
+                 onPause={() => setIsPreviewPlaying(false)}
+               />
+               <div className="flex flex-wrap gap-2">
+                 <Button
+                   type="button"
+                   variant="outline"
+                   size="sm"
+                   onClick={() => {
+                     setRecordedBlob(null)
+                     setAudioQuality(null)
+                     setRecordSeconds(0)
+                     setReached30s(false)
+                     setStep("voice")
+                   }}
+                   disabled={regeneratingVoice || cloneVoice.isPending}
+                   className="gap-1.5"
+                   data-testid="button-rerecord-voice"
+                 >
+                   <RefreshCw className="w-3.5 h-3.5" /> Grabar de nuevo
+                 </Button>
+                 <Button
+                   type="button"
+                   variant="outline"
+                   size="sm"
+                   onClick={handleRegenerateVoice}
+                   disabled={regeneratingVoice || cloneVoice.isPending || voiceStatus?.status === "pending"}
+                   className="gap-1.5"
+                   data-testid="button-regenerate-voice"
+                 >
+                   {regeneratingVoice
+                     ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                     : <RefreshCw className="w-3.5 h-3.5" />}
+                   {regeneratingVoice ? "Regenerando…" : "Regenerar voz"}
+                 </Button>
+               </div>
+               <p className="text-[11px] text-muted-foreground">
+                 Regenerar crea una nueva voz y puede requerir créditos adicionales.
+               </p>
+             </div>
+           )}
+
+           {/* Voice status */}
           <div className={`rounded-lg border px-4 py-3 flex items-center gap-3 ${voiceReady ? "border-emerald-400/40 bg-emerald-50 dark:bg-emerald-950/20" : voiceFailed ? "border-destructive/40 bg-destructive/5" : "border-border"}`}>
             {voiceReady ? (
               <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
@@ -1105,7 +1231,7 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
             <div>
               <p className="text-sm font-medium">Voz: {voiceName || "—"}</p>
               <p className="text-xs text-muted-foreground">
-                {voiceReady ? "Lista para usar" : voiceFailed ? (voiceStatus?.errorMessage ?? "Error desconocido") : "Procesando clonación…"}
+                 {regeneratingVoice ? "Regenerando clonación…" : voiceReady ? "Lista para usar" : voiceFailed ? (voiceStatus?.errorMessage ?? "Error desconocido") : "Procesando clonación…"}
               </p>
             </div>
           </div>
@@ -1115,11 +1241,11 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
           <Button variant="outline" onClick={onClose} disabled={assigning}>Cancelar</Button>
           <Button
             onClick={handleCreateAvatar}
-            disabled={!voiceReady || assigning}
+             disabled={!voiceReady || assigning || regeneratingVoice}
             className="gap-2"
           >
             {assigning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
-            {assigning ? "Guardando…" : "Crear Avatar"}
+             {assigning ? "Guardando…" : "Guardar Avatar"}
           </Button>
         </DialogFooter>
       </>

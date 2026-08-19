@@ -10,6 +10,13 @@ description: Canvas-based caption renderer using @napi-rs/canvas. Key quirks, fi
 - Falls back to ASS/FFmpeg on any failure
 - Shared `CaptionTemplate` type drives both CaptionStudio WYSIWYG preview and server-side canvas renderer
 
+## Per-template override persistence
+Caption Studio stores advanced style changes as a JSON map keyed by template ID, rather than one global override object. The scheduler must resolve the map entry for the template selected for the current render (including rotation) before passing it to the browser renderer; if that entry is absent, use the template default. Continue accepting the former flat override shape for existing users.
+
+**Why:** Passing the entire map into a template spread silently ignores the intended `fontSize`, `wordsPerLine`, and style fields, and can apply another template's data in edge cases.
+
+**How to apply:** Any new render path that calls the browser caption engine must resolve `templateOverrides[effectiveTemplateId]` first. UI saves must retain the complete map so switching templates never discards another template's settings.
+
 ## Word-wrap fix (Aug 2026)
 **Problem:** `renderCueFrame` drew all words on a single horizontal line. The React preview uses CSS `flex-wrap: wrap` on a 250px container, causing 5 words to visually appear on 2 rows. The canvas rendered all 5 words in a single line — when long words exceeded available width (VIDEO_WIDTH − 2×marginX = 972px at 1080px wide), text overflowed the right margin.
 

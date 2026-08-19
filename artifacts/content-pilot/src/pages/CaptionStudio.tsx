@@ -1491,6 +1491,11 @@ export default function CaptionStudio() {
   const [premiumOpen, setPremiumOpen] = useState(false)
 
   const [local, setLocal] = useState<Partial<CaptionConfig>>({})
+  // Refs hold the newest values for saving when the user immediately switches
+  // template or leaves the page before React has completed another render.
+  const localRef = useRef<Partial<CaptionConfig>>({})
+  const hasHydratedConfigRef = useRef(false)
+  const dirtyRef = useRef(false)
   const [captionsEnabled, setCaptionsEnabled] = useState(false)
   // autoCoverEnabled removed — brand cover AI is discontinued
   const [videoEffects, setVideoEffects] = useState<VideoEffects>({ zoom: false, ai_broll: false, text_cards: false })
@@ -1509,6 +1514,7 @@ export default function CaptionStudio() {
   // remembers its own tweaks independently. Saved to DB as a JSON string in
   // caption_config.template_overrides. Auto-saved on every change (debounced).
   const [allTmplOverrides, setAllTmplOverrides] = useState<Record<string, Partial<CaptionTemplate>>>({})
+  const overridesRef = useRef<Record<string, Partial<CaptionTemplate>>>({})
   const overrideSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // ── Multi-card config state (for text_cards effect) ─────────────────────
@@ -1569,7 +1575,9 @@ export default function CaptionStudio() {
   }, [])
 
   useEffect(() => {
-    if (config && Object.keys(local).length === 0) {
+    if (config && !hasHydratedConfigRef.current) {
+      hasHydratedConfigRef.current = true
+      localRef.current = config
       setLocal(config)
       // Restore rotation state
       const savedIds = (config.selected_preset_ids as string[] | null) ?? []
@@ -1586,10 +1594,13 @@ export default function CaptionStudio() {
             const knownIds = new Set(BROWSER_CAPTION_TEMPLATES.map((t) => t.id))
             const isMap = Object.keys(parsed).some((k) => knownIds.has(k))
             if (isMap) {
+              overridesRef.current = parsed
               setAllTmplOverrides(parsed)
             } else if (config.template_id) {
               // Old flat format (pre-migration) — assign to current template
-              setAllTmplOverrides({ [config.template_id]: parsed })
+              const migrated = { [config.template_id]: parsed }
+              overridesRef.current = migrated
+              setAllTmplOverrides(migrated)
             }
           }
         }
@@ -1646,7 +1657,12 @@ export default function CaptionStudio() {
   }
 
   const set = <K extends keyof CaptionConfig>(key: K, value: CaptionConfig[K]) => {
-    setLocal((prev) => ({ ...prev, [key]: value }))
+    setLocal((prev) => {
+      const next = { ...prev, [key]: value }
+      localRef.current = next
+      return next
+    })
+    dirtyRef.current = true
     setDirty(true)
   }
 
@@ -1669,11 +1685,23 @@ export default function CaptionStudio() {
     return (currentOverrides[key] ?? activeTmpl?.[key]) as CaptionTemplate[K]
   }
 
-  // Auto-save the full overrides map to DB (debounced 400ms)
+  // Auto-save the full overrides map to DB (debounced 400ms). The map is
+  // written as a whole so every template keeps an independent saved profile.
   const saveOverridesToDB = (nextMap: Record<string, Partial<CaptionTemplate>>) => {
+    overridesRef.current = nextMap
+    // Keep the full configuration snapshot coherent for an immediate page exit
+    // or a template switch while the debounced request is still pending.
+    localRef.current = {
+      ...localRef.current,
+      template_overrides: JSON.stringify(nextMap),
+    }
     if (overrideSaveTimer.current) clearTimeout(overrideSaveTimer.current)
     overrideSaveTimer.current = setTimeout(() => {
-      updateConfig.mutate({ data: { template_overrides: JSON.stringify(nextMap) } as any })
+      overrideSaveTimer.current = null
+      updateConfig.mutate(
+        { data: { template_overrides: JSON.stringify(nextMap) } as any },
+        { onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetCaptionConfigQueryKey() }) },
+      )
     }, 400)
   }
 
@@ -1681,45 +1709,78 @@ export default function CaptionStudio() {
     if (planLocked) { setPremiumOpen(true); return }
     if (!activeTmpl) return
     const tid = activeTmpl.id
-    setAllTmplOverrides((prev) => {
-      const next = { ...prev, [tid]: { ...prev[tid], [key]: val } }
-      saveOverridesToDB(next)
-      return next
-    })
+    const next = { ...overridesRef.current, [tid]: { ...overridesRef.current[tid], [key]: val } }
+    overridesRef.current = next
+    setAllTmplOverrides(next)
+    saveOverridesToDB(next)
   }
 
   const resetOverrides = () => {
     if (planLocked) { setPremiumOpen(true); return }
     if (!activeTmpl) return
     const tid = activeTmpl.id
-    setAllTmplOverrides((prev) => {
-      const next = { ...prev }
-      delete next[tid]
-      saveOverridesToDB(next)
-      return next
-    })
+    const next = { ...overridesRef.current }
+    delete next[tid]
+    overridesRef.current = next
+    setAllTmplOverrides(next)
+    saveOverridesToDB(next)
   }
+
+  // Persist a last pending change during navigation or refresh. `keepalive`
+  // lets the request finish even after the page begins to unload.
+  useEffect(() => {
+    return () => {
+      const pendingOverrides = overrideSaveTimer.current
+      if (pendingOverrides) {
+        clearTimeout(pendingOverrides)
+        overrideSaveTimer.current = null
+        void fetch("/api/captions/config", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ template_overrides: JSON.stringify(overridesRef.current) }),
+          keepalive: true,
+        })
+      }
+      if (dirtyRef.current) {
+        void fetch("/api/captions/config", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(localRef.current),
+          keepalive: true,
+        })
+      }
+    }
+  }, [])
 
   // Auto-save when a Browser Template is selected.
   // Preserves the full overrides map so each template's tweaks survive switching.
   const applyBrowserTemplate = (template: CaptionTemplate) => {
     if (planLocked) { setPremiumOpen(true); return }
+    // The active slider can have a debounced write pending. Include its newest
+    // value in this atomic template-switch save instead of relying on timing.
+    if (overrideSaveTimer.current) {
+      clearTimeout(overrideSaveTimer.current)
+      overrideSaveTimer.current = null
+    }
     const update: Partial<CaptionConfig> = {
       caption_engine:     "browser_experimental",
       template_id:        template.id,
       // Preserve the full map — switching templates must not erase other templates' overrides
-      template_overrides: Object.keys(allTmplOverrides).length > 0
-        ? JSON.stringify(allTmplOverrides)
+      template_overrides: Object.keys(overridesRef.current).length > 0
+        ? JSON.stringify(overridesRef.current)
         : null as any,
       // Mirror template colors → ASS fallback will use the right palette
       primary_color:      template.primaryColor,
       active_word_color:  template.activeWordColor,
       outline_color:      template.outlineColor,
     }
-    setLocal((prev) => ({ ...prev, ...update }))
+    const nextLocal = { ...localRef.current, ...update }
+    localRef.current = nextLocal
+    setLocal(nextLocal)
+    dirtyRef.current = false
     setDirty(false)
     setSavingPresetId(template.id)
-    updateConfig.mutate({ data: update as any }, {
+    updateConfig.mutate({ data: nextLocal as any }, {
       onSuccess: () => {
         setSavingPresetId(null)
         queryClient.invalidateQueries({ queryKey: getGetCaptionConfigQueryKey() })
@@ -1758,10 +1819,13 @@ export default function CaptionStudio() {
     // Switch back to standard engine when selecting a standard preset
     update.caption_engine = "standard"
     update.template_id    = null
-    setLocal((prev) => ({ ...prev, ...update }))
+    const nextLocal = { ...localRef.current, ...update }
+    localRef.current = nextLocal
+    setLocal(nextLocal)
+    dirtyRef.current = false
     setDirty(false)
     setSavingPresetId(preset.id)
-    updateConfig.mutate({ data: update as any }, {
+    updateConfig.mutate({ data: nextLocal as any }, {
       onSuccess: () => {
         setSavingPresetId(null)
         queryClient.invalidateQueries({ queryKey: getGetCaptionConfigQueryKey() })
@@ -1776,8 +1840,9 @@ export default function CaptionStudio() {
 
   const handleSave = () => {
     if (planLocked) { setPremiumOpen(true); return }
-    updateConfig.mutate({ data: local as any }, {
+    updateConfig.mutate({ data: localRef.current as any }, {
       onSuccess: () => {
+        dirtyRef.current = false
         setDirty(false)
         queryClient.invalidateQueries({ queryKey: getGetCaptionConfigQueryKey() })
         toast({ title: "Configuración guardada", description: "La configuración avanzada de captions está lista." })
