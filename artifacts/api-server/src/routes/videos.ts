@@ -379,13 +379,18 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
     })
     .catch(async (err) => {
       const error = err instanceof Error ? err.message : String(err);
-      await db.update(videosTable).set({ status: "failed", errorMessage: error, updatedAt: new Date() })
+      logger.error({ err, videoId: videoRow.id, contentPlanId: item.id }, "[VideoGeneration] Submission failed");
+      await db.update(videosTable).set({
+        status: "failed",
+        errorMessage: "No se pudo iniciar la generación del video. Intenta de nuevo.",
+        updatedAt: new Date(),
+      })
         .where(and(eq(videosTable.id, videoRow.id), eq(videosTable.userId, userId)));
       await db.update(contentPlanItemsTable).set({ status: "failed", updatedAt: new Date() })
         .where(and(eq(contentPlanItemsTable.id, item.id), eq(contentPlanItemsTable.userId, userId)));
       // Release reserved credits on immediate submission failure
       if (!isAdminUser) {
-        releaseVideoCredits(videoRow.id, `Fallo al enviar al proveedor: ${error}`).catch((creditErr) =>
+        releaseVideoCredits(videoRow.id, "Fallo al iniciar la generación").catch((creditErr) =>
           logger.error({ videoId: videoRow.id, creditErr }, "[Credits] release failed after submission error"),
         );
       }

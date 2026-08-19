@@ -200,7 +200,7 @@ router.post("/wavespeed/personas", async (req, res) => {
   const userId = requireAuth(req, res);
   if (!userId) return;
   if (!isWavespeedConfigured()) {
-    res.status(503).json({ error: "WaveSpeed not configured" });
+    res.status(503).json({ error: "La creación de avatares no está disponible temporalmente." });
     return;
   }
 
@@ -348,7 +348,7 @@ router.post("/wavespeed/personas", async (req, res) => {
     res.json({ persona: { id: persona.id, name: persona.name }, looks: lookRows });
   } catch (err: any) {
     req.log.error({ err }, "[WaveSpeed] Failed to create persona");
-    res.status(500).json({ error: err.message ?? "Internal error" });
+    res.status(500).json({ error: "No se pudo crear el avatar. Intenta de nuevo en unos minutos." });
   }
 });
 
@@ -480,7 +480,7 @@ router.get("/wavespeed/personas/:id/looks/status", async (req, res) => {
           } else if (result.status === "failed") {
             req.log.error({ lookId: look.id, error: result.error }, "[WaveSpeed] Look job failed");
             cfg.generationStatus = "failed";
-            cfg.errorMessage = result.error ?? "Generation failed";
+            cfg.errorMessage = "No se pudo generar este look. Intenta crear otro.";
             const newConfig = JSON.stringify(cfg);
             await db
               .update(wavespeedLooksTable)
@@ -508,7 +508,7 @@ router.get("/wavespeed/personas/:id/looks/status", async (req, res) => {
     res.json({ looks: updated, allDone });
   } catch (err: any) {
     req.log.error({ err }, "[WaveSpeed] Failed to poll look status");
-    res.status(500).json({ error: err.message ?? "Internal error" });
+    res.status(500).json({ error: "No se pudo actualizar el estado del avatar. Intenta de nuevo." });
   }
 });
 
@@ -730,7 +730,11 @@ router.get("/wavespeed/voices/:id/status", async (req, res) => {
     } else if (result.status === "failed") {
       const [u] = await db
         .update(wavespeedVoicesTable)
-        .set({ status: "failed", errorMessage: result.error ?? "Unknown error", updatedAt: new Date() })
+        .set({
+          status: "failed",
+          errorMessage: "No se pudo procesar la voz. Intenta crearla de nuevo.",
+          updatedAt: new Date(),
+        })
         .where(and(eq(wavespeedVoicesTable.id, voiceId), eq(wavespeedVoicesTable.userId, userId)))
         .returning();
       updated = u;

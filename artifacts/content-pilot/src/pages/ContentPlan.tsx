@@ -349,7 +349,10 @@ export default function ContentPlan() {
               },
               onError: (err: any) => {
                 setPendingGenerateId(null)
-                const msg = err?.data?.error ?? "No se pudo iniciar la generación del video."
+                const rawMessage = err?.data?.error
+                const msg = typeof rawMessage === "string" && /\b(heygen|wavespeed)\b/i.test(rawMessage)
+                  ? "No se pudo iniciar la generación del video. Intenta de nuevo en unos minutos."
+                  : rawMessage ?? "No se pudo iniciar la generación del video."
                 toast({ title: "Error al generar video", description: msg, variant: "destructive" })
                 queryClient.invalidateQueries({ queryKey: getGetContentPlanQueryKey() })
               },

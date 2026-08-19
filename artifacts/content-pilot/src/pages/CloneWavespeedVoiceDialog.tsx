@@ -245,8 +245,8 @@ export function CloneWavespeedVoiceDialog({ open, onClose, onCloned }: Props) {
       queryClient.invalidateQueries({ queryKey: ["wavespeed", "voices"] })
       toast({ title: "¡Voz enviada!", description: "Tu voz está siendo procesada. Te avisamos cuando esté lista." })
       onCloned()
-    } catch (err: any) {
-      toast({ title: "Error al clonar la voz", description: err.message, variant: "destructive" })
+    } catch {
+      toast({ title: "Error al clonar la voz", description: "No se pudo iniciar la clonación de voz. Intenta de nuevo.", variant: "destructive" })
     }
   }
 

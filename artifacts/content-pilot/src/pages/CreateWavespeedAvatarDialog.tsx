@@ -360,8 +360,8 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
     try {
       const objectPath = await uploadToObjectStorage(blob, name, contentType)
       setReferenceObjectPath(objectPath)
-    } catch (err: any) {
-      toast({ title: "Error al subir la foto", description: err.message, variant: "destructive" })
+    } catch {
+      toast({ title: "Error al subir la foto", description: "No se pudo cargar la imagen. Intenta de nuevo.", variant: "destructive" })
       setReferencePreviewUrl(null)
     } finally {
       setUploadingPhoto(false)
@@ -389,8 +389,8 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
       })
       setPersonaId(result.persona.id)
       setStep("generating")
-    } catch (err: any) {
-      toast({ title: "Error al crear el avatar", description: err.message, variant: "destructive" })
+    } catch {
+      toast({ title: "Error al crear el avatar", description: "No se pudo iniciar la creación del avatar. Intenta de nuevo.", variant: "destructive" })
     }
   }
 
@@ -503,8 +503,8 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
       const result = await cloneVoice.mutateAsync(fd)
       setVoiceDbId(result.voiceId)
       setStep("done")
-    } catch (err: any) {
-      toast({ title: "Error al clonar la voz", description: err.message, variant: "destructive" })
+    } catch {
+      toast({ title: "Error al clonar la voz", description: "No se pudo iniciar la clonación de voz. Intenta de nuevo.", variant: "destructive" })
     }
   }
 
@@ -522,8 +522,8 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
         title: "Regenerando tu voz",
         description: "La nueva versión se está procesando. La anterior sigue disponible mientras tanto.",
       })
-    } catch (err: any) {
-      toast({ title: "No se pudo regenerar la voz", description: err.message, variant: "destructive" })
+    } catch {
+      toast({ title: "No se pudo regenerar la voz", description: "No se pudo iniciar una nueva versión de la voz. Intenta de nuevo.", variant: "destructive" })
     } finally {
       setRegeneratingVoice(false)
     }
@@ -567,8 +567,8 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
       queryClient.invalidateQueries({ queryKey: WAVESPEED_PERSONAS_KEY })
       toast({ title: "¡Avatar creado!", description: "Ya puedes usar tus looks en la generación de videos." })
       onCreated()
-    } catch (err: any) {
-      toast({ title: "Error al guardar el avatar", description: err.message, variant: "destructive" })
+    } catch {
+      toast({ title: "Error al guardar el avatar", description: "No se pudieron guardar los cambios del avatar. Intenta de nuevo.", variant: "destructive" })
     } finally {
       setAssigning(false)
     }
@@ -1231,7 +1231,7 @@ export function CreateWavespeedAvatarDialog({ onClose, onCreated }: Props) {
             <div>
               <p className="text-sm font-medium">Voz: {voiceName || "—"}</p>
               <p className="text-xs text-muted-foreground">
-                 {regeneratingVoice ? "Regenerando clonación…" : voiceReady ? "Lista para usar" : voiceFailed ? (voiceStatus?.errorMessage ?? "Error desconocido") : "Procesando clonación…"}
+                 {regeneratingVoice ? "Regenerando clonación…" : voiceReady ? "Lista para usar" : voiceFailed ? "No se pudo procesar la voz. Intenta crearla de nuevo." : "Procesando clonación…"}
               </p>
             </div>
           </div>

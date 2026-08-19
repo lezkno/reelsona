@@ -2792,8 +2792,8 @@ function CreateNewLookDialog({
       toast({ title: "Generando look…", description: "Aparecerá en la cuadrícula en unos segundos." })
       onGenerated()
       onClose()
-    } catch (err: any) {
-      toast({ title: "Error al generar look", description: err.message, variant: "destructive" })
+    } catch {
+      toast({ title: "Error al generar look", description: "No se pudo generar el look. Intenta de nuevo.", variant: "destructive" })
     }
   }
 
@@ -4595,7 +4595,7 @@ export default function Avatars() {
                           {v.status === "pending"
                             ? "Clonando voz con AI…"
                             : v.status === "failed"
-                              ? (v.errorMessage ?? "El procesamiento falló — intenta clonar de nuevo")
+                              ? "No se pudo procesar la voz — intenta clonar de nuevo"
                               : "Toca para asignar a avatares →"
                           }
                         </p>

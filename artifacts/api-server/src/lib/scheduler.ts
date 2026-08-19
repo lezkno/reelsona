@@ -1431,12 +1431,16 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
 
     // Release reserved credits so the user can retry without losing their balance.
     if (!isAdmin) {
-      await releaseVideoCredits(videoRow.id, `Generación fallida al enviar: ${error}`).catch((creditErr) =>
+      await releaseVideoCredits(videoRow.id, "Generación no iniciada").catch((creditErr) =>
         logger.error({ creditErr, videoId: videoRow.id }, "[Credits] Release falló después de error en generación")
       );
     }
 
-    await db.update(videosTable).set({ status: "failed", errorMessage: error, updatedAt: new Date() }).where(eq(videosTable.id, videoRow.id));
+    await db.update(videosTable).set({
+      status: "failed",
+      errorMessage: "No se pudo iniciar la generación del video. Intenta de nuevo.",
+      updatedAt: new Date(),
+    }).where(eq(videosTable.id, videoRow.id));
 
     // Rate-limit: item goes back to 'scripted' so the next automation cycle retries it.
     // All other errors: item goes to 'failed' and requires manual intervention.
@@ -2515,7 +2519,11 @@ export async function pollAndPublishVideos(): Promise<void> {
         logger.error({ videoId: video.id, stage, requestId, wsError }, "[WaveSpeed] Error en polling");
         await db
           .update(videosTable)
-          .set({ status: "failed", errorMessage: wsError, updatedAt: new Date() })
+          .set({
+            status: "failed",
+            errorMessage: "No se pudo completar la generación del video. Intenta de nuevo.",
+            updatedAt: new Date(),
+          })
           .where(eq(videosTable.id, video.id));
         if (video.contentPlanId) {
           await db
@@ -2523,7 +2531,7 @@ export async function pollAndPublishVideos(): Promise<void> {
             .set({ status: "scripted", updatedAt: new Date() }) // retryable
             .where(eq(contentPlanItemsTable.id, video.contentPlanId));
         }
-        await releaseVideoCredits(video.id, `WaveSpeed fallo: ${wsError}`).catch((err) =>
+        await releaseVideoCredits(video.id, "Generación de video fallida").catch((err) =>
           logger.error({ videoId: video.id, err }, "[Credits][WaveSpeed] Release falló en error de polling")
         );
       }
@@ -2648,10 +2656,15 @@ export async function pollAndPublishVideos(): Promise<void> {
         const providerError = status.error ?? "Error desconocido en la generación";
         await db
           .update(videosTable)
-          .set({ status: "failed", errorMessage: providerError, updatedAt: new Date() })
+          .set({
+            status: "failed",
+            errorMessage: "No se pudo completar la generación del video. Intenta de nuevo.",
+            updatedAt: new Date(),
+          })
           .where(eq(videosTable.id, video.id));
 
-        await releaseVideoCredits(video.id, `Fallo en generación: ${providerError}`).catch((err) =>
+        logger.error({ videoId: video.id, providerError }, "[VideoGeneration] Provider reported a failure");
+        await releaseVideoCredits(video.id, "Generación de video fallida").catch((err) =>
           logger.error({ videoId: video.id, err }, "[Credits] Release falló tras fallo en generación")
         );
 
@@ -3184,7 +3197,11 @@ async function pollPendingWavespeedVoices(): Promise<void> {
         } else if (result.status === "failed") {
           await db
             .update(wavespeedVoicesTable)
-            .set({ status: "failed", errorMessage: result.error ?? "WaveSpeed reported failure", updatedAt: now })
+            .set({
+              status: "failed",
+              errorMessage: "No se pudo procesar la voz. Intenta crearla de nuevo.",
+              updatedAt: now,
+            })
             .where(eq(wavespeedVoicesTable.id, voice.id));
           await releaseVoiceCredits(voice.id, "wavespeed", "WaveSpeed voice clone failed").catch((err) =>
             logger.warn({ err, id: voice.id }, "[WSVoicePoller] releaseVoiceCredits failed"),
