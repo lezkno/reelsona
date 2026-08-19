@@ -1,12 +1,10 @@
 /**
- * Serve captioned videos — two routes, both auth-free (Instagram fetches these
- * without a session cookie when processing media containers):
+ * Serve Reelsona media stored in Object Storage or the legacy /tmp caption dir.
  *
- * GET /api/captioned/:filename         — legacy /tmp-based files (FFmpeg ASS engine)
- * GET /api/captioned-objects/:objectName — GCS Object Storage files (browser engine)
- *
- * This router is mounted in app.ts BEFORE requireAuth / requireToolAccess so that
- * external services (Instagram, CDNs) can always reach the video files.
+ * These app-proxy URLs are for authenticated Reelsona users only. External
+ * services such as Instagram must receive short-lived signed GCS URLs instead
+ * of using this proxy. Session middleware is mounted before this router in
+ * app.ts, even though requireAuth itself is mounted later.
  */
 import { Router } from "express";
 import path from "path";
@@ -16,17 +14,19 @@ import { objectStorageClient } from "../lib/objectStorage";
 
 const router = Router();
 
-// ── GCS Object Storage (browser caption engine) ──────────────────────────────
-// router.use strips the mount prefix, so req.path here is "/<objectName>"
+function hasAuthenticatedSession(req: any): boolean {
+  return Boolean(req.session?.authenticated && req.session?.user?.userId);
+}
+
+// ── GCS Object Storage (browser caption engine / persisted provider assets) ──
 router.use("/captioned-objects", async (req, res, next): Promise<void> => {
   if (req.method !== "GET") { next(); return; }
-  // req.path = "/captioned-videos/file.mp4" → strip leading slash
-  const objectName = req.path.replace(/^\//, "");
+  if (!hasAuthenticatedSession(req)) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
 
-  // Security: only serve objects in explicitly allowed namespaces.
-  // captioned-videos/ — browser caption engine output videos
-  // voice-audio/ is intentionally NOT listed here — those files are only accessed
-  // by HeyGen via short-lived signed GCS URLs, never through this public proxy.
+  const objectName = req.path.replace(/^\//, "");
   const ALLOWED_NAMESPACES = ["captioned-videos/", "raw-videos/", "thumbnails/", "subtitles/"];
   if (
     !objectName ||
@@ -46,7 +46,7 @@ router.use("/captioned-objects", async (req, res, next): Promise<void> => {
 
   try {
     const bucket = objectStorageClient.bucket(bucketId);
-    const file   = bucket.file(objectName);
+    const file = bucket.file(objectName);
     const [exists] = await file.exists();
     if (!exists) {
       res.status(404).json({ error: "Not found" });
@@ -54,19 +54,23 @@ router.use("/captioned-objects", async (req, res, next): Promise<void> => {
     }
     const [metadata] = await file.getMetadata();
     const contentType = (metadata.contentType as string) || "video/mp4";
-    const fileSize    = Number(metadata.size) || 0;
+    const fileSize = Number(metadata.size) || 0;
 
     res.setHeader("Content-Type", contentType);
-    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.setHeader("Cache-Control", "private, max-age=86400");
     res.setHeader("Accept-Ranges", "bytes");
 
     const rangeHeader = req.headers.range;
     if (rangeHeader && fileSize) {
-      // Proper 206 Partial Content — required for HTML5 video seeking in all browsers
       const [startStr, endStr] = rangeHeader.replace(/bytes=/, "").split("-");
-      const start   = parseInt(startStr, 10);
-      const end     = endStr ? parseInt(endStr, 10) : fileSize - 1;
-      const chunk   = end - start + 1;
+      const start = parseInt(startStr, 10);
+      const end = endStr ? parseInt(endStr, 10) : fileSize - 1;
+      if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end < start || end >= fileSize) {
+        res.status(416).setHeader("Content-Range", `bytes */${fileSize}`);
+        res.end();
+        return;
+      }
+      const chunk = end - start + 1;
       res.status(206);
       res.setHeader("Content-Length", chunk);
       res.setHeader("Content-Range", `bytes ${start}-${end}/${fileSize}`);
@@ -82,7 +86,12 @@ router.use("/captioned-objects", async (req, res, next): Promise<void> => {
 
 // ── /tmp legacy files (ASS/FFmpeg caption engine) ────────────────────────────
 router.get("/captioned/:filename", (req, res): void => {
-  const filename = path.basename(req.params.filename); // prevent path traversal
+  if (!hasAuthenticatedSession(req)) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+
+  const filename = path.basename(req.params.filename);
   if (!filename.endsWith(".mp4")) {
     res.status(400).json({ error: "Invalid file" });
     return;
@@ -100,21 +109,24 @@ router.get("/captioned/:filename", (req, res): void => {
 
   res.setHeader("Content-Type", "video/mp4");
   res.setHeader("Accept-Ranges", "bytes");
-  res.setHeader("Cache-Control", "public, max-age=3600");
+  res.setHeader("Cache-Control", "private, max-age=3600");
 
   if (rangeHeader) {
-    // Partial content for Range requests (required for Instagram uploads)
     const [startStr, endStr] = rangeHeader.replace("bytes=", "").split("-");
     const start = parseInt(startStr, 10);
     const end = endStr ? parseInt(endStr, 10) : fileSize - 1;
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end < start || end >= fileSize) {
+      res.status(416).setHeader("Content-Range", `bytes */${fileSize}`);
+      res.end();
+      return;
+    }
     const chunkSize = end - start + 1;
 
     res.status(206);
     res.setHeader("Content-Length", chunkSize);
     res.setHeader("Content-Range", `bytes ${start}-${end}/${fileSize}`);
 
-    const stream = fs.createReadStream(filePath, { start, end });
-    stream.pipe(res);
+    fs.createReadStream(filePath, { start, end }).pipe(res);
   } else {
     res.setHeader("Content-Length", fileSize);
     fs.createReadStream(filePath).pipe(res);
