@@ -4,7 +4,10 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [main, codex/prod-hardening]
+    branches:
+      - main
+      - codex/prod-hardening
+      - 'audit/**'
 
 concurrency:
   group: validate-${{ github.ref }}
