@@ -181,8 +181,8 @@ router.get("/strategy/radar/suggestions", requirePlanAccess(PRO_PLANS), async (r
   const userId = req.session.user!.userId;
   const [settingsRow] = await db.select().from(settingsTable)
     .where(eq(settingsTable.userId, userId)).limit(1);
-  if (!settingsRow?.niche) {
-    res.json({ suggestions: [] });
+  if (!settingsRow?.niche?.trim()) {
+    res.status(400).json({ error: "Completa el nicho en Ajustes para recibir recomendaciones de cuentas." });
     return;
   }
   try {
@@ -190,7 +190,7 @@ router.get("/strategy/radar/suggestions", requirePlanAccess(PRO_PLANS), async (r
     const existing = await db.select({ igUsername: nicheRadarAccountsTable.igUsername })
       .from(nicheRadarAccountsTable)
       .where(eq(nicheRadarAccountsTable.userId, userId));
-    const excludeList = existing.map((r) => r.igUsername);
+    const excludeList = existing.map((r) => r.igUsername.toLowerCase());
 
     const client = makeOpenAIClient();
     const language = settingsRow.language ?? "es";
@@ -226,15 +226,39 @@ Devuelve SOLO un JSON:
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
     });
-    const parsed = JSON.parse(result.choices[0]?.message?.content ?? "{}");
-    // Extra safety: strip any that sneak through matching existing accounts
-    const filtered = (parsed.suggestions ?? []).filter(
-      (s: { ig_username: string }) => !excludeList.includes(s.ig_username?.toLowerCase())
-    );
+    const parsed = JSON.parse(result.choices[0]?.message?.content ?? "{}") as { suggestions?: unknown };
+    const rawSuggestions: unknown[] = Array.isArray(parsed.suggestions) ? parsed.suggestions : [];
+    // Keep only usable usernames and never return an account already in the radar.
+    const filtered = rawSuggestions
+      .flatMap((suggestion): Array<{
+        ig_username: string;
+        reason: string;
+        approximate_followers: string;
+        content_type: string;
+      }> => {
+        if (!suggestion || typeof suggestion !== "object") return [];
+        const candidate = suggestion as Record<string, unknown>;
+        return [{
+          ig_username: String(candidate.ig_username ?? "").trim().replace(/^@/, "").toLowerCase(),
+          reason: String(candidate.reason ?? "").trim(),
+          approximate_followers: String(candidate.approximate_followers ?? "").trim(),
+          content_type: String(candidate.content_type ?? "").trim(),
+        }];
+      })
+      .filter((suggestion) =>
+        /^[a-z0-9._]{1,30}$/i.test(suggestion.ig_username) &&
+        !excludeList.includes(suggestion.ig_username)
+      );
+
+    if (filtered.length === 0) {
+      logger.warn({ userId, niche: settingsRow.niche }, "Radar suggestions returned no usable accounts");
+      res.status(502).json({ error: "No se pudieron generar recomendaciones de cuentas ahora. Intenta nuevamente." });
+      return;
+    }
     res.json({ suggestions: filtered });
   } catch (err) {
     logger.error({ err }, "Failed to get radar suggestions");
-    res.json({ suggestions: [] });
+    res.status(502).json({ error: "No se pudieron generar recomendaciones de cuentas ahora. Intenta nuevamente." });
   }
 });
 

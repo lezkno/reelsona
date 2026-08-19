@@ -850,7 +850,11 @@ export function useGetRadarSuggestions() {
   return useQuery<{ suggestions: RadarSuggestion[] }>({
     queryKey: RADAR_SUGGESTIONS_KEY,
     queryFn:  () => customFetch<{ suggestions: RadarSuggestion[] }>("/api/strategy/radar/suggestions"),
-    staleTime: 1000 * 60 * 30,
+    // Suggestions are generated dynamically. A previous empty or partial result
+    // should not keep the user waiting half an hour before a fresh attempt.
+    staleTime: 1000 * 60 * 5,
+    refetchOnMount: true,
+    retry: 1,
   });
 }
 

@@ -208,7 +208,13 @@ function TabCuenta({ profile, onNext }: { profile: StrategyProfile | null; onNex
 // ── Tab: Radar de Nicho ───────────────────────────────────────────────────────
 function TabRadar() {
   const { data: accountsData, isLoading: loadingAccounts } = useGetRadarAccounts()
-  const { data: suggestionsData, isLoading: loadingSuggestions, refetch: refetchSuggestions } = useGetRadarSuggestions()
+  const {
+    data: suggestionsData,
+    isLoading: loadingSuggestions,
+    isFetching: fetchingSuggestions,
+    isError: suggestionsError,
+    refetch: refetchSuggestions,
+  } = useGetRadarSuggestions()
   const addAccount   = useAddRadarAccount()
   const updateAccount = useUpdateRadarAccount()
   const deleteAccount = useDeleteRadarAccount()
@@ -411,8 +417,22 @@ function TabRadar() {
         </h3>
         {loadingSuggestions ? (
           <div className="space-y-2">{[1,2,3].map(i => <Skeleton key={i} className="h-14 rounded-xl" />)}</div>
+        ) : suggestionsError ? (
+          <div className="flex flex-col items-center gap-2 py-4 text-center border-2 border-dashed rounded-xl">
+            <p className="text-sm text-muted-foreground">No se pudieron cargar las recomendaciones de cuentas.</p>
+            <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={() => refetchSuggestions()} disabled={fetchingSuggestions}>
+              {fetchingSuggestions ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+              Reintentar
+            </Button>
+          </div>
         ) : suggestions.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No se pudieron generar sugerencias. Verifica que el nicho esté configurado en Ajustes.</p>
+          <div className="flex flex-col items-center gap-2 py-4 text-center border-2 border-dashed rounded-xl">
+            <p className="text-sm text-muted-foreground">No hay recomendaciones nuevas por ahora. Verifica que tu nicho esté configurado en Ajustes.</p>
+            <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={() => refetchSuggestions()} disabled={fetchingSuggestions}>
+              {fetchingSuggestions ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+              Buscar recomendaciones
+            </Button>
+          </div>
         ) : (
           <div className="space-y-2">
             {suggestions
