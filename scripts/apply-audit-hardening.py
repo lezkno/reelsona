@@ -30,7 +30,11 @@ replace_exact(
     "  for (const v of stuckVideos) {\n    if (!v.videoUrl) continue;\n    if (automation?.captionsEnabled) {\n",
     "  for (const v of stuckVideos) {\n    if (!v.videoUrl) continue;\n    const [videoAutomation] = await db\n      .select({ captionsEnabled: automationConfigTable.captionsEnabled })\n      .from(automationConfigTable)\n      .where(eq(automationConfigTable.userId, v.userId))\n      .limit(1);\n    if (videoAutomation?.captionsEnabled) {\n",
 )
-replace_exact(scheduler, "  if (automation?.enabled && automation?.autoPublish) {\n", "  {\n")
+replace_exact(
+    scheduler,
+    "  // ── Auto-publish all ready videos when automation + auto_publish are on ──\n  // Only publish when both caption AND copy are in a terminal state so the\n  // Instagram description is ready before the post goes live.\n  if (automation?.enabled && automation?.autoPublish) {\n",
+    "  // ── Auto-publish ready videos using each owner's automation config ─────\n  // Only publish when both caption AND copy are terminal.\n  {\n",
+)
 replace_exact(
     scheduler,
     "    for (const video of readyVideos) {\n      if (video.scheduledPublishAt) continue; // handled in the scheduled sweep above\n\n",
