@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { captionConfigTable, videosTable, contentPlanItemsTable, settingsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { getVideoStatus } from "../lib/heygen";
 import {
   GetCaptionPresetsResponse,
@@ -11,6 +11,7 @@ import {
 } from "@workspace/api-zod";
 import { CAPTION_PRESETS } from "../lib/caption-engine";
 import { renderDiagnosticFrame, isBrowserEngineAvailable, applyCaptionsBrowser, BROWSER_CAPTION_TEMPLATES } from "../lib/browser-caption-engine";
+import { acquireCaptionProcessingLease, resetCaptionProcessingForReapply } from "../lib/scheduler";
 
 const router = Router();
 
@@ -218,6 +219,7 @@ router.get("/captions/browser/preview-frame", async (req, res): Promise<void> =>
  * Used for testing new templates without going through the full automation cycle.
  */
 router.post("/videos/:id/recaption", async (req, res): Promise<void> => {
+  const userId = req.session.user!.userId;
   const id = Number(req.params.id);
   if (!id || isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
 
@@ -227,11 +229,12 @@ router.post("/videos/:id/recaption", async (req, res): Promise<void> => {
   const [video] = await db
     .select()
     .from(videosTable)
-    .where(eq(videosTable.id, id))
+    .where(and(eq(videosTable.id, id), eq(videosTable.userId, userId)))
     .limit(1);
 
   if (!video) { res.status(404).json({ error: "Video not found" }); return; }
   if (!video.videoUrl) { res.status(400).json({ error: "Video has no videoUrl" }); return; }
+  const videoUrl = video.videoUrl;
 
   // ── 1. Fetch script from linked content plan item ──────────────────────────
   let script: string | null = null;
@@ -259,6 +262,20 @@ router.post("/videos/:id/recaption", async (req, res): Promise<void> => {
   }
 
   const hasSRT = !!subtitleUrl;
+  // Browser-template recaptioning is still a caption job: make its result
+  // eligible only when no live scheduler/manual renderer owns the video, then
+  // acquire the same fenced lease used by runCaptionProcessing.
+  const requeued = await resetCaptionProcessingForReapply(id);
+  if (!requeued) {
+    res.status(409).json({ error: "Captions are already processing for this video" });
+    return;
+  }
+  const lease = await acquireCaptionProcessingLease(id);
+  if (!lease) {
+    res.status(409).json({ error: "Captions are already processing for this video" });
+    return;
+  }
+
   res.json({
     message: hasSRT
       ? "Rendering con SRT de HeyGen — sincronía exacta con la voz…"
@@ -268,18 +285,25 @@ router.post("/videos/:id/recaption", async (req, res): Promise<void> => {
     hasSRT,
   });
 
-  // Fire-and-forget: render captions and save URL
-  applyCaptionsBrowser(video.videoUrl, script, template_id, {
-    subtitleUrl:          subtitleUrl ?? undefined,
-    videoDurationSeconds: video.durationSeconds ?? undefined,
-  }).then(async (result) => {
-    if (result.url) {
-      await db
-        .update(videosTable)
-        .set({ captionedVideoUrl: result.url, captionStatus: "done", updatedAt: new Date() })
-        .where(eq(videosTable.id, id));
+  // Fire-and-forget: render captions and finish only if this request still
+  // owns the lease. A recovered/reapplied worker cannot be overwritten.
+  void (async () => {
+    try {
+      const result = await applyCaptionsBrowser(videoUrl, script, template_id, {
+        subtitleUrl:          subtitleUrl ?? undefined,
+        videoDurationSeconds: video.durationSeconds ?? undefined,
+      });
+      await lease.finish(
+        result.url
+          ? { captionStatus: "done", captionedVideoUrl: result.url }
+          : { captionStatus: "failed" },
+      );
+    } catch {
+      await lease.finish({ captionStatus: "failed" }).catch(() => {});
+    } finally {
+      lease.stop();
     }
-  }).catch(() => { /* logged inside applyCaptionsBrowser */ });
+  })();
 });
 
 /**

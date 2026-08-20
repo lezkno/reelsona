@@ -1,6 +1,7 @@
 import cron from "node-cron";
 import nodePath from "path";
 import nodeFs from "fs";
+import { randomUUID } from "node:crypto";
 import { execFile } from "child_process";
 import { promisify } from "util";
 
@@ -79,6 +80,14 @@ const autoFillInFlight = new Set<number>(); // userId
 // multiple items fail in the same automation cycle. Resets on process restart.
 const failureAlertsSent = new Map<number, number>(); // userId → timestamp ms
 const FAILURE_ALERT_COOLDOWN_MS = 60 * 60 * 1000; // 1 h
+
+// ── Caption-processing lease ────────────────────────────────────────────────
+// Caption rendering can take several minutes when it includes zoom, B-roll,
+// and FFmpeg compositing. `captionStatus` plus `updatedAt` act as a durable
+// lease so a scheduler recovery tick cannot start a second renderer while the
+// original renderer is still alive.
+const CAPTION_PROCESSING_LEASE_MS = 10 * 60 * 1000; // 10 min
+const CAPTION_PROCESSING_HEARTBEAT_MS = 60 * 1000; // 1 min
 
 // ── WaveSpeed context ─────────────────────────────────────────────────────────
 
@@ -1492,6 +1501,199 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
 }
 
 /**
+ * Atomically claims a caption job that has not started yet, or whose previous
+ * renderer's lease expired. A concurrent caller sees the fresh updatedAt value
+ * from the winner and skips the work instead of running duplicate effects.
+ */
+async function claimCaptionProcessing(videoId: number): Promise<string | null> {
+  const now = new Date();
+  const leaseExpiredAt = new Date(now.getTime() - CAPTION_PROCESSING_LEASE_MS);
+  const leaseId = randomUUID();
+  const claimed = await db
+    .update(videosTable)
+    .set({ captionStatus: "processing", captionProcessingLeaseId: leaseId, updatedAt: now })
+    .where(
+      and(
+        eq(videosTable.id, videoId),
+        or(
+          isNull(videosTable.captionStatus),
+          and(
+            eq(videosTable.captionStatus, "processing"),
+            lte(videosTable.updatedAt, leaseExpiredAt),
+          ),
+        ),
+      ),
+    )
+    .returning({ id: videosTable.id });
+
+  return claimed[0] ? leaseId : null;
+}
+
+/**
+ * Keeps a claimed caption job recoverable after a process crash, but prevents
+ * the recovery sweep from treating a long-running, healthy renderer as stale.
+ */
+function startCaptionProcessingHeartbeat(videoId: number, leaseId: string): () => void {
+  let active = true;
+  let heartbeatInFlight = false;
+  let timer: NodeJS.Timeout | undefined;
+  const heartbeat = async (): Promise<void> => {
+    if (!active || heartbeatInFlight) return;
+    heartbeatInFlight = true;
+    try {
+      const renewed = await db
+        .update(videosTable)
+        .set({ updatedAt: new Date() })
+        .where(and(
+          eq(videosTable.id, videoId),
+          eq(videosTable.captionStatus, "processing"),
+          eq(videosTable.captionProcessingLeaseId, leaseId),
+        ))
+        .returning({ id: videosTable.id });
+
+      if (!renewed[0]) {
+        active = false;
+        if (timer) clearInterval(timer);
+        logger.warn(
+          { videoId },
+          "[CaptionEngine] Caption-processing lease was claimed by another worker — stopping heartbeat",
+        );
+      }
+    } catch (err) {
+      logger.warn({ videoId, err }, "[CaptionEngine] Failed to renew processing lease");
+    } finally {
+      heartbeatInFlight = false;
+    }
+  };
+
+  timer = setInterval(() => {
+    void heartbeat();
+  }, CAPTION_PROCESSING_HEARTBEAT_MS);
+  timer.unref();
+
+  return () => {
+    active = false;
+    clearInterval(timer);
+  };
+}
+
+/**
+ * Only the worker that owns the current lease may make caption processing
+ * terminal. This fences a renderer that resumes after recovery claimed its
+ * expired lease, so it cannot overwrite the newer renderer's output.
+ */
+async function finishCaptionProcessing(
+  videoId: number,
+  leaseId: string,
+  completion: {
+    captionStatus: "done" | "failed";
+    captionedVideoUrl?: string;
+    thumbnailUrl?: string;
+  },
+): Promise<boolean> {
+  const completed = await db
+    .update(videosTable)
+    .set({
+      captionStatus: completion.captionStatus,
+      captionProcessingLeaseId: null,
+      ...(completion.captionedVideoUrl && { captionedVideoUrl: completion.captionedVideoUrl }),
+      ...(completion.thumbnailUrl && { thumbnailUrl: completion.thumbnailUrl }),
+      updatedAt: new Date(),
+    })
+    .where(and(
+      eq(videosTable.id, videoId),
+      eq(videosTable.captionStatus, "processing"),
+      eq(videosTable.captionProcessingLeaseId, leaseId),
+    ))
+    .returning({ id: videosTable.id });
+
+  if (!completed[0]) {
+    logger.warn(
+      { videoId },
+      "[CaptionEngine] Skipped terminal update because this worker no longer owns the caption-processing lease",
+    );
+    return false;
+  }
+
+  return true;
+}
+
+export interface CaptionProcessingLease {
+  finish: (completion: {
+    captionStatus: "done" | "failed";
+    captionedVideoUrl?: string;
+    thumbnailUrl?: string;
+  }) => Promise<boolean>;
+  stop: () => void;
+}
+
+/**
+ * Acquires the fenced caption-processing lease used by every rendering entry
+ * point, including scheduler recovery and manual browser-template re-renders.
+ */
+export async function acquireCaptionProcessingLease(videoId: number): Promise<CaptionProcessingLease | null> {
+  const leaseId = await claimCaptionProcessing(videoId);
+  if (!leaseId) return null;
+
+  return {
+    finish: (completion) => finishCaptionProcessing(videoId, leaseId, completion),
+    stop: startCaptionProcessingHeartbeat(videoId, leaseId),
+  };
+}
+
+/**
+ * Safely makes an existing caption result eligible for a new manual render.
+ * A live worker's lease can never be reset to null by a second entry point.
+ */
+export async function resetCaptionProcessingForReapply(
+  videoId: number,
+  videoEffects?: object | null,
+): Promise<boolean> {
+  const leaseExpiredAt = new Date(Date.now() - CAPTION_PROCESSING_LEASE_MS);
+  const reset = await db
+    .update(videosTable)
+    .set({
+      captionStatus: null,
+      captionProcessingLeaseId: null,
+      captionedVideoUrl: null,
+      ...(videoEffects !== undefined && { videoEffects }),
+      updatedAt: new Date(),
+    })
+    .where(and(
+      eq(videosTable.id, videoId),
+      or(
+        isNull(videosTable.captionStatus),
+        inArray(videosTable.captionStatus as any, ["done", "failed", "disabled"]),
+        and(
+          eq(videosTable.captionStatus, "processing"),
+          lte(videosTable.updatedAt, leaseExpiredAt),
+        ),
+      ),
+    ))
+    .returning({ id: videosTable.id });
+
+  return reset.length > 0;
+}
+
+/**
+ * Marks captions disabled only while no renderer has claimed the video. The
+ * completion poller may have read a null status before a manual reapply starts,
+ * so this must compare the current state again at write time.
+ */
+async function markCaptionsDisabledIfUnstarted(videoId: number): Promise<boolean> {
+  const updated = await db
+    .update(videosTable)
+    .set({ captionStatus: "disabled", captionProcessingLeaseId: null, updatedAt: new Date() })
+    .where(and(
+      eq(videosTable.id, videoId),
+      isNull(videosTable.captionStatus),
+    ))
+    .returning({ id: videosTable.id });
+
+  return updated.length > 0;
+}
+
+/**
  * Apply Caption Studio processing to a single video row.
  * Uses the video's stored URL + the linked content-item script.
  * subtitleUrl is optional — if absent (e.g. recovery after restart) the engine
@@ -1506,6 +1708,17 @@ export async function runCaptionProcessing(
   /** When true, forces ai_broll=false so B-roll is NOT regenerated on reapply paths. */
   skipBroll = false,
 ): Promise<void> {
+  // Claim before querying config or starting any rendering. This is a
+  // compare-and-set: a concurrent scheduler/manual/recovery call can only
+  // proceed when caption_status is null or the prior lease is genuinely stale.
+  const lease = await acquireCaptionProcessingLease(videoId);
+  if (!lease) {
+    logger.info({ videoId }, "[CaptionEngine] Caption job already claimed by another processor — skipping");
+    return;
+  }
+
+  const stopHeartbeat = lease.stop;
+  try {
   // Look up the video's stored effects AND the persisted HeyGen subtitle URL
   const [videoRow] = await db
     .select({ videoEffects: videosTable.videoEffects, heygenSubtitleUrl: videosTable.heygenSubtitleUrl, userId: videosTable.userId })
@@ -1545,16 +1758,10 @@ export async function runCaptionProcessing(
     : await db.select().from(captionConfigTable).limit(1);
   if (!captionCfg) {
     // Fix 2: no config → mark failed instead of silently leaving captionStatus=null
-    await db.update(videosTable)
-      .set({ captionStatus: "failed", updatedAt: new Date() })
-      .where(eq(videosTable.id, videoId));
+    await lease.finish({ captionStatus: "failed" });
     logger.warn({ videoId }, "[CaptionEngine] No caption config found — marking as failed");
     return;
   }
-
-  await db.update(videosTable)
-    .set({ captionStatus: "processing", updatedAt: new Date() })
-    .where(eq(videosTable.id, videoId));
 
   let script: string | null = null;
   let visualSuggestions: string | null = null;
@@ -1654,23 +1861,21 @@ export async function runCaptionProcessing(
     });
 
     if (browserResult.url) {
-      await db
-        .update(videosTable)
-        .set({
-          captionedVideoUrl: browserResult.url,
-          captionStatus: "done",
-          // Save generated thumbnail when available (e.g. WaveSpeed videos that
-          // have no HeyGen-supplied thumbnail_url after generation)
-          ...(browserResult.thumbnailUrl && { thumbnailUrl: browserResult.thumbnailUrl }),
-          updatedAt: new Date(),
-        })
-        .where(eq(videosTable.id, videoId));
-      logger.info({ videoId }, "[BrowserEngine] Captioned video ready ✓");
-      // Trigger IG copy generation (fire-and-forget)
-      if (contentPlanId) {
-        runCopyGeneration(contentPlanId).catch((err) =>
-          logger.error({ videoId, contentPlanId, err }, "[CopyEngine] Failed to start copy generation (browser engine path)")
-        );
+      const finalized = await lease.finish({
+        captionStatus: "done",
+        captionedVideoUrl: browserResult.url,
+        // Save generated thumbnail when available (e.g. WaveSpeed videos that
+        // have no HeyGen-supplied thumbnail_url after generation)
+        thumbnailUrl: browserResult.thumbnailUrl ?? undefined,
+      });
+      if (finalized) {
+        logger.info({ videoId }, "[BrowserEngine] Captioned video ready ✓");
+        // Trigger IG copy generation (fire-and-forget)
+        if (contentPlanId) {
+          runCopyGeneration(contentPlanId).catch((err) =>
+            logger.error({ videoId, contentPlanId, err }, "[CopyEngine] Failed to start copy generation (browser engine path)")
+          );
+        }
       }
       return;
     }
@@ -1723,6 +1928,7 @@ export async function runCaptionProcessing(
     subtleRotation: captionCfg.subtleRotation,
   };
 
+  let finalized = false;
   try {
     const captionResult = await applyCaptions(videoUrl, script, style, {
       subtitleUrl: resolvedSubtitleUrl ?? undefined,
@@ -1735,28 +1941,30 @@ export async function runCaptionProcessing(
     });
 
     if (captionResult.url) {
-      await db.update(videosTable)
-        .set({ captionedVideoUrl: captionResult.url, captionStatus: "done", updatedAt: new Date() })
-        .where(eq(videosTable.id, videoId));
-      logger.info({ videoId }, "[CaptionEngine] Captioned video ready");
+      finalized = await lease.finish({
+        captionStatus: "done",
+        captionedVideoUrl: captionResult.url,
+      });
+      if (finalized) logger.info({ videoId }, "[CaptionEngine] Captioned video ready");
     } else {
-      await db.update(videosTable)
-        .set({ captionStatus: "failed", updatedAt: new Date() })
-        .where(eq(videosTable.id, videoId));
-      logger.warn({ videoId, error: captionResult.error }, "[CaptionEngine] Failed — using original video");
+      finalized = await lease.finish({ captionStatus: "failed" });
+      if (finalized) {
+        logger.warn({ videoId, error: captionResult.error }, "[CaptionEngine] Failed — using original video");
+      }
     }
   } catch (captionErr) {
     logger.error({ videoId, captionErr }, "[CaptionEngine] Unexpected error — using original video");
-    await db.update(videosTable)
-      .set({ captionStatus: "failed", updatedAt: new Date() })
-      .where(eq(videosTable.id, videoId)).catch(() => {});
+    finalized = await lease.finish({ captionStatus: "failed" }).catch(() => false);
   }
 
   // ── Trigger IG copy generation after captions (success or fail) ──────────
-  if (contentPlanId) {
+  if (contentPlanId && finalized) {
     runCopyGeneration(contentPlanId).catch((err) =>
       logger.error({ videoId, contentPlanId, err }, "[CopyEngine] Failed to start copy generation after captions")
     );
+  }
+  } finally {
+    stopHeartbeat();
   }
 }
 
@@ -2187,7 +2395,7 @@ export async function pollAndPublishVideos(): Promise<void> {
   //   2. captionStatus=processing AND updated_at stale >10 min — server was restarted
   //      mid-processing and the job will never finish on its own.
   // subtitle_url is no longer available so the engine uses proportional-SRT fallback.
-  const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+  const tenMinutesAgo = new Date(Date.now() - CAPTION_PROCESSING_LEASE_MS);
   const stuckVideos = await db
     .select()
     .from(videosTable)
@@ -2211,7 +2419,10 @@ export async function pollAndPublishVideos(): Promise<void> {
       .where(eq(automationConfigTable.userId, v.userId))
       .limit(1);
     if (videoAutomation?.captionsEnabled) {
-      // Captions are still on — run (or re-run) caption processing.
+      // Captions are still on — claim and run (or re-run) caption processing.
+      // runCaptionProcessing performs the compare-and-set itself, so a renderer
+      // that refreshed its heartbeat after this SELECT wins and this recovery
+      // attempt exits without launching duplicate B-roll/effects work.
       // Wrap in a 12-minute timeout so a hung AI image call
       // never blocks the entire polling loop indefinitely.
       logger.info({ videoId: v.id }, "[CaptionEngine] Recovery: re-processing stuck caption");
@@ -2235,8 +2446,17 @@ export async function pollAndPublishVideos(): Promise<void> {
       logger.info({ videoId: v.id }, "[CaptionEngine] Recovery: captions now disabled — marking video as disabled to unblock publish");
       await db
         .update(videosTable)
-        .set({ captionStatus: "disabled", updatedAt: new Date() })
-        .where(eq(videosTable.id, v.id))
+        .set({ captionStatus: "disabled", captionProcessingLeaseId: null, updatedAt: new Date() })
+        .where(and(
+          eq(videosTable.id, v.id),
+          or(
+            isNull(videosTable.captionStatus),
+            and(
+              eq(videosTable.captionStatus, "processing"),
+              lte(videosTable.updatedAt, tenMinutesAgo),
+            ),
+          ),
+        ))
         .catch((err) => logger.error({ videoId: v.id, err }, "[CaptionEngine] Recovery: failed to mark as disabled"));
     }
   }
@@ -2582,11 +2802,8 @@ export async function pollAndPublishVideos(): Promise<void> {
               if (videoAutomation?.captionsEnabled) {
                 await runCaptionProcessing(video.id, persistent.videoUrl, video.contentPlanId ?? null, srtUrl ?? null, undefined);
               } else {
-                await db
-                  .update(videosTable)
-                  .set({ captionStatus: "disabled", updatedAt: new Date() })
-                  .where(eq(videosTable.id, video.id));
-                if (video.contentPlanId) {
+                const captionsDisabled = await markCaptionsDisabledIfUnstarted(video.id);
+                if (captionsDisabled && video.contentPlanId) {
                   runCopyGeneration(video.contentPlanId).catch((err) =>
                     logger.error({ videoId: video.id, contentPlanId: video.contentPlanId, err }, "[CopyEngine][WaveSpeed] Failed to start copy generation")
                   );
@@ -2683,13 +2900,12 @@ export async function pollAndPublishVideos(): Promise<void> {
             );
           } else {
             // Captions disabled — skip Caption Studio and unblock publish
-            await db
-              .update(videosTable)
-              .set({ captionStatus: "disabled", updatedAt: new Date() })
-              .where(eq(videosTable.id, video.id));
-            logger.info({ videoId: video.id }, "[Scheduler] Captions disabled — skipping Caption Studio step");
+            const captionsDisabled = await markCaptionsDisabledIfUnstarted(video.id);
+            if (captionsDisabled) {
+              logger.info({ videoId: video.id }, "[Scheduler] Captions disabled — skipping Caption Studio step");
+            }
             // Trigger copy generation directly since captions won't fire it
-            if (video.contentPlanId) {
+            if (captionsDisabled && video.contentPlanId) {
               runCopyGeneration(video.contentPlanId).catch((err) =>
                 logger.error({ videoId: video.id, contentPlanId: video.contentPlanId, err }, "[CopyEngine] Failed to start copy generation (captions disabled)")
               );
@@ -2880,8 +3096,20 @@ async function _publishVideoToInstagramInner(videoId: number, videoUrl?: string)
         // Clear the stale captionedVideoUrl from DB so the UI reflects reality
         await db
           .update(videosTable)
-          .set({ captionedVideoUrl: null, captionStatus: "failed", updatedAt: new Date() })
-          .where(eq(videosTable.id, videoId));
+          .set({
+            captionedVideoUrl: null,
+            captionStatus: "failed",
+            captionProcessingLeaseId: null,
+            updatedAt: new Date(),
+          })
+          .where(and(
+            eq(videosTable.id, videoId),
+            // A reapply may have claimed the video after the file check. Only
+            // clean the exact legacy result we inspected while captions remain
+            // terminal; never invalidate an active owner-token lease.
+            eq(videosTable.captionedVideoUrl, captionedUrl),
+            inArray(videosTable.captionStatus as any, ["done", "failed", "disabled"]),
+          ));
       }
     }
   }

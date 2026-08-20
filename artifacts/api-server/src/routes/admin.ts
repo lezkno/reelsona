@@ -20,7 +20,7 @@ import { adjustCredits, provisionSubscriptionCredits, VIDEO_CREDIT_COST, PLAN_CR
 import { sendEmail, activationEmail, passwordResetEmail, getAppUrl } from "../lib/email";
 import { hashPassword } from "../lib/password";
 import { provisionUser } from "../lib/provision";
-import { runCaptionProcessing } from "../lib/scheduler";
+import { runCaptionProcessing, resetCaptionProcessingForReapply } from "../lib/scheduler";
 import { getStripe, invalidatePriceCache } from "../lib/stripe";
 import { invalidateAccessCache } from "../middleware/requireToolAccess";
 import { invalidatePlanCache } from "../middleware/requirePlanAccess";
@@ -403,10 +403,14 @@ router.post("/admin/reprocess-video", async (req: Request, res: Response): Promi
     text_cards: false,
   };
 
-  // Reset caption state so runCaptionProcessing picks it up fresh
-  await db.update(videosTable)
-    .set({ captionStatus: null, captionedVideoUrl: null, videoEffects, updatedAt: new Date() })
-    .where(eq(videosTable.id, videoId));
+  // A reprocess may never reset a healthy renderer's active lease. Without this
+  // compare-and-set, the new run could start beside an already-running effects
+  // pipeline for the same video.
+  const requeued = await resetCaptionProcessingForReapply(videoId, videoEffects);
+  if (!requeued) {
+    res.status(409).json({ error: "El video ya está procesando captions o efectos. Espera a que termine." });
+    return;
+  }
 
   // Fire and forget — logs appear in the server console
   // skipBroll=true: admin reprocess is a reapply — don't regenerate B-roll images

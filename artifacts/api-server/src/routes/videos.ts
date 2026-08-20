@@ -18,7 +18,7 @@ import {
 } from "@workspace/api-zod";
 import { generateVideo } from "../lib/heygen";
 import { reserveCredits, releaseVideoCredits, estimateDurationFromScript, computeReelCreditCost, hasEnoughCredits } from "../lib/credits";
-import { publishVideoToInstagram, pickNextAvatar, resolveVoiceId, runCaptionProcessing, runAutomationCycle, insertVideoClaimingUserSlot } from "../lib/scheduler";
+import { publishVideoToInstagram, pickNextAvatar, resolveVoiceId, runCaptionProcessing, runAutomationCycle, insertVideoClaimingUserSlot, resetCaptionProcessingForReapply } from "../lib/scheduler";
 // brand-cover import removed — AI cover generation is discontinued
 import { logger } from "../lib/logger";
 
@@ -547,11 +547,6 @@ router.post("/videos/:id/reapply-captions", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Este video aún no tiene URL de fuente" });
     return;
   }
-  if (video.captionStatus === "processing") {
-    res.status(409).json({ error: "Los efectos ya están procesando, espera a que terminen" });
-    return;
-  }
-
   const [captionCfg] = await db.select().from(captionConfigTable)
     .where(eq(captionConfigTable.userId, userId)).limit(1);
   if (!captionCfg) {
@@ -567,10 +562,12 @@ router.post("/videos/:id/reapply-captions", async (req, res): Promise<void> => {
     .limit(1);
   const currentVideoEffects = (userSettings?.videoEffects as object | null) ?? null;
 
-  // Reset caption state AND refresh videoEffects from current settings
-  await db.update(videosTable)
-    .set({ captionStatus: null, captionedVideoUrl: null, videoEffects: currentVideoEffects, updatedAt: new Date() })
-    .where(and(eq(videosTable.id, id), eq(videosTable.userId, userId)));
+  // Reset only if no other entry point holds a live caption-processing lease.
+  const requeued = await resetCaptionProcessingForReapply(id, currentVideoEffects);
+  if (!requeued) {
+    res.status(409).json({ error: "Los efectos ya están procesando, espera a que terminen" });
+    return;
+  }
 
   // Fire-and-forget
   // skipBroll=true: do not regenerate B-roll images on a reapply path — no persisted

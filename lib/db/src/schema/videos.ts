@@ -21,6 +21,8 @@ export const videosTable = pgTable("videos", {
   scheduledPublishAt: timestamp("scheduled_publish_at"),
   captionedVideoUrl: text("captioned_video_url"),
   captionStatus: text("caption_status").default("disabled"), // disabled | processing | done | failed
+  /** Opaque owner token for the active caption-processing lease. */
+  captionProcessingLeaseId: text("caption_processing_lease_id"),
   // Production safety fields
   pollAttempts: integer("poll_attempts").default(0).notNull(),
   generatingStartedAt: timestamp("generating_started_at"),

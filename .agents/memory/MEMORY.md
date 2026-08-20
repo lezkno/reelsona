@@ -5,6 +5,7 @@
 - [HeyGen v3 migration](heygen-v3-migration.md) — COMPLETE mid-2026: all heygen.ts v2 endpoints replaced with v3; listAvatars() now fetches groups+looks; no more standalone /v2/avatars; voices on /v3/voices.
 - [Photo avatar engine restriction](photo-avatar-engine.md) — RESOLVED mid-2026: HeyGen fixed silent-fail bug; tp: photo avatars NOW support avatar_v; trust getLookSupportedEngines only, no !isPhotoAvatar guard.
 - [Caption engine architecture](caption-engine-arch.md) — HeyGen v3 returns subtitle_url (SRT) when caption param is set; FFmpeg+libass burns styled ASS captions; captioned videos served at /api/captioned/:file from /tmp/contentpilot-captioned/.
+- [Caption processing leases](caption-processing-leases.md) — caption jobs use a fenced owner token plus heartbeat; timestamps alone cannot stop a revived stale worker.
 - [Avatar rotation bug](avatar-rotation-bug.md) — Stored avatarId on content items must be validated against current selectedAvatarIds before use; if removed from selection, re-pick via pickNextAvatar.
 - [WavespeedPersonaDialog optimistic state](wavespeed-dialog-optimistic.md) — All mutable state (selected, voiceId, names) must be local optimistic state; reading from the `persona` prop always lags by one paint cycle due to setQueryData→useEffect chain.
 - [Per-avatar voice resolution](per-avatar-voice-resolution.md) — voice_overrides map (avatarId→voiceId) in avatar_config; Radix Select needs non-empty sentinel "avatar_default" for the default option.
