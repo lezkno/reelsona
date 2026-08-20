@@ -46,3 +46,4 @@
 - [B-roll credit billing](broll-credit-billing.md) — feature='broll' ledger rows, idempotent per-segment reserve ("already_paid" on engine fallback), sweep must skip active caption jobs.
 - [Voice overrides clean bug](voice-overrides-clean-bug.md) — debounce doSave must NOT filter cleanedOverrides by selectedIds; public look voice assignments are silently deleted otherwise.
 - [Video effects resolution](video-effects-resolution.md) — current settings are authoritative; normalize missing/partial values to false so old snapshots cannot revive effects.
+- [Object Storage worker URLs](object-storage-worker-urls.md) — caption workers must resolve private app-proxy media URLs to signed object URLs before downloading.
