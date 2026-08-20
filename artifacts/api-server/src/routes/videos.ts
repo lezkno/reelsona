@@ -18,7 +18,7 @@ import {
 } from "@workspace/api-zod";
 import { generateVideo } from "../lib/heygen";
 import { reserveCredits, releaseVideoCredits, estimateDurationFromScript, computeReelCreditCost, hasEnoughCredits } from "../lib/credits";
-import { publishVideoToInstagram, pickNextAvatar, resolveVoiceId, runCaptionProcessing, runAutomationCycle, insertVideoClaimingUserSlot, resetCaptionProcessingForReapply } from "../lib/scheduler";
+import { publishVideoToInstagram, pickNextAvatar, resolveVoiceId, runCaptionProcessing, runAutomationCycle, insertVideoClaimingUserSlot, resetCaptionProcessingForReapply, hasUsableWavespeedLook } from "../lib/scheduler";
 import { isRenderFastV2Failure } from "../lib/render-fast-v2";
 import {
   captionsAreEnabled,
@@ -151,12 +151,10 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
   }
 
   // ── WaveSpeed branch ──────────────────────────────────────────────────────
-  // When the user manually selected a WaveSpeed look on this item, bypass the
-  // HeyGen path entirely and delegate to the scheduler's pipeline selector.
-  // The scheduler already handles avatar/voice resolution, video-row creation,
-  // WaveSpeed API submission, caption processing, and error recovery for this
-  // pipeline — duplicating any of that logic here would create a second bug surface.
-  if (item.wavespeedLookId) {
+  // Delegate to the scheduler's unified selector. It handles the avatar/voice
+  // resolution, video row, WaveSpeed submission and recovery without creating a
+  // second pipeline in this route.
+  const beginWavespeedGeneration = () => {
     runAutomationCycle(userId, item.id).catch((err) => {
       logger.error({ itemId: item.id, err }, "[/videos/generate] WaveSpeed runAutomationCycle failed");
     });
@@ -185,6 +183,21 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
       scheduled_publish_at: null,
       thumbnail_cover_url: null,
     }));
+  };
+
+  // A content item can pin an individual WaveSpeed look. In that case, do not
+  // inspect HeyGen selection at all.
+  if (item.wavespeedLookId) {
+    beginWavespeedGeneration();
+    return;
+  }
+
+  // Load the account selection once. A user who uses Avatar AI/WaveSpeed only
+  // intentionally has no HeyGen IDs; this must not be treated as "no avatar".
+  const [avatarCfg] = await db.select().from(avatarConfigTable)
+    .where(eq(avatarConfigTable.userId, userId)).limit(1);
+  if (!avatarCfg?.selectedAvatarIds?.length && await hasUsableWavespeedLook(userId)) {
+    beginWavespeedGeneration();
     return;
   }
 
@@ -203,8 +216,6 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
   // Ensure avatar/voice are set AND that the stored avatarId is still in the active selection.
   // If the user removed the previously assigned avatar, re-pick from the current list.
   {
-    const [avatarCfg] = await db.select().from(avatarConfigTable)
-      .where(eq(avatarConfigTable.userId, userId)).limit(1);
     if (!avatarCfg?.selectedAvatarIds?.length) {
       res.status(400).json({ error: "No hay avatares configurados: selecciona al menos uno en la página de Avatares" });
       return;

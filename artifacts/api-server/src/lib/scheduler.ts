@@ -353,6 +353,16 @@ async function buildUnifiedPool(
 }
 
 /**
+ * Manual generation needs the same readiness test as automated rotation: a
+ * WaveSpeed look counts only when it is selected, has an image, belongs to an
+ * enabled persona, and its assigned voice is ready.
+ */
+export async function hasUsableWavespeedLook(userId: number): Promise<boolean> {
+  const pool = await buildUnifiedPool(userId, []);
+  return pool.some((slot) => slot.type === "wavespeed");
+}
+
+/**
  * Pick the next slot from a unified pool using the configured rotation strategy.
  * `lastUsedId` can be either a raw HeyGen avatar ID or "ws:{lookId}".
  */
