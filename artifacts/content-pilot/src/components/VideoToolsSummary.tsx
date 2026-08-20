@@ -34,7 +34,7 @@ function ToolsBadge({
     <Badge
       variant="outline"
       title={`${tool.label}: ${tool.enabled ? "activo" : "apagado"}${tool.status ? ` · ${tool.status}` : ""}`}
-      className={`gap-0.5 whitespace-nowrap shrink-0 ${compact ? "text-[8px] px-1 py-0" : "text-[10px] px-1.5 py-0.5"} ${
+      className={`gap-0.5 whitespace-nowrap shrink-0 max-w-full ${compact ? "text-[8px] px-1 py-0 leading-tight" : "text-[10px] px-1.5 py-0.5"} ${
         tool.enabled
           ? "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400"
           : "border-border bg-muted/40 text-muted-foreground"
@@ -65,7 +65,7 @@ export function VideoToolsSummary({
       <p className={`${compact ? "text-[9px]" : "text-[10px]"} font-semibold uppercase tracking-wide text-muted-foreground`}>
         Herramientas
       </p>
-      <div className="flex flex-nowrap items-center gap-0.5 whitespace-nowrap">
+      <div className="flex w-full min-w-0 max-w-full flex-wrap items-center gap-0.5 overflow-hidden">
         {tools.map(({ tool, icon }) => (
           <ToolsBadge key={tool.label} tool={tool} icon={icon} compact={compact} />
         ))}
