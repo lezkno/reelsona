@@ -44,6 +44,14 @@ function normalizeLanguage(value: string | null | undefined): string {
   return "es"
 }
 
+function getBrandLogoPreviewUrl(logoPath: string | null | undefined): string | null {
+  if (!logoPath) return null
+  if (/^https?:\/\//i.test(logoPath) || logoPath.startsWith("/api/storage/")) return logoPath
+
+  const normalizedPath = logoPath.startsWith("/") ? logoPath : `/${logoPath}`
+  return normalizedPath.startsWith("/objects/") ? `/api/storage${normalizedPath}` : null
+}
+
 // ── Brand Identity card ───────────────────────────────────────────────────────
 
 function BrandIdentityCard() {
@@ -56,6 +64,8 @@ function BrandIdentityCard() {
 
   const [uploading, setUploading] = useState(false)
   const [extracting, setExtracting] = useState(false)
+  const [logoPreviewFailed, setLogoPreviewFailed] = useState(false)
+  const [logoPreviewAttempt, setLogoPreviewAttempt] = useState(0)
   // Local copy of palette overrides the server one while the user is working
   const [localPalette, setLocalPalette] = useState<string[] | null>(null)
 
@@ -64,7 +74,12 @@ function BrandIdentityCard() {
   const palette: string[] = localPalette ?? (settings?.brand_palette as string[] | null) ?? []
   const primaryColor = settings?.brand_primary_color ?? null
   const accentColor  = settings?.brand_accent_color  ?? null
-  const logoUrl = settings?.brand_logo_url ? `/api/storage${settings.brand_logo_url}` : null
+  const logoUrl = getBrandLogoPreviewUrl(settings?.brand_logo_url)
+
+  useEffect(() => {
+    setLogoPreviewFailed(false)
+    setLogoPreviewAttempt(0)
+  }, [logoUrl])
 
   const busy = uploading || extracting || updateSettings.isPending
 
@@ -150,13 +165,34 @@ function BrandIdentityCard() {
             {logoUrl ? (
               <div className="flex items-center gap-4 rounded-xl border bg-muted/30 p-4">
                 {/* Logo preview */}
-                <div className="shrink-0 w-20 h-20 rounded-lg border bg-white flex items-center justify-center overflow-hidden shadow-sm">
-                  <img
-                    src={logoUrl}
-                    alt="Logo de marca"
-                    className="w-full h-full object-contain p-1"
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = "none" }}
-                  />
+                <div
+                  className="shrink-0 w-20 h-20 rounded-lg border flex items-center justify-center overflow-hidden shadow-sm"
+                  style={{
+                    backgroundColor: "#e5e7eb",
+                    backgroundImage: "conic-gradient(#f3f4f6 25%, #cbd5e1 0 50%, #f3f4f6 0 75%, #cbd5e1 0)",
+                    backgroundSize: "16px 16px",
+                  }}
+                >
+                  {logoPreviewFailed ? (
+                    <button
+                      type="button"
+                      className="h-full w-full bg-muted/90 px-2 text-center text-[10px] leading-tight text-muted-foreground hover:bg-muted"
+                      onClick={() => {
+                        setLogoPreviewFailed(false)
+                        setLogoPreviewAttempt((attempt) => attempt + 1)
+                      }}
+                    >
+                      Reintentar vista previa
+                    </button>
+                  ) : (
+                    <img
+                      key={`${logoUrl}-${logoPreviewAttempt}`}
+                      src={logoUrl}
+                      alt="Logo de marca"
+                      className="w-full h-full object-contain p-1"
+                      onError={() => setLogoPreviewFailed(true)}
+                    />
+                  )}
                 </div>
 
                 {/* Info + actions */}
