@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
+import { motion, useReducedMotion } from "framer-motion"
 import {
   useGetContentPlan, useGetAutomation, usePublishVideo, useUpdateContentItem,
   useGetSettings, getGetContentPlanQueryKey, type ContentPlanItem,
@@ -245,6 +246,7 @@ export default function PipelineTimeline() {
   const { data: automation }  = useGetAutomation({ query: { refetchInterval: 10000 } as any })
   const { data: settings } = useGetSettings()
   const [reviewOpen, setReviewOpen] = useState(false)
+  const reduceMotion = useReducedMotion()
 
   // Tick every 5 s for elapsed-time bars
   const [nowMs, setNowMs] = useState(() => Date.now())
@@ -312,34 +314,39 @@ export default function PipelineTimeline() {
         />
       )}
 
-      <Card className="border-primary/20 bg-gradient-to-r from-primary/5 to-transparent shrink-0">
-        <CardContent className="p-5">
+      <motion.div
+        initial={reduceMotion ? false : { opacity: 0, y: 14 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: reduceMotion ? 0 : 0.5, ease: "easeOut" }}
+      >
+      <Card className="relative isolate overflow-hidden rounded-[1.6rem] border border-[#e4e7ed] bg-[linear-gradient(135deg,#fffefa_0%,#f7f8fb_58%,#f2effa_100%)] shadow-[0_24px_70px_rgba(50,49,80,0.12)] before:pointer-events-none before:absolute before:inset-0 before:bg-[radial-gradient(#d9dce5_0.7px,transparent_0.7px)] before:bg-[length:17px_17px] before:opacity-40 shrink-0">
+        <CardContent className="relative p-4 sm:p-6 lg:p-8">
           {/* Header row */}
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 mb-4">
+          <div className="mb-6 flex flex-col justify-between gap-4 md:flex-row md:items-start">
             <div className="min-w-0">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-0.5">
+              <p className="mb-1 text-[10px] font-extrabold uppercase tracking-[0.16em] text-[#c8494d]">
                 {getHeaderLabel(mode, willAutoPublish)}
               </p>
-              <h3 className="font-display font-bold truncate">{item.topic}</h3>
+              <h3 className="truncate font-display text-xl font-bold tracking-[-0.03em] text-[#172031] sm:text-2xl">{item.topic}</h3>
             </div>
-            <div className="flex items-center gap-3 shrink-0">
+            <div className="flex shrink-0 items-center gap-4">
               {item.scheduled_at && (
-                <span className="text-xs text-muted-foreground flex items-center gap-1">
-                  <Clock className="w-3.5 h-3.5" />
+                <span className="flex items-center gap-1.5 text-[11px] text-[#697387]">
+                  <Clock className="h-3.5 w-3.5" />
                   {mode === "next" ? "Comienza el " : ""}
                   {format(new Date(item.scheduled_at), "EEE d MMM, HH:mm", { locale: es })}
                 </span>
               )}
-              <span className={`text-lg font-bold font-display ${item.status === "failed" ? "text-destructive" : "text-primary"}`}>
+              <span className={`font-display text-2xl font-bold ${item.status === "failed" ? "text-destructive" : "text-[#c8494d]"}`}>
                 {item.status === "failed" ? "Error" : `${percent}%`}
               </span>
             </div>
           </div>
 
-          <Progress value={percent} className="h-1.5 mb-4" />
+          <Progress value={percent} className="mb-6 h-2 overflow-hidden rounded-full bg-[#e7e9ef] [&>div]:bg-[linear-gradient(90deg,#f06459,#f59a62_52%,#6656c8)]" />
 
           {/* Step grid */}
-          <div className={`grid gap-2 ${gridClass}`}>
+          <div className={`grid gap-2 sm:gap-3 ${gridClass}`}>
             {visibleSteps.map((s, i) => {
               const Icon = s.icon
               const done    = displayStep > i
@@ -401,41 +408,52 @@ export default function PipelineTimeline() {
 
               // ── Card styles ───────────────────────────────────────
               const copyCardClass = copyActive
-                ? "bg-violet-50 dark:bg-violet-950/30 border-violet-400/60 shadow-sm ring-1 ring-violet-400/30"
+                ? "border-[#aaa0e8] bg-[#f0eefc] shadow-sm ring-1 ring-[#6656c8]/20"
                 : done
-                  ? "bg-primary/10 border-primary/30"
+                  ? "border-[#bde5d3] bg-[#e2f6ef]"
                   : current
-                    ? "border-primary bg-background shadow-sm"
-                    : "bg-muted/30 border-transparent"
+                    ? "border-[#f1b2a8] bg-white shadow-sm"
+                    : "border-transparent bg-[#eef1f6]/75"
 
               const cardClass = isReview
                 ? reviewActive
-                  ? "bg-violet-700 border-violet-600 shadow-md shadow-violet-700/30 cursor-pointer ring-2 ring-violet-400/60 ring-offset-1 hover:bg-violet-600 transition-colors"
+                  ? "border-[#6656c8] bg-[linear-gradient(145deg,#6656c8,#5142a5)] shadow-md shadow-[#5242a5]/30 ring-2 ring-[#aaa0e8]/60 ring-offset-1 hover:shadow-lg"
                   : done
-                    ? "bg-violet-100 dark:bg-violet-900/30 border-violet-300/50 dark:border-violet-700/40"
-                    : "bg-muted/30 border-transparent"
+                    ? "border-[#c9c2ef] bg-[#efedfc]"
+                    : "border-transparent bg-[#eef1f6]/75"
                 : isCopy   ? copyCardClass
-                : effectiveDone    ? "bg-primary/10 border-primary/30"
-                : effectiveCurrent ? "border-primary bg-background shadow-sm"
-                :                    "bg-muted/30 border-transparent"
+                : effectiveDone    ? "border-[#bde5d3] bg-[#e2f6ef]"
+                : effectiveCurrent ? "border-[#f1b2a8] bg-white shadow-sm"
+                :                    "border-transparent bg-[#eef1f6]/75"
 
               const textClass   = reviewActive ? "text-white"
-                                : copyActive   ? "text-violet-700 dark:text-violet-300"
-                                : (effectiveDone || effectiveCurrent ? "text-foreground" : "text-muted-foreground")
-              const descClass   = reviewActive ? "text-violet-200"
-                                : copyActive   ? "text-violet-500/80 dark:text-violet-400/80"
-                                : "text-muted-foreground"
-              const statusClass = reviewActive ? "text-violet-200 font-medium"
-                                : copyActive   ? "text-violet-500 dark:text-violet-400 font-medium"
-                                : "text-muted-foreground/70"
+                                : copyActive   ? "text-[#5142a5]"
+                                : (effectiveDone || effectiveCurrent ? "text-[#172031]" : "text-[#697387]")
+              const descClass   = reviewActive ? "text-[#dcd7ff]"
+                                : copyActive   ? "text-[#6656c8]/80"
+                                : "text-[#697387]"
+              const statusClass = reviewActive ? "font-medium text-[#dcd7ff]"
+                                : copyActive   ? "font-medium text-[#6656c8]"
+                                : "text-[#8b94a4]"
 
               return (
-                <div
+                <motion.div
                   key={s.key}
-                  className={`rounded-lg border p-3 ${cardClass}`}
+                  initial={reduceMotion ? false : { opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: reduceMotion ? 0 : i * 0.07, duration: reduceMotion ? 0 : 0.38, ease: "easeOut" }}
+                  className={`group min-h-[145px] rounded-2xl border p-3.5 transition-[transform,box-shadow,border-color,background-color] duration-200 hover:-translate-y-1 hover:shadow-[0_12px_23px_rgba(42,50,74,0.1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f06459]/40 sm:min-h-[158px] ${reviewActive ? "cursor-pointer" : ""} ${cardClass}`}
                   onClick={reviewActive ? () => setReviewOpen(true) : undefined}
+                  tabIndex={reviewActive ? 0 : undefined}
+                  role={reviewActive ? "button" : undefined}
+                  onKeyDown={reviewActive ? (event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault()
+                      setReviewOpen(true)
+                    }
+                  } : undefined}
                 >
-                  <div className="flex items-center gap-2 mb-1">
+                  <div className="mb-3 flex items-center gap-2">
                     {item.status === "failed" && i === 0 ? (
                       <AlertTriangle className="w-4 h-4 text-destructive" />
                     ) : effectiveDone ? (
@@ -454,7 +472,7 @@ export default function PipelineTimeline() {
                     </span>
                   </div>
 
-                  <p className={`text-[11px] leading-tight hidden sm:block ${descClass}`}>{s.desc}</p>
+                  <p className={`hidden text-[10px] leading-tight sm:block ${descClass}`}>{s.desc}</p>
 
                   {s.key === "caption" && (
                     <div className="mt-2">
@@ -480,12 +498,13 @@ export default function PipelineTimeline() {
                   ) : (
                     <p className={`text-[10px] mt-1 ${statusClass}`}>{statusLabel}</p>
                   )}
-                </div>
+                </motion.div>
               )
             })}
           </div>
         </CardContent>
       </Card>
+      </motion.div>
     </>
   )
 }
