@@ -372,7 +372,7 @@ const expressInFlight = new Set<number>();
 const expressLaunching = new Set<number>();
 
 const EXPRESS_MIN_SECONDS = 2;
-const EXPRESS_MAX_SECONDS = 120;
+const EXPRESS_MAX_SECONDS = 180;
 
 /** Probe audio duration (seconds) with ffprobe; returns null when unreadable. */
 async function probeAudioDuration(filePath: string): Promise<number | null> {
@@ -482,7 +482,9 @@ router.post("/content/express", (req, res, next) => {
       return;
     }
     if (durationSec > EXPRESS_MAX_SECONDS) {
-      res.status(400).json({ error: `El audio supera el máximo de ${EXPRESS_MAX_SECONDS} segundos para una orden. Grábala más breve.` });
+      res.status(400).json({
+        error: `La grabación supera los 3 minutos. Vuelve a grabar una instrucción más concreta: incluye solo el tema, la duración, el tono y el CTA.`,
+      });
       return;
     }
 

@@ -1,4 +1,4 @@
-export const MAX_VIDEO_EXPRESS_ORDER_SECONDS = 120
+export const MAX_VIDEO_EXPRESS_ORDER_SECONDS = 180
 const RECORDING_MIME_CANDIDATES = [
   "audio/webm;codecs=opus",
   "audio/webm",

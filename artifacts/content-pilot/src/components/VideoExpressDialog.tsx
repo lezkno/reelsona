@@ -30,6 +30,7 @@ export function VideoExpressDialog({ open, onOpenChange }: { open: boolean; onOp
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null)
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
   const [audioDurationSeconds, setAudioDurationSeconds] = useState<number | null>(null)
+  const [audioMetadataReady, setAudioMetadataReady] = useState(false)
   const [fileName, setFileName] = useState<string | null>(null)
   const [result, setResult] = useState<{ topic: string; status: "generating" | "queued"; warning: string | null } | null>(null)
 
@@ -48,7 +49,7 @@ export function VideoExpressDialog({ open, onOpenChange }: { open: boolean; onOp
 
   const resetAudio = () => {
     if (audioUrl) URL.revokeObjectURL(audioUrl)
-    setAudioBlob(null); setAudioUrl(null); setAudioDurationSeconds(null); setFileName(null); setSeconds(0); setResult(null)
+    setAudioBlob(null); setAudioUrl(null); setAudioDurationSeconds(null); setAudioMetadataReady(false); setFileName(null); setSeconds(0); setResult(null)
   }
 
   // Full reset when the dialog closes
@@ -127,8 +128,20 @@ export function VideoExpressDialog({ open, onOpenChange }: { open: boolean; onOp
 
   const handleSend = () => {
     if (!audioBlob) return
+    if (!audioMetadataReady || audioDurationSeconds === null) {
+      toast({
+        title: "No se pudo leer la duración",
+        description: "Espera a que termine de cargarse el audio o vuelve a grabar la instrucción.",
+        variant: "destructive",
+      })
+      return
+    }
     if (exceedsVideoExpressAudioLimit(audioDurationSeconds)) {
-      toast({ title: "Audio demasiado largo", description: `La orden no puede superar ${MAX_VIDEO_EXPRESS_ORDER_SECONDS} segundos. Recórtala y vuelve a intentarlo.`, variant: "destructive" })
+      toast({
+        title: "Grabación demasiado larga",
+        description: "Vuelve a grabar una instrucción más concreta: incluye solo el tema, la duración, el tono y el CTA.",
+        variant: "destructive",
+      })
       return
     }
     const fd = new FormData()
@@ -202,14 +215,20 @@ export function VideoExpressDialog({ open, onOpenChange }: { open: boolean; onOp
                     className="w-full"
                     onLoadedMetadata={(event) => {
                       const duration = event.currentTarget.duration
+                      setAudioMetadataReady(true)
                       setAudioDurationSeconds(Number.isFinite(duration) ? duration : null)
                     }}
+                    onError={() => setAudioMetadataReady(true)}
                   />
-                  {audioDurationSeconds !== null && (
+                  {!audioMetadataReady ? (
+                    <p className="text-xs text-muted-foreground">Leyendo la duración del audio…</p>
+                  ) : audioDurationSeconds !== null ? (
                     <p className={`text-xs ${exceedsVideoExpressAudioLimit(audioDurationSeconds) ? "text-destructive" : "text-muted-foreground"}`}>
                       Duración real: {fmt(Math.ceil(audioDurationSeconds))}
-                      {exceedsVideoExpressAudioLimit(audioDurationSeconds) && ` — el máximo es ${fmt(MAX_VIDEO_EXPRESS_ORDER_SECONDS)}`}
+                      {exceedsVideoExpressAudioLimit(audioDurationSeconds) && " — vuelve a grabar una instrucción más concreta"}
                     </p>
+                  ) : (
+                    <p className="text-xs text-destructive">No se pudo leer la duración. Vuelve a grabar o sube otro audio.</p>
                   )}
                   <div className="flex gap-2">
                     <Button variant="outline" size="sm" onClick={resetAudio} disabled={videoExpress.isPending} className="gap-1.5">
@@ -238,6 +257,9 @@ export function VideoExpressDialog({ open, onOpenChange }: { open: boolean; onOp
             </div>
 
             <p className="text-xs text-muted-foreground">
+              Máximo 3 minutos. Para mejores resultados, incluye solo el tema, la duración, el tono y el CTA.
+            </p>
+            <p className="text-xs text-muted-foreground">
               Ejemplo: «Créame un video de 30 segundos sobre cómo vender más en Instagram,
               con tono cercano, y que termine diciendo: escríbeme la palabra VENTAS».
             </p>
@@ -245,7 +267,7 @@ export function VideoExpressDialog({ open, onOpenChange }: { open: boolean; onOp
             <Button
               className="w-full gap-2"
               onClick={handleSend}
-              disabled={!audioBlob || recording || videoExpress.isPending || exceedsVideoExpressAudioLimit(audioDurationSeconds)}
+              disabled={!audioBlob || !audioMetadataReady || recording || videoExpress.isPending || exceedsVideoExpressAudioLimit(audioDurationSeconds)}
             >
               {videoExpress.isPending
                 ? <><Loader2 className="w-4 h-4 animate-spin" /> Interpretando tu orden…</>
