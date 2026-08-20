@@ -670,16 +670,18 @@ export default function Videos() {
                     </p>
                   )}
 
-                  <VideoToolsSummary
-                    effects={video.video_effects}
-                    captionsEnabled={captionStatus !== "disabled"}
-                    captionStatus={captionStatus}
-                    compact
-                  />
+                  <div className="min-w-0">
+                    <VideoToolsSummary
+                      effects={video.video_effects}
+                      captionsEnabled={captionStatus !== "disabled"}
+                      captionStatus={captionStatus}
+                      compact
+                    />
+                  </div>
 
                   {/* Publishing spinner — shown while Instagram is processing */}
                   {!selectMode && video.status === 'publishing' && (
-                    <div className="flex flex-col gap-1.5 mb-3">
+                    <div className="flex flex-col gap-1.5 mt-3 pt-3 border-t border-border/70 mb-3">
                       <Button
                         size="sm"
                         className="w-full bg-gradient-to-r from-[#833ab4] via-[#fd1d1d] to-[#fcb045] opacity-80 border-0 text-white gap-1.5 text-xs"
@@ -692,7 +694,7 @@ export default function Videos() {
 
                   {/* Action buttons — ready videos */}
                   {!selectMode && video.status === 'ready' && (captionStatus === 'done' || captionStatus === 'failed' || captionStatus === 'disabled') && (
-                    <div className="flex flex-col gap-1.5 mb-3">
+                    <div className="flex flex-col gap-1.5 mt-3 pt-3 border-t border-border/70 mb-3">
                       <Button
                         size="sm"
                         className="w-full bg-gradient-to-r from-[#833ab4] via-[#fd1d1d] to-[#fcb045] hover:opacity-90 border-0 text-white gap-1.5 text-xs"
@@ -754,7 +756,7 @@ export default function Videos() {
 
                   {/* Download button for published videos */}
                   {!selectMode && video.status === 'published' && (video.captioned_video_url || video.video_url) && (
-                    <div className="flex flex-col gap-1.5 mb-3">
+                    <div className="flex flex-col gap-1.5 mt-3 pt-3 border-t border-border/70 mb-3">
                       <Button
                         size="sm" variant="outline"
                         className="w-full text-xs gap-1.5"
@@ -773,16 +775,18 @@ export default function Videos() {
 
                   {/* Retry button for failed videos */}
                   {!selectMode && video.status === 'failed' && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="w-full text-xs gap-1.5 mb-3"
-                      onClick={() => handleRetry(video)}
-                      disabled={retryVideo.isPending}
-                    >
-                      <RotateCcw className="w-3.5 h-3.5" />
-                      {retryVideo.isPending ? "Reintentando…" : "Reintentar generación"}
-                    </Button>
+                    <div className="mt-3 pt-3 border-t border-border/70 mb-3">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="w-full text-xs gap-1.5"
+                        onClick={() => handleRetry(video)}
+                        disabled={retryVideo.isPending}
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        {retryVideo.isPending ? "Reintentando…" : "Reintentar generación"}
+                      </Button>
+                    </div>
                   )}
 
                   <div className="text-xs text-muted-foreground mt-auto pt-2 border-t flex justify-between items-center">
