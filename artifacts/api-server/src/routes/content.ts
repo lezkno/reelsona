@@ -7,6 +7,7 @@ import { promisify } from "util";
 import multer from "multer";
 import { toFile } from "openai";
 import { CAPTION_DIR } from "../lib/caption-engine";
+import { getBrowserMediaUrl } from "../lib/objectStorage";
 import { db } from "@workspace/db";
 import { contentPlanItemsTable, settingsTable, automationConfigTable, videosTable } from "@workspace/db";
 import { eq, and, sql, isNotNull, gte, lte, inArray, lt } from "drizzle-orm";
@@ -143,9 +144,9 @@ async function fetchVideoInfos(videoIds: number[]): Promise<Map<number, VideoInf
       {
         captionStatus: r.captionStatus,
         videoStatus: r.videoStatus,
-        videoUrl: r.videoUrl,
-        captionedVideoUrl: resolveCaptionedUrl(r.captionedVideoUrl),
-        thumbnailUrl: r.thumbnailUrl,
+        videoUrl: getBrowserMediaUrl(r.videoUrl),
+        captionedVideoUrl: getBrowserMediaUrl(resolveCaptionedUrl(r.captionedVideoUrl)),
+        thumbnailUrl: getBrowserMediaUrl(r.thumbnailUrl),
         videoEffects: (r.videoEffects as Record<string, boolean> | null) ?? null,
       },
     ])

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getCaptionedObjectNameFromUrl } from "./objectStorage";
+import { getBrowserMediaUrl, getCaptionedObjectNameFromUrl } from "./objectStorage";
 
 test("extracts a private raw video object from the app media proxy", () => {
   assert.equal(
@@ -27,4 +27,20 @@ test("leaves external and malformed media URLs untouched", () => {
     getCaptionedObjectNameFromUrl("https://reelsona.com/api/captioned-objects/raw-videos/../private.mp4"),
     null,
   );
+});
+
+test("uses the current browser origin for protected app media", () => {
+  assert.equal(
+    getBrowserMediaUrl("https://reelsona.com/api/captioned-objects/thumbnails/browser_123.jpg"),
+    "/api/captioned-objects/thumbnails/browser_123.jpg",
+  );
+  assert.equal(
+    getBrowserMediaUrl("https://content-pilot.replit.dev/api/captioned-objects/thumbnails/browser_123.jpg"),
+    "/api/captioned-objects/thumbnails/browser_123.jpg",
+  );
+  assert.equal(
+    getBrowserMediaUrl("https://reelsona.com/api/captioned-objects/raw-videos/16.mp4?download=1"),
+    "/api/captioned-objects/raw-videos/16.mp4?download=1",
+  );
+  assert.equal(getBrowserMediaUrl("https://provider.example/video.mp4"), "https://provider.example/video.mp4");
 });

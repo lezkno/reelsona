@@ -303,6 +303,30 @@ export function getCaptionedObjectNameFromUrl(url: string): string | null {
   }
 }
 
+/**
+ * Converts this application's protected media proxy URLs to same-origin paths
+ * before they are sent to a browser. Stored URLs use the canonical production
+ * origin so workers and external integrations have a stable reference, but a
+ * development-preview browser has its session cookie on its preview domain,
+ * not on that canonical origin. Keeping only the path lets the browser send
+ * its own authenticated cookie while preserving the owner-only proxy check.
+ */
+export function getBrowserMediaUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    if (
+      parsed.pathname.startsWith("/api/captioned-objects/") ||
+      parsed.pathname.startsWith("/api/captioned/")
+    ) {
+      return `${parsed.pathname}${parsed.search}`;
+    }
+  } catch {
+    // Already-relative URLs and provider URLs should pass through untouched.
+  }
+  return url;
+}
+
 export async function getServerReadableMediaUrl(url: string): Promise<string> {
   const objectName = getCaptionedObjectNameFromUrl(url);
   return objectName ? getSignedObjectUrl(objectName, 2 * 3600) : url;

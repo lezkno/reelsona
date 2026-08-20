@@ -24,6 +24,7 @@ import {
   normalizeVideoEffects,
   resolveVideoEffectsForCreation,
 } from "../lib/video-pipeline-effects";
+import { getBrowserMediaUrl } from "../lib/objectStorage";
 // brand-cover import removed — AI cover generation is discontinued
 import { logger } from "../lib/logger";
 
@@ -69,13 +70,13 @@ function mapVideo(v: typeof videosTable.$inferSelect, wavespeedLookId?: number |
     topic: v.topic ?? null,
     avatar_id: v.avatarId ?? null,
     status: v.status,
-    video_url: resolveHeyGenUrl(v.videoUrl),
-    thumbnail_url: resolveHeyGenUrl(v.thumbnailUrl),
+    video_url: getBrowserMediaUrl(resolveHeyGenUrl(v.videoUrl)),
+    thumbnail_url: getBrowserMediaUrl(resolveHeyGenUrl(v.thumbnailUrl)),
     ig_media_id: v.igMediaId ?? null,
     ig_permalink: v.igPermalink ?? null,
     error_message: v.errorMessage ?? null,
     duration_seconds: v.durationSeconds ?? null,
-    captioned_video_url: resolveCaptionedUrl(v.captionedVideoUrl ?? null),
+    captioned_video_url: getBrowserMediaUrl(resolveCaptionedUrl(v.captionedVideoUrl ?? null)),
     caption_status: v.captionStatus ?? null,
     video_effects: (v.videoEffects as { zoom: boolean; ai_broll: boolean; text_cards: boolean } | null) ?? null,
     created_at: v.createdAt.toISOString(),
