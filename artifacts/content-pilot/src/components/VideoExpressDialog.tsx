@@ -7,8 +7,11 @@ import { useToast } from "@/hooks/use-toast"
 import { useQueryClient } from "@tanstack/react-query"
 import { useVideoExpress, getGetContentPlanQueryKey } from "@workspace/api-client-react"
 import { Mic, Square, Upload, RotateCcw, Loader2, Zap, CheckCircle2 } from "lucide-react"
-
-const MAX_ORDER_SECONDS = 120
+import {
+  exceedsVideoExpressAudioLimit,
+  getVideoExpressElapsedSeconds,
+  MAX_VIDEO_EXPRESS_ORDER_SECONDS,
+} from "@/lib/video-express-audio"
 
 /**
  * Video Express: record (or upload) a spoken order — "créame un video sobre X
@@ -23,23 +26,26 @@ export function VideoExpressDialog({ open, onOpenChange }: { open: boolean; onOp
   const [seconds, setSeconds] = useState(0)
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null)
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
+  const [audioDurationSeconds, setAudioDurationSeconds] = useState<number | null>(null)
   const [fileName, setFileName] = useState<string | null>(null)
   const [result, setResult] = useState<{ topic: string; status: "generating" | "queued"; warning: string | null } | null>(null)
 
   const mediaRecRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const recordingStartedAtRef = useRef<number | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   const cleanupStream = () => {
     mediaRecRef.current?.stream.getTracks().forEach((t) => t.stop())
     mediaRecRef.current = null
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
+    recordingStartedAtRef.current = null
   }
 
   const resetAudio = () => {
     if (audioUrl) URL.revokeObjectURL(audioUrl)
-    setAudioBlob(null); setAudioUrl(null); setFileName(null); setSeconds(0); setResult(null)
+    setAudioBlob(null); setAudioUrl(null); setAudioDurationSeconds(null); setFileName(null); setSeconds(0); setResult(null)
   }
 
   // Full reset when the dialog closes
@@ -63,6 +69,7 @@ export function VideoExpressDialog({ open, onOpenChange }: { open: boolean; onOp
         const blob = new Blob(chunksRef.current, { type: mr.mimeType || "audio/webm" })
         setAudioBlob(blob)
         setAudioUrl(URL.createObjectURL(blob))
+        setRecording(false)
         cleanupStream()
       }
       mediaRecRef.current = mr
@@ -70,22 +77,26 @@ export function VideoExpressDialog({ open, onOpenChange }: { open: boolean; onOp
       mr.start()
       setRecording(true)
       setSeconds(0)
+      const startedAt = Date.now()
+      recordingStartedAtRef.current = startedAt
       timerRef.current = setInterval(() => {
-        setSeconds((s) => {
-          if (s + 1 >= MAX_ORDER_SECONDS) {
-            mediaRecRef.current?.stop()
-            setRecording(false)
-          }
-          return s + 1
-        })
-      }, 1000)
+        const elapsedSeconds = (Date.now() - startedAt) / 1000
+        setSeconds(getVideoExpressElapsedSeconds(startedAt))
+        if (elapsedSeconds >= MAX_VIDEO_EXPRESS_ORDER_SECONDS) {
+          const recorder = mediaRecRef.current
+          if (recorder?.state === "recording") recorder.stop()
+          if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
+        }
+      }, 250)
     } catch {
       toast({ title: "Micrófono no disponible", description: "Permite el acceso al micrófono o sube un archivo de audio.", variant: "destructive" })
     }
   }
 
   const stopRecording = () => {
-    mediaRecRef.current?.stop()
+    const startedAt = recordingStartedAtRef.current
+    if (startedAt !== null) setSeconds(getVideoExpressElapsedSeconds(startedAt))
+    if (mediaRecRef.current?.state === "recording") mediaRecRef.current.stop()
     setRecording(false)
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
   }
@@ -108,6 +119,10 @@ export function VideoExpressDialog({ open, onOpenChange }: { open: boolean; onOp
 
   const handleSend = () => {
     if (!audioBlob) return
+    if (exceedsVideoExpressAudioLimit(audioDurationSeconds)) {
+      toast({ title: "Audio demasiado largo", description: `La orden no puede superar ${MAX_VIDEO_EXPRESS_ORDER_SECONDS} segundos. Recórtala y vuelve a intentarlo.`, variant: "destructive" })
+      return
+    }
     const fd = new FormData()
     const name = fileName ?? "orden.webm"
     fd.append("audio", audioBlob, name)
@@ -165,7 +180,7 @@ export function VideoExpressDialog({ open, onOpenChange }: { open: boolean; onOp
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
                       <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500" />
                     </span>
-                    Grabando… {fmt(seconds)} / {fmt(MAX_ORDER_SECONDS)}
+                    Grabando… {fmt(seconds)} / {fmt(MAX_VIDEO_EXPRESS_ORDER_SECONDS)}
                   </div>
                   <Button variant="destructive" onClick={stopRecording} className="gap-2">
                     <Square className="w-4 h-4" /> Detener
@@ -173,7 +188,21 @@ export function VideoExpressDialog({ open, onOpenChange }: { open: boolean; onOp
                 </>
               ) : audioUrl ? (
                 <>
-                  <audio src={audioUrl} controls className="w-full" />
+                  <audio
+                    src={audioUrl}
+                    controls
+                    className="w-full"
+                    onLoadedMetadata={(event) => {
+                      const duration = event.currentTarget.duration
+                      setAudioDurationSeconds(Number.isFinite(duration) ? duration : null)
+                    }}
+                  />
+                  {audioDurationSeconds !== null && (
+                    <p className={`text-xs ${exceedsVideoExpressAudioLimit(audioDurationSeconds) ? "text-destructive" : "text-muted-foreground"}`}>
+                      Duración real: {fmt(Math.ceil(audioDurationSeconds))}
+                      {exceedsVideoExpressAudioLimit(audioDurationSeconds) && ` — el máximo es ${fmt(MAX_VIDEO_EXPRESS_ORDER_SECONDS)}`}
+                    </p>
+                  )}
                   <div className="flex gap-2">
                     <Button variant="outline" size="sm" onClick={resetAudio} disabled={videoExpress.isPending} className="gap-1.5">
                       <RotateCcw className="w-4 h-4" /> Repetir
@@ -205,7 +234,11 @@ export function VideoExpressDialog({ open, onOpenChange }: { open: boolean; onOp
               con tono cercano, y que termine diciendo: escríbeme la palabra VENTAS».
             </p>
 
-            <Button className="w-full gap-2" onClick={handleSend} disabled={!audioBlob || recording || videoExpress.isPending}>
+            <Button
+              className="w-full gap-2"
+              onClick={handleSend}
+              disabled={!audioBlob || recording || videoExpress.isPending || exceedsVideoExpressAudioLimit(audioDurationSeconds)}
+            >
               {videoExpress.isPending
                 ? <><Loader2 className="w-4 h-4 animate-spin" /> Interpretando tu orden…</>
                 : <><Zap className="w-4 h-4" /> Crear video con esta orden</>}
