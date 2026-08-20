@@ -2,6 +2,7 @@ import app, { markApplicationReady } from "./app";
 import { logger } from "./lib/logger";
 import { runMigrations } from "./lib/run-migrations";
 import { startSchedulerLeaderElection } from "./lib/scheduler-leader";
+import { resumePendingWavespeedTtsHandoffs } from "./lib/scheduler";
 import { seedAdminUser } from "./lib/seed";
 import { migrateInstagramTokensAtRest } from "./lib/instagram-token-crypto";
 
@@ -42,6 +43,12 @@ async function initialize(): Promise<void> {
 
   markApplicationReady();
   logger.info("Database ready; application traffic enabled");
+
+  // Resume only the second phase of WaveSpeed jobs that were already submitted
+  // before a process restart. Unlike cron, this never starts queued automation.
+  await resumePendingWavespeedTtsHandoffs().catch((err) => {
+    logger.error({ err }, "Could not resume pending WaveSpeed TTS handoffs");
+  });
 
   // Scheduler jobs can trigger billable provider calls. Never run cron
   // automatically from a development process unless explicitly opted in.

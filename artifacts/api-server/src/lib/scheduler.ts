@@ -50,7 +50,7 @@ import { sendEmail, videoFailedEmail } from "./email";
 import { applyCaptions, CAPTION_DIR, type CaptionStyle, CAPTION_PRESETS } from "./caption-engine";
 import { computeUpcomingSlots } from "./schedule";
 import { applyCaptionsBrowser } from "./browser-caption-engine";
-import { eq, and, lte, gte, lt, inArray, isNull, isNotNull, or, desc, sql } from "drizzle-orm";
+import { eq, and, lte, gte, lt, inArray, isNull, isNotNull, or, desc, like, sql } from "drizzle-orm";
 import { logger } from "./logger";
 import { generateScript, regenerateCaption, generateContentTopics } from "./ai-scripts";
 import { getLatestAuditCache } from "./audit-cache";
@@ -1410,6 +1410,16 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
         .set({ videoId: videoRow.id, updatedAt: new Date() })
         .where(eq(contentPlanItemsTable.id, contentItem.id));
 
+      // The regular scheduler owns the complete lifecycle in production. This
+      // targeted monitor additionally advances just this user-requested TTS job
+      // in environments where global cron is intentionally disabled.
+      startWavespeedTtsHandoffMonitor({
+        videoId: videoRow.id,
+        userId,
+        topic: contentItem.topic,
+        ttsRequestId,
+      });
+
       logger.info({ videoId: videoRow.id, ttsRequestId, sentinel }, "[WaveSpeed] TTS job submitted — polling will advance to talking-head step");
       return { success: true, message: "WaveSpeed video generation started (TTS submitted)", contentItemId: contentItem.id, videoId: videoRow.id };
     }
@@ -2312,6 +2322,192 @@ async function sendVideoFailedAlert(userId: number, contentPlanItemId: number | 
   }
 }
 
+// ── WaveSpeed TTS → talking-head handoff ───────────────────────────────────────
+//
+// WaveSpeed video generation has two asynchronous jobs. The TTS job is cheap and
+// usually completes in seconds, but the speaking-video job cannot exist until its
+// audio URL is available. Normally the one-minute scheduler poll advances this
+// handoff. User-triggered generations also start a short, targeted monitor so the
+// handoff is not stranded when the development scheduler is deliberately off.
+type WavespeedTtsHandoffInput = {
+  videoId: number;
+  userId: number;
+  topic: string | null;
+  ttsRequestId: string;
+};
+
+const activeWavespeedTtsHandoffMonitors = new Set<number>();
+const WAVESPEED_TTS_HANDOFF_RETRY_MS = 10_000;
+const WAVESPEED_TTS_HANDOFF_MAX_ATTEMPTS = 18;
+
+/**
+ * Poll a completed TTS job exactly until it can be exchanged for a talking-head
+ * prediction. The atomic sentinel swap makes this safe to run beside the normal
+ * scheduler: only one worker is allowed to submit the billable video job.
+ */
+async function advanceWavespeedTtsToTalkingHead(
+  input: WavespeedTtsHandoffInput,
+): Promise<"waiting" | "advanced"> {
+  const { videoId, userId, topic, ttsRequestId } = input;
+  const jobResult = await getWavespeedJobStatus(ttsRequestId);
+
+  if (jobResult.status === "failed") {
+    throw new Error(`WS_TERMINAL: TTS fallido: ${jobResult.error ?? "error desconocido"}`);
+  }
+  if (jobResult.status !== "completed") return "waiting";
+
+  const rawOutputs = jobResult.outputs;
+  const audioUrl: string | undefined = Array.isArray(rawOutputs)
+    ? (typeof rawOutputs[0] === "string" ? rawOutputs[0] : (rawOutputs[0] as { url?: string })?.url)
+    : (() => {
+        const outputs = (rawOutputs ?? {}) as Record<string, unknown>;
+        return (outputs["audio_url"] ?? outputs["audio"] ?? outputs["url"]) as string | undefined;
+      })();
+  if (!audioUrl) {
+    throw new Error(`WS_TERMINAL: TTS completado pero sin audio_url en outputs: ${JSON.stringify(rawOutputs)}`);
+  }
+
+  const ttsSentinel = `wavespeed-tts:${ttsRequestId}`;
+  const handoffSentinel = `wavespeed-tts-handoff:${ttsRequestId}`;
+  const handoffClaim = await db
+    .update(videosTable)
+    .set({ heygenVideoId: handoffSentinel, updatedAt: new Date() })
+    .where(and(eq(videosTable.id, videoId), eq(videosTable.heygenVideoId, ttsSentinel)))
+    .returning({ id: videosTable.id });
+
+  // A scheduler or another monitor has already moved this video forward.
+  if (handoffClaim.length === 0) return "advanced";
+
+  try {
+    const [ttsJobRow] = await db
+      .select({ inputPayload: wavespeedJobsTable.inputPayload })
+      .from(wavespeedJobsTable)
+      .where(
+        and(
+          eq(wavespeedJobsTable.wavespeedRequestId, ttsRequestId),
+          eq(wavespeedJobsTable.relatedVideoId, videoId),
+        ),
+      )
+      .limit(1);
+    const imageUrl: string | undefined = ttsJobRow?.inputPayload
+      ? (JSON.parse(ttsJobRow.inputPayload) as { imageUrl?: string }).imageUrl
+      : undefined;
+    if (!imageUrl) {
+      throw new Error("WS_TERMINAL: No se encontró imageUrl para el paso de talking-head");
+    }
+
+    await db
+      .update(wavespeedJobsTable)
+      .set({ status: "completed", outputUrl: audioUrl, updatedAt: new Date() })
+      .where(eq(wavespeedJobsTable.wavespeedRequestId, ttsRequestId));
+
+    const motionPrompt = topic
+      ? `Natural upper body movement with expressive gestures and slight head turns. ` +
+        `Dynamic presenter energy: torso sway, occasional hand movement, engaged eye contact. ` +
+        `Professional content creator speaking directly to camera about: ${topic}.`
+      : undefined;
+    logger.info({ videoId, audioUrl, motionPrompt: motionPrompt?.slice(0, 80) }, "[WaveSpeed] TTS completado — enviando talking-head");
+    const { requestId: thRequestId } = await submitTalkingHead(imageUrl, audioUrl, { prompt: motionPrompt });
+
+    await db.insert(wavespeedJobsTable).values({
+      userId,
+      model: WAVESPEED_MODELS.TALKING_HEAD,
+      status: "processing",
+      wavespeedRequestId: thRequestId,
+      inputPayload: JSON.stringify({ image_url: imageUrl, audio_url: audioUrl }),
+      relatedVideoId: videoId,
+    });
+
+    await db
+      .update(videosTable)
+      .set({ heygenVideoId: `wavespeed-th:${thRequestId}`, updatedAt: new Date() })
+      .where(and(eq(videosTable.id, videoId), eq(videosTable.heygenVideoId, handoffSentinel)));
+
+    logger.info({ videoId, thRequestId }, "[WaveSpeed] Talking-head job enviado");
+    return "advanced";
+  } catch (err) {
+    // Keep the original stage retriable. A later scheduler tick or this monitor's
+    // next attempt can safely resume without creating a second video prediction.
+    await db
+      .update(videosTable)
+      .set({ heygenVideoId: ttsSentinel, updatedAt: new Date() })
+      .where(and(eq(videosTable.id, videoId), eq(videosTable.heygenVideoId, handoffSentinel)));
+    throw err;
+  }
+}
+
+/**
+ * Starts a short monitor for an explicitly requested WaveSpeed generation.
+ * It only advances that video's TTS handoff; it does not enable the global
+ * cron scheduler or process other users' queued work.
+ */
+export function startWavespeedTtsHandoffMonitor(input: WavespeedTtsHandoffInput): void {
+  if (activeWavespeedTtsHandoffMonitors.has(input.videoId)) return;
+  activeWavespeedTtsHandoffMonitors.add(input.videoId);
+
+  let attempts = 0;
+  const poll = async (): Promise<void> => {
+    try {
+      const result = await advanceWavespeedTtsToTalkingHead(input);
+      if (result === "advanced") {
+        activeWavespeedTtsHandoffMonitors.delete(input.videoId);
+        return;
+      }
+      attempts += 1;
+      if (attempts >= WAVESPEED_TTS_HANDOFF_MAX_ATTEMPTS) {
+        activeWavespeedTtsHandoffMonitors.delete(input.videoId);
+        logger.warn({ videoId: input.videoId, attempts }, "[WaveSpeed] TTS handoff monitor finished; scheduler will continue polling");
+        return;
+      }
+      const timer = setTimeout(() => void poll(), WAVESPEED_TTS_HANDOFF_RETRY_MS);
+      timer.unref();
+    } catch (err) {
+      activeWavespeedTtsHandoffMonitors.delete(input.videoId);
+      logger.error({ err, videoId: input.videoId }, "[WaveSpeed] TTS handoff monitor failed");
+    }
+  };
+
+  void poll();
+}
+
+/**
+ * Restarts short monitors for TTS jobs that were already accepted before an API
+ * restart. This is intentionally narrower than the global scheduler: it can
+ * only finish the second half of a video generation the user already started.
+ */
+export async function resumePendingWavespeedTtsHandoffs(): Promise<void> {
+  const pending = await db
+    .select({
+      id: videosTable.id,
+      userId: videosTable.userId,
+      topic: videosTable.topic,
+      heygenVideoId: videosTable.heygenVideoId,
+    })
+    .from(videosTable)
+    .where(
+      and(
+        eq(videosTable.status, "generating"),
+        like(videosTable.heygenVideoId, "wavespeed-tts:%"),
+      ),
+    )
+    .limit(25);
+
+  for (const video of pending) {
+    const ttsRequestId = video.heygenVideoId?.slice("wavespeed-tts:".length);
+    if (!ttsRequestId) continue;
+    startWavespeedTtsHandoffMonitor({
+      videoId: video.id,
+      userId: video.userId,
+      topic: video.topic,
+      ttsRequestId,
+    });
+  }
+
+  if (pending.length > 0) {
+    logger.info({ count: pending.length }, "[WaveSpeed] Resumed pending TTS-to-talking-head handoffs");
+  }
+}
+
 export async function pollAndPublishVideos(): Promise<void> {
   // ── Recovery: release orphaned B-roll image reserves (crash mid-pipeline) ──
   try {
@@ -2724,77 +2920,20 @@ export async function pollAndPublishVideos(): Promise<void> {
       const [stage, requestId] = video.heygenVideoId.replace("wavespeed-", "").split(":");
       if (!requestId) continue;
       try {
-        const jobResult = await getWavespeedJobStatus(requestId);
-
         if (stage === "tts") {
-          if (jobResult.status === "completed") {
-            // Extract audio URL from outputs.
-            // WaveSpeed returns outputs as a plain string[] (CloudFront URLs), not a keyed object.
-            // Handle both shapes so a future schema change doesn't silently break this.
-            const rawOutputs = jobResult.outputs;
-            const audioUrl: string | undefined = Array.isArray(rawOutputs)
-              ? (typeof rawOutputs[0] === "string" ? rawOutputs[0] : (rawOutputs[0] as { url?: string })?.url)
-              : (() => { const o = (rawOutputs ?? {}) as Record<string, unknown>; return (o["audio_url"] ?? o["audio"] ?? o["url"]) as string | undefined; })();
-            if (!audioUrl) {
-              throw new Error(`WS_TERMINAL: TTS completado pero sin audio_url en outputs: ${JSON.stringify(rawOutputs)}`);
-            }
-
-            // Find imageUrl stored in the TTS job's inputPayload
-            const [ttsJobRow] = await db
-              .select({ inputPayload: wavespeedJobsTable.inputPayload })
-              .from(wavespeedJobsTable)
-              .where(
-                and(
-                  eq(wavespeedJobsTable.wavespeedRequestId, requestId),
-                  eq(wavespeedJobsTable.relatedVideoId, video.id),
-                ),
-              )
-              .limit(1);
-            const imageUrl: string | undefined = ttsJobRow?.inputPayload
-              ? (JSON.parse(ttsJobRow.inputPayload) as { imageUrl?: string }).imageUrl
-              : undefined;
-            if (!imageUrl) {
-              throw new Error("WS_TERMINAL: No se encontró imageUrl para el paso de talking-head");
-            }
-
-            // Mark TTS job done
-            await db
-              .update(wavespeedJobsTable)
-              .set({ status: "completed", outputUrl: audioUrl, updatedAt: new Date() })
-              .where(eq(wavespeedJobsTable.wavespeedRequestId, requestId));
-
-            // Submit talking-head job
-            // Build a topic-aware motion prompt so the model produces natural
-            // body movement suited to the content — falls back to the library
-            // default when no topic is stored on the video row.
-            const motionPrompt = video.topic
-              ? `Natural upper body movement with expressive gestures and slight head turns. ` +
-                `Dynamic presenter energy: torso sway, occasional hand movement, engaged eye contact. ` +
-                `Professional content creator speaking directly to camera about: ${video.topic}.`
-              : undefined; // undefined → submitTalkingHead uses TALKING_HEAD_DEFAULT_PROMPT
-            logger.info({ videoId: video.id, audioUrl, motionPrompt: motionPrompt?.slice(0, 80) }, "[WaveSpeed] TTS completado — enviando talking-head");
-            const { requestId: thRequestId } = await submitTalkingHead(imageUrl, audioUrl, { prompt: motionPrompt });
-
-            await db.insert(wavespeedJobsTable).values({
-              userId: video.userId,
-              model: WAVESPEED_MODELS.TALKING_HEAD,
-              status: "processing",
-              wavespeedRequestId: thRequestId,
-              inputPayload: JSON.stringify({ image_url: imageUrl, audio_url: audioUrl }),
-              relatedVideoId: video.id,
-            });
-
-            await db
-              .update(videosTable)
-              .set({ heygenVideoId: `wavespeed-th:${thRequestId}`, updatedAt: new Date() })
-              .where(eq(videosTable.id, video.id));
-
-            logger.info({ videoId: video.id, thRequestId }, "[WaveSpeed] Talking-head job enviado");
-          } else if (jobResult.status === "failed") {
-            throw new Error(`WS_TERMINAL: TTS fallido: ${jobResult.error ?? "error desconocido"}`);
-          }
+          await advanceWavespeedTtsToTalkingHead({
+            videoId: video.id,
+            userId: video.userId,
+            topic: video.topic,
+            ttsRequestId: requestId,
+          });
           // queued/processing → keep polling next cycle
+        } else if (stage === "tts-handoff") {
+          // A targeted monitor has atomically claimed the handoff. It will
+          // promptly replace this sentinel with wavespeed-th:{requestId}.
+          continue;
         } else if (stage === "th") {
+          const jobResult = await getWavespeedJobStatus(requestId);
           if (jobResult.status === "completed") {
             // Same dual-shape handling: outputs may be string[] or keyed object.
             const rawOutputs = jobResult.outputs;
