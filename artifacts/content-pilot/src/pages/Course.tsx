@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from "react"
+import { Link } from "wouter"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
@@ -113,6 +114,29 @@ function LessonDetail({
 
       {/* Description */}
       <p className="text-muted-foreground leading-relaxed">{lesson.description}</p>
+
+      {/* Quick action for lesson 2 */}
+      {lesson.id === "m1-l2" && lesson.actionLabel && lesson.actionHref && (
+        <div className="flex flex-col gap-4 rounded-xl border border-primary/20 bg-primary/[0.04] p-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <Zap className="h-4 w-4" />
+            </div>
+            <div>
+              <p className="font-semibold text-sm">Acción rápida</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Configurá ahora tu negocio, oferta y audiencia para que Reelsona pueda crear contenido alineado contigo.
+              </p>
+            </div>
+          </div>
+          <Button asChild className="w-full shrink-0 gap-2 sm:w-auto">
+            <Link href={lesson.actionHref}>
+              {lesson.actionLabel}
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          </Button>
+        </div>
+      )}
 
       {/* Checklist (clase 23) */}
       {lesson.checklistItems && lesson.checklistItems.length > 0 && (
