@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react"
 import {
   useGetContentPlan, useGetAutomation, usePublishVideo, useUpdateContentItem,
-  getGetContentPlanQueryKey, type ContentPlanItem,
+  useGetSettings, getGetContentPlanQueryKey, type ContentPlanItem,
 } from "@workspace/api-client-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { Card, CardContent } from "@/components/ui/card"
@@ -13,6 +13,10 @@ import {
   FileText, UserSquare2, Captions, Send, CheckCircle2,
   Clock, AlertTriangle, Loader2, Play, Eye, Sparkles,
 } from "lucide-react"
+import {
+  VideoToolsSummary,
+  resolveVideoToolsEffects,
+} from "@/components/VideoToolsSummary"
 
 // ── Step definitions ─────────────────────────────────────────────────────────
 const BASE_STEPS = [
@@ -239,6 +243,7 @@ function ReviewModal({
 export default function PipelineTimeline() {
   const { data: items } = useGetContentPlan({ limit: 100 }, { query: { refetchInterval: 15000 } as any })
   const { data: automation }  = useGetAutomation({ query: { refetchInterval: 10000 } as any })
+  const { data: settings } = useGetSettings()
   const [reviewOpen, setReviewOpen] = useState(false)
 
   // Tick every 5 s for elapsed-time bars
@@ -256,6 +261,13 @@ export default function PipelineTimeline() {
   const willAutoPublish = automation?.enabled && automation?.auto_publish
   const captionsEnabled = automation?.captions_enabled ?? true
   const isManual = !willAutoPublish
+  const effectiveEffects = resolveVideoToolsEffects(
+    settings?.video_effects,
+    (item as any).video_effects_override,
+    (item as any).video_effects,
+  )
+  const hasActiveEffect = effectiveEffects.zoom || effectiveEffects.ai_broll || effectiveEffects.text_cards
+  const hasEffectsStudioWork = captionsEnabled || hasActiveEffect
 
   // Build the visible steps for this mode.
   //   auto   + captions:   script video caption copy         publish  (5)
@@ -263,7 +275,7 @@ export default function PipelineTimeline() {
   //   manual + captions:   script video caption copy review  publish  (6)
   //   manual - captions:   script video         copy review  publish  (5)
   const visibleSteps = BASE_STEPS.filter((s) => {
-    if (s.key === "caption" && !captionsEnabled) return false
+    if (s.key === "caption" && !hasEffectsStudioWork) return false
     if (s.key === "review"  && !isManual)        return false
     return true
   })
@@ -443,6 +455,17 @@ export default function PipelineTimeline() {
                   </div>
 
                   <p className={`text-[11px] leading-tight hidden sm:block ${descClass}`}>{s.desc}</p>
+
+                  {s.key === "caption" && (
+                    <div className="mt-2">
+                      <VideoToolsSummary
+                        effects={effectiveEffects}
+                        captionsEnabled={captionsEnabled}
+                        captionStatus={item.caption_status}
+                        compact
+                      />
+                    </div>
+                  )}
 
                   {stepElapsed ? (
                     <div className="mt-2 space-y-0.5">
