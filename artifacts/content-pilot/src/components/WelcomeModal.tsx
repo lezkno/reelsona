@@ -93,12 +93,12 @@ export function WelcomeModal() {
         {/* Header gradient strip */}
         <div className="bg-sidebar px-4 sm:px-6 pt-4 pb-4 text-sidebar-foreground">
           <img src="/logo.png" alt="Reelsona" className="w-10 h-10 mx-auto mb-2 object-contain drop-shadow-lg" />
-          <DialogHeader className="space-y-0.5 text-left items-start">
-            <DialogTitle className="text-lg font-display font-bold text-sidebar-foreground leading-tight">
+          <DialogHeader className="space-y-0.5 text-center items-center">
+            <DialogTitle className="w-full text-lg font-display font-bold text-sidebar-foreground leading-tight text-center">
               <span className="block text-2xl sm:text-3xl text-center">Reelsona</span>
               <span className="block">Tu Máquina de Contenido con IA está lista</span>
             </DialogTitle>
-            <DialogDescription className="text-sidebar-foreground/70 text-xs">
+            <DialogDescription className="text-sidebar-foreground/70 text-xs text-center">
               Mira el video y empieza el curso para publicar tu primer Reel hoy.
             </DialogDescription>
           </DialogHeader>
