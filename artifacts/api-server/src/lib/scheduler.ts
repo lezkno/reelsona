@@ -1680,6 +1680,41 @@ export async function resetCaptionProcessingForReapply(
   return reset.length > 0;
 }
 
+export interface RecoverableCaptionVideo {
+  id: number;
+  videoUrl: string;
+  contentPlanId: number | null;
+  durationSeconds: number | null;
+}
+
+export type CaptionProcessingRunner = (
+  videoId: number,
+  videoUrl: string,
+  contentPlanId: number | null,
+  subtitleUrl?: string | null,
+  durationSeconds?: number | null,
+  skipBroll?: boolean,
+) => Promise<void>;
+
+/**
+ * Restarts a stale renderer without dropping B-roll. Generated B-roll files
+ * only live in the previous worker's temporary directory, so a retry must run
+ * the effect again; per-segment credit reservations prevent duplicate charges.
+ */
+export async function recoverCaptionProcessing(
+  video: RecoverableCaptionVideo,
+  processCaption: CaptionProcessingRunner = runCaptionProcessing,
+): Promise<void> {
+  await processCaption(
+    video.id,
+    video.videoUrl,
+    video.contentPlanId,
+    null,
+    video.durationSeconds,
+    false,
+  );
+}
+
 /**
  * Marks captions disabled only while no renderer has claimed the video. The
  * completion poller may have read a null status before a manual reapply starts,
@@ -2428,7 +2463,10 @@ export async function pollAndPublishVideos(): Promise<void> {
       // attempt exits without launching duplicate B-roll/effects work.
       // Wrap in a 12-minute timeout so a hung AI image call
       // never blocks the entire polling loop indefinitely.
-      logger.info({ videoId: v.id }, "[CaptionEngine] Recovery: re-processing stuck caption");
+      logger.info(
+        { videoId: v.id },
+        "[CaptionEngine] Recovery: re-processing stuck caption",
+      );
       // 25 min covers the worst case: browser engine on a 60s video requires
       // ~2 min download + ~10 min zoom FFmpeg + ~5 min B-roll FFmpeg + ~5 min
       // caption batches + ~2 min IG upscale. Individual FFmpeg steps now have
@@ -2436,7 +2474,12 @@ export async function pollAndPublishVideos(): Promise<void> {
       // silently blocking until this outer limit fires.
       const RECOVERY_TIMEOUT_MS = 25 * 60 * 1000;
       await Promise.race([
-        runCaptionProcessing(v.id, v.videoUrl, v.contentPlanId ?? null, null, v.durationSeconds),
+        recoverCaptionProcessing({
+          id: v.id,
+          videoUrl: v.videoUrl,
+          contentPlanId: v.contentPlanId ?? null,
+          durationSeconds: v.durationSeconds,
+        }),
         new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error("Recovery timeout after 25 min")), RECOVERY_TIMEOUT_MS)
         ),

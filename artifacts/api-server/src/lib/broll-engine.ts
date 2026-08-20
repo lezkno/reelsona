@@ -66,6 +66,32 @@ export interface BRollBillingContext {
   videoId: number;
 }
 
+export interface BRollImageReservation {
+  /** Generate the image unless the wallet had insufficient balance. */
+  shouldGenerate: boolean;
+  /**
+   * The newly-created reserve to settle after provider work. Null means a
+   * previous attempt already paid for this segment, so regeneration is free.
+   */
+  reservationId: number | null;
+}
+
+/**
+ * B-roll assets are temporary and cannot be reused after a process restart.
+ * A recovery must therefore regenerate them even when a prior reservation was
+ * already consumed. The per-segment reserve is idempotent, so that retry does
+ * not create a second charge.
+ */
+export function resolveBRollImageReservation(
+  reserved: number | "already_paid" | null,
+): BRollImageReservation {
+  if (reserved === null) return { shouldGenerate: false, reservationId: null };
+  return {
+    shouldGenerate: true,
+    reservationId: reserved === "already_paid" ? null : reserved,
+  };
+}
+
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const FADE_DUR        = 0.3;   // seconds for fade in and fade out
@@ -392,12 +418,12 @@ export async function generateBRollImages(
           logger.warn({ idx: i, err }, "[BRoll] Credit reservation failed — skipping segment");
           return null;
         }
-        if (reserved === null) {
+        const reservation = resolveBRollImageReservation(reserved);
+        if (!reservation.shouldGenerate) {
           logger.warn({ idx: i, userId: billing.userId }, "[BRoll] Saldo insuficiente — segmento omitido");
           return null;
         }
-        // "already_paid" → prior attempt charged this segment; regenerate free
-        reservationId = reserved === "already_paid" ? null : reserved;
+        reservationId = reservation.reservationId;
       }
 
       const prompt = directionPrefix + PHOTO_SAFETY_SUFFIX + segment.imagePrompt;
