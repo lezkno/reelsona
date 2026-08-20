@@ -50,6 +50,7 @@ import { sendEmail, videoFailedEmail } from "./email";
 import { applyCaptions, CAPTION_DIR, type CaptionStyle, CAPTION_PRESETS } from "./caption-engine";
 import { computeUpcomingSlots } from "./schedule";
 import { applyCaptionsBrowser } from "./browser-caption-engine";
+import { applyCaptionsFastV2, isRenderFastV2Enabled, isRenderFastV2Failure } from "./render-fast-v2";
 import { eq, and, lte, gte, lt, inArray, isNull, isNotNull, or, desc, like, sql } from "drizzle-orm";
 import { logger } from "./logger";
 import { generateScript, regenerateCaption, generateContentTopics } from "./ai-scripts";
@@ -1604,6 +1605,7 @@ async function finishCaptionProcessing(
     captionStatus: "done" | "failed";
     captionedVideoUrl?: string;
     thumbnailUrl?: string;
+    errorMessage?: string;
   },
 ): Promise<boolean> {
   const completed = await db
@@ -1611,8 +1613,15 @@ async function finishCaptionProcessing(
     .set({
       captionStatus: completion.captionStatus,
       captionProcessingLeaseId: null,
+      ...(completion.captionStatus === "done" && { errorMessage: null }),
+      ...(completion.errorMessage && {
+        status: "failed",
+        errorMessage: completion.errorMessage,
+        scheduledPublishAt: null,
+      }),
       ...(completion.captionedVideoUrl && { captionedVideoUrl: completion.captionedVideoUrl }),
       ...(completion.thumbnailUrl && { thumbnailUrl: completion.thumbnailUrl }),
+      ...(completion.errorMessage && { errorMessage: completion.errorMessage }),
       updatedAt: new Date(),
     })
     .where(and(
@@ -1638,6 +1647,7 @@ export interface CaptionProcessingLease {
     captionStatus: "done" | "failed";
     captionedVideoUrl?: string;
     thumbnailUrl?: string;
+    errorMessage?: string;
   }) => Promise<boolean>;
   stop: () => void;
 }
@@ -1771,7 +1781,12 @@ export async function runCaptionProcessing(
   try {
   // Look up the video's stored effects AND the persisted HeyGen subtitle URL
   const [videoRow] = await db
-    .select({ videoEffects: videosTable.videoEffects, heygenSubtitleUrl: videosTable.heygenSubtitleUrl, userId: videosTable.userId })
+    .select({
+      videoEffects: videosTable.videoEffects,
+      heygenSubtitleUrl: videosTable.heygenSubtitleUrl,
+      heygenVideoId: videosTable.heygenVideoId,
+      userId: videosTable.userId,
+    })
     .from(videosTable)
     .where(eq(videosTable.id, videoId))
     .limit(1);
@@ -1856,6 +1871,102 @@ export async function runCaptionProcessing(
     }
   }
 
+  // Render Fast V2 uses the persistent Caption Studio fields so it retains the
+  // same font, colours, outline and placement as the legacy ASS renderer. It
+  // deliberately ignores Text Cards: that legacy feature is outside V2.
+  const style: CaptionStyle = rotatedPreset ? {
+    presetId:        rotatedPreset.id,
+    position:        captionCfg.position as CaptionStyle["position"],
+    wordsPerLine:    rotatedPreset.wordsPerLine ?? captionCfg.wordsPerLine,
+    primaryColor:    rotatedPreset.primaryColor,
+    activeWordColor: rotatedPreset.activeWordColor,
+    outlineColor:    rotatedPreset.outlineColor,
+    backgroundColor: rotatedPreset.backgroundColor ?? null,
+    fontFamily:      rotatedPreset.fontFamily,
+    fontSize:        rotatedPreset.fontSize,
+    lineSpacingFactor: captionCfg.lineSpacingFactor,
+    yPosition:       captionCfg.yPosition,
+    marginX:         captionCfg.marginX,
+    activeWordScale: rotatedPreset.activeWordScale,
+    highlightMode:   rotatedPreset.highlightMode as CaptionStyle["highlightMode"],
+    autoScale:       captionCfg.autoScale,
+    autoMovement:    rotatedPreset.autoMovement,
+    subtleRotation:  rotatedPreset.subtleRotation,
+  } : {
+    presetId: captionCfg.presetId,
+    position: captionCfg.position as CaptionStyle["position"],
+    wordsPerLine: captionCfg.wordsPerLine,
+    primaryColor: captionCfg.primaryColor,
+    activeWordColor: captionCfg.activeWordColor,
+    outlineColor: captionCfg.outlineColor,
+    backgroundColor: captionCfg.backgroundColor ?? null,
+    fontFamily: captionCfg.fontFamily,
+    fontSize: captionCfg.fontSize,
+    lineSpacingFactor: captionCfg.lineSpacingFactor,
+    yPosition: captionCfg.yPosition,
+    marginX: captionCfg.marginX,
+    activeWordScale: captionCfg.activeWordScale,
+    highlightMode: captionCfg.highlightMode as CaptionStyle["highlightMode"],
+    autoScale: captionCfg.autoScale,
+    autoMovement: captionCfg.autoMovement,
+    subtleRotation: captionCfg.subtleRotation,
+  };
+
+  // V2 is intentionally scoped to WaveSpeed talking-head outputs. HeyGen
+  // retains its established renderer while this controlled rollout is measured.
+  const isWaveSpeedVideo = videoRow?.heygenVideoId?.startsWith("wavespeed-") === true;
+  if (isWaveSpeedVideo && isRenderFastV2Enabled()) {
+    logger.info(
+      { videoId, captionEngine: captionCfg.captionEngine, videoEffects },
+      "[RenderFastV2] Selected (development default; set VIDEO_RENDERER=legacy to use the temporary fallback)",
+    );
+    const fastResult = await applyCaptionsFastV2(videoUrl, script, style, {
+      subtitleUrl:          resolvedSubtitleUrl ?? undefined,
+      videoDurationSeconds: durationSeconds ?? undefined,
+      videoEffects,
+      visualSuggestions,
+      brollBilling: userId ? { userId, videoId } : null,
+    });
+
+    const finalized = fastResult.url
+      ? await lease.finish({
+          captionStatus: "done",
+          captionedVideoUrl: fastResult.url,
+          thumbnailUrl: fastResult.thumbnailUrl ?? undefined,
+        })
+      : await lease.finish({
+          captionStatus: "failed",
+          errorMessage: fastResult.error?.slice(0, 2_000) ?? "Render Fast V2 failed without an error message",
+        });
+
+    if (finalized) {
+      if (fastResult.url) {
+        logger.info({ videoId }, "[RenderFastV2] Captioned video ready ✓");
+        if (contentPlanId) {
+          runCopyGeneration(contentPlanId).catch((err) =>
+            logger.error({ videoId, contentPlanId, err }, "[CopyEngine] Failed to start after Render Fast V2"),
+          );
+        }
+      } else {
+        logger.error(
+          { videoId, error: fastResult.error },
+          "[RenderFastV2] Render failed — marked failed without automatic retry",
+        );
+        if (contentPlanId) {
+          await db
+            .update(contentPlanItemsTable)
+            .set({ status: "failed", updatedAt: new Date() })
+            .where(and(
+              eq(contentPlanItemsTable.id, contentPlanId),
+              inArray(contentPlanItemsTable.status, ["ready", "generating"]),
+            ))
+            .catch((err) => logger.error({ videoId, contentPlanId, err }, "[RenderFastV2] Failed to mark content item failed"));
+        }
+      }
+    }
+    return;
+  }
+
   // ── Browser Caption Engine (experimental) ────────────────────────────────
   // When captionEngine = "browser_experimental" and a templateId is set,
   // attempt the canvas-based render first. On failure → fall through to ASS.
@@ -1936,46 +2047,7 @@ export async function runCaptionProcessing(
     );
   }
 
-  // ── Standard ASS/FFmpeg engine ────────────────────────────────────────────
-  // If rotation picked a preset, its visual settings override the stored config.
-  const style: CaptionStyle = rotatedPreset ? {
-    presetId:        rotatedPreset.id,
-    position:        captionCfg.position as CaptionStyle["position"],
-    wordsPerLine:    rotatedPreset.wordsPerLine ?? captionCfg.wordsPerLine,
-    primaryColor:    rotatedPreset.primaryColor,
-    activeWordColor: rotatedPreset.activeWordColor,
-    outlineColor:    rotatedPreset.outlineColor,
-    backgroundColor: rotatedPreset.backgroundColor ?? null,
-    fontFamily:      rotatedPreset.fontFamily,
-    fontSize:        rotatedPreset.fontSize,
-    lineSpacingFactor: captionCfg.lineSpacingFactor,
-    yPosition:       captionCfg.yPosition,
-    marginX:         captionCfg.marginX,
-    activeWordScale: rotatedPreset.activeWordScale,
-    highlightMode:   rotatedPreset.highlightMode as CaptionStyle["highlightMode"],
-    autoScale:       captionCfg.autoScale,
-    autoMovement:    rotatedPreset.autoMovement,
-    subtleRotation:  rotatedPreset.subtleRotation,
-  } : {
-    presetId: captionCfg.presetId,
-    position: captionCfg.position as CaptionStyle["position"],
-    wordsPerLine: captionCfg.wordsPerLine,
-    primaryColor: captionCfg.primaryColor,
-    activeWordColor: captionCfg.activeWordColor,
-    outlineColor: captionCfg.outlineColor,
-    backgroundColor: captionCfg.backgroundColor ?? null,
-    fontFamily: captionCfg.fontFamily,
-    fontSize: captionCfg.fontSize,
-    lineSpacingFactor: captionCfg.lineSpacingFactor,
-    yPosition: captionCfg.yPosition,
-    marginX: captionCfg.marginX,
-    activeWordScale: captionCfg.activeWordScale,
-    highlightMode: captionCfg.highlightMode as CaptionStyle["highlightMode"],
-    autoScale: captionCfg.autoScale,
-    autoMovement: captionCfg.autoMovement,
-    subtleRotation: captionCfg.subtleRotation,
-  };
-
+  // ── Standard ASS/FFmpeg engine (temporary fallback) ──────────────────────
   let finalized = false;
   try {
     const captionResult = await applyCaptions(videoUrl, script, style, {
@@ -2955,6 +3027,7 @@ export async function pollAndPublishVideos(): Promise<void> {
       and(
         eq(contentPlanItemsTable.status, "ready"),
         isNull(contentPlanItemsTable.copyStatus),
+        eq(videosTable.status, "ready"),
         inArray(videosTable.captionStatus as any, ["done", "failed", "disabled"])
       )
     );
@@ -3461,6 +3534,9 @@ export async function publishVideoToInstagram(videoId: number, videoUrl?: string
 async function _publishVideoToInstagramInner(videoId: number, videoUrl?: string): Promise<void> {
   const [initial] = await db.select().from(videosTable).where(eq(videosTable.id, videoId));
   if (!initial) throw new Error("Video not found");
+  if (isRenderFastV2Failure(initial.errorMessage)) {
+    throw new Error(`No se puede publicar: ${initial.errorMessage}`);
+  }
 
   // Idempotency guard — skip if already published.
   // Check both status AND igMediaId: the status may still be "publishing" if the

@@ -19,6 +19,7 @@ import {
 import { generateVideo } from "../lib/heygen";
 import { reserveCredits, releaseVideoCredits, estimateDurationFromScript, computeReelCreditCost, hasEnoughCredits } from "../lib/credits";
 import { publishVideoToInstagram, pickNextAvatar, resolveVoiceId, runCaptionProcessing, runAutomationCycle, insertVideoClaimingUserSlot, resetCaptionProcessingForReapply } from "../lib/scheduler";
+import { isRenderFastV2Failure } from "../lib/render-fast-v2";
 import {
   captionsAreEnabled,
   normalizeVideoEffects,
@@ -459,6 +460,14 @@ router.post("/videos/:id/publish", async (req, res): Promise<void> => {
   }
   if (video.status === "publishing") {
     res.status(400).json({ error: "Este video ya se está publicando en este momento" });
+    return;
+  }
+  // A Fast V2 failure must be regenerated, never published as the original
+  // uncaptioned source. Keep the exact renderer error intact for the UI.
+  if (isRenderFastV2Failure(video.errorMessage)) {
+    res.status(409).json({
+      error: `${video.errorMessage} Regenera el video antes de intentar publicarlo.`,
+    });
     return;
   }
   // "failed" can happen when a publish attempt was interrupted (server restart mid-publish).

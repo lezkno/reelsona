@@ -32,7 +32,7 @@ export const CAPTION_DIR = "/tmp/contentpilot-captioned";
 // Bundled fonts shipped with the API server
 // Use import.meta.url for ESM compatibility (works in both tsx/esm and esbuild output)
 const _dir = path.dirname(fileURLToPath(import.meta.url));
-const FONTS_DIR = path.join(_dir, "../assets/fonts");
+export const CAPTION_FONTS_DIR = path.join(_dir, "../assets/fonts");
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -157,7 +157,7 @@ function parseSRT(srt: string): SRTBlock[] {
 }
 
 /** Fallback SRT from plain script, distributing time evenly across word groups */
-function generateBasicSRT(script: string, durationMs: number): string {
+export function generateBasicSRT(script: string, durationMs: number): string {
   const words = script.trim().split(/\s+/).filter(Boolean);
   const WORDS_PER_BLOCK = 5;
   const msPerWord = durationMs / Math.max(1, words.length);
@@ -622,6 +622,30 @@ function buildASS(
   } else {
     return buildPopASS(wordTimings, config, videoWidth, videoHeight);
   }
+}
+
+/**
+ * Build the two caption artifacts shared by the legacy renderer and Render Fast
+ * V2. Keeping this here means both paths keep the same Caption Studio colors,
+ * font mapping, alignment and word timing rules.
+ */
+export function buildCaptionArtifactsFromSrt(
+  srtContent: string,
+  config: CaptionStyle,
+  videoWidth = 1080,
+  videoHeight = 1920,
+): { ass: string; wordTimings: PunchWordTiming[] } {
+  const blocks = parseSRT(srtContent);
+  if (blocks.length === 0) {
+    throw new Error("SRT parsed to 0 blocks");
+  }
+  return {
+    ass: buildASS(blocks, config, videoWidth, videoHeight),
+    wordTimings: extractWordTimings(blocks).map(({ text, start }) => ({
+      text,
+      startMs: start,
+    })),
+  };
 }
 
 // ─── AI-powered punch zoom timestamp detection ────────────────────────────────
@@ -1135,7 +1159,7 @@ export async function applyCaptions(
     // 5. Burn with FFmpeg — pass fontsdir so libass finds our bundled fonts
     logger.info("[CaptionEngine] Running FFmpeg (ass filter)...");
 
-    const assFilter = `${rotationFilter}ass='${assPath}':fontsdir='${FONTS_DIR}'`;
+    const assFilter = `${rotationFilter}ass='${assPath}':fontsdir='${CAPTION_FONTS_DIR}'`;
 
     const { stderr } = await execFileAsync("ffmpeg", [
       "-noautorotate",          // read raw frames without auto-rotating; we handle it via transpose
