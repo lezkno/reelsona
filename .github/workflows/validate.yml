@@ -9,9 +9,6 @@ on:
       - codex/prod-hardening
       - 'audit/**'
 
-permissions:
-  contents: write
-
 concurrency:
   group: validate-${{ github.ref }}
   cancel-in-progress: true
@@ -41,27 +38,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
-          fetch-depth: 0
-
-      - name: Apply audit hardening patch
-        if: github.event_name == 'pull_request' && github.head_ref == 'audit/prod-hardening-final'
-        run: python scripts/apply-audit-hardening.py
-
-      - name: Persist audit hardening patch
-        if: github.event_name == 'pull_request' && github.head_ref == 'audit/prod-hardening-final'
-        run: |
-          if git diff --quiet -- artifacts/api-server/src/lib/scheduler.ts artifacts/api-server/src/routes/instagram.ts; then
-            echo "No audit patch changes to persist"
-          else
-            git diff --check
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add artifacts/api-server/src/lib/scheduler.ts artifacts/api-server/src/routes/instagram.ts
-            git commit -m "audit: harden scheduler tenant isolation and WaveSpeed recovery"
-            git push origin HEAD:audit/prod-hardening-final
-          fi
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -75,10 +51,7 @@ jobs:
         run: corepack prepare pnpm@10 --activate
 
       - name: Install dependencies
-        # The repository currently has a pre-existing pnpm catalog/override
-        # mismatch for lib/api-client-react (catalog: vs React 19.1.0). Use the
-        # manifest as source of truth here so hardening CI can still execute
-        # typecheck/tests/build. Normalize pnpm-lock.yaml in a dedicated follow-up.
+        # Temporary until the pre-existing pnpm catalog/override lockfile mismatch is normalized.
         run: pnpm install --no-frozen-lockfile
 
       - name: Typecheck
