@@ -369,7 +369,7 @@ router.get("/instagram/audit", async (req, res): Promise<void> => {
   );
 
   const top5Captions = sorted.slice(0, 5).map((p) => p.caption ?? "").filter(Boolean);
-  saveAuditCache({
+  saveAuditCache(req.session.user!.userId, {
     topCaptions: top5Captions,
     recommendedTopics: aiAnalysis.recommended_topics,
     avgEngagement,

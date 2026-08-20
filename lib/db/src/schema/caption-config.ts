@@ -5,65 +5,55 @@ import { users } from "./users";
 
 export interface SavedCardTemplate {
   type: "hook" | "stat" | "cta";
-  /** When true, AI generates the card text using the script; when false, uses fixed text fields below. */
   useAi: boolean;
-  /** Text for hook or cta cards (useAi: false) */
   text?: string;
-  /** Headline for stat cards (useAi: false), e.g. "2.3M" */
   headline?: string;
-  /** Subtext for stat cards (useAi: false), e.g. "usuarios activos" */
   subtext?: string;
 }
 
-/** One independently-configurable card slot in the multi-card setup (v2). */
 export interface CardSlotConfig {
   enabled: boolean;
   useAi: boolean;
-  text?: string;       // hook, cta
-  headline?: string;   // stat
-  subtext?: string;    // stat
-  templateId?: string; // visual style id
-  yPosition?: number;  // 0–1 fraction of video height for card center (default 0.54)
-  fontScale?: number;  // font-size multiplier (default 1.0)
-  /** Percentage of video duration where this card starts (0–100). Defaults: hook=6, stat=44, cta=81 */
+  text?: string;
+  headline?: string;
+  subtext?: string;
+  templateId?: string;
+  yPosition?: number;
+  fontScale?: number;
   timingPercent?: number;
-  /** How long the card stays visible in seconds (default: 4) */
   durationSec?: number;
 }
 
-/** Multi-card configuration — hook, stat and CTA each configured independently (v2 format). */
 export interface MultiCardConfig {
   version: 2;
   hook: CardSlotConfig;
   stat: CardSlotConfig;
-  cta:  CardSlotConfig;
+  cta: CardSlotConfig;
 }
 
 export const captionConfigTable = pgTable("caption_config", {
   id: serial("id").primaryKey(),
-  userId: integer("user_id").notNull().references(() => users.id),
+  userId: integer("user_id").notNull().unique().references(() => users.id),
   presetId: text("preset_id").notNull().default("viral"),
-  position: text("position").notNull().default("bottom"), // top | center | bottom
+  position: text("position").notNull().default("bottom"),
   wordsPerLine: integer("words_per_line").notNull().default(3),
   primaryColor: text("primary_color").notNull().default("#FFFFFF"),
   activeWordColor: text("active_word_color").notNull().default("#FFE600"),
   outlineColor: text("outline_color").notNull().default("#000000"),
-  backgroundColor: text("background_color"), // null = no bg
+  backgroundColor: text("background_color"),
   fontFamily: text("font_family").notNull().default("Oswald"),
   fontSize: integer("font_size").notNull().default(88),
   activeWordScale: real("active_word_scale").notNull().default(1.2),
-  highlightMode: text("highlight_mode").notNull().default("color"), // color | scale | both
+  highlightMode: text("highlight_mode").notNull().default("color"),
   autoScale: boolean("auto_scale").notNull().default(true),
   lineSpacingFactor: real("line_spacing_factor").notNull().default(1.1),
   yPosition: real("y_position").notNull().default(75),
   marginX: real("margin_x").notNull().default(60),
   autoMovement: boolean("auto_movement").notNull().default(false),
   subtleRotation: boolean("subtle_rotation").notNull().default(false),
-  // Browser Caption Engine feature flag
-  captionEngine: text("caption_engine").notNull().default("standard"), // "standard" | "browser_experimental"
-  templateId: text("template_id"),                                     // null when captionEngine = "standard"
-  templateOverrides: text("template_overrides"),                       // JSON: Partial<CaptionTemplate> — per-template user tweaks
-  // Caption preset rotation (mirrors avatar rotation pattern)
+  captionEngine: text("caption_engine").notNull().default("standard"),
+  templateId: text("template_id"),
+  templateOverrides: text("template_overrides"),
   selectedPresetIds: text("selected_preset_ids").array().notNull().default([]),
   captionRotationStrategy: text("caption_rotation_strategy").notNull().default("sequential"),
   lastUsedPresetId: text("last_used_preset_id"),

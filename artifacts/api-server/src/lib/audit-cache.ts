@@ -1,13 +1,10 @@
 /**
  * Audit cache helpers — persist and retrieve the latest Instagram audit result
- * so it can feed topic generation and script writing without re-running the IG API.
- *
- * Strategy: we keep only ONE row in instagram_audit_cache (truncate + insert).
- * The cache is considered fresh for 7 days.
+ * per Reelsona user so strategy data can never bleed across tenants.
  */
 import { db } from "@workspace/db";
 import { instagramAuditCacheTable } from "@workspace/db";
-import { desc } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { logger } from "./logger";
 
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -21,43 +18,73 @@ export interface AuditInsights {
 }
 
 /**
- * Persist a fresh audit result. Replaces the previous cache entry.
+ * Persist a fresh audit result for one user.
+ *
+ * Backward-safety: callers that omit userId are ignored rather than writing a
+ * global row. This intentionally fails closed until every caller is explicitly
+ * tenant-scoped.
  */
-export async function saveAuditCache(data: AuditInsights): Promise<void> {
+export async function saveAuditCache(
+  userId: number | AuditInsights,
+  maybeData?: AuditInsights,
+): Promise<void> {
+  if (typeof userId !== "number" || !maybeData) {
+    logger.warn("saveAuditCache called without userId — skipping unsafe global cache write");
+    return;
+  }
+
+  const data = maybeData;
   try {
-    // Delete all existing rows (we only need the most recent)
-    await db.delete(instagramAuditCacheTable);
-    await db.insert(instagramAuditCacheTable).values({
-      recommendedTopics: data.recommendedTopics,
-      contentInsights: data.contentInsights ?? null,
-      topCaptionsJson: JSON.stringify(data.topCaptions),
-      avgEngagement: data.avgEngagement,
-      bestPostingTimes: data.bestPostingTimes,
-      fetchedAt: new Date(),
-    });
-    logger.info("Instagram audit cache saved");
+    await db
+      .insert(instagramAuditCacheTable)
+      .values({
+        userId,
+        recommendedTopics: data.recommendedTopics,
+        contentInsights: data.contentInsights ?? null,
+        topCaptionsJson: JSON.stringify(data.topCaptions),
+        avgEngagement: data.avgEngagement,
+        bestPostingTimes: data.bestPostingTimes,
+        fetchedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: instagramAuditCacheTable.userId,
+        set: {
+          recommendedTopics: data.recommendedTopics,
+          contentInsights: data.contentInsights ?? null,
+          topCaptionsJson: JSON.stringify(data.topCaptions),
+          avgEngagement: data.avgEngagement,
+          bestPostingTimes: data.bestPostingTimes,
+          fetchedAt: new Date(),
+        },
+      });
+    logger.info({ userId }, "Instagram audit cache saved");
   } catch (err) {
-    logger.warn({ err }, "Failed to save audit cache — non-fatal, generation will proceed without it");
+    logger.warn({ err, userId }, "Failed to save audit cache — non-fatal, generation will proceed without it");
   }
 }
 
 /**
- * Read the latest audit cache entry if it exists and is still fresh (< 7 days).
- * Returns null if no cache exists or if it is stale.
+ * Read one user's latest audit cache entry if it is fresh (< 7 days).
+ * Calls without userId deliberately return null to prevent cross-user data use.
  */
-export async function getLatestAuditCache(): Promise<AuditInsights | null> {
+export async function getLatestAuditCache(userId?: number): Promise<AuditInsights | null> {
+  if (!userId) {
+    logger.debug("getLatestAuditCache called without userId — returning null for tenant safety");
+    return null;
+  }
+
   try {
     const [row] = await db
       .select()
       .from(instagramAuditCacheTable)
-      .orderBy(desc(instagramAuditCacheTable.fetchedAt))
+      .where(eq(instagramAuditCacheTable.userId, userId))
       .limit(1);
 
     if (!row) return null;
 
     const ageMs = Date.now() - new Date(row.fetchedAt).getTime();
     if (ageMs > CACHE_TTL_MS) {
-      logger.debug({ ageMs }, "Audit cache is stale — ignoring");
+      logger.debug({ userId, ageMs }, "Audit cache is stale — ignoring");
       return null;
     }
 
@@ -76,7 +103,7 @@ export async function getLatestAuditCache(): Promise<AuditInsights | null> {
       contentInsights: row.contentInsights ?? undefined,
     };
   } catch (err) {
-    logger.warn({ err }, "Failed to read audit cache — non-fatal");
+    logger.warn({ err, userId }, "Failed to read audit cache — non-fatal");
     return null;
   }
 }

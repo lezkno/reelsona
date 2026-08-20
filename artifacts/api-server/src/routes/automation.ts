@@ -31,7 +31,7 @@ function mapConfig(c: typeof automationConfigTable.$inferSelect, processingLocke
   };
 }
 
-/** Returns true if any of this user's videos is currently being processed (HeyGen rendering or caption render). */
+/** Returns true if any of this user's videos is currently being generated or caption-rendered. */
 async function isProcessingLocked(userId: number): Promise<boolean> {
   const processing = await db
     .select({ id: videosTable.id })
@@ -40,7 +40,7 @@ async function isProcessingLocked(userId: number): Promise<boolean> {
       and(
         eq(videosTable.userId, userId),
         or(
-          eq(videosTable.status, "processing"),
+          eq(videosTable.status, "generating"),
           eq(videosTable.captionStatus as any, "processing")
         )
       )
@@ -70,7 +70,6 @@ router.put("/automation", requirePlanAccess(PRO_PLANS), async (req, res): Promis
   }
   const userId = req.session.user!.userId;
 
-  // Block config changes while a video is being processed
   if (await isProcessingLocked(userId)) {
     res.status(409).json({
       error: "No se pueden cambiar las configuraciones mientras hay un video procesándose.",
@@ -91,7 +90,6 @@ router.put("/automation", requirePlanAccess(PRO_PLANS), async (req, res): Promis
   if (d.auto_generate_video !== undefined) updates.autoGenerateVideo = d.auto_generate_video;
   if (d.auto_publish !== undefined) updates.autoPublish = d.auto_publish;
   if (d.captions_enabled !== undefined) updates.captionsEnabled = d.captions_enabled;
-  // auto_cover_enabled removed — brand cover AI is disabled permanently
 
   let config;
   if (existing) {
@@ -102,8 +100,6 @@ router.put("/automation", requirePlanAccess(PRO_PLANS), async (req, res): Promis
 
   res.json(UpdateAutomationResponse.parse(mapConfig(config, false)));
 });
-
-// ── Recommended posting times ────────────────────────────────────────────────
 
 type TimeSlot = { time: string; label: string; reason: string }
 

@@ -1,9 +1,11 @@
-import { pgTable, serial, text, real, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, text, real, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
 export const instagramAuditCacheTable = pgTable("instagram_audit_cache", {
   id: serial("id").primaryKey(),
+  /** One cache row per Reelsona user. */
+  userId: integer("user_id").notNull().unique(),
   /** AI-recommended topics from last audit */
   recommendedTopics: text("recommended_topics").array().notNull().default([]),
   /** AI insights paragraph */

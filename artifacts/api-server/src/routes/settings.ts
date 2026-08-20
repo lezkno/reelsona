@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { settingsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import {
   GetSettingsResponse,
   UpdateSettingsBody,
@@ -43,8 +43,6 @@ function mapSettings(s: typeof settingsTable.$inferSelect) {
   };
 }
 
-// ── Color extraction helpers ───────────────────────────────────────────────────
-
 function hexDistance(hex1: string, hex2: string): number {
   const parse = (h: string) => [
     parseInt(h.slice(1, 3), 16),
@@ -58,9 +56,6 @@ function hexDistance(hex1: string, hex2: string): number {
 
 async function extractDominantColors(buffer: Buffer): Promise<string[]> {
   const img = await loadImage(buffer);
-
-  // Sample at 200×200 — 40 000 pixels gives much better coverage of gradients
-  // and fine details in logos compared to the old 80×80 (6 400 px).
   const SAMPLE = 200;
   const canvas = createCanvas(SAMPLE, SAMPLE);
   const ctx = canvas.getContext("2d");
@@ -70,19 +65,12 @@ async function extractDominantColors(buffer: Buffer): Promise<string[]> {
   const colorMap = new Map<string, number>();
   for (let i = 0; i < data.length; i += 4) {
     const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3];
-    if (a < 80) continue; // skip transparent/semi-transparent pixels
+    if (a < 80) continue;
 
-    // Quantize to step of 12 — fine enough to keep distinct tones apart while
-    // still collapsing near-identical pixels.  The old step of 24 was too coarse:
-    // two colours 40 units apart landed in buckets only 24 apart, which the old
-    // 55-unit dedup filter then wrongly discarded.
     const rq = Math.round(r / 12) * 12;
     const gq = Math.round(g / 12) * 12;
     const bq = Math.round(b / 12) * 12;
 
-    // Skip pure backgrounds: near-white (>242) and near-black (<12).
-    // Dark navy / charcoal tones (brightness ~20-40) are valid brand colours,
-    // so the old floor of 25 was too aggressive.
     const brightness = (rq + gq + bq) / 3;
     if (brightness > 242 || brightness < 12) continue;
 
@@ -90,14 +78,10 @@ async function extractDominantColors(buffer: Buffer): Promise<string[]> {
     colorMap.set(key, (colorMap.get(key) ?? 0) + 1);
   }
 
-  // Sort by frequency, then deduplicate: only keep a colour if it is at least
-  // 28 RGB-Euclidean units away from every colour already in the palette.
-  // Old threshold of 55 was far too strict — it filtered colours that are
-  // visually distinct (e.g. a navy and a medium blue ~40 units apart).
   const sorted = [...colorMap.entries()].sort((a, b) => b[1] - a[1]);
   const palette: string[] = [];
   for (const [key] of sorted) {
-    if (palette.length >= 8) break;                       // return up to 8 tones
+    if (palette.length >= 8) break;
     const [r, g, b] = key.split(",").map(Number);
     const hex = `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
     if (!palette.some((c) => hexDistance(c, hex) < 28)) {
@@ -106,8 +90,6 @@ async function extractDominantColors(buffer: Buffer): Promise<string[]> {
   }
   return palette;
 }
-
-// ── Routes ────────────────────────────────────────────────────────────────────
 
 router.get("/settings", async (req, res): Promise<void> => {
   const userId = req.session.user!.userId;
@@ -161,7 +143,6 @@ router.put("/settings", async (req, res): Promise<void> => {
   res.json(UpdateSettingsResponse.parse(mapSettings(settings)));
 });
 
-/** POST /settings/brand-logo — extract palette from an already-uploaded logo */
 router.post("/settings/brand-logo", async (req, res): Promise<void> => {
   const parsed = ExtractBrandPaletteBody.safeParse(req.body);
   if (!parsed.success) {
@@ -173,14 +154,25 @@ router.post("/settings/brand-logo", async (req, res): Promise<void> => {
   const userId = req.session.user!.userId;
 
   try {
-    // Download the uploaded image from object storage
+    // Upload ownership is registered when the signed PUT URL is issued. Verify
+    // that immutable registry here; never infer ownership from possession of a path.
+    const ownershipResult = await db.execute(sql`
+      SELECT 1
+      FROM private_object_ownership
+      WHERE object_path = ${object_path}
+        AND user_id = ${userId}
+      LIMIT 1
+    `);
+    const ownershipRows = (ownershipResult as unknown as { rows?: unknown[] }).rows;
+    if (!ownershipRows || ownershipRows.length === 0) {
+      res.status(403).json({ error: "No tienes permiso para usar este archivo" });
+      return;
+    }
+
     const gcsFile = await storageService.getObjectEntityFile(object_path);
     const [buffer] = await gcsFile.download();
-
-    // Extract dominant brand colors
     const palette = await extractDominantColors(buffer as Buffer);
 
-    // Persist the logo URL in settings so it shows on reload
     const [existing] = await db.select().from(settingsTable).where(eq(settingsTable.userId, userId)).limit(1);
     if (existing) {
       await db.update(settingsTable)
