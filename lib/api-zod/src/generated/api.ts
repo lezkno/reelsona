@@ -17,6 +17,28 @@ export const HealthCheckResponse = zod.object({
 
 
 /**
+ * @summary Send beta feedback to the Reelsona team
+ */
+export const sendFeedbackBodyMessageMin = 10;
+export const sendFeedbackBodyMessageMax = 5000;
+
+export const sendFeedbackBodyPageMax = 200;
+
+
+
+export const SendFeedbackBody = zod.object({
+  "category": zod.enum(['bug', 'problem', 'feature']),
+  "message": zod.string().min(sendFeedbackBodyMessageMin).max(sendFeedbackBodyMessageMax),
+  "page": zod.string().max(sendFeedbackBodyPageMax).optional()
+})
+
+export const SendFeedbackResponse = zod.object({
+  "success": zod.boolean(),
+  "message": zod.string()
+})
+
+
+/**
  * @summary Get dashboard summary
  */
 export const GetDashboardResponse = zod.object({
@@ -30,8 +52,8 @@ export const GetDashboardResponse = zod.object({
   "videos_generating_now": zod.number(),
   "content_items_ready": zod.number(),
   "avatar_count": zod.number(),
-  "last_published_at": zod.string().nullish(),
-  "active_students_count": zod.number().nullish()
+  "active_students_count": zod.number().nullish().describe('Admin-only count of active students'),
+  "last_published_at": zod.string().nullish()
 })
 
 
@@ -49,7 +71,6 @@ export const GetInstagramAuthUrlResponse = zod.object({
 export const HandleInstagramCallbackBody = zod.object({
   "code": zod.string(),
   "redirect_uri": zod.string(),
-  /** CSRF state token — must match the value stored in the server session */
   "state": zod.string().optional()
 })
 
@@ -61,7 +82,8 @@ export const HandleInstagramCallbackResponse = zod.object({
   "followers_count": zod.number(),
   "media_count": zod.number(),
   "connected_at": zod.string(),
-  /** "BUSINESS", "MEDIA_CREATOR", or "PERSONAL". Personal accounts cannot use business scopes. */
+  "token_expires_at": zod.string().nullish().describe('ISO timestamp of when the long-lived token expires'),
+  "needs_reconnection": zod.boolean().nullish().describe('True when the token must be reconnected'),
   "account_type": zod.string().nullish()
 })
 
@@ -79,11 +101,8 @@ export const GetInstagramAccountResponse = zod.object({
   "followers_count": zod.number(),
   "media_count": zod.number(),
   "connected_at": zod.string(),
-  /** ISO timestamp of when the long-lived token expires (~60 days after connection). */
-  "token_expires_at": zod.string().nullish(),
-  /** True when a token refresh has failed and the user must reconnect. */
-  "needs_reconnection": zod.boolean().nullish(),
-  /** "BUSINESS", "MEDIA_CREATOR", or "PERSONAL". */
+  "token_expires_at": zod.string().nullish().describe('ISO timestamp of when the long-lived token expires'),
+  "needs_reconnection": zod.boolean().nullish().describe('True when the token must be reconnected'),
   "account_type": zod.string().nullish()
 }).optional()
 })
@@ -109,7 +128,10 @@ export const GetInstagramAuditResponse = zod.object({
   "profile_picture_url": zod.string().nullish(),
   "followers_count": zod.number(),
   "media_count": zod.number(),
-  "connected_at": zod.string()
+  "connected_at": zod.string(),
+  "token_expires_at": zod.string().nullish().describe('ISO timestamp of when the long-lived token expires'),
+  "needs_reconnection": zod.boolean().nullish().describe('True when the token must be reconnected'),
+  "account_type": zod.string().nullish()
 }),
   "top_posts": zod.array(zod.object({
   "id": zod.string(),
@@ -123,7 +145,8 @@ export const GetInstagramAuditResponse = zod.object({
   "impressions": zod.number().nullish(),
   "plays": zod.number().nullish(),
   "engagement_rate": zod.number().nullish(),
-  "timestamp": zod.string()
+  "timestamp": zod.string(),
+  "insights_error": zod.string().nullish().describe('Reason insights could not be fetched')
 })),
   "avg_engagement_rate": zod.number(),
   "avg_reach": zod.number(),
@@ -156,8 +179,7 @@ export const GetInstagramPostsResponseItem = zod.object({
   "plays": zod.number().nullish(),
   "engagement_rate": zod.number().nullish(),
   "timestamp": zod.string(),
-  /** Set when insights could not be fetched. "token_expired" | "permission_denied" | "rate_limited" | "not_found" | "unknown" */
-  "insights_error": zod.string().nullish()
+  "insights_error": zod.string().nullish().describe('Reason insights could not be fetched')
 })
 export const GetInstagramPostsResponse = zod.array(GetInstagramPostsResponseItem)
 
@@ -186,11 +208,10 @@ export const GetHeyGenVoicesResponseItem = zod.object({
   "gender": zod.string().nullish(),
   "preview_audio_url": zod.string().nullish(),
   "is_cloned": zod.boolean(),
-  "is_mine": zod.boolean().optional(),
-  "speed": zod.number().nullish(),
-  "pitch": zod.number().nullish(),
-  "status": zod.string().nullish(),
-  "clone_id": zod.number().optional(),
+  "is_mine": zod.boolean().optional().describe('True when the voice was cloned by the current user (platform-level ownership)'),
+  "speed": zod.number().nullish().describe('Voice speed multiplier (0.5–1.5). null = HeyGen default.'),
+  "status": zod.string().nullish().describe('Cloned voice processing status: pending | ready | failed. null for public voices.'),
+  "clone_id": zod.number().int().optional().describe('Stable database row ID for the cloned voice (unchanged across voice_id updates). Only set for owned cloned voices; allows UI to track status transitions even when the final voice_id differs from the original clone job ID.')
 })
 export const GetHeyGenVoicesResponse = zod.array(GetHeyGenVoicesResponseItem)
 
@@ -259,11 +280,11 @@ export const UpdateAvatarConfigBody = zod.object({
   "voice_overrides": zod.record(zod.string(), zod.string()).nullish().describe('Per-avatar voice overrides — avatarId → voiceId. Missing key means use HeyGen default voice.'),
   "rotation_strategy": zod.enum(['sequential', 'random', 'performance']),
   "look_metadata": zod.record(zod.string(), zod.object({
-    group_id: zod.string().nullish(),
-    avatar_type: zod.string().nullish(),
-    supported_api_engines: zod.array(zod.string()).optional(),
-    preferred_orientation: zod.string().nullish(),
-  })).nullish().describe('Per-look metadata for engine selection and reference look resolution. Key = lookId.'),
+  "group_id": zod.string().nullish(),
+  "avatar_type": zod.string().nullish(),
+  "supported_api_engines": zod.array(zod.string()).optional(),
+  "preferred_orientation": zod.string().nullish()
+})).nullish()
 })
 
 export const UpdateAvatarConfigResponse = zod.object({
@@ -282,7 +303,7 @@ export const getContentPlanQueryStatusDefault = `all`;
 export const getContentPlanQueryLimitDefault = 30;
 
 export const GetContentPlanQueryParams = zod.object({
-  "status": zod.enum(['draft', 'scripting', 'scripted', 'generating', 'ready', 'published', 'failed', 'all']).default(getContentPlanQueryStatusDefault),
+  "status": zod.enum(['draft', 'scripted', 'generating', 'ready', 'published', 'failed', 'all']).default(getContentPlanQueryStatusDefault),
   "limit": zod.coerce.number().default(getContentPlanQueryLimitDefault)
 })
 
@@ -349,6 +370,7 @@ export const GenerateContentPlanResponseItem = zod.object({
   "script": zod.string().nullish(),
   "cta": zod.string().nullish(),
   "avatar_id": zod.string().nullish(),
+  "wavespeed_look_id": zod.number().nullish(),
   "voice_id": zod.string().nullish(),
   "caption": zod.string().nullish(),
   "hashtags": zod.string().nullish(),
@@ -403,6 +425,7 @@ export const CreateContentItemResponse = zod.object({
   "script": zod.string().nullish(),
   "cta": zod.string().nullish(),
   "avatar_id": zod.string().nullish(),
+  "wavespeed_look_id": zod.number().nullish(),
   "voice_id": zod.string().nullish(),
   "caption": zod.string().nullish(),
   "hashtags": zod.string().nullish(),
@@ -486,6 +509,7 @@ export const GetContentItemResponse = zod.object({
   "script": zod.string().nullish(),
   "cta": zod.string().nullish(),
   "avatar_id": zod.string().nullish(),
+  "wavespeed_look_id": zod.number().nullish(),
   "voice_id": zod.string().nullish(),
   "caption": zod.string().nullish(),
   "hashtags": zod.string().nullish(),
@@ -631,8 +655,7 @@ export const GetVideosResponseItem = zod.object({
   "updated_at": zod.string(),
   "published_at": zod.string().nullish(),
   "scheduled_publish_at": zod.string().nullish().describe('ISO timestamp at which the video is scheduled to be auto-published'),
-  "thumbnail_cover_url": zod.string().nullish().describe('AI-generated Reel cover image URL (gpt-image-1); stored after first generation, reused on retry'),
-  "wavespeed_look_id": zod.number().nullish().describe('WaveSpeed look pinned to this video (from the associated content plan item)')
+  "thumbnail_cover_url": zod.string().nullish().describe('AI-generated Reel cover image URL (gpt-image-1); stored after first generation, reused on retry')
 })
 export const GetVideosResponse = zod.array(GetVideosResponseItem)
 
@@ -885,12 +908,12 @@ export const GetSettingsResponse = zod.object({
   "brand_primary_color": zod.string().nullish().describe('Primary brand hex color (e.g.'),
   "brand_accent_color": zod.string().nullish().describe('Accent brand hex color'),
   "brand_palette": zod.array(zod.string()).nullish().describe('Full extracted palette from the logo (hex strings)'),
-  "offer": zod.string().nullish().describe('What the creator offers (product/service/course)'),
+  "offer": zod.string().nullish().describe('What the creator offers'),
   "ideal_audience": zod.string().nullish().describe('Ideal audience description'),
   "unique_value_prop": zod.string().nullish().describe('Unique value proposition'),
   "voice_style": zod.string().nullish().describe('Communication style and voice traits'),
-  "common_objections": zod.string().nullish().describe('Common audience objections and how to handle them'),
-  "custom_cta": zod.string().nullish().describe('Custom CTA phrase the avatar says at the end of every video'),
+  "common_objections": zod.string().nullish().describe('Common audience objections'),
+  "custom_cta": zod.string().nullish().describe('Custom CTA phrase')
 })
 
 
@@ -922,7 +945,7 @@ export const UpdateSettingsBody = zod.object({
   "unique_value_prop": zod.string().nullish(),
   "voice_style": zod.string().nullish(),
   "common_objections": zod.string().nullish(),
-  "custom_cta": zod.string().nullish(),
+  "custom_cta": zod.string().nullish()
 })
 
 export const UpdateSettingsResponse = zod.object({
@@ -945,12 +968,12 @@ export const UpdateSettingsResponse = zod.object({
   "brand_primary_color": zod.string().nullish().describe('Primary brand hex color (e.g.'),
   "brand_accent_color": zod.string().nullish().describe('Accent brand hex color'),
   "brand_palette": zod.array(zod.string()).nullish().describe('Full extracted palette from the logo (hex strings)'),
-  "offer": zod.string().nullish().describe('What the creator offers (product/service/course)'),
+  "offer": zod.string().nullish().describe('What the creator offers'),
   "ideal_audience": zod.string().nullish().describe('Ideal audience description'),
   "unique_value_prop": zod.string().nullish().describe('Unique value proposition'),
   "voice_style": zod.string().nullish().describe('Communication style and voice traits'),
-  "common_objections": zod.string().nullish().describe('Common audience objections and how to handle them'),
-  "custom_cta": zod.string().nullish().describe('Custom CTA phrase the avatar says at the end of every video'),
+  "common_objections": zod.string().nullish().describe('Common audience objections'),
+  "custom_cta": zod.string().nullish().describe('Custom CTA phrase')
 })
 
 

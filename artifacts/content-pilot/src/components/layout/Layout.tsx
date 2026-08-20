@@ -3,6 +3,7 @@ import { useState } from "react"
 import { Link, useLocation } from "wouter"
 import { Sidebar } from "./Sidebar"
 import { WelcomeModal } from "@/components/WelcomeModal"
+import { BetaFeedback } from "@/components/BetaFeedback"
 import { Menu, LogOut, Coins, Crown } from "lucide-react"
 import { useAuthStatus, useLogout, useCreditsBalance, useBilling } from "@workspace/api-client-react"
 import { useQueryClient } from "@tanstack/react-query"
@@ -197,6 +198,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       </main>
 
       <WelcomeModal />
+      <BetaFeedback />
     </div>
   )
 }

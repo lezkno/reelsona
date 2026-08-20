@@ -41,6 +41,31 @@ paths:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
 
+  /feedback:
+    post:
+      operationId: sendFeedback
+      tags: [feedback]
+      summary: Send beta feedback to the Reelsona team
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FeedbackInput"
+      responses:
+        "200":
+          description: Feedback sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedbackResponse"
+        "400":
+          description: Invalid feedback
+        "429":
+          description: Too many feedback submissions
+        "502":
+          description: Email delivery failed
+
   /dashboard:
     get:
       operationId: getDashboard
@@ -731,6 +756,30 @@ components:
           type: string
       required: [success]
 
+    FeedbackInput:
+      type: object
+      properties:
+        category:
+          type: string
+          enum: [bug, problem, feature]
+        message:
+          type: string
+          minLength: 10
+          maxLength: 5000
+        page:
+          type: string
+          maxLength: 200
+      required: [category, message]
+
+    FeedbackResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+      required: [success, message]
+
     AuthUrl:
       type: object
       properties:
@@ -744,6 +793,8 @@ components:
         code:
           type: string
         redirect_uri:
+          type: string
+        state:
           type: string
       required: [code, redirect_uri]
 
@@ -770,6 +821,9 @@ components:
           type: number
         avatar_count:
           type: number
+        active_students_count:
+          type: ["number", "null"]
+          description: Admin-only count of active students
         last_published_at:
           type: ["string", "null"]
       required:
@@ -798,6 +852,14 @@ components:
           type: number
         connected_at:
           type: string
+        token_expires_at:
+          type: ["string", "null"]
+          description: ISO timestamp of when the long-lived token expires
+        needs_reconnection:
+          type: ["boolean", "null"]
+          description: True when the token must be reconnected
+        account_type:
+          type: ["string", "null"]
       required: [id, username, followers_count, media_count, connected_at]
 
     InstagramAccountStatus:
@@ -837,6 +899,9 @@ components:
           type: ["number", "null"]
         timestamp:
           type: string
+        insights_error:
+          type: ["string", "null"]
+          description: Reason insights could not be fetched
       required: [id, media_type, like_count, comments_count, timestamp]
 
     AuditResult:
@@ -1007,6 +1072,22 @@ components:
         rotation_strategy:
           type: string
           enum: [sequential, random, performance]
+        look_metadata:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              group_id:
+                type: ["string", "null"]
+              avatar_type:
+                type: ["string", "null"]
+              supported_api_engines:
+                type: array
+                items:
+                  type: string
+              preferred_orientation:
+                type: ["string", "null"]
+          nullable: true
       required: [selected_avatar_ids, rotation_strategy]
 
     ContentPlanItem:
@@ -1024,6 +1105,8 @@ components:
           type: ["string", "null"]
         avatar_id:
           type: ["string", "null"]
+        wavespeed_look_id:
+          type: ["number", "null"]
         voice_id:
           type: ["string", "null"]
         caption:
@@ -1034,7 +1117,7 @@ components:
           type: ["string", "null"]
         status:
           type: string
-          enum: [draft, scripted, generating, ready, published, failed]
+          enum: [draft, scripting, scripted, generating, ready, published, failed]
         video_id:
           type: ["number", "null"]
         caption_status:
@@ -1106,6 +1189,8 @@ components:
           type: ["string", "null"]
         avatar_id:
           type: ["string", "null"]
+        wavespeed_look_id:
+          type: ["number", "null"]
         voice_id:
           type: ["string", "null"]
         caption:
@@ -1391,6 +1476,24 @@ components:
             type: string
           nullable: true
           description: Full extracted palette from the logo (hex strings)
+        offer:
+          type: ["string", "null"]
+          description: What the creator offers
+        ideal_audience:
+          type: ["string", "null"]
+          description: Ideal audience description
+        unique_value_prop:
+          type: ["string", "null"]
+          description: Unique value proposition
+        voice_style:
+          type: ["string", "null"]
+          description: Communication style and voice traits
+        common_objections:
+          type: ["string", "null"]
+          description: Common audience objections
+        custom_cta:
+          type: ["string", "null"]
+          description: Custom CTA phrase
       required:
         - niche
         - topic_keywords
@@ -1440,6 +1543,18 @@ components:
           items:
             type: string
           nullable: true
+        offer:
+          type: ["string", "null"]
+        ideal_audience:
+          type: ["string", "null"]
+        unique_value_prop:
+          type: ["string", "null"]
+        voice_style:
+          type: ["string", "null"]
+        common_objections:
+          type: ["string", "null"]
+        custom_cta:
+          type: ["string", "null"]
 
     CaptionPreset:
       type: object

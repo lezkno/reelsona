@@ -37,6 +37,8 @@ import type {
   ContentPlanItemCreateInput,
   ContentPlanItemUpdate,
   DashboardSummary,
+  FeedbackInput,
+  FeedbackResponse,
   GetContentPlanParams,
   GetInstagramPostsParams,
   GetVideosParams,
@@ -165,6 +167,77 @@ export function useHealthCheck<TData = Awaited<ReturnType<typeof healthCheck>>, 
 
 
 
+
+export const getSendFeedbackUrl = () => {
+
+
+
+
+  return `/api/feedback`
+}
+
+/**
+ * @summary Send beta feedback to the Reelsona team
+ */
+export const sendFeedback = async (feedbackInput: FeedbackInput, options?: Parameters<typeof customFetch>[1]): Promise<FeedbackResponse> => {
+
+  return customFetch<FeedbackResponse>(getSendFeedbackUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(feedbackInput)
+  }
+);}
+
+
+
+
+
+export const getSendFeedbackMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendFeedback>>, TError,{data: BodyType<FeedbackInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof sendFeedback>>, TError,{data: BodyType<FeedbackInput>}, TContext> => {
+
+const mutationKey = ['sendFeedback'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof sendFeedback>>, {data: BodyType<FeedbackInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  sendFeedback(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SendFeedbackMutationResult = NonNullable<Awaited<ReturnType<typeof sendFeedback>>>
+    export type SendFeedbackMutationBody = BodyType<FeedbackInput>
+    export type SendFeedbackMutationError = ErrorType<void>
+
+    /**
+ * @summary Send beta feedback to the Reelsona team
+ */
+export const useSendFeedback = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendFeedback>>, TError,{data: BodyType<FeedbackInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof sendFeedback>>,
+        TError,
+        {data: BodyType<FeedbackInput>},
+        TContext
+      > => {
+      return useMutation(getSendFeedbackMutationOptions(options));
+    }
 
 export const getGetDashboardUrl = () => {
 

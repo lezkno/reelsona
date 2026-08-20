@@ -26,6 +26,31 @@ export interface SuccessResponse {
   message?: string;
 }
 
+export type FeedbackInputCategory = typeof FeedbackInputCategory[keyof typeof FeedbackInputCategory];
+
+
+export const FeedbackInputCategory = {
+  bug: 'bug',
+  problem: 'problem',
+  feature: 'feature',
+} as const;
+
+export interface FeedbackInput {
+  category: FeedbackInputCategory;
+  /**
+     * @minLength 10
+     * @maxLength 5000
+     */
+  message: string;
+  /** @maxLength 200 */
+  page?: string;
+}
+
+export interface FeedbackResponse {
+  success: boolean;
+  message: string;
+}
+
 export interface AuthUrl {
   url: string;
 }
@@ -33,6 +58,7 @@ export interface AuthUrl {
 export interface OAuthCallbackInput {
   code: string;
   redirect_uri: string;
+  state?: string;
 }
 
 export interface DashboardSummary {
@@ -49,10 +75,13 @@ export interface DashboardSummary {
   videos_generating_now: number;
   content_items_ready: number;
   avatar_count: number;
+  /**
+     * Admin-only count of active students
+     * @nullable
+     */
+  active_students_count?: number | null;
   /** @nullable */
   last_published_at?: string | null;
-  /** @nullable — admin only */
-  active_students_count?: number | null;
 }
 
 export interface InstagramAccount {
@@ -65,11 +94,17 @@ export interface InstagramAccount {
   followers_count: number;
   media_count: number;
   connected_at: string;
-  /** ISO timestamp of when the long-lived token expires (~60 days). @nullable */
+  /**
+     * ISO timestamp of when the long-lived token expires
+     * @nullable
+     */
   token_expires_at?: string | null;
-  /** True when a token refresh has failed and the user must reconnect. @nullable */
+  /**
+     * True when the token must be reconnected
+     * @nullable
+     */
   needs_reconnection?: boolean | null;
-  /** "BUSINESS", "MEDIA_CREATOR", or "PERSONAL". @nullable */
+  /** @nullable */
   account_type?: string | null;
 }
 
@@ -108,7 +143,10 @@ export interface InstagramPost {
   /** @nullable */
   engagement_rate?: number | null;
   timestamp: string;
-  /** Set when insights could not be fetched. "token_expired" | "permission_denied" | "rate_limited" | "not_found" | "unknown". @nullable */
+  /**
+     * Reason insights could not be fetched
+     * @nullable
+     */
   insights_error?: string | null;
 }
 
@@ -175,15 +213,17 @@ export interface HeyGenVoice {
   is_cloned: boolean;
   /** True when the voice was cloned by the current user (platform-level ownership) */
   is_mine?: boolean;
-  /** Voice speed multiplier (0.5–1.5). null = HeyGen default. Only set for owned cloned voices. */
-  speed?: number | null;
-  /** Cloned voice processing status: pending | ready | failed. null for public voices. */
-  status?: string | null;
   /**
-   * Stable database row ID for the cloned voice (unchanged across voice_id updates).
-   * Only set for owned cloned voices; allows UI to track status transitions even when
-   * the final voice_id differs from the original clone job ID.
-   */
+     * Voice speed multiplier (0.5–1.5). null = HeyGen default.
+     * @nullable
+     */
+  speed?: number | null;
+  /**
+     * Cloned voice processing status: pending | ready | failed. null for public voices.
+     * @nullable
+     */
+  status?: string | null;
+  /** Stable database row ID for the cloned voice (unchanged across voice_id updates). Only set for owned cloned voices; allows UI to track status transitions even when the final voice_id differs from the original clone job ID. */
   clone_id?: number;
 }
 
@@ -226,14 +266,15 @@ export const AvatarConfigInputRotationStrategy = {
   performance: 'performance',
 } as const;
 
-export type AvatarConfigInputLookMetadata = {
-  [key: string]: {
-    group_id?: string | null;
-    avatar_type?: string | null;
-    supported_api_engines?: string[];
-    preferred_orientation?: string | null;
-  };
-} | null;
+export type AvatarConfigInputLookMetadata = {[key: string]: {
+  /** @nullable */
+  group_id?: string | null;
+  /** @nullable */
+  avatar_type?: string | null;
+  supported_api_engines?: string[];
+  /** @nullable */
+  preferred_orientation?: string | null;
+}} | null;
 
 export interface AvatarConfigInput {
   selected_avatar_ids: string[];
@@ -242,7 +283,6 @@ export interface AvatarConfigInput {
   /** Per-avatar voice overrides — avatarId → voiceId. Missing key means use HeyGen default voice. */
   voice_overrides?: AvatarConfigInputVoiceOverrides;
   rotation_strategy: AvatarConfigInputRotationStrategy;
-  /** Per-look metadata for engine selection and reference look resolution. Key = lookId. */
   look_metadata?: AvatarConfigInputLookMetadata;
 }
 
@@ -635,17 +675,35 @@ export interface Settings {
   brand_accent_color?: string | null;
   /** Full extracted palette from the logo (hex strings) */
   brand_palette?: string[] | null;
-  /** What the creator offers (product/service/course) */
+  /**
+     * What the creator offers
+     * @nullable
+     */
   offer?: string | null;
-  /** Ideal audience description */
+  /**
+     * Ideal audience description
+     * @nullable
+     */
   ideal_audience?: string | null;
-  /** Unique value proposition */
+  /**
+     * Unique value proposition
+     * @nullable
+     */
   unique_value_prop?: string | null;
-  /** Communication style and voice traits */
+  /**
+     * Communication style and voice traits
+     * @nullable
+     */
   voice_style?: string | null;
-  /** Common audience objections and how to handle them */
+  /**
+     * Common audience objections
+     * @nullable
+     */
   common_objections?: string | null;
-  /** Custom CTA phrase the avatar says at the end of every video */
+  /**
+     * Custom CTA phrase
+     * @nullable
+     */
   custom_cta?: string | null;
 }
 
@@ -682,11 +740,17 @@ export interface SettingsInput {
   /** @nullable */
   brand_accent_color?: string | null;
   brand_palette?: string[] | null;
+  /** @nullable */
   offer?: string | null;
+  /** @nullable */
   ideal_audience?: string | null;
+  /** @nullable */
   unique_value_prop?: string | null;
+  /** @nullable */
   voice_style?: string | null;
+  /** @nullable */
   common_objections?: string | null;
+  /** @nullable */
   custom_cta?: string | null;
 }
 

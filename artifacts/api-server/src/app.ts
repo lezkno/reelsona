@@ -20,6 +20,7 @@ import configRouter from "./routes/config";
 import webhookRouter from "./routes/webhook";
 import creditsRouter from "./routes/credits";
 import billingRouter from "./routes/billing";
+import feedbackRouter from "./routes/feedback";
 import router from "./routes";
 
 const PgSession = connectPgSimple(session);
@@ -224,6 +225,9 @@ app.use("/api", usersRouter);
 app.use("/api", creditsRouter);
 app.use("/api", billingRouter);
 
+// Beta feedback is available to every authenticated user, including users
+// without an active tool subscription.
+app.use("/api", feedbackRouter);
 app.use("/api", requireToolAccess);
 app.use("/api", router);
 

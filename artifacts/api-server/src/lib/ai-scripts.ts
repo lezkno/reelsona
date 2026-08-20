@@ -334,9 +334,6 @@ export async function generateScript(
   const client = makeOpenAIClient();
   const wordCount = Math.round((durationSeconds / 60) * 130);
 
-  const avatarCTAs = getAvatarCTAs(language);
-  const ctaList = avatarCTAs.map((c) => `   - "${c}"`).join("\n");
-
   // Step 1: Generate hook candidates (with fallback)
   let hookWinner: string | null = null;
   let hookCandidatesList: string[] = [];
@@ -389,7 +386,7 @@ export async function generateScript(
 
   const ctaInstruction = options?.customCta
     ? `2. La ÚLTIMA oración del guion DEBE ser EXACTAMENTE esta frase del creador (no la modifiques, no la parafrasees, úsala tal cual):\n   "${options.customCta}"`
-    : `2. La ÚLTIMA oración del guion SIEMPRE debe ser una de estas frases — elige UNA distinta cada vez (varía, no repitas siempre la misma):\n${ctaList}`;
+    : `2. La ÚLTIMA oración debe ser una llamada a la acción natural y relacionada directamente con el tema, el nicho y el valor explicado en este guion. Elige una acción concreta, como guardar, compartir, comentar o seguir para recibir contenido del mismo tema. NO menciones avatares, inteligencia artificial ni la producción del video salvo que el tema solicitado trate explícitamente de ello.`;
 
   const prompt = `${EDITORIAL_BASE}
 
@@ -408,17 +405,19 @@ ${hookInstruction}
 REGLAS OBLIGATORIAS para el campo "script":
 1. El guion DEBE terminar con una llamada a la acción clara y directa hablada por el avatar.
 ${ctaInstruction}
-3. El hook debe ser la primera frase del guion (ya incluida dentro de "script").
-4. Sin indicaciones de escena, sin corchetes, sin asteriscos — solo texto hablado corrido.
-5. El tono debe sentirse conversacional, no como un comercial.
-6. NUNCA escribas frases que requieran que el espectador vea una pantalla o demostración en vivo: "como ves aquí", "hacemos clic en", "en esta captura verás", "voy a mostrarte en pantalla", "ahora en mi pantalla". El avatar habla directamente a cámara — el espectador solo ve su cara.
-6. NUNCA uses abreviaturas que el avatar leería mal: escribe "inteligencia artificial" (no "IA" ni "AI"), "retorno de inversión" (no "ROI"), "indicadores clave" (no "KPIs"), "director ejecutivo" (no "CEO"), etc. — todo debe sonar natural cuando se lee en voz alta.
-7. NUNCA uses diminutivos, jerga o frases incompletas. Las oraciones deben ser completas y claras para que el avatar las lea correctamente.
+3. FIDELIDAD ESTRICTA AL TEMA: cada afirmación, ejemplo, metáfora y CTA debe servir al tema solicitado. No cambies el tema, no lo generalices hacia la creación de contenido y no introduzcas avatares, inteligencia artificial, Reelsona, herramientas de producción o una venta de la plataforma si el usuario no los pidió o si no son necesarios para explicar el tema.
+4. DIVULGACIÓN DE PRODUCCIÓN: menciona que el video fue producido con inteligencia artificial únicamente cuando el usuario lo solicite, cuando el tema trate explícitamente de inteligencia artificial o avatares, o cuando una instrucción explícita del usuario lo requiera. En cualquier otro tema, no añadas una divulgación sobre cómo se produjo el video.
+5. El hook debe ser la primera frase del guion (ya incluida dentro de "script").
+6. Sin indicaciones de escena, sin corchetes, sin asteriscos — solo texto hablado corrido.
+7. El tono debe sentirse conversacional, no como un comercial.
+8. NUNCA escribas frases que requieran que el espectador vea una pantalla o demostración en vivo: "como ves aquí", "hacemos clic en", "en esta captura verás", "voy a mostrarte en pantalla", "ahora en mi pantalla". El avatar habla directamente a cámara — el espectador solo ve su cara.
+9. NUNCA uses abreviaturas que el avatar leería mal: escribe "inteligencia artificial" (no "IA" ni "AI"), "retorno de inversión" (no "ROI"), "indicadores clave" (no "KPIs"), "director ejecutivo" (no "CEO"), etc. — todo debe sonar natural cuando se lee en voz alta.
+10. NUNCA uses diminutivos, jerga o frases incompletas. Las oraciones deben ser completas y claras para que el avatar las lea correctamente.
 
 Devuelve SOLO un JSON válido con esta estructura exacta:
 {
   "hook": "Primera frase gancho (primeros 3 segundos, que detenga el scroll)",
-  "script": "El guion completo que leerá el avatar. Debe incluir: hook al inicio → desarrollo → CTA hablado → divulgación IA al final.",
+  "script": "El guion completo que leerá el avatar. Debe incluir: hook al inicio → desarrollo fiel al tema → CTA hablado. Solo incluye divulgación de producción si las reglas anteriores la autorizan.",
   "cta": "La llamada a la acción principal (la misma que está dentro del script, extraída aquí brevemente)",
   "caption": "Caption para Instagram (2-3 oraciones atractivas que complementen el video)",
   "hashtags": "#hashtag1 #hashtag2 #hashtag3 (10-15 hashtags relevantes y específicos al tema)",
