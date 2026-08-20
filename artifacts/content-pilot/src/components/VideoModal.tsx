@@ -192,6 +192,9 @@ export function VideoModal({
               controls
               playsInline
               preload="auto"
+              controlsList="nodownload noplaybackrate noremoteplayback"
+              disablePictureInPicture
+              disableRemotePlayback
               onError={() => {
                 if (!useFallback && fallbackSrc && fallbackSrc !== videoSrc)
                   setUseFallback(true)

@@ -112,7 +112,8 @@ export function WelcomeModal() {
               controls
               playsInline
               preload="metadata"
-              controlsList="nodownload noplaybackrate"
+              controlsList="nodownload noplaybackrate noremoteplayback"
+              disablePictureInPicture
               disableRemotePlayback
               onContextMenu={(e) => e.preventDefault()}
               className="w-full h-auto block object-contain"

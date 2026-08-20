@@ -1,5 +1,4 @@
 import { useState, useMemo, useRef, useEffect } from "react"
-import { Link } from "wouter"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
@@ -16,7 +15,6 @@ import {
   ChevronDown,
   ChevronRight,
   ArrowRight,
-  ExternalLink,
   Loader2,
   BookOpen,
   Clock,
@@ -28,14 +26,30 @@ import { COURSE_MODULES, ALL_LESSONS, TOTAL_LESSONS, getNextLesson, type Lesson,
 // ── Video placeholder ─────────────────────────────────────────────────────────
 function VideoPlaceholder({ videoUrl, title }: { videoUrl: string | null; title: string }) {
   if (videoUrl) {
+    const isDirectVideo = /\.(mp4|webm|ogg)(?:$|\?)/i.test(videoUrl)
+
     return (
       <div className="w-full aspect-video rounded-xl overflow-hidden bg-black">
-        <iframe
-          src={videoUrl}
-          title={title}
-          className="w-full h-full"
-          allowFullScreen
-        />
+        {isDirectVideo ? (
+          <video
+            src={videoUrl}
+            title={title}
+            controls
+            playsInline
+            preload="metadata"
+            controlsList="nodownload noplaybackrate noremoteplayback"
+            disablePictureInPicture
+            disableRemotePlayback
+            className="w-full h-full object-contain"
+          />
+        ) : (
+          <iframe
+            src={videoUrl}
+            title={title}
+            className="w-full h-full"
+            allowFullScreen
+          />
+        )}
       </div>
     )
   }
@@ -107,22 +121,6 @@ function LessonDetail({
           {lesson.checklistItems.map((item, i) => (
             <p key={i} className="text-sm text-muted-foreground">{item}</p>
           ))}
-        </div>
-      )}
-
-      {/* Practical action */}
-      {lesson.actionLabel && lesson.actionHref && (
-        <div className="rounded-xl border border-primary/20 bg-primary/5 p-5">
-          <p className="text-xs font-semibold uppercase tracking-widest text-primary/70 mb-2">Acción práctica</p>
-          <p className="text-sm text-muted-foreground mb-4">
-            Ponelo en práctica ahora mismo dentro de la herramienta.
-          </p>
-          <Button asChild variant="outline" size="sm" className="gap-2">
-            <Link href={lesson.actionHref}>
-              <ExternalLink className="w-4 h-4" />
-              {lesson.actionLabel}
-            </Link>
-          </Button>
         </div>
       )}
 

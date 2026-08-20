@@ -1517,6 +1517,9 @@ export default function ContentPlan() {
                     controls
                     playsInline
                     preload="auto"
+                    controlsList="nodownload noplaybackrate noremoteplayback"
+                    disablePictureInPicture
+                    disableRemotePlayback
                     onError={(e) => {
                       const el = e.currentTarget
                       if (previewItem.video_url && el.src !== previewItem.video_url) {
