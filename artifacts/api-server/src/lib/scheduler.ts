@@ -60,13 +60,18 @@ import { isWavespeedConfigured, submitSpeech, submitTalkingHead, getJobStatus as
 import { wavespeedPersonasTable, wavespeedLooksTable, wavespeedVoicesTable, wavespeedJobsTable } from "@workspace/db";
 import { getUserPlanSlug, getAvatarLimit, computePersonaPlanEnabled, PlanBlockedError } from "./planLimits";
 import { createReelContainer, checkContainerStatus, publishContainer, getPermalink, refreshInstagramToken } from "./instagram-api";
-import { getSignedCaptionedVideoUrl, objectStorageClient } from "./objectStorage";
+import { getServerReadableMediaUrl, getSignedCaptionedVideoUrl, objectStorageClient } from "./objectStorage";
 import { makeOpenAIClient } from "./openai-client";
 import {
   captionsAreEnabled,
   resolveVideoEffectsForCreation,
   resolveVideoEffectsForProcessing,
 } from "./video-pipeline-effects";
+import {
+  parseWavespeedVideoSentinel,
+  recoveryStage as getWavespeedRecoveryStage,
+  shouldMonitorWavespeedVideo,
+} from "./wavespeed-video-pipeline-policy";
 // brand-cover removed — AI cover generation is discontinued
 
 // ── Low-credit alert rate-limiter ─────────────────────────────────────────────
@@ -1410,15 +1415,10 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
         .set({ videoId: videoRow.id, updatedAt: new Date() })
         .where(eq(contentPlanItemsTable.id, contentItem.id));
 
-      // The regular scheduler owns the complete lifecycle in production. This
-      // targeted monitor additionally advances just this user-requested TTS job
-      // in environments where global cron is intentionally disabled.
-      startWavespeedTtsHandoffMonitor({
-        videoId: videoRow.id,
-        userId,
-        topic: contentItem.topic,
-        ttsRequestId,
-      });
+      // The targeted worker follows this one accepted request through TTS,
+      // talking-head, persistence and post-processing. This is deliberately
+      // independent from the global cron, which is disabled in development.
+      startWavespeedVideoMonitor({ videoId: videoRow.id });
 
       logger.info({ videoId: videoRow.id, ttsRequestId, sentinel }, "[WaveSpeed] TTS job submitted — polling will advance to talking-head step");
       return { success: true, message: "WaveSpeed video generation started (TTS submitted)", contentItemId: contentItem.id, videoId: videoRow.id };
@@ -2173,7 +2173,7 @@ async function transcribeAudioToSrt(videoUrl: string, videoId: number): Promise<
     if (!bucketId) throw new Error("Object storage not configured");
 
     // 1. Download the talking-head MP4 from Object Storage / CDN
-    const videoRes = await fetch(videoUrl, { signal: AbortSignal.timeout(120_000) });
+    const videoRes = await fetch(await getServerReadableMediaUrl(videoUrl), { signal: AbortSignal.timeout(120_000) });
     if (!videoRes.ok) throw new Error(`Video download failed: HTTP ${videoRes.status}`);
     nodeFs.writeFileSync(tmpVideo, Buffer.from(await videoRes.arrayBuffer()));
 
@@ -2336,10 +2336,6 @@ type WavespeedTtsHandoffInput = {
   ttsRequestId: string;
 };
 
-const activeWavespeedTtsHandoffMonitors = new Set<number>();
-const WAVESPEED_TTS_HANDOFF_RETRY_MS = 10_000;
-const WAVESPEED_TTS_HANDOFF_MAX_ATTEMPTS = 18;
-
 /**
  * Poll a completed TTS job exactly until it can be exchanged for a talking-head
  * prediction. The atomic sentinel swap makes this safe to run beside the normal
@@ -2426,57 +2422,392 @@ async function advanceWavespeedTtsToTalkingHead(
     logger.info({ videoId, thRequestId }, "[WaveSpeed] Talking-head job enviado");
     return "advanced";
   } catch (err) {
-    // Keep the original stage retriable. A later scheduler tick or this monitor's
-    // next attempt can safely resume without creating a second video prediction.
+    // Do NOT return to the TTS sentinel here. If the POST reached WaveSpeed but
+    // this process lost the response (or crashed before saving `thRequestId`),
+    // resubmitting would create a second billable talking-head prediction. The
+    // handoff is deliberately terminal/visible instead; the user can retry the
+    // complete video with a fresh credit reservation.
+    throw new Error(
+      `WS_TERMINAL: No se pudo confirmar el talking-head de WaveSpeed sin riesgo de duplicarlo: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+}
+
+function wavespeedOutputUrl(outputs: unknown, keys: string[]): string | undefined {
+  if (Array.isArray(outputs)) {
+    const first = outputs[0];
+    return typeof first === "string" ? first : (first as { url?: string } | undefined)?.url;
+  }
+  const output = (outputs ?? {}) as Record<string, unknown>;
+  for (const key of keys) {
+    const value = output[key];
+    if (typeof value === "string" && value) return value;
+  }
+  return undefined;
+}
+
+async function failWavespeedVideo(
+  video: typeof videosTable.$inferSelect,
+  message: string,
+): Promise<void> {
+  const failed = await db
+    .update(videosTable)
+    .set({
+      status: "failed",
+      errorMessage: "WaveSpeed no pudo completar este video. Reinténtalo con otro avatar o voz.",
+      updatedAt: new Date(),
+    })
+    .where(and(eq(videosTable.id, video.id), eq(videosTable.status, "generating")))
+    .returning({ id: videosTable.id });
+
+  if (!failed[0]) return;
+
+  if (video.contentPlanId) {
+    await db
+      .update(contentPlanItemsTable)
+      .set({ status: "failed", updatedAt: new Date() })
+      .where(and(
+        eq(contentPlanItemsTable.id, video.contentPlanId),
+        eq(contentPlanItemsTable.status, "generating"),
+      ));
+  }
+  await db
+    .update(wavespeedJobsTable)
+    .set({ status: "failed", errorMessage: message, updatedAt: new Date() })
+    .where(eq(wavespeedJobsTable.relatedVideoId, video.id))
+    .catch(() => {});
+  // Let a settlement failure reach the caller. The targeted monitor then reads
+  // this terminal row again and retries the idempotent release instead of
+  // permanently leaving the reservation locked.
+  await releaseVideoCredits(video.id, `Generación WaveSpeed fallida: ${message}`);
+  sendVideoFailedAlert(video.userId, video.contentPlanId ?? null).catch(() => {});
+  logger.error({ videoId: video.id, message }, "[WaveSpeed] Fallo terminal confirmado");
+}
+
+/**
+ * Claim and finish the durable half of the WaveSpeed pipeline. The temporary
+ * finalizing sentinel acts as a lease: a scheduler tick and a targeted monitor
+ * can both observe completion, but only its owner may persist the provider
+ * output, settle credits, and start post-processing.
+ */
+async function finalizeWavespeedTalkingHead(
+  video: typeof videosTable.$inferSelect,
+  requestId: string,
+  sourceVideoUrl: string,
+): Promise<"waiting" | "complete" | "inactive"> {
+  const sourceSentinel = `wavespeed-th:${requestId}`;
+  const finalizingSentinel = `wavespeed-th-finalizing:${requestId}`;
+  const claimed = await db
+    .update(videosTable)
+    .set({ heygenVideoId: finalizingSentinel, updatedAt: new Date() })
+    .where(and(
+      eq(videosTable.id, video.id),
+      eq(videosTable.status, "generating"),
+      eq(videosTable.heygenVideoId, sourceSentinel),
+    ))
+    .returning({ id: videosTable.id });
+
+  if (!claimed[0]) return "waiting";
+
+  try {
+    await db
+      .update(wavespeedJobsTable)
+      .set({ status: "completed", outputUrl: sourceVideoUrl, updatedAt: new Date() })
+      .where(eq(wavespeedJobsTable.wavespeedRequestId, requestId));
+
+    // The persistence helper intentionally falls back to the provider URL if
+    // Object Storage has a temporary failure. The video is still usable and a
+    // later recovery can re-persist it; never leave a completed provider job
+    // stuck merely because an upload retry is needed.
+    const persistent = await persistVideoAssetsToStorage(video.id, sourceVideoUrl, null);
+    const ready = await db
+      .update(videosTable)
+      .set({
+        status: "ready",
+        // The finalizing marker is only a worker lease. Keep the durable,
+        // inspectable provider request id once completion is committed.
+        heygenVideoId: sourceSentinel,
+        videoUrl: persistent.videoUrl,
+        updatedAt: new Date(),
+      })
+      .where(and(
+        eq(videosTable.id, video.id),
+        eq(videosTable.status, "generating"),
+        eq(videosTable.heygenVideoId, finalizingSentinel),
+      ))
+      .returning({ id: videosTable.id });
+    if (!ready[0]) return "inactive";
+
+    // If this durable ledger settlement has a transient DB failure, the worker
+    // retries against the ready row on its next tick. settleGeneric prevents a
+    // duplicate charge once a consume row exists.
+    await consumeVideoCredits(video.id);
+    if (video.contentPlanId) {
+      await db
+        .update(contentPlanItemsTable)
+        .set({ status: "ready", updatedAt: new Date() })
+        .where(and(
+          eq(contentPlanItemsTable.id, video.contentPlanId),
+          eq(contentPlanItemsTable.status, "generating"),
+        ));
+    }
+
+    // The video is ready before post-processing begins, so recovery can resume
+    // captions/copy after a crash without ever rerunning the provider job.
+    try {
+      const srtUrl = await transcribeAudioToSrt(persistent.videoUrl, video.id);
+      if (srtUrl) {
+        await db
+          .update(videosTable)
+          .set({ heygenSubtitleUrl: srtUrl, updatedAt: new Date() })
+          .where(eq(videosTable.id, video.id));
+      }
+
+      const [freshVideo] = await db
+        .select({ captionStatus: videosTable.captionStatus })
+        .from(videosTable)
+        .where(eq(videosTable.id, video.id))
+        .limit(1);
+      const [automation] = await db
+        .select({ captionsEnabled: automationConfigTable.captionsEnabled })
+        .from(automationConfigTable)
+        .where(eq(automationConfigTable.userId, video.userId))
+        .limit(1);
+
+      if (freshVideo?.captionStatus === null) {
+        if (captionsAreEnabled(automation?.captionsEnabled)) {
+          await runCaptionProcessing(video.id, persistent.videoUrl, video.contentPlanId ?? null, srtUrl, undefined);
+        } else {
+          const disabled = await markCaptionsDisabledIfUnstarted(video.id);
+          if (disabled && video.contentPlanId) {
+            runCopyGeneration(video.contentPlanId).catch((err) =>
+              logger.error({ videoId: video.id, err }, "[CopyEngine][WaveSpeed] Failed to start copy generation"),
+            );
+          }
+        }
+      }
+    } catch (postProcessError) {
+      // Status is already ready, and the normal recovery sweep owns retries for
+      // captions/copy. Do not roll the completed provider output back to
+      // generating merely because an optional post-processing call failed.
+      logger.error({ videoId: video.id, postProcessError }, "[WaveSpeed] Post-processing start failed; recovery will resume it");
+    }
+
+    logger.info({ videoId: video.id, sourceVideoUrl, persistentUrl: persistent.videoUrl }, "[WaveSpeed] Video listo");
+    return "complete";
+  } catch (err) {
+    // A local failure before the ready transition is safely retryable. The
+    // original request id remains intact, so a retry only polls/reuses the
+    // completed provider output instead of creating a duplicate prediction.
     await db
       .update(videosTable)
-      .set({ heygenVideoId: ttsSentinel, updatedAt: new Date() })
-      .where(and(eq(videosTable.id, videoId), eq(videosTable.heygenVideoId, handoffSentinel)));
+      .set({ heygenVideoId: sourceSentinel, updatedAt: new Date() })
+      .where(and(
+        eq(videosTable.id, video.id),
+        eq(videosTable.status, "generating"),
+        eq(videosTable.heygenVideoId, finalizingSentinel),
+      ))
+      .catch(() => {});
     throw err;
   }
 }
 
-/**
- * Starts a short monitor for an explicitly requested WaveSpeed generation.
- * It only advances that video's TTS handoff; it does not enable the global
- * cron scheduler or process other users' queued work.
- */
-export function startWavespeedTtsHandoffMonitor(input: WavespeedTtsHandoffInput): void {
-  if (activeWavespeedTtsHandoffMonitors.has(input.videoId)) return;
-  activeWavespeedTtsHandoffMonitors.add(input.videoId);
+type WavespeedAdvanceResult = "waiting" | "complete" | "failed" | "inactive";
 
-  let attempts = 0;
+/**
+ * Continue the local, non-provider stages for a completed WaveSpeed video.
+ * This keeps a targeted monitor useful after a process restart even when cron
+ * is disabled: caption leases fence duplicate renderers, and copy generation
+ * already has an atomic claim.
+ */
+async function advanceWavespeedReadyPostProcessing(
+  video: typeof videosTable.$inferSelect,
+): Promise<"waiting" | "complete"> {
+  if (!video.videoUrl) return "complete";
+
+  const [[freshVideo], [automation], [item]] = await Promise.all([
+    db.select({
+      captionStatus: videosTable.captionStatus,
+      heygenSubtitleUrl: videosTable.heygenSubtitleUrl,
+      durationSeconds: videosTable.durationSeconds,
+      updatedAt: videosTable.updatedAt,
+    }).from(videosTable).where(eq(videosTable.id, video.id)).limit(1),
+    db.select({ captionsEnabled: automationConfigTable.captionsEnabled })
+      .from(automationConfigTable)
+      .where(eq(automationConfigTable.userId, video.userId))
+      .limit(1),
+    video.contentPlanId
+      ? db.select({ copyStatus: contentPlanItemsTable.copyStatus })
+        .from(contentPlanItemsTable)
+        .where(eq(contentPlanItemsTable.id, video.contentPlanId))
+        .limit(1)
+      : Promise.resolve([]),
+  ]);
+  if (!freshVideo) return "complete";
+
+  if (freshVideo.captionStatus === null) {
+    if (captionsAreEnabled(automation?.captionsEnabled)) {
+      await runCaptionProcessing(
+        video.id,
+        video.videoUrl,
+        video.contentPlanId ?? null,
+        freshVideo.heygenSubtitleUrl,
+        freshVideo.durationSeconds,
+      );
+    } else {
+      const disabled = await markCaptionsDisabledIfUnstarted(video.id);
+      if (disabled && video.contentPlanId) {
+        await runCopyGeneration(video.contentPlanId);
+      }
+    }
+    return "waiting";
+  }
+
+  if (freshVideo.captionStatus === "processing") {
+    // A live renderer owns the lease until it expires. After a restart no
+    // heartbeat renews it, so the monitor safely claims and resumes it on the
+    // next eligible tick without needing the global scheduler.
+    if (freshVideo.updatedAt.getTime() <= Date.now() - CAPTION_PROCESSING_LEASE_MS) {
+      await runCaptionProcessing(
+        video.id,
+        video.videoUrl,
+        video.contentPlanId ?? null,
+        freshVideo.heygenSubtitleUrl,
+        freshVideo.durationSeconds,
+      );
+    }
+    return "waiting";
+  }
+
+  if (video.contentPlanId && (item?.copyStatus === null || item?.copyStatus === "generating")) {
+    if (item.copyStatus === null) await runCopyGeneration(video.contentPlanId);
+    return "waiting";
+  }
+  return "complete";
+}
+
+/**
+ * The single entry point for every accepted WaveSpeed video. It is used by the
+ * scheduler, targeted monitor, and startup recovery so all three execute the
+ * exact same durable transitions.
+ */
+export async function advanceWavespeedVideo(videoId: number): Promise<WavespeedAdvanceResult> {
+  const [video] = await db.select().from(videosTable).where(eq(videosTable.id, videoId)).limit(1);
+  if (!video) return "inactive";
+  if (video.status === "ready") {
+    await consumeVideoCredits(video.id);
+    return advanceWavespeedReadyPostProcessing(video);
+  }
+  if (video.status === "failed") {
+    await releaseVideoCredits(video.id, "Liquidación de recuperación para video WaveSpeed fallido");
+    return "inactive";
+  }
+  if (!shouldMonitorWavespeedVideo(video.status, video.heygenVideoId)) return "inactive";
+
+  const sentinel = parseWavespeedVideoSentinel(video.heygenVideoId);
+  if (!sentinel) return "inactive";
+
+  try {
+    if (sentinel.stage === "tts") {
+      await advanceWavespeedTtsToTalkingHead({
+        videoId: video.id,
+        userId: video.userId,
+        topic: video.topic,
+        ttsRequestId: sentinel.requestId,
+      });
+      return "waiting";
+    }
+    if (sentinel.stage === "tts-handoff") {
+      await failWavespeedVideo(
+        video,
+        "La solicitud se interrumpió antes de guardar el ID de talking-head. Reintenta el video para evitar duplicar cargos.",
+      );
+      return "failed";
+    }
+    if (sentinel.stage === "th-finalizing") {
+      return "waiting";
+    }
+
+    const jobResult = await getWavespeedJobStatus(sentinel.requestId);
+    if (jobResult.status === "failed") {
+      throw new Error(`WS_TERMINAL: Talking-head fallido: ${jobResult.error ?? "error desconocido"}`);
+    }
+    if (jobResult.status !== "completed") return "waiting";
+
+    const videoUrl = wavespeedOutputUrl(jobResult.outputs, ["video_url", "video", "url"]);
+    if (!videoUrl) {
+      throw new Error(`WS_TERMINAL: Talking-head completado pero sin video_url en outputs`);
+    }
+    return finalizeWavespeedTalkingHead(video, sentinel.requestId, videoUrl);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (!message.startsWith("WS_TERMINAL:")) throw err;
+    await failWavespeedVideo(video, message.replace(/^WS_TERMINAL:\s*/, ""));
+    return "failed";
+  }
+}
+
+const activeWavespeedVideoMonitors = new Set<number>();
+const WAVESPEED_VIDEO_RETRY_MS = 10_000;
+
+async function expireWavespeedVideoIfNeeded(videoId: number): Promise<boolean> {
+  const [video] = await db.select().from(videosTable).where(eq(videosTable.id, videoId)).limit(1);
+  // A terminal row may still need an idempotent credit consume/release retry.
+  // Returning false keeps the targeted monitor alive after a settlement error;
+  // advanceWavespeedVideo will stop it normally once the ledger call succeeds.
+  if (!video || video.status !== "generating") return false;
+
+  const timeoutMs = Number(process.env.HEYGEN_POLL_TIMEOUT_MINUTES ?? 60) * 60 * 1000;
+  const startedAt = video.generatingStartedAt ?? video.createdAt;
+  if (Date.now() - startedAt.getTime() <= timeoutMs) return false;
+
+  await failWavespeedVideo(
+    video,
+    `WaveSpeed no completó la generación en ${Math.round(timeoutMs / 60_000)} minutos`,
+  );
+  return true;
+}
+
+/**
+ * Poll one accepted WaveSpeed video through every phase. It never starts queued
+ * automation and therefore remains safe while development cron is disabled.
+ */
+export function startWavespeedVideoMonitor(input: { videoId: number }): void {
+  if (activeWavespeedVideoMonitors.has(input.videoId)) return;
+  activeWavespeedVideoMonitors.add(input.videoId);
+
+  const stop = () => activeWavespeedVideoMonitors.delete(input.videoId);
   const poll = async (): Promise<void> => {
     try {
-      const result = await advanceWavespeedTtsToTalkingHead(input);
-      if (result === "advanced") {
-        activeWavespeedTtsHandoffMonitors.delete(input.videoId);
+      const result = await advanceWavespeedVideo(input.videoId);
+      if (result === "complete" || result === "failed" || result === "inactive") {
+        stop();
         return;
       }
-      attempts += 1;
-      if (attempts >= WAVESPEED_TTS_HANDOFF_MAX_ATTEMPTS) {
-        activeWavespeedTtsHandoffMonitors.delete(input.videoId);
-        logger.warn({ videoId: input.videoId, attempts }, "[WaveSpeed] TTS handoff monitor finished; scheduler will continue polling");
+      if (await expireWavespeedVideoIfNeeded(input.videoId)) {
+        stop();
         return;
       }
-      const timer = setTimeout(() => void poll(), WAVESPEED_TTS_HANDOFF_RETRY_MS);
-      timer.unref();
     } catch (err) {
-      activeWavespeedTtsHandoffMonitors.delete(input.videoId);
-      logger.error({ err, videoId: input.videoId }, "[WaveSpeed] TTS handoff monitor failed");
+      logger.warn({ err, videoId: input.videoId }, "[WaveSpeed] Polling temporalmente no disponible — se reintentará");
+      if (await expireWavespeedVideoIfNeeded(input.videoId).catch(() => false)) {
+        stop();
+        return;
+      }
     }
+    const timer = setTimeout(() => void poll(), WAVESPEED_VIDEO_RETRY_MS);
+    timer.unref();
   };
 
   void poll();
 }
 
-/**
- * Restarts short monitors for TTS jobs that were already accepted before an API
- * restart. This is intentionally narrower than the global scheduler: it can
- * only finish the second half of a video generation the user already started.
- */
-export async function resumePendingWavespeedTtsHandoffs(): Promise<void> {
-  const pending = await db
+/** Resume every already-submitted WaveSpeed video after an API restart. */
+export async function resumePendingWavespeedVideoMonitors(): Promise<void> {
+  const [pending, terminalVideos] = await Promise.all([
+    db
     .select({
       id: videosTable.id,
       userId: videosTable.userId,
@@ -2487,24 +2818,59 @@ export async function resumePendingWavespeedTtsHandoffs(): Promise<void> {
     .where(
       and(
         eq(videosTable.status, "generating"),
-        like(videosTable.heygenVideoId, "wavespeed-tts:%"),
+        like(videosTable.heygenVideoId, "wavespeed-%"),
       ),
-    )
-    .limit(25);
+    ),
+    db
+      .select()
+      .from(videosTable)
+      .where(and(
+        like(videosTable.heygenVideoId, "wavespeed-%"),
+        inArray(videosTable.status, ["ready", "failed"]),
+      )),
+  ]);
+
+  // A process may die after changing the visible status but before its ledger
+  // transaction succeeds. The same targeted monitor retries only the
+  // idempotent consume/release for these terminal rows; it never calls the
+  // provider because advanceWavespeedVideo exits before parsing a sentinel.
+  for (const video of terminalVideos) {
+    startWavespeedVideoMonitor({ videoId: video.id });
+  }
 
   for (const video of pending) {
-    const ttsRequestId = video.heygenVideoId?.slice("wavespeed-tts:".length);
-    if (!ttsRequestId) continue;
-    startWavespeedTtsHandoffMonitor({
-      videoId: video.id,
-      userId: video.userId,
-      topic: video.topic,
-      ttsRequestId,
-    });
+    const sentinel = parseWavespeedVideoSentinel(video.heygenVideoId);
+    if (!sentinel) continue;
+    if (getWavespeedRecoveryStage(sentinel.stage) === "fail_safely") {
+      await failWavespeedVideo(
+        video as typeof videosTable.$inferSelect,
+        "La solicitud se interrumpió antes de guardar el ID de talking-head. Reintenta el video para evitar duplicar cargos.",
+      ).catch((err) =>
+        logger.error({ videoId: video.id, err }, "[WaveSpeed] Startup handoff failure settlement will retry in monitor"),
+      );
+      // failWavespeedVideo changes the visible state before credit settlement.
+      // Always register the monitor, including when that settlement threw, so
+      // the idempotent release continues without needing another restart.
+      startWavespeedVideoMonitor({ videoId: video.id });
+      continue;
+    }
+    if (sentinel.stage === "th-finalizing") {
+      // A restart may interrupt persistence after the remote job completed. Its
+      // request id is durable, so return to the polling sentinel and resume.
+      await db
+        .update(videosTable)
+        .set({ heygenVideoId: `wavespeed-th:${sentinel.requestId}`, updatedAt: new Date() })
+        .where(and(
+          eq(videosTable.id, video.id),
+          eq(videosTable.status, "generating"),
+          eq(videosTable.heygenVideoId, video.heygenVideoId!),
+        ));
+    }
+    startWavespeedVideoMonitor({ videoId: video.id });
   }
 
   if (pending.length > 0) {
-    logger.info({ count: pending.length }, "[WaveSpeed] Resumed pending TTS-to-talking-head handoffs");
+    logger.info({ count: pending.length }, "[WaveSpeed] Resumed pending video monitors");
   }
 }
 
@@ -2891,7 +3257,10 @@ export async function pollAndPublishVideos(): Promise<void> {
       if (video.contentPlanId) {
         await db
           .update(contentPlanItemsTable)
-          .set({ status: isWaveSpeedVideo ? "scripted" : "failed", updatedAt: pollNow })
+            // WaveSpeed has a durable terminal error path. Do not silently move
+            // an expired provider job back to "scripted", which makes the UI
+            // look like nothing happened and can hide a stale generation.
+            .set({ status: "failed", updatedAt: pollNow })
           .where(eq(contentPlanItemsTable.id, video.contentPlanId));
       }
       sendVideoFailedAlert(video.userId, video.contentPlanId ?? null).catch(() => {});
@@ -2912,123 +3281,16 @@ export async function pollAndPublishVideos(): Promise<void> {
       .where(eq(automationConfigTable.userId, video.userId))
       .limit(1);
 
-    // ── WaveSpeed polling: sentinel "wavespeed-{stage}:{requestId}" ───────
-    // Two-stage pipeline:
-    //   wavespeed-tts:{id}  → poll TTS; when done submit talking-head
-    //   wavespeed-th:{id}   → poll talking-head; when done mark video ready
+    // ── WaveSpeed polling ─────────────────────────────────────────────────
+    // Targeted monitors, startup recovery, and cron share the same worker. This
+    // prevents cron-disabled environments from stopping after TTS handoff.
     if (video.heygenVideoId.startsWith("wavespeed-")) {
-      const [stage, requestId] = video.heygenVideoId.replace("wavespeed-", "").split(":");
-      if (!requestId) continue;
       try {
-        if (stage === "tts") {
-          await advanceWavespeedTtsToTalkingHead({
-            videoId: video.id,
-            userId: video.userId,
-            topic: video.topic,
-            ttsRequestId: requestId,
-          });
-          // queued/processing → keep polling next cycle
-        } else if (stage === "tts-handoff") {
-          // A targeted monitor has atomically claimed the handoff. It will
-          // promptly replace this sentinel with wavespeed-th:{requestId}.
-          continue;
-        } else if (stage === "th") {
-          const jobResult = await getWavespeedJobStatus(requestId);
-          if (jobResult.status === "completed") {
-            // Same dual-shape handling: outputs may be string[] or keyed object.
-            const rawOutputs = jobResult.outputs;
-            const videoUrl: string | undefined = Array.isArray(rawOutputs)
-              ? (typeof rawOutputs[0] === "string" ? rawOutputs[0] : (rawOutputs[0] as { url?: string })?.url)
-              : (() => { const o = (rawOutputs ?? {}) as Record<string, unknown>; return (o["video_url"] ?? o["video"] ?? o["url"]) as string | undefined; })();
-            if (!videoUrl) {
-              throw new Error(`WS_TERMINAL: Talking-head completado pero sin video_url en outputs: ${JSON.stringify(rawOutputs)}`);
-            }
-
-            await db
-              .update(wavespeedJobsTable)
-              .set({ status: "completed", outputUrl: videoUrl, updatedAt: new Date() })
-              .where(eq(wavespeedJobsTable.wavespeedRequestId, requestId));
-
-            // Download from WaveSpeed CDN and store in Object Storage for permanent URLs.
-            const persistent = await persistVideoAssetsToStorage(video.id, videoUrl, null);
-            await db
-              .update(videosTable)
-              .set({ status: "ready", videoUrl: persistent.videoUrl, updatedAt: new Date() })
-              .where(eq(videosTable.id, video.id));
-
-            await consumeVideoCredits(video.id).catch((err) =>
-              logger.error({ videoId: video.id, err }, "[Credits][WaveSpeed] Consume falló al completar video")
-            );
-
-            if (video.contentPlanId) {
-              await db
-                .update(contentPlanItemsTable)
-                .set({ status: "ready", updatedAt: new Date() })
-                .where(eq(contentPlanItemsTable.id, video.contentPlanId));
-            }
-
-            logger.info({ videoId: video.id, videoUrl }, "[WaveSpeed] Video listo");
-
-            // ── Whisper transcription from the final MP4 audio track ──────────
-            // MUST run after the talking-head is complete, NOT after TTS.
-            // InfiniteTalk may prepend silence before speech begins; transcribing
-            // the MP4 audio captures that silence so word timestamps are aligned
-            // with what the avatar actually says at each video frame.
-            const srtUrl = await transcribeAudioToSrt(persistent.videoUrl, video.id);
-            if (srtUrl) {
-              await db
-                .update(videosTable)
-                .set({ heygenSubtitleUrl: srtUrl, updatedAt: new Date() })
-                .where(eq(videosTable.id, video.id));
-            }
-
-            // Caption processing (WaveSpeed has no subtitle_url; engine will use the SRT above)
-            if (video.captionStatus === null) {
-              if (captionsAreEnabled(videoAutomation?.captionsEnabled)) {
-                await runCaptionProcessing(video.id, persistent.videoUrl, video.contentPlanId ?? null, srtUrl ?? null, undefined);
-              } else {
-                const captionsDisabled = await markCaptionsDisabledIfUnstarted(video.id);
-                if (captionsDisabled && video.contentPlanId) {
-                  runCopyGeneration(video.contentPlanId).catch((err) =>
-                    logger.error({ videoId: video.id, contentPlanId: video.contentPlanId, err }, "[CopyEngine][WaveSpeed] Failed to start copy generation")
-                  );
-                }
-              }
-            }
-          } else if (jobResult.status === "failed") {
-            throw new Error(`WS_TERMINAL: Talking-head fallido: ${jobResult.error ?? "error desconocido"}`);
-          }
-          // queued/processing → keep polling next cycle
-        }
-      } catch (wsErr: any) {
-        const wsError = wsErr instanceof Error ? wsErr.message : String(wsErr);
-        const terminal = wsError.startsWith("WS_TERMINAL:");
-        if (!terminal) {
-          logger.warn(
-            { videoId: video.id, stage, requestId, wsError },
-            "[WaveSpeed] Polling temporalmente no disponible — se reintentará sin liberar créditos",
-          );
-          continue;
-        }
-
-        const terminalMessage = wsError.replace(/^WS_TERMINAL:\s*/, "");
-        logger.error({ videoId: video.id, stage, requestId, terminalMessage }, "[WaveSpeed] Fallo terminal confirmado");
-        await db
-          .update(videosTable)
-          .set({
-            status: "failed",
-            errorMessage: "No se pudo completar la generación del video. Intenta de nuevo.",
-            updatedAt: new Date(),
-          })
-          .where(eq(videosTable.id, video.id));
-        if (video.contentPlanId) {
-          await db
-            .update(contentPlanItemsTable)
-            .set({ status: "scripted", updatedAt: new Date() })
-            .where(eq(contentPlanItemsTable.id, video.contentPlanId));
-        }
-        await releaseVideoCredits(video.id, `Generación WaveSpeed fallida: ${terminalMessage}`).catch((err) =>
-          logger.error({ videoId: video.id, err }, "[Credits][WaveSpeed] Release falló en error terminal")
+        await advanceWavespeedVideo(video.id);
+      } catch (wsErr) {
+        logger.warn(
+          { videoId: video.id, wsErr },
+          "[WaveSpeed] Polling temporalmente no disponible — se reintentará sin liberar créditos",
         );
       }
       continue; // skip HeyGen polling for this video
