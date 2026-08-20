@@ -310,11 +310,14 @@ async function createThumbnail(outputPath: string, runId: string): Promise<strin
   }
 }
 
+export function shouldUseRenderFastV2(renderer?: string | null): boolean {
+  return renderer?.trim().toLowerCase() !== "legacy";
+}
+
 export function isRenderFastV2Enabled(): boolean {
-  const selected = process.env.VIDEO_RENDERER?.trim().toLowerCase();
-  if (selected === "legacy") return false;
-  if (process.env.NODE_ENV === "production") return selected === "fast_v2" && process.env.ALLOW_RENDER_FAST_V2_IN_PRODUCTION === "true";
-  return selected !== "legacy";
+  // Fast V2 is the permanent WaveSpeed renderer in every environment. The
+  // legacy path remains an explicit emergency rollback only, never an opt-in.
+  return shouldUseRenderFastV2(process.env.VIDEO_RENDERER);
 }
 
 export async function applyCaptionsFastV2(

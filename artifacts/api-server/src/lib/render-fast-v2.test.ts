@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildRenderFastV2Graph, isRenderFastV2Failure } from "./render-fast-v2.js";
+import {
+  buildRenderFastV2Graph,
+  isRenderFastV2Failure,
+  shouldUseRenderFastV2,
+} from "./render-fast-v2.js";
 
 const assPath = "/tmp/contentpilot-captioned/test/captions.ass";
 
@@ -75,4 +79,10 @@ test("Render Fast V2 failure marker is explicit and can block raw-source publish
   assert.equal(isRenderFastV2Failure("Render Fast V2: ffmpeg exited with code 1"), true);
   assert.equal(isRenderFastV2Failure("Caption engine: ffmpeg exited with code 1"), false);
   assert.equal(isRenderFastV2Failure(null), false);
+});
+
+test("Render Fast V2 is the default in every environment", () => {
+  assert.equal(shouldUseRenderFastV2(undefined), true);
+  assert.equal(shouldUseRenderFastV2("fast_v2"), true);
+  assert.equal(shouldUseRenderFastV2(" LEGACY "), false);
 });
