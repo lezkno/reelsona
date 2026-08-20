@@ -433,7 +433,7 @@ async function fillEmptyScheduledSlots(
 
   // Load strategy profile (primary) + audit cache (fallback)
   const [auditInsights, strategyProfile] = await Promise.all([
-    getLatestAuditCache().catch(() => null),
+    getLatestAuditCache(userId).catch(() => null),
     getStrategyProfile(userId).catch(() => null),
   ]);
   const strategyContext = strategyProfile ? toStrategyContext(strategyProfile) : undefined;
@@ -985,7 +985,7 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
     // "draft" so it isn't left stranded in "scripting" forever.
     let scriptResult: Awaited<ReturnType<typeof generateScript>>;
     try {
-      const auditInsights = await getLatestAuditCache().catch(() => null);
+      const auditInsights = await getLatestAuditCache(userId).catch(() => null);
       scriptResult = await generateScript(
         draft.topic,
         settings.niche,
@@ -2187,7 +2187,6 @@ export async function pollAndPublishVideos(): Promise<void> {
   //   2. captionStatus=processing AND updated_at stale >10 min — server was restarted
   //      mid-processing and the job will never finish on its own.
   // subtitle_url is no longer available so the engine uses proportional-SRT fallback.
-  const [automation] = await db.select().from(automationConfigTable).limit(1);
   const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
   const stuckVideos = await db
     .select()
@@ -2206,7 +2205,12 @@ export async function pollAndPublishVideos(): Promise<void> {
     );
   for (const v of stuckVideos) {
     if (!v.videoUrl) continue;
-    if (automation?.captionsEnabled) {
+    const [videoAutomation] = await db
+      .select({ captionsEnabled: automationConfigTable.captionsEnabled })
+      .from(automationConfigTable)
+      .where(eq(automationConfigTable.userId, v.userId))
+      .limit(1);
+    if (videoAutomation?.captionsEnabled) {
       // Captions are still on — run (or re-run) caption processing.
       // Wrap in a 12-minute timeout so a hung AI image call
       // never blocks the entire polling loop indefinitely.
@@ -2289,10 +2293,9 @@ export async function pollAndPublishVideos(): Promise<void> {
     }
   }
 
-  // ── Auto-publish all ready videos when automation + auto_publish are on ──
-  // Only publish when both caption AND copy are in a terminal state so the
-  // Instagram description is ready before the post goes live.
-  if (automation?.enabled && automation?.autoPublish) {
+  // ── Auto-publish ready videos using each owner's automation config ─────
+  // Only publish when both caption AND copy are terminal.
+  {
     // Rate limit: 5 minutes minimum between auto-publishes per account.
     // Prevents IG bans from burst-publishing when many videos are "ready" at once.
     const AUTO_PUBLISH_MIN_GAP_MS = 5 * 60 * 1000;
@@ -2319,6 +2322,13 @@ export async function pollAndPublishVideos(): Promise<void> {
 
     for (const video of readyVideos) {
       if (video.scheduledPublishAt) continue; // handled in the scheduled sweep above
+
+      const [videoAutomation] = await db
+        .select({ enabled: automationConfigTable.enabled, autoPublish: automationConfigTable.autoPublish })
+        .from(automationConfigTable)
+        .where(eq(automationConfigTable.userId, video.userId))
+        .limit(1);
+      if (!videoAutomation?.enabled || !videoAutomation.autoPublish) continue;
 
       // Max 1 auto-publish per user account per cron cycle
       if (publishedThisCycle.has(video.userId)) {
@@ -2392,6 +2402,54 @@ export async function pollAndPublishVideos(): Promise<void> {
       continue;
     }
 
+    // ── Shared polling accounting / timeout for every provider ─────────────
+    const pollNow = new Date();
+    const startedAt = video.generatingStartedAt ?? pollNow;
+    const newAttempts = (video.pollAttempts ?? 0) + 1;
+    const isWaveSpeedVideo = video.heygenVideoId.startsWith("wavespeed-");
+
+    await db
+      .update(videosTable)
+      .set({
+        pollAttempts: newAttempts,
+        generatingStartedAt: video.generatingStartedAt ?? pollNow,
+        updatedAt: pollNow,
+      })
+      .where(eq(videosTable.id, video.id));
+
+    const ageMs = pollNow.getTime() - startedAt.getTime();
+    if (ageMs > pollTimeoutMs) {
+      const timeoutMinutes = Math.round(pollTimeoutMs / 60000);
+      const providerName = isWaveSpeedVideo ? "WaveSpeed" : "HeyGen";
+      const timeoutMsg = `Video atascado: ${providerName} no respondió en ${timeoutMinutes} minutos (${newAttempts} intentos)`;
+      await db
+        .update(videosTable)
+        .set({ status: "failed", errorMessage: timeoutMsg, updatedAt: pollNow })
+        .where(eq(videosTable.id, video.id));
+      if (video.contentPlanId) {
+        await db
+          .update(contentPlanItemsTable)
+          .set({ status: isWaveSpeedVideo ? "scripted" : "failed", updatedAt: pollNow })
+          .where(eq(contentPlanItemsTable.id, video.contentPlanId));
+      }
+      sendVideoFailedAlert(video.userId, video.contentPlanId ?? null).catch(() => {});
+      logger.warn({ videoId: video.id, providerName, ageMs, attempts: newAttempts }, timeoutMsg);
+      await releaseVideoCredits(video.id, `Video timeout: ${timeoutMsg}`).catch((err) =>
+        logger.error({ videoId: video.id, err }, "[Credits] Release falló en timeout")
+      );
+      continue;
+    }
+
+    const [videoAutomation] = await db
+      .select({
+        enabled: automationConfigTable.enabled,
+        autoPublish: automationConfigTable.autoPublish,
+        captionsEnabled: automationConfigTable.captionsEnabled,
+      })
+      .from(automationConfigTable)
+      .where(eq(automationConfigTable.userId, video.userId))
+      .limit(1);
+
     // ── WaveSpeed polling: sentinel "wavespeed-{stage}:{requestId}" ───────
     // Two-stage pipeline:
     //   wavespeed-tts:{id}  → poll TTS; when done submit talking-head
@@ -2412,7 +2470,7 @@ export async function pollAndPublishVideos(): Promise<void> {
               ? (typeof rawOutputs[0] === "string" ? rawOutputs[0] : (rawOutputs[0] as { url?: string })?.url)
               : (() => { const o = (rawOutputs ?? {}) as Record<string, unknown>; return (o["audio_url"] ?? o["audio"] ?? o["url"]) as string | undefined; })();
             if (!audioUrl) {
-              throw new Error(`TTS completado pero sin audio_url en outputs: ${JSON.stringify(rawOutputs)}`);
+              throw new Error(`WS_TERMINAL: TTS completado pero sin audio_url en outputs: ${JSON.stringify(rawOutputs)}`);
             }
 
             // Find imageUrl stored in the TTS job's inputPayload
@@ -2430,7 +2488,7 @@ export async function pollAndPublishVideos(): Promise<void> {
               ? (JSON.parse(ttsJobRow.inputPayload) as { imageUrl?: string }).imageUrl
               : undefined;
             if (!imageUrl) {
-              throw new Error("No se encontró imageUrl para el paso de talking-head");
+              throw new Error("WS_TERMINAL: No se encontró imageUrl para el paso de talking-head");
             }
 
             // Mark TTS job done
@@ -2467,7 +2525,7 @@ export async function pollAndPublishVideos(): Promise<void> {
 
             logger.info({ videoId: video.id, thRequestId }, "[WaveSpeed] Talking-head job enviado");
           } else if (jobResult.status === "failed") {
-            throw new Error(`TTS fallido: ${jobResult.error ?? "error desconocido"}`);
+            throw new Error(`WS_TERMINAL: TTS fallido: ${jobResult.error ?? "error desconocido"}`);
           }
           // queued/processing → keep polling next cycle
         } else if (stage === "th") {
@@ -2478,7 +2536,7 @@ export async function pollAndPublishVideos(): Promise<void> {
               ? (typeof rawOutputs[0] === "string" ? rawOutputs[0] : (rawOutputs[0] as { url?: string })?.url)
               : (() => { const o = (rawOutputs ?? {}) as Record<string, unknown>; return (o["video_url"] ?? o["video"] ?? o["url"]) as string | undefined; })();
             if (!videoUrl) {
-              throw new Error(`Talking-head completado pero sin video_url en outputs: ${JSON.stringify(rawOutputs)}`);
+              throw new Error(`WS_TERMINAL: Talking-head completado pero sin video_url en outputs: ${JSON.stringify(rawOutputs)}`);
             }
 
             await db
@@ -2521,11 +2579,7 @@ export async function pollAndPublishVideos(): Promise<void> {
 
             // Caption processing (WaveSpeed has no subtitle_url; engine will use the SRT above)
             if (video.captionStatus === null) {
-              const [autoCfg] = await db.select({ captionsEnabled: automationConfigTable.captionsEnabled })
-                .from(automationConfigTable)
-                .where(eq(automationConfigTable.userId, video.userId))
-                .limit(1);
-              if (autoCfg?.captionsEnabled) {
+              if (videoAutomation?.captionsEnabled) {
                 await runCaptionProcessing(video.id, persistent.videoUrl, video.contentPlanId ?? null, srtUrl ?? null, undefined);
               } else {
                 await db
@@ -2540,13 +2594,23 @@ export async function pollAndPublishVideos(): Promise<void> {
               }
             }
           } else if (jobResult.status === "failed") {
-            throw new Error(`Talking-head fallido: ${jobResult.error ?? "error desconocido"}`);
+            throw new Error(`WS_TERMINAL: Talking-head fallido: ${jobResult.error ?? "error desconocido"}`);
           }
           // queued/processing → keep polling next cycle
         }
       } catch (wsErr: any) {
         const wsError = wsErr instanceof Error ? wsErr.message : String(wsErr);
-        logger.error({ videoId: video.id, stage, requestId, wsError }, "[WaveSpeed] Error en polling");
+        const terminal = wsError.startsWith("WS_TERMINAL:");
+        if (!terminal) {
+          logger.warn(
+            { videoId: video.id, stage, requestId, wsError },
+            "[WaveSpeed] Polling temporalmente no disponible — se reintentará sin liberar créditos",
+          );
+          continue;
+        }
+
+        const terminalMessage = wsError.replace(/^WS_TERMINAL:\s*/, "");
+        logger.error({ videoId: video.id, stage, requestId, terminalMessage }, "[WaveSpeed] Fallo terminal confirmado");
         await db
           .update(videosTable)
           .set({
@@ -2558,48 +2622,14 @@ export async function pollAndPublishVideos(): Promise<void> {
         if (video.contentPlanId) {
           await db
             .update(contentPlanItemsTable)
-            .set({ status: "scripted", updatedAt: new Date() }) // retryable
+            .set({ status: "scripted", updatedAt: new Date() })
             .where(eq(contentPlanItemsTable.id, video.contentPlanId));
         }
-        await releaseVideoCredits(video.id, "Generación de video fallida").catch((err) =>
-          logger.error({ videoId: video.id, err }, "[Credits][WaveSpeed] Release falló en error de polling")
+        await releaseVideoCredits(video.id, `Generación WaveSpeed fallida: ${terminalMessage}`).catch((err) =>
+          logger.error({ videoId: video.id, err }, "[Credits][WaveSpeed] Release falló en error terminal")
         );
       }
       continue; // skip HeyGen polling for this video
-    }
-
-    // ── Track polling attempts and generation start time ──────────────────
-    const now = new Date();
-    const startedAt = video.generatingStartedAt ?? now;
-    const newAttempts = (video.pollAttempts ?? 0) + 1;
-
-    await db
-      .update(videosTable)
-      .set({
-        pollAttempts: newAttempts,
-        generatingStartedAt: video.generatingStartedAt ?? now,
-        updatedAt: now,
-      })
-      .where(eq(videosTable.id, video.id));
-
-    // ── Timeout check ─────────────────────────────────────────────────────
-    const ageMs = now.getTime() - startedAt.getTime();
-    if (ageMs > pollTimeoutMs) {
-      const timeoutMinutes = Math.round(pollTimeoutMs / 60000);
-      const timeoutMsg = `Video atascado: HeyGen no respondió en ${timeoutMinutes} minutos (${newAttempts} intentos)`;
-      await db
-        .update(videosTable)
-        .set({ status: "failed", errorMessage: timeoutMsg, updatedAt: now })
-        .where(eq(videosTable.id, video.id));
-      if (video.contentPlanId) {
-        await db.update(contentPlanItemsTable).set({ status: "failed", updatedAt: now }).where(eq(contentPlanItemsTable.id, video.contentPlanId));
-      }
-      sendVideoFailedAlert(video.userId, video.contentPlanId ?? null).catch(() => {});
-      logger.warn({ videoId: video.id, ageMs, attempts: newAttempts }, timeoutMsg);
-      await releaseVideoCredits(video.id, `Video timeout: ${timeoutMsg}`).catch((err) =>
-        logger.error({ videoId: video.id, err }, "[Credits] Release falló en timeout")
-      );
-      continue;
     }
 
     try {
@@ -2643,7 +2673,7 @@ export async function pollAndPublishVideos(): Promise<void> {
         // captions on/off in Caption Studio is respected immediately — even for
         // videos that were already in the pipeline when the setting changed.
         if (video.captionStatus === null) {
-          if (automation?.captionsEnabled) {
+          if (videoAutomation?.captionsEnabled) {
             await runCaptionProcessing(
               video.id,
               status.video_url,
@@ -2679,7 +2709,7 @@ export async function pollAndPublishVideos(): Promise<void> {
           video.captionStatus === "failed" ||
           video.captionStatus === "disabled";
         const noCopyPending = !video.contentPlanId; // plan-linked items: copy handles publish
-        if (automation?.enabled && automation?.autoPublish && status.video_url && captionTerminal && noCopyPending) {
+        if (videoAutomation?.enabled && videoAutomation?.autoPublish && status.video_url && captionTerminal && noCopyPending) {
           await publishVideoToInstagram(video.id);
         }
       } else if (status.status === "failed") {
