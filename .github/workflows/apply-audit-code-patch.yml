@@ -1,9 +1,8 @@
 name: Apply audit code patch
 
 on:
-  push:
-    branches:
-      - audit/prod-hardening-final
+  pull_request:
+    branches: [main]
     paths:
       - .github/workflows/apply-audit-code-patch.yml
 
@@ -12,12 +11,13 @@ permissions:
 
 jobs:
   patch:
+    if: github.head_ref == 'audit/prod-hardening-final'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout audit branch
         uses: actions/checkout@v4
         with:
-          ref: audit/prod-hardening-final
+          ref: ${{ github.head_ref }}
           fetch-depth: 0
 
       - name: Apply deterministic hardening patch
@@ -37,49 +37,23 @@ jobs:
           instagram = "artifacts/api-server/src/routes/instagram.ts"
           scheduler = "artifacts/api-server/src/lib/scheduler.ts"
 
-          # Audit cache writes must be tenant-scoped.
-          replace_exact(
-              instagram,
-              "  saveAuditCache({\n",
-              "  saveAuditCache(req.session.user!.userId, {\n",
-          )
+          replace_exact(instagram, "  saveAuditCache({\n", "  saveAuditCache(req.session.user!.userId, {\n")
+          replace_exact(scheduler, "getLatestAuditCache().catch(() => null)", "getLatestAuditCache(userId).catch(() => null)", expected=2)
+          replace_exact(scheduler, "  const [automation] = await db.select().from(automationConfigTable).limit(1);\n", "")
 
-          # All scheduler audit-cache reads must use the current automation user.
-          replace_exact(
-              scheduler,
-              "getLatestAuditCache().catch(() => null)",
-              "getLatestAuditCache(userId).catch(() => null)",
-              expected=2,
-          )
-
-          # Remove the historical global automation row used by recovery sweeps.
-          replace_exact(
-              scheduler,
-              "  const [automation] = await db.select().from(automationConfigTable).limit(1);\n",
-              "",
-          )
-
-          # Caption recovery: load automation settings for the owner of each video.
           replace_exact(
               scheduler,
               "  for (const v of stuckVideos) {\n    if (!v.videoUrl) continue;\n    if (automation?.captionsEnabled) {\n",
               "  for (const v of stuckVideos) {\n    if (!v.videoUrl) continue;\n    const [videoAutomation] = await db\n      .select({ captionsEnabled: automationConfigTable.captionsEnabled })\n      .from(automationConfigTable)\n      .where(eq(automationConfigTable.userId, v.userId))\n      .limit(1);\n    if (videoAutomation?.captionsEnabled) {\n",
           )
 
-          # Auto-publish recovery must evaluate each user's own automation config.
-          replace_exact(
-              scheduler,
-              "  if (automation?.enabled && automation?.autoPublish) {\n",
-              "  {\n",
-          )
+          replace_exact(scheduler, "  if (automation?.enabled && automation?.autoPublish) {\n", "  {\n")
           replace_exact(
               scheduler,
               "    for (const video of readyVideos) {\n      if (video.scheduledPublishAt) continue; // handled in the scheduled sweep above\n\n",
               "    for (const video of readyVideos) {\n      if (video.scheduledPublishAt) continue; // handled in the scheduled sweep above\n\n      const [videoAutomation] = await db\n        .select({ enabled: automationConfigTable.enabled, autoPublish: automationConfigTable.autoPublish })\n        .from(automationConfigTable)\n        .where(eq(automationConfigTable.userId, video.userId))\n        .limit(1);\n      if (!videoAutomation?.enabled || !videoAutomation.autoPublish) continue;\n\n",
           )
 
-          # Shared poll accounting + timeout runs before provider-specific branches,
-          # so WaveSpeed cannot bypass it via `continue`.
           marker = "      continue;\n    }\n\n    // ── WaveSpeed polling: sentinel \"wavespeed-{stage}:{requestId}\" ───────\n"
           insertion = """      continue;
     }
@@ -88,7 +62,7 @@ jobs:
     const pollNow = new Date();
     const startedAt = video.generatingStartedAt ?? pollNow;
     const newAttempts = (video.pollAttempts ?? 0) + 1;
-    const isWaveSpeedVideo = video.heygenVideoId.startsWith(\"wavespeed-\");
+    const isWaveSpeedVideo = video.heygenVideoId.startsWith("wavespeed-");
 
     await db
       .update(videosTable)
@@ -102,22 +76,22 @@ jobs:
     const ageMs = pollNow.getTime() - startedAt.getTime();
     if (ageMs > pollTimeoutMs) {
       const timeoutMinutes = Math.round(pollTimeoutMs / 60000);
-      const providerName = isWaveSpeedVideo ? \"WaveSpeed\" : \"HeyGen\";
+      const providerName = isWaveSpeedVideo ? "WaveSpeed" : "HeyGen";
       const timeoutMsg = `Video atascado: ${providerName} no respondió en ${timeoutMinutes} minutos (${newAttempts} intentos)`;
       await db
         .update(videosTable)
-        .set({ status: \"failed\", errorMessage: timeoutMsg, updatedAt: pollNow })
+        .set({ status: "failed", errorMessage: timeoutMsg, updatedAt: pollNow })
         .where(eq(videosTable.id, video.id));
       if (video.contentPlanId) {
         await db
           .update(contentPlanItemsTable)
-          .set({ status: isWaveSpeedVideo ? \"scripted\" : \"failed\", updatedAt: pollNow })
+          .set({ status: isWaveSpeedVideo ? "scripted" : "failed", updatedAt: pollNow })
           .where(eq(contentPlanItemsTable.id, video.contentPlanId));
       }
       sendVideoFailedAlert(video.userId, video.contentPlanId ?? null).catch(() => {});
       logger.warn({ videoId: video.id, providerName, ageMs, attempts: newAttempts }, timeoutMsg);
       await releaseVideoCredits(video.id, `Video timeout: ${timeoutMsg}`).catch((err) =>
-        logger.error({ videoId: video.id, err }, \"[Credits] Release falló en timeout\")
+        logger.error({ videoId: video.id, err }, "[Credits] Release falló en timeout")
       );
       continue;
     }
@@ -132,91 +106,81 @@ jobs:
       .where(eq(automationConfigTable.userId, video.userId))
       .limit(1);
 
-    // ── WaveSpeed polling: sentinel \"wavespeed-{stage}:{requestId}\" ───────
+    // ── WaveSpeed polling: sentinel "wavespeed-{stage}:{requestId}" ───────
 """
           replace_exact(scheduler, marker, insertion)
 
-          # WaveSpeed terminal failures are distinct from transport/polling failures.
           for old, new in [
-              ("throw new Error(`TTS completado pero sin audio_url en outputs: ${JSON.stringify(rawOutputs)}`);",
-               "throw new Error(`WS_TERMINAL: TTS completado pero sin audio_url en outputs: ${JSON.stringify(rawOutputs)}`);"),
-              ("throw new Error(\"No se encontró imageUrl para el paso de talking-head\");",
-               "throw new Error(\"WS_TERMINAL: No se encontró imageUrl para el paso de talking-head\");"),
-              ("throw new Error(`TTS fallido: ${jobResult.error ?? \"error desconocido\"}`);",
-               "throw new Error(`WS_TERMINAL: TTS fallido: ${jobResult.error ?? \"error desconocido\"}`);"),
-              ("throw new Error(`Talking-head completado pero sin video_url en outputs: ${JSON.stringify(rawOutputs)}`);",
-               "throw new Error(`WS_TERMINAL: Talking-head completado pero sin video_url en outputs: ${JSON.stringify(rawOutputs)}`);"),
-              ("throw new Error(`Talking-head fallido: ${jobResult.error ?? \"error desconocido\"}`);",
-               "throw new Error(`WS_TERMINAL: Talking-head fallido: ${jobResult.error ?? \"error desconocido\"}`);"),
+              ("throw new Error(`TTS completado pero sin audio_url en outputs: ${JSON.stringify(rawOutputs)}`);", "throw new Error(`WS_TERMINAL: TTS completado pero sin audio_url en outputs: ${JSON.stringify(rawOutputs)}`);"),
+              ("throw new Error(\"No se encontró imageUrl para el paso de talking-head\");", "throw new Error(\"WS_TERMINAL: No se encontró imageUrl para el paso de talking-head\");"),
+              ("throw new Error(`TTS fallido: ${jobResult.error ?? \"error desconocido\"}`);", "throw new Error(`WS_TERMINAL: TTS fallido: ${jobResult.error ?? \"error desconocido\"}`);"),
+              ("throw new Error(`Talking-head completado pero sin video_url en outputs: ${JSON.stringify(rawOutputs)}`);", "throw new Error(`WS_TERMINAL: Talking-head completado pero sin video_url en outputs: ${JSON.stringify(rawOutputs)}`);"),
+              ("throw new Error(`Talking-head fallido: ${jobResult.error ?? \"error desconocido\"}`);", "throw new Error(`WS_TERMINAL: Talking-head fallido: ${jobResult.error ?? \"error desconocido\"}`);"),
           ]:
               replace_exact(scheduler, old, new)
 
-          # Reuse the already-loaded per-user automation config for WaveSpeed captions.
           replace_exact(
               scheduler,
               "              const [autoCfg] = await db.select({ captionsEnabled: automationConfigTable.captionsEnabled })\n                .from(automationConfigTable)\n                .where(eq(automationConfigTable.userId, video.userId))\n                .limit(1);\n              if (autoCfg?.captionsEnabled) {\n",
               "              if (videoAutomation?.captionsEnabled) {\n",
           )
 
-          # Transient WaveSpeed polling errors keep the job alive; only explicit
-          # terminal provider/state errors fail and release the reservation.
           old_catch = """      } catch (wsErr: any) {
         const wsError = wsErr instanceof Error ? wsErr.message : String(wsErr);
-        logger.error({ videoId: video.id, stage, requestId, wsError }, \"[WaveSpeed] Error en polling\");
+        logger.error({ videoId: video.id, stage, requestId, wsError }, "[WaveSpeed] Error en polling");
         await db
           .update(videosTable)
           .set({
-            status: \"failed\",
-            errorMessage: \"No se pudo completar la generación del video. Intenta de nuevo.\",
+            status: "failed",
+            errorMessage: "No se pudo completar la generación del video. Intenta de nuevo.",
             updatedAt: new Date(),
           })
           .where(eq(videosTable.id, video.id));
         if (video.contentPlanId) {
           await db
             .update(contentPlanItemsTable)
-            .set({ status: \"scripted\", updatedAt: new Date() }) // retryable
+            .set({ status: "scripted", updatedAt: new Date() }) // retryable
             .where(eq(contentPlanItemsTable.id, video.contentPlanId));
         }
-        await releaseVideoCredits(video.id, \"Generación de video fallida\").catch((err) =>
-          logger.error({ videoId: video.id, err }, \"[Credits][WaveSpeed] Release falló en error de polling\")
+        await releaseVideoCredits(video.id, "Generación de video fallida").catch((err) =>
+          logger.error({ videoId: video.id, err }, "[Credits][WaveSpeed] Release falló en error de polling")
         );
       }
 """
           new_catch = """      } catch (wsErr: any) {
         const wsError = wsErr instanceof Error ? wsErr.message : String(wsErr);
-        const terminal = wsError.startsWith(\"WS_TERMINAL:\");
+        const terminal = wsError.startsWith("WS_TERMINAL:");
         if (!terminal) {
           logger.warn(
             { videoId: video.id, stage, requestId, wsError },
-            \"[WaveSpeed] Polling temporalmente no disponible — se reintentará sin liberar créditos\",
+            "[WaveSpeed] Polling temporalmente no disponible — se reintentará sin liberar créditos",
           );
           continue;
         }
 
-        const terminalMessage = wsError.replace(/^WS_TERMINAL:\\s*/, \"\");
-        logger.error({ videoId: video.id, stage, requestId, terminalMessage }, \"[WaveSpeed] Fallo terminal confirmado\");
+        const terminalMessage = wsError.replace(/^WS_TERMINAL:\s*/, "");
+        logger.error({ videoId: video.id, stage, requestId, terminalMessage }, "[WaveSpeed] Fallo terminal confirmado");
         await db
           .update(videosTable)
           .set({
-            status: \"failed\",
-            errorMessage: \"No se pudo completar la generación del video. Intenta de nuevo.\",
+            status: "failed",
+            errorMessage: "No se pudo completar la generación del video. Intenta de nuevo.",
             updatedAt: new Date(),
           })
           .where(eq(videosTable.id, video.id));
         if (video.contentPlanId) {
           await db
             .update(contentPlanItemsTable)
-            .set({ status: \"scripted\", updatedAt: new Date() })
+            .set({ status: "scripted", updatedAt: new Date() })
             .where(eq(contentPlanItemsTable.id, video.contentPlanId));
         }
         await releaseVideoCredits(video.id, `Generación WaveSpeed fallida: ${terminalMessage}`).catch((err) =>
-          logger.error({ videoId: video.id, err }, \"[Credits][WaveSpeed] Release falló en error terminal\")
+          logger.error({ videoId: video.id, err }, "[Credits][WaveSpeed] Release falló en error terminal")
         );
       }
 """
           replace_exact(scheduler, old_catch, new_catch)
 
-          # Remove the old HeyGen-only accounting/timeout block now that it is shared.
           old_timeout = """    // ── Track polling attempts and generation start time ──────────────────
     const now = new Date();
     const startedAt = video.generatingStartedAt ?? now;
@@ -238,15 +202,15 @@ jobs:
       const timeoutMsg = `Video atascado: HeyGen no respondió en ${timeoutMinutes} minutos (${newAttempts} intentos)`;
       await db
         .update(videosTable)
-        .set({ status: \"failed\", errorMessage: timeoutMsg, updatedAt: now })
+        .set({ status: "failed", errorMessage: timeoutMsg, updatedAt: now })
         .where(eq(videosTable.id, video.id));
       if (video.contentPlanId) {
-        await db.update(contentPlanItemsTable).set({ status: \"failed\", updatedAt: now }).where(eq(contentPlanItemsTable.id, video.contentPlanId));
+        await db.update(contentPlanItemsTable).set({ status: "failed", updatedAt: now }).where(eq(contentPlanItemsTable.id, video.contentPlanId));
       }
       sendVideoFailedAlert(video.userId, video.contentPlanId ?? null).catch(() => {});
       logger.warn({ videoId: video.id, ageMs, attempts: newAttempts }, timeoutMsg);
       await releaseVideoCredits(video.id, `Video timeout: ${timeoutMsg}`).catch((err) =>
-        logger.error({ videoId: video.id, err }, \"[Credits] Release falló en timeout\")
+        logger.error({ videoId: video.id, err }, "[Credits] Release falló en timeout")
       );
       continue;
     }
@@ -254,17 +218,8 @@ jobs:
 """
           replace_exact(scheduler, old_timeout, "")
 
-          # HeyGen completion uses the same per-user automation config.
-          replace_exact(
-              scheduler,
-              "        if (video.captionStatus === null) {\n          if (automation?.captionsEnabled) {\n",
-              "        if (video.captionStatus === null) {\n          if (videoAutomation?.captionsEnabled) {\n",
-          )
-          replace_exact(
-              scheduler,
-              "        if (automation?.enabled && automation?.autoPublish && status.video_url && captionTerminal && noCopyPending) {\n",
-              "        if (videoAutomation?.enabled && videoAutomation?.autoPublish && status.video_url && captionTerminal && noCopyPending) {\n",
-          )
+          replace_exact(scheduler, "        if (video.captionStatus === null) {\n          if (automation?.captionsEnabled) {\n", "        if (video.captionStatus === null) {\n          if (videoAutomation?.captionsEnabled) {\n")
+          replace_exact(scheduler, "        if (automation?.enabled && automation?.autoPublish && status.video_url && captionTerminal && noCopyPending) {\n", "        if (videoAutomation?.enabled && videoAutomation?.autoPublish && status.video_url && captionTerminal && noCopyPending) {\n")
 
           print("Deterministic scheduler/Instagram hardening patch applied successfully")
           PY
