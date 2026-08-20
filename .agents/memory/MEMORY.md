@@ -53,3 +53,4 @@
 - [Video Express audio compatibility](video-express-audio-compatibility.md) — normalize browser MIME and validate duration after FFmpeg WAV conversion, not raw container metadata.
 - [Single-pass FFmpeg branching](single-pass-ffmpeg-branching.md) — normalized video must split before zoom trims; each concat segment must explicitly reset SAR.
 - [Render failure publishing safety](render-failure-publishing-safety.md) — a renderer failure must be terminal and block copy, scheduled, and manual raw-source publishing.
+- [Long-running production renders](long-running-production-renders.md) — use an always-on VM for post-production; autoscale can interrupt background render workers, and the target is changed in Publishing settings.
