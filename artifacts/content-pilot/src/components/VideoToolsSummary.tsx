@@ -1,60 +1,24 @@
 import { Badge } from "@/components/ui/badge"
 import { Captions, ImageIcon, ZoomIn } from "lucide-react"
 import type { VideoEffects } from "@workspace/api-client-react"
-
-export type CaptionToolStatus = string | null | undefined
-
-type ToolState = {
-  label: string
-  enabled: boolean
-  status?: string
-}
+import {
+  getVideoToolsSummaryState,
+  type CaptionToolStatus,
+  type VideoToolSummaryState as ToolState,
+} from "./VideoToolsSummary.logic"
+export {
+  captionLabel,
+  getVideoToolsSummaryState,
+  normalizeVideoToolsEffects,
+  resolveVideoToolsEffects,
+} from "./VideoToolsSummary.logic"
+export type { CaptionToolStatus } from "./VideoToolsSummary.logic"
 
 type VideoToolsSummaryProps = {
   effects?: Partial<VideoEffects> | null
   captionsEnabled?: boolean
   captionStatus?: CaptionToolStatus
   compact?: boolean
-}
-
-const EFFECT_DEFAULTS: VideoEffects = { zoom: false, ai_broll: false, text_cards: false }
-
-export function normalizeVideoToolsEffects(value?: Partial<VideoEffects> | null): VideoEffects {
-  return {
-    zoom: value?.zoom === true,
-    ai_broll: value?.ai_broll === true,
-    // Text cards are not currently part of the product surface.
-    text_cards: false,
-  }
-}
-
-function applyVideoToolsOverride(base: VideoEffects, override?: Partial<VideoEffects> | null): VideoEffects {
-  if (!override) return base
-  return {
-    zoom: typeof override.zoom === "boolean" ? override.zoom : base.zoom,
-    ai_broll: typeof override.ai_broll === "boolean" ? override.ai_broll : base.ai_broll,
-    text_cards: false,
-  }
-}
-
-export function resolveVideoToolsEffects(
-  accountEffects?: Partial<VideoEffects> | null,
-  itemOverride?: Partial<VideoEffects> | null,
-  snapshot?: Partial<VideoEffects> | null,
-): VideoEffects {
-  if (snapshot != null) return normalizeVideoToolsEffects(snapshot)
-  return applyVideoToolsOverride(
-    applyVideoToolsOverride(EFFECT_DEFAULTS, accountEffects),
-    itemOverride,
-  )
-}
-
-function captionLabel(status: CaptionToolStatus): string {
-  if (status === "processing") return "Captions · procesando"
-  if (status === "done") return "Captions · listos"
-  if (status === "failed") return "Captions · error"
-  if (status === "disabled") return "Captions · apagados"
-  return "Captions"
 }
 
 function ToolsBadge({
@@ -89,18 +53,11 @@ export function VideoToolsSummary({
   captionStatus,
   compact = false,
 }: VideoToolsSummaryProps) {
-  const normalized = normalizeVideoToolsEffects(effects)
+  const summary = getVideoToolsSummaryState(effects, captionsEnabled, captionStatus)
   const tools: Array<{ tool: ToolState; icon: typeof Captions }> = [
-    {
-      tool: {
-        label: captionLabel(captionStatus),
-        enabled: captionsEnabled,
-        status: captionStatus === "failed" ? "fallaron" : undefined,
-      },
-      icon: Captions,
-    },
-    { tool: { label: "Zoom", enabled: normalized.zoom }, icon: ZoomIn },
-    { tool: { label: "B-roll IA", enabled: normalized.ai_broll }, icon: ImageIcon },
+    { tool: summary.captions, icon: Captions },
+    { tool: summary.zoom, icon: ZoomIn },
+    { tool: summary.ai_broll, icon: ImageIcon },
   ]
 
   return (
