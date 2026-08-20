@@ -1,0 +1,139 @@
+Quiero que hagas una reconstrucción controlada del pipeline de postproducción de video de Reelsona, NO un parche sobre el flujo actual.
+
+Objetivo principal: reducir drásticamente el tiempo de postproducción y aumentar estabilidad. Actualmente, después de que WaveSpeed termina el video del avatar, el postproceso con FFmpeg puede tardar 30–40 minutos porque hace varias recodificaciones secuenciales y captions por batches. Esto es inaceptable.
+
+Quiero crear un nuevo pipeline llamado conceptualmente Render Fast V2.
+
+IMPORTANTE:
+
+No reconstruyas toda Reelsona.
+No cambies auth, Stripe, wallet, planes, estrategia, auditoría, Instagram, avatares, voces ni AutoPilot salvo lo mínimo necesario para conectar el nuevo renderer.
+No uses Text Cards. Esa función NO está implementada en producción y el código que exista relacionado debe considerarse legacy/código muerto.
+No añadas nuevas features.
+No sigas parchando el renderer actual.
+
+El pipeline real que debemos soportar es únicamente:
+
+Avatar WaveSpeed → B-roll → Punch Zoom → Captions → MP4 final
+
+La nueva arquitectura debe evitar generar varios MP4 intermedios.
+
+Quiero que:
+
+Mantengas la lógica existente que ya calcula:
+timestamps de captions;
+estilos de Caption Studio;
+momentos de punch zoom;
+selección y generación de B-roll;
+duración/posición de cada B-roll.
+Elimines del camino principal las recodificaciones separadas actuales:
+no hacer un render independiente solo para upscale;
+no hacer otro render independiente para zoom;
+no hacer otro render independiente para B-roll;
+no hacer captions mediante múltiples batches de video re-encoded.
+Construyas un único render final con FFmpeg:
+input principal: video terminado de WaveSpeed;
+scale/normalización dentro del mismo filter graph si hace falta;
+overlays de 3–5 imágenes B-roll con sus timings;
+punch zoom en los timestamps definidos;
+captions burn-in;
+audio preservado correctamente;
+una sola codificación H.264 final.
+
+Para captions, NO uses el sistema actual de PNG por cue + batches de 15 overlays.
+Quiero un método mucho más eficiente, preferiblemente ASS/libass en una sola pasada.
+
+Debemos conservar tanto como sea posible:
+
+fuente;
+tamaño;
+posición;
+color primario;
+color de palabra destacada si es técnicamente viable;
+outline;
+alineación;
+estilos guardados en Caption Studio.
+
+Si alguna animación sofisticada actual no puede mantenerse sin volver a múltiples renders, prioriza velocidad y estabilidad. No recrees complejidad innecesaria.
+
+B-roll:
+conservar la generación actual por WaveSpeed/Seedream;
+generar las imágenes antes del render final;
+no crear un MP4 B-roll intermedio;
+incluir las imágenes directamente como inputs del mismo FFmpeg final;
+aplicar fade/motion sencillo dentro del filter graph.
+Zoom:
+conservar la lógica existente que decide los timestamps;
+no producir zoomed.mp4;
+aplicar el punch zoom dentro del mismo render final.
+Procesamiento paralelo:
+Tan pronto como tengamos guion/audio suficiente, genera el B-roll en paralelo mientras WaveSpeed genera el avatar cuando sea posible.
+El objetivo es que cuando llegue el avatar, los assets de B-roll ya estén preparados.
+No borres todavía el renderer anterior.
+Déjalo disponible como fallback interno temporal, pero crea una ruta/configuración clara para usar Render Fast V2 por defecto durante pruebas.
+
+Añade telemetría de tiempo por etapa:
+
+descarga avatar;
+preparación captions;
+generación B-roll;
+construcción filter graph;
+render FFmpeg;
+upload final;
+tiempo total.
+
+Quiero que los logs muestren claramente cuánto tarda cada etapa para detectar cuellos reales.
+
+Define un timeout razonable del render final.
+Si falla FFmpeg:
+no debe quedar el video eternamente en processing;
+debe registrarse el error exacto;
+debe liberarse/recuperarse correctamente el estado correspondiente;
+no debe lanzar automáticamente múltiples renders duplicados.
+Limpieza:
+identifica el código relacionado con Text Cards que está muerto;
+NO lo conectes al pipeline nuevo;
+no hace falta borrarlo en este bloque si borrarlo puede introducir riesgo, pero déjalo claramente fuera de Render Fast V2.
+Pruebas obligatorias antes de considerar terminado el cambio:
+
+Caso A:
+Avatar + captions.
+
+Caso B:
+Avatar + captions + B-roll.
+
+Caso C:
+Avatar + captions + B-roll + punch zoom.
+
+Para cada caso:
+
+video aproximado de 60 segundos;
+comprobar audio sync;
+captions sync;
+duración final igual al original;
+B-roll en timestamps correctos;
+zoom en timestamps correctos;
+MP4 reproducible;
+no archivos intermedios innecesarios;
+registrar tiempo total.
+
+Después ejecuta el Caso C al menos 3 veces consecutivas.
+
+No declares el trabajo terminado simplemente porque compile.
+
+El criterio de éxito de esta fase es:
+
+un Reel de ~60 segundos con avatar + captions + 3–5 B-roll + 2–3 punch zooms debe producirse con una sola codificación final y completar el postproceso consistentemente en pocos minutos, no 30–40 minutos.
+
+Antes de hacer cambios, revisa el pipeline actual y dime brevemente:
+
+cuántas ejecuciones FFmpeg hace hoy para un Reel típico;
+qué funciones/archivos generan cada render intermedio;
+qué partes reutilizarás;
+qué partes reemplazarás en Render Fast V2.
+
+Después implementa el cambio por fases pequeñas y verificables. No hagas refactors fuera de este alcance.
+
+Yo añadiría una última instrucción al final, porque con lo que ha ocurrido hoy es importante:
+
+No publiques a producción automáticamente. Primero deja el cambio funcionando en desarrollo, muéstrame los tiempos reales de las 3 pruebas y espera mi aprobación antes de publicar.
