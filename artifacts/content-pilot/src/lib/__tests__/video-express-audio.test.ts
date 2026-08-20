@@ -2,8 +2,11 @@ import { strict as assert } from "node:assert"
 import { test } from "node:test"
 import {
   exceedsVideoExpressAudioLimit,
+  getSupportedVideoExpressRecordingMime,
+  getVideoExpressAudioExtension,
   getVideoExpressElapsedSeconds,
   MAX_VIDEO_EXPRESS_ORDER_SECONDS,
+  normalizeVideoExpressRecordingMime,
 } from "../video-express-audio"
 
 test("Video Express measures elapsed wall-clock time instead of counting timer ticks", () => {
@@ -24,4 +27,20 @@ test("Video Express rejects only audio whose real metadata duration exceeds the 
   assert.equal(exceedsVideoExpressAudioLimit(null), false)
   assert.equal(exceedsVideoExpressAudioLimit(MAX_VIDEO_EXPRESS_ORDER_SECONDS), false)
   assert.equal(exceedsVideoExpressAudioLimit(MAX_VIDEO_EXPRESS_ORDER_SECONDS + 0.01), true)
+})
+
+test("Video Express selects a browser-supported audio container and names it correctly", () => {
+  assert.equal(
+    getSupportedVideoExpressRecordingMime((type) => type === "audio/ogg;codecs=opus"),
+    "audio/ogg;codecs=opus",
+  )
+  assert.equal(getVideoExpressAudioExtension("audio/ogg;codecs=opus"), "ogg")
+  assert.equal(getVideoExpressAudioExtension("audio/mp4"), "m4a")
+  assert.equal(getVideoExpressAudioExtension("audio/webm;codecs=opus"), "webm")
+})
+
+test("Video Express never trusts an invalid recorder MIME type", () => {
+  assert.equal(normalizeVideoExpressRecordingMime("text/plain"), "audio/webm")
+  assert.equal(normalizeVideoExpressRecordingMime(""), "audio/webm")
+  assert.equal(normalizeVideoExpressRecordingMime("audio/mp4"), "audio/mp4")
 })

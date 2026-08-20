@@ -47,3 +47,4 @@
 - [Voice overrides clean bug](voice-overrides-clean-bug.md) — debounce doSave must NOT filter cleanedOverrides by selectedIds; public look voice assignments are silently deleted otherwise.
 - [Video effects resolution](video-effects-resolution.md) — current settings are authoritative; normalize missing/partial values to false so old snapshots cannot revive effects.
 - [Object Storage worker URLs](object-storage-worker-urls.md) — caption workers must resolve private app-proxy media URLs to signed object URLs before downloading.
+- [Video Express audio compatibility](video-express-audio-compatibility.md) — normalize browser MIME and validate duration after FFmpeg WAV conversion, not raw container metadata.

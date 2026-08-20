@@ -390,7 +390,12 @@ async function probeAudioDuration(filePath: string): Promise<number | null> {
   }
 }
 
-/** Convert an uploaded audio buffer to 16 kHz mono WAV for transcription. */
+/**
+ * Convert an uploaded audio buffer to 16 kHz mono WAV for transcription.
+ * The duration is measured after normalization: some browser WebM/Opus
+ * recordings are decodable by FFmpeg but don't report container duration
+ * reliably until they have been remuxed as WAV.
+ */
 async function convertExpressAudioToWav(inputBuffer: Buffer, ext: string): Promise<{ wav: Buffer; durationSec: number | null }> {
   const tmpDir = os.tmpdir();
   const id = `express_${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -398,16 +403,19 @@ async function convertExpressAudioToWav(inputBuffer: Buffer, ext: string): Promi
   const outputPath = path.join(tmpDir, `${id}_out.wav`);
   try {
     await fs.promises.writeFile(inputPath, inputBuffer);
-    const durationSec = await probeAudioDuration(inputPath);
     // -t caps decoded output so a malformed/compressed bomb can't fill disk;
-    // the process timeout caps CPU. Duration validity is enforced by caller.
+    // the process timeout caps CPU. Duration validity is enforced after WAV
+    // normalization, not from potentially incomplete source metadata.
     await execFileAsync("ffmpeg", [
       "-y", "-i", inputPath,
       "-t", String(EXPRESS_MAX_SECONDS + 5),
       "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
       outputPath,
     ], { timeout: 60_000 });
-    return { wav: await fs.promises.readFile(outputPath), durationSec };
+    return {
+      wav: await fs.promises.readFile(outputPath),
+      durationSec: await probeAudioDuration(outputPath),
+    };
   } finally {
     // The command audio is transient by design: nothing is persisted anywhere.
     await fs.promises.unlink(inputPath).catch(() => {});

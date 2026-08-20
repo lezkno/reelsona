@@ -9,8 +9,11 @@ import { useVideoExpress, getGetContentPlanQueryKey } from "@workspace/api-clien
 import { Mic, Square, Upload, RotateCcw, Loader2, Zap, CheckCircle2 } from "lucide-react"
 import {
   exceedsVideoExpressAudioLimit,
+  getSupportedVideoExpressRecordingMime,
+  getVideoExpressAudioExtension,
   getVideoExpressElapsedSeconds,
   MAX_VIDEO_EXPRESS_ORDER_SECONDS,
+  normalizeVideoExpressRecordingMime,
 } from "@/lib/video-express-audio"
 
 /**
@@ -62,13 +65,18 @@ export function VideoExpressDialog({ open, onOpenChange }: { open: boolean; onOp
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const mr = new MediaRecorder(stream)
+      const preferredMimeType = getSupportedVideoExpressRecordingMime(MediaRecorder.isTypeSupported)
+      const mr = preferredMimeType
+        ? new MediaRecorder(stream, { mimeType: preferredMimeType })
+        : new MediaRecorder(stream)
       chunksRef.current = []
       mr.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data) }
       mr.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: mr.mimeType || "audio/webm" })
+        const mimeType = normalizeVideoExpressRecordingMime(mr.mimeType)
+        const blob = new Blob(chunksRef.current, { type: mimeType })
         setAudioBlob(blob)
         setAudioUrl(URL.createObjectURL(blob))
+        setFileName(`orden.${getVideoExpressAudioExtension(mimeType)}`)
         setRecording(false)
         cleanupStream()
       }
