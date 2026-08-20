@@ -796,12 +796,10 @@ export default function ContentPlan() {
           onAddDay={(date) => {
             setAddDay(date)
             setAddTopic("")
-            const times = (automation?.posting_times as string[] | undefined) ?? ["12:00"]
-            const occupiedTimes = (items ?? [])
-              .filter((i) => i.scheduled_at && isSameDay(new Date(i.scheduled_at), date))
-              .map((i) => format(new Date(i.scheduled_at!), "HH:mm"))
-            const available = times.find((t) => !occupiedTimes.includes(t)) ?? times[0] ?? "12:00"
-            setAddTime(available)
+            // A manually added calendar item starts at the current local time,
+            // rather than silently jumping to the first automation slot.
+            // The selected calendar day remains the date being scheduled.
+            setAddTime(format(new Date(), "HH:mm"))
           }}
           onDelete={handleDelete}
           onGenerateVideo={handleGenerateVideo}
