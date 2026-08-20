@@ -45,3 +45,4 @@
 - [Caption sync root causes](caption-sync-root-cause.md) — phrase-level SRT must NOT be split by char proportion; AAC batch re-encode accumulates delay; overlays must check !hasPlayable.
 - [B-roll credit billing](broll-credit-billing.md) — feature='broll' ledger rows, idempotent per-segment reserve ("already_paid" on engine fallback), sweep must skip active caption jobs.
 - [Voice overrides clean bug](voice-overrides-clean-bug.md) — debounce doSave must NOT filter cleanedOverrides by selectedIds; public look voice assignments are silently deleted otherwise.
+- [Video effects resolution](video-effects-resolution.md) — current settings are authoritative; normalize missing/partial values to false so old snapshots cannot revive effects.
