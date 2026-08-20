@@ -1,5 +1,5 @@
 import { Badge } from "@/components/ui/badge"
-import { Captions, ImageIcon, Type, ZoomIn } from "lucide-react"
+import { Captions, ImageIcon, ZoomIn } from "lucide-react"
 import type { VideoEffects } from "@workspace/api-client-react"
 
 export type CaptionToolStatus = string | null | undefined
@@ -23,7 +23,8 @@ export function normalizeVideoToolsEffects(value?: Partial<VideoEffects> | null)
   return {
     zoom: value?.zoom === true,
     ai_broll: value?.ai_broll === true,
-    text_cards: value?.text_cards === true,
+    // Text cards are not currently part of the product surface.
+    text_cards: false,
   }
 }
 
@@ -32,7 +33,7 @@ function applyVideoToolsOverride(base: VideoEffects, override?: Partial<VideoEff
   return {
     zoom: typeof override.zoom === "boolean" ? override.zoom : base.zoom,
     ai_broll: typeof override.ai_broll === "boolean" ? override.ai_broll : base.ai_broll,
-    text_cards: typeof override.text_cards === "boolean" ? override.text_cards : base.text_cards,
+    text_cards: false,
   }
 }
 
@@ -100,7 +101,6 @@ export function VideoToolsSummary({
     },
     { tool: { label: "Zoom", enabled: normalized.zoom }, icon: ZoomIn },
     { tool: { label: "B-roll IA", enabled: normalized.ai_broll }, icon: ImageIcon },
-    { tool: { label: "Tarjetas", enabled: normalized.text_cards }, icon: Type },
   ]
 
   return (

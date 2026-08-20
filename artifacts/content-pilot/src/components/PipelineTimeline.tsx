@@ -266,7 +266,7 @@ export default function PipelineTimeline() {
     (item as any).video_effects_override,
     (item as any).video_effects,
   )
-  const hasActiveEffect = effectiveEffects.zoom || effectiveEffects.ai_broll || effectiveEffects.text_cards
+  const hasActiveEffect = effectiveEffects.zoom || effectiveEffects.ai_broll
   const hasEffectsStudioWork = captionsEnabled || hasActiveEffect
 
   // Build the visible steps for this mode.

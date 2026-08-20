@@ -1067,7 +1067,7 @@ export default function ContentPlan() {
                                 {/* ── Viral Editorial Engine metadata ──────────── */}
                                 {(() => {
                                   const fx = (item as any).video_effects as Record<string, boolean> | null
-                                  const hasActiveEffect = fx && (fx.zoom || fx.ai_broll || fx.text_cards)
+                                  const hasActiveEffect = fx && (fx.zoom || fx.ai_broll)
                                   return (item.viral_score != null || item.editorial_angle || item.share_reason || hasActiveEffect)
                                 })() && (
                                   <div className="flex items-center gap-2 mt-1.5 flex-wrap">
