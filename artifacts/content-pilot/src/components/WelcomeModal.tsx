@@ -94,9 +94,7 @@ export function WelcomeModal() {
         <div className="bg-sidebar px-4 sm:px-6 pt-5 pb-5 text-sidebar-foreground text-center">
           <img src="/logo.png" alt="Reelsona" className="w-12 h-12 mx-auto mb-2 object-contain drop-shadow-lg" />
           <DialogHeader className="space-y-1 items-center text-center">
-            <DialogTitle className="text-xl sm:text-2xl font-display font-bold text-sidebar-foreground leading-tight text-center">
-              Tu máquina de contenido con IA está lista
-            </DialogTitle>
+            <DialogTitle className="text-2xl sm:text-3xl font-display font-bold text-sidebar-foreground leading-tight text-center">Tu Máquina de Contenido con IA está lista</DialogTitle>
             <DialogDescription className="text-sidebar-foreground/70 text-sm text-center">
               Mira el video y empieza el curso para publicar tu primer Reel hoy.
             </DialogDescription>
@@ -177,5 +175,5 @@ export function WelcomeModal() {
         </div>
       </DialogContent>
     </Dialog>
-  )
+  );
 }
