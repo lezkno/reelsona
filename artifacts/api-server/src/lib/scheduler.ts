@@ -62,6 +62,11 @@ import { getUserPlanSlug, getAvatarLimit, computePersonaPlanEnabled, PlanBlocked
 import { createReelContainer, checkContainerStatus, publishContainer, getPermalink, refreshInstagramToken } from "./instagram-api";
 import { getSignedCaptionedVideoUrl, objectStorageClient } from "./objectStorage";
 import { makeOpenAIClient } from "./openai-client";
+import {
+  captionsAreEnabled,
+  resolveVideoEffectsForCreation,
+  resolveVideoEffectsForProcessing,
+} from "./video-pipeline-effects";
 // brand-cover removed — AI cover generation is discontinued
 
 // ── Low-credit alert rate-limiter ─────────────────────────────────────────────
@@ -1313,9 +1318,9 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
       status: "generating",
       // null = caption pending (will be processed after HeyGen completes)
       // "disabled" = captions are off, skip the step entirely
-      captionStatus: automation.captionsEnabled ? null : "disabled",
+      captionStatus: captionsAreEnabled(automation.captionsEnabled) ? null : "disabled",
       // Carry the user's video effects config so the caption engine can apply zoom etc.
-      videoEffects: (settings.videoEffects as object | null) ?? null,
+      videoEffects: resolveVideoEffectsForCreation(settings.videoEffects, contentItem.videoEffectsOverride),
       // Start the timeout clock at submission, not at first poll
       generatingStartedAt: new Date(),
     });
@@ -1415,7 +1420,7 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
       avatar_id:       contentItem.avatarId!,
       voice_id:        contentItem.voiceId!,
       title:           contentItem.topic,
-      captionsEnabled: automation.captionsEnabled ?? false,
+      captionsEnabled: captionsAreEnabled(automation.captionsEnabled),
       voiceSpeed:      resolvedVoiceSpeed,
       voicePitch:      resolvedVoicePitch,
       language:        settings.language ?? "es",
@@ -1735,23 +1740,21 @@ export async function runCaptionProcessing(
         .from(settingsTable).where(eq(settingsTable.userId, userId)).limit(1)
     : [];
 
-  // Merge live account effects on top of the frozen video snapshot so users
-  // don't need to re-create videos after toggling effects in Settings.
-  // Live account settings win — per-item overrides were already baked into the
-  // frozen snapshot at creation time and will be overridden here (acceptable trade-off).
-  const frozenEffects = (videoRow?.videoEffects as { zoom?: boolean; ai_broll?: boolean; text_cards?: boolean } | null) ?? {};
-  const liveEffects   = (captionSettings?.videoEffects as { zoom?: boolean; ai_broll?: boolean; text_cards?: boolean } | null) ?? {};
-  // Live account settings win so toggling an effect in Studio de Efectos takes
-  // effect immediately without re-creating the video.
-  const videoEffects  = { ...frozenEffects, ...liveEffects };
+   // A present current settings row is authoritative. Do not merge it with an
+   // older snapshot: a partial/null value must mean "off", never "reuse true".
+   const videoEffects = resolveVideoEffectsForProcessing(
+     videoRow?.videoEffects,
+     captionSettings?.videoEffects,
+     Boolean(captionSettings),
+   );
 
   // On reapply paths (skipBroll=true) suppress B-roll generation: no persisted assets
   // exist to reuse, and silently spending AI credits on a reapply is not acceptable.
   if (skipBroll) videoEffects.ai_broll = false;
 
   logger.info(
-    { videoId, frozenEffects, liveEffects, videoEffects, contentPlanId },
-    "[CaptionEngine] Starting caption processing — merged effects"
+    { videoId, snapshotEffects: videoRow?.videoEffects, currentEffects: captionSettings?.videoEffects, videoEffects, contentPlanId },
+    "[CaptionEngine] Starting caption processing — resolved effects"
   );
   const [captionCfg] = userId
     ? await db.select().from(captionConfigTable).where(eq(captionConfigTable.userId, userId)).limit(1)
@@ -2418,7 +2421,7 @@ export async function pollAndPublishVideos(): Promise<void> {
       .from(automationConfigTable)
       .where(eq(automationConfigTable.userId, v.userId))
       .limit(1);
-    if (videoAutomation?.captionsEnabled) {
+    if (captionsAreEnabled(videoAutomation?.captionsEnabled)) {
       // Captions are still on — claim and run (or re-run) caption processing.
       // runCaptionProcessing performs the compare-and-set itself, so a renderer
       // that refreshed its heartbeat after this SELECT wins and this recovery
@@ -2799,7 +2802,7 @@ export async function pollAndPublishVideos(): Promise<void> {
 
             // Caption processing (WaveSpeed has no subtitle_url; engine will use the SRT above)
             if (video.captionStatus === null) {
-              if (videoAutomation?.captionsEnabled) {
+              if (captionsAreEnabled(videoAutomation?.captionsEnabled)) {
                 await runCaptionProcessing(video.id, persistent.videoUrl, video.contentPlanId ?? null, srtUrl ?? null, undefined);
               } else {
                 const captionsDisabled = await markCaptionsDisabledIfUnstarted(video.id);
@@ -2890,7 +2893,7 @@ export async function pollAndPublishVideos(): Promise<void> {
         // captions on/off in Caption Studio is respected immediately — even for
         // videos that were already in the pipeline when the setting changed.
         if (video.captionStatus === null) {
-          if (videoAutomation?.captionsEnabled) {
+          if (captionsAreEnabled(videoAutomation?.captionsEnabled)) {
             await runCaptionProcessing(
               video.id,
               status.video_url,

@@ -816,7 +816,7 @@ export async function applyCaptionsBrowser(
     // Total: ~3 s per event, typically 2-3 events per video.
     // Uses zoompan with t-based expressions so timing is driven by real PTS,
     // not a fragile frame counter.
-    if (opts?.videoEffects?.zoom && script) {
+    if (opts?.videoEffects?.zoom === true && script) {
       const punchTs   = await findPunchZoomTimestampsAI(script, wordTimings, videoInfo.duration, opts?.openaiApiKey);
       const punchArgs = buildPunchZoomArgs(punchTs, videoInfo.duration, videoInfo.width, videoInfo.height);
       if (punchArgs) {
@@ -840,7 +840,7 @@ export async function applyCaptionsBrowser(
     // selected moment and composites them over the video with a crossfade.
     // Runs AFTER zoom so the zoom effect applies to the avatar segments,
     // and BEFORE caption compositing so captions render on top of B-roll.
-    if (opts?.videoEffects?.ai_broll && script) {
+    if (opts?.videoEffects?.ai_broll === true && script) {
       logger.info("[BrowserEngine] Applying AI B-roll overlay...");
       captionSourcePath = await applyBRoll(
         captionSourcePath,
@@ -863,7 +863,7 @@ export async function applyCaptionsBrowser(
     // cardWindows holds each card's active time range — captions are suppressed
     // during those windows so cards and captions never appear simultaneously.
     let cardWindows: import("./text-cards-engine").CardWindow[] = [];
-    if (opts?.videoEffects?.text_cards && script) {
+    if (opts?.videoEffects?.text_cards === true && script) {
       logger.info("[BrowserEngine] Applying text cards overlay...");
       const { applyTextCards } = await import("./text-cards-engine");
       const cardsTmpDir = path.join(tmpDir, "textcards");

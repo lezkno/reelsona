@@ -16,6 +16,7 @@ import { db } from "@workspace/db";
 import { users, userEntitlements, videosTable, settingsTable, captionConfigTable, userCreditsTable, stripePriceConfigsTable } from "@workspace/db";
 import { subscriptionsTable, instagramAccountsTable, wavespeedPersonasTable } from "@workspace/db/schema";
 import { eq, sql } from "drizzle-orm";
+import { normalizeVideoEffects } from "../lib/video-pipeline-effects";
 import { adjustCredits, provisionSubscriptionCredits, VIDEO_CREDIT_COST, PLAN_CREDITS, FOUNDER_MAX_SEATS } from "../lib/credits";
 import { sendEmail, activationEmail, passwordResetEmail, getAppUrl } from "../lib/email";
 import { hashPassword } from "../lib/password";
@@ -397,11 +398,9 @@ router.post("/admin/reprocess-video", async (req: Request, res: Response): Promi
   if (!captionCfg) { res.status(400).json({ error: "No hay Caption Config para este usuario" }); return; }
 
   // Determine which effects to apply
-  const videoEffects = effects ?? {
-    zoom: true,
-    ai_broll: true,
-    text_cards: false,
-  };
+  // An admin retry must not silently turn on costly effects. If no explicit
+  // body was supplied, preserve the video's normalized snapshot instead.
+  const videoEffects = normalizeVideoEffects(effects ?? video.videoEffects);
 
   // A reprocess may never reset a healthy renderer's active lease. Without this
   // compare-and-set, the new run could start beside an already-running effects

@@ -19,6 +19,11 @@ import {
 import { generateVideo } from "../lib/heygen";
 import { reserveCredits, releaseVideoCredits, estimateDurationFromScript, computeReelCreditCost, hasEnoughCredits } from "../lib/credits";
 import { publishVideoToInstagram, pickNextAvatar, resolveVoiceId, runCaptionProcessing, runAutomationCycle, insertVideoClaimingUserSlot, resetCaptionProcessingForReapply } from "../lib/scheduler";
+import {
+  captionsAreEnabled,
+  normalizeVideoEffects,
+  resolveVideoEffectsForCreation,
+} from "../lib/video-pipeline-effects";
 // brand-cover import removed — AI cover generation is discontinued
 import { logger } from "../lib/logger";
 
@@ -287,21 +292,16 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
     }
   }
 
-  // Manual videos request captions whenever Caption Studio is configured,
-  // regardless of the automation captionsEnabled toggle (which only controls
-  // the automatic pipeline). null = captions requested; "disabled" = skip.
-  const [captionCfg] = await db.select().from(captionConfigTable)
-    .where(eq(captionConfigTable.userId, userId)).limit(1);
   const [automationCfg] = await db.select().from(automationConfigTable)
     .where(eq(automationConfigTable.userId, userId)).limit(1);
+  const captionsEnabled = captionsAreEnabled(automationCfg?.captionsEnabled);
 
-  // Resolve effective video effects: item override (if set) merged over account default
-  const DEFAULT_EFFECTS = { zoom: false, ai_broll: false, text_cards: false };
-  const accountEffects = (userSettings?.videoEffects as typeof DEFAULT_EFFECTS | null) ?? DEFAULT_EFFECTS;
-  const itemOverride = (item as any).videoEffectsOverride as Partial<typeof DEFAULT_EFFECTS> | null;
-  const effectsSnapshot = itemOverride
-    ? { ...accountEffects, ...itemOverride }
-    : accountEffects;
+  // Save a complete, explicit snapshot. A missing or malformed value can never
+  // make a renderer treat an old truthy setting as enabled.
+  const effectsSnapshot = resolveVideoEffectsForCreation(
+    userSettings?.videoEffects,
+    item.videoEffectsOverride,
+  );
 
   // Create video row — set captionStatus upfront so the pipeline UI knows
   // whether Caption Studio will run even before HeyGen finishes
@@ -311,7 +311,7 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
     topic: item.topic,
     avatarId: item.avatarId,
     status: "generating",
-    captionStatus: captionCfg ? null : "disabled",
+    captionStatus: captionsEnabled ? null : "disabled",
     videoEffects: effectsSnapshot,
     // Start the timeout clock at submission, not at first poll
     generatingStartedAt: new Date(),
@@ -363,7 +363,7 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
     avatar_id:       item.avatarId!,
     voice_id:        item.voiceId!,
     title:           item.topic,
-    captionsEnabled: automationCfg?.captionsEnabled ?? false,
+    captionsEnabled,
     voiceSpeed:      manualVoiceSpeed,
     voicePitch:      manualVoicePitch,
     language:        userSettings?.language ?? "es",
@@ -560,7 +560,7 @@ router.post("/videos/:id/reapply-captions", async (req, res): Promise<void> => {
     .from(settingsTable)
     .where(eq(settingsTable.userId, userId))
     .limit(1);
-  const currentVideoEffects = (userSettings?.videoEffects as object | null) ?? null;
+  const currentVideoEffects = normalizeVideoEffects(userSettings?.videoEffects);
 
   // Reset only if no other entry point holds a live caption-processing lease.
   const requeued = await resetCaptionProcessingForReapply(id, currentVideoEffects);
