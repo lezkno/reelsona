@@ -51,6 +51,8 @@ import { applyCaptions, CAPTION_DIR, type CaptionStyle, CAPTION_PRESETS } from "
 import { computeUpcomingSlots } from "./schedule";
 import { applyCaptionsBrowser } from "./browser-caption-engine";
 import { applyCaptionsFastV2, isRenderFastV2Enabled, isRenderFastV2Failure } from "./render-fast-v2";
+import { getBrowserTemplateStyleOverrides } from "./caption-style-adapter";
+import { BROWSER_CAPTION_TEMPLATES, type CaptionTemplate } from "@workspace/caption-templates";
 import { eq, and, lte, gte, lt, inArray, isNull, isNotNull, or, desc, like, sql } from "drizzle-orm";
 import { logger } from "./logger";
 import { generateScript, regenerateCaption, generateContentTopics } from "./ai-scripts";
@@ -1881,10 +1883,32 @@ export async function runCaptionProcessing(
     }
   }
 
+  // Browser template overrides are keyed by template id. Resolve them before
+  // selecting a renderer so Render Fast V2 can use the exact same 1920px
+  // typography when it replaces the browser renderer for WaveSpeed videos.
+  let parsedTemplateOverrides: Partial<CaptionTemplate> | undefined;
+  if (captionCfg.captionEngine === "browser_experimental" && effectiveTemplateId && captionCfg.templateOverrides) {
+    try {
+      const parsed: unknown = JSON.parse(captionCfg.templateOverrides);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        const raw = parsed as Record<string, unknown>;
+        const isPerTemplateMap = Object.keys(raw).some((key) =>
+          BROWSER_CAPTION_TEMPLATES.some((template) => template.id === key),
+        );
+        const selected = isPerTemplateMap ? raw[effectiveTemplateId] : raw;
+        if (selected && typeof selected === "object" && !Array.isArray(selected)) {
+          parsedTemplateOverrides = selected as Partial<CaptionTemplate>;
+        }
+      }
+    } catch {
+      // A malformed saved override must not block rendering; use the base template.
+    }
+  }
+
   // Render Fast V2 uses the persistent Caption Studio fields so it retains the
   // same font, colours, outline and placement as the legacy ASS renderer. It
   // deliberately ignores Text Cards: that legacy feature is outside V2.
-  const style: CaptionStyle = rotatedPreset ? {
+  let style: CaptionStyle = rotatedPreset ? {
     presetId:        rotatedPreset.id,
     position:        captionCfg.position as CaptionStyle["position"],
     wordsPerLine:    rotatedPreset.wordsPerLine ?? captionCfg.wordsPerLine,
@@ -1921,6 +1945,15 @@ export async function runCaptionProcessing(
     autoMovement: captionCfg.autoMovement,
     subtleRotation: captionCfg.subtleRotation,
   };
+
+  const browserTemplateStyle = captionCfg.captionEngine === "browser_experimental"
+    ? getBrowserTemplateStyleOverrides(effectiveTemplateId, parsedTemplateOverrides)
+    : null;
+  if (browserTemplateStyle) {
+    // Position remains user-controlled through Caption Studio. Every visual
+    // property below shares the same 1920px reference frame as ASS in Fast V2.
+    style = { ...style, ...browserTemplateStyle };
+  }
 
   // V2 is intentionally scoped to WaveSpeed talking-head outputs. HeyGen
   // retains its established renderer while this controlled rollout is measured.
@@ -1986,30 +2019,6 @@ export async function runCaptionProcessing(
       "[Scheduler] Using Browser Caption Engine (experimental)",
     );
 
-    // Parse stored template overrides JSON (set via Caption Studio advanced settings).
-    // Current format is a map keyed by template id; older installs stored one
-    // flat override object, which remains supported for backwards compatibility.
-    let parsedTemplateOverrides: Partial<import("@workspace/caption-templates").CaptionTemplate> | undefined;
-    if (captionCfg.templateOverrides) {
-      try {
-        const parsed: unknown = JSON.parse(captionCfg.templateOverrides);
-        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-          const raw = parsed as Record<string, unknown>;
-          const { BROWSER_CAPTION_TEMPLATES } = await import("@workspace/caption-templates");
-          const isPerTemplateMap = Object.keys(raw).some((key) =>
-            BROWSER_CAPTION_TEMPLATES.some((template) => template.id === key),
-          );
-          if (isPerTemplateMap) {
-            const selected = raw[effectiveTemplateId];
-            parsedTemplateOverrides = selected && typeof selected === "object" && !Array.isArray(selected)
-              ? selected as Partial<import("@workspace/caption-templates").CaptionTemplate>
-              : undefined;
-          } else {
-            parsedTemplateOverrides = raw as Partial<import("@workspace/caption-templates").CaptionTemplate>;
-          }
-        }
-      } catch { /* ignore malformed JSON */ }
-    }
     const browserResult = await applyCaptionsBrowser(videoUrl, script, effectiveTemplateId, {
       subtitleUrl:          resolvedSubtitleUrl ?? undefined,
       videoDurationSeconds: durationSeconds ?? undefined,
