@@ -169,6 +169,32 @@ function fmtRemaining(sec: number): string {
   return `~${Math.ceil(sec / 60)} min`
 }
 
+function isPipelineInProgress(item: ContentPlanItem): boolean {
+  if (item.status === "scripting" || item.status === "generating") return true
+  if (item.status !== "ready") return false
+
+  return (
+    item.video_status === "publishing" ||
+    item.caption_status === null ||
+    item.caption_status === "processing" ||
+    item.copy_status === null ||
+    item.copy_status === "generating"
+  )
+}
+
+function formatElapsed(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000))
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  const paddedMinutes = String(minutes).padStart(2, "0")
+  const paddedSeconds = String(seconds).padStart(2, "0")
+
+  return hours > 0
+    ? `${hours}h ${paddedMinutes}m ${paddedSeconds}s`
+    : `${paddedMinutes}m ${paddedSeconds}s`
+}
+
 // ── Review Modal (uses shared VideoModal) ────────────────────────────────────
 function ReviewModal({
   open, onClose, item,
@@ -248,14 +274,63 @@ export default function PipelineTimeline() {
   const [reviewOpen, setReviewOpen] = useState(false)
   const reduceMotion = useReducedMotion()
 
-  // Tick every 5 s for elapsed-time bars
+  // Tick every second for the full-pipeline timer and elapsed-time bars.
   const [nowMs, setNowMs] = useState(() => Date.now())
   useEffect(() => {
-    const id = setInterval(() => setNowMs(Date.now()), 5_000)
+    const id = setInterval(() => setNowMs(Date.now()), 1_000)
     return () => clearInterval(id)
   }, [])
 
   const active = items ? pickActiveItem(items) : null
+  const activeItem = active?.item
+  const pipelineTimerKey = activeItem ? `contentpilot:pipeline-start:${activeItem.id}` : null
+  const [pipelineStartedAt, setPipelineStartedAt] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (!activeItem || !pipelineTimerKey) {
+      setPipelineStartedAt(null)
+      return
+    }
+
+    let storedStart: string | null = null
+    try {
+      storedStart = window.localStorage.getItem(pipelineTimerKey)
+    } catch {
+      // The timer still works for the current page if storage is unavailable.
+    }
+
+    const parsedStart = storedStart ? Number(storedStart) : NaN
+    if (Number.isFinite(parsedStart)) {
+      setPipelineStartedAt(parsedStart)
+      return
+    }
+
+    if (!isPipelineInProgress(activeItem)) {
+      setPipelineStartedAt(null)
+      return
+    }
+
+    const fallbackStart = new Date(activeItem.updated_at).getTime()
+    if (!Number.isFinite(fallbackStart)) {
+      setPipelineStartedAt(null)
+      return
+    }
+
+    try {
+      window.localStorage.setItem(pipelineTimerKey, String(fallbackStart))
+    } catch {
+      // Ignore storage failures; the in-memory timer remains usable.
+    }
+    setPipelineStartedAt(fallbackStart)
+  }, [
+    activeItem?.id,
+    activeItem?.status,
+    activeItem?.caption_status,
+    activeItem?.copy_status,
+    activeItem?.video_status,
+    pipelineTimerKey,
+  ])
+
   if (!active) return null
 
   const { item, mode } = active
@@ -296,6 +371,9 @@ export default function PipelineTimeline() {
 
   const isActivelyProcessing = mode === "generating" || mode === "captioning" || mode === "copy_generating" || mode === "publishing"
   const isAwaitingReview     = mode === "awaiting_publish" && isManual
+  const elapsedMs = pipelineStartedAt !== null
+    ? Math.max(0, nowMs - pipelineStartedAt)
+    : null
 
   const gridClass =
     visibleSteps.length <= 3 ? "grid-cols-2 sm:grid-cols-3" :
@@ -335,6 +413,16 @@ export default function PipelineTimeline() {
                   <Clock className="h-3.5 w-3.5" />
                   {mode === "next" ? "Comienza el " : ""}
                   {format(new Date(item.scheduled_at), "EEE d MMM, HH:mm", { locale: es })}
+                </span>
+              )}
+              {elapsedMs !== null && (
+                <span
+                  className="flex items-center gap-1.5 rounded-lg border border-[#e4e7ed] bg-white/75 px-2.5 py-1.5 text-[11px] text-[#697387]"
+                  title="Tiempo transcurrido desde el inicio del proceso completo"
+                >
+                  <Clock className="h-3.5 w-3.5 text-[#c8494d]" />
+                  <span className="hidden sm:inline">Tiempo total</span>
+                  <strong className="font-mono text-[#172031]">{formatElapsed(elapsedMs)}</strong>
                 </span>
               )}
               <span className={`font-display text-2xl font-bold ${item.status === "failed" ? "text-destructive" : "text-[#c8494d]"}`}>
