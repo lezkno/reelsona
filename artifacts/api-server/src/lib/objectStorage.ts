@@ -270,6 +270,44 @@ export async function getSignedCaptionedVideoUrl(
   return signObjectURL({ bucketName, objectName, method: "GET", ttlSec });
 }
 
+/**
+ * Object Storage media is deliberately exposed to browsers through the
+ * authenticated `/api/captioned-objects/` proxy. Background render workers do
+ * not have a browser session, so they must turn that internal proxy URL into a
+ * short-lived signed URL before downloading the source video or subtitle.
+ *
+ * URLs that do not point at this app proxy are returned unchanged (HeyGen CDN,
+ * WaveSpeed CDN, and already-signed object URLs).
+ */
+export function getCaptionedObjectNameFromUrl(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    const prefix = "/api/captioned-objects/";
+    const index = parsed.pathname.indexOf(prefix);
+    if (index < 0) return null;
+
+    const objectName = decodeURIComponent(parsed.pathname.slice(index + prefix.length));
+    if (
+      !objectName ||
+      objectName.includes("..") ||
+      !["captioned-videos/", "raw-videos/", "thumbnails/", "subtitles/"].some((prefix) =>
+        objectName.startsWith(prefix),
+      ) ||
+      objectName.split("/").some((part) => part.length === 0)
+    ) {
+      return null;
+    }
+    return objectName;
+  } catch {
+    return null;
+  }
+}
+
+export async function getServerReadableMediaUrl(url: string): Promise<string> {
+  const objectName = getCaptionedObjectNameFromUrl(url);
+  return objectName ? getSignedObjectUrl(objectName, 2 * 3600) : url;
+}
+
 async function signObjectURL({
   bucketName,
   objectName,

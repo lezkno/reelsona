@@ -22,7 +22,7 @@ import { fileURLToPath } from "url";
 import axios from "axios";
 import { makeOpenAIClient } from "./openai-client";
 import { logger } from "./logger";
-import { objectStorageClient } from "./objectStorage";
+import { getServerReadableMediaUrl, objectStorageClient } from "./objectStorage";
 import { getCanonicalOrigin } from "./appOrigin";
 
 const execFileAsync = promisify(execFile);
@@ -84,7 +84,10 @@ async function ensureDir(dir: string) {
 }
 
 async function downloadFile(url: string, dest: string): Promise<void> {
-  const response = await axios.get(url, { responseType: "stream", timeout: 120_000 });
+  const response = await axios.get(
+    await getServerReadableMediaUrl(url),
+    { responseType: "stream", timeout: 120_000 },
+  );
   return new Promise((resolve, reject) => {
     const writer = createWriteStream(dest);
     response.data.pipe(writer);
@@ -971,7 +974,10 @@ export async function applyCaptions(
     if (subtitleUrl) {
       try {
         logger.info("[CaptionEngine] Fetching SRT from HeyGen...");
-        const srtRes = await axios.get<string>(subtitleUrl, { responseType: "text", timeout: 30_000 });
+        const srtRes = await axios.get<string>(
+          await getServerReadableMediaUrl(subtitleUrl),
+          { responseType: "text", timeout: 30_000 },
+        );
         srtContent = srtRes.data;
         logger.info({ blocks: srtContent.trim().split(/\n\s*\n/).length }, "[CaptionEngine] SRT downloaded");
       } catch (e) {

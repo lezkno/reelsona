@@ -23,7 +23,7 @@ import { promisify } from "util";
 import { fileURLToPath } from "url";
 import axios from "axios";
 import { logger } from "./logger";
-import { objectStorageClient } from "./objectStorage";
+import { getServerReadableMediaUrl, objectStorageClient } from "./objectStorage";
 import { getCanonicalOrigin } from "./appOrigin";
 import type { CaptionResult } from "./caption-engine";
 import { CAPTION_DIR, buildPunchZoomArgs, findPunchZoomTimestampsAI } from "./caption-engine";
@@ -726,7 +726,7 @@ export async function applyCaptionsBrowser(
   try {
     // ── 3. Download video ─────────────────────────────────────────────────
     const videoPath = path.join(tmpDir, "input.mp4");
-    const videoResp = await axios.get(videoUrl, {
+    const videoResp = await axios.get(await getServerReadableMediaUrl(videoUrl), {
       responseType: "arraybuffer",
       timeout:      120_000,
     });
@@ -746,7 +746,10 @@ export async function applyCaptionsBrowser(
 
     if (opts?.subtitleUrl) {
       try {
-        const srtResp  = await axios.get<string>(opts.subtitleUrl, { timeout: 15_000 });
+        const srtResp  = await axios.get<string>(
+          await getServerReadableMediaUrl(opts.subtitleUrl),
+          { timeout: 15_000 },
+        );
         wordTimings    = parseSRT(srtResp.data);
         logger.info({ count: wordTimings.length }, "[BrowserEngine] SRT timings parsed");
       } catch (srtErr) {
