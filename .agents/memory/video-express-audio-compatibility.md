@@ -7,4 +7,4 @@ For Video Express, select a browser-supported audio MIME type, normalize invalid
 
 **Why:** Browser WebM/Opus recordings can play and decode successfully while missing duration metadata that FFprobe can read directly. Embedded Chromium can also report an invalid recorder MIME type.
 
-**How to apply:** Keep the 2–120 second guard on the normalized WAV duration and use the shared client helpers whenever adding another browser-recorded Video Express input.
+**How to apply:** Keep the 2–180 second guard on the normalized WAV duration and use the shared client helpers whenever adding another browser-recorded Video Express input. Three minutes is the chosen product limit: enough room for context while keeping instructions focused and reliable to transcribe.
