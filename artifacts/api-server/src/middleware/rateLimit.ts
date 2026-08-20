@@ -70,8 +70,11 @@ export const apiRateLimit: RequestHandler = (req, res, next) => {
     return;
   }
 
+  // Session checks are safely repeatable and are requested by multiple
+  // authenticated UI surfaces. Keep credential-changing auth endpoints
+  // protected, but do not let `/auth/me` exhaust the login rate-limit bucket.
   const isSensitive =
-    path.startsWith("/auth/") ||
+    (path.startsWith("/auth/") && path !== "/auth/me") ||
     path.startsWith("/checkout/") ||
     path === "/instagram/callback" ||
     path === "/instagram/auth-url";
