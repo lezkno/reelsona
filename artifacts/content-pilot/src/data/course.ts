@@ -42,16 +42,6 @@ export const COURSE_MODULES: Module[] = [
         actionLabel: "Configurar mi negocio",
         actionHref: "/settings",
       },
-      {
-        id: "m1-l3",
-        title: "Entiende tus créditos y controla tu consumo",
-        description:
-          "Aprende cómo funcionan los créditos de Reelsona, cómo influye la duración del Reel en el consumo, qué incluye la producción y cómo administrar tu saldo para producir contenido durante todo el mes sin regeneraciones innecesarias.",
-        duration: "5 min",
-        videoUrl: null,
-        actionLabel: "Ver mi configuración",
-        actionHref: "/settings",
-      },
     ],
   },
   {
