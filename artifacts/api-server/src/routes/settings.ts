@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { settingsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import {
   GetSettingsResponse,
   UpdateSettingsBody,
@@ -11,7 +11,6 @@ import {
 } from "@workspace/api-zod";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
-import { getObjectAclPolicy, setObjectAclPolicy } from "../lib/objectAcl";
 
 const router = Router();
 const storageService = new ObjectStorageService();
@@ -155,21 +154,22 @@ router.post("/settings/brand-logo", async (req, res): Promise<void> => {
   const userId = req.session.user!.userId;
 
   try {
-    const gcsFile = await storageService.getObjectEntityFile(object_path);
-
-    // Enforce the same claim-on-first-use ownership policy used by Avatar AI uploads.
-    // A valid object path alone is not authorization to read another tenant's file.
-    const existingPolicy = await getObjectAclPolicy(gcsFile);
-    if (!existingPolicy) {
-      await setObjectAclPolicy(gcsFile, {
-        owner: String(userId),
-        visibility: "private",
-      });
-    } else if (existingPolicy.owner !== String(userId)) {
+    // Upload ownership is registered when the signed PUT URL is issued. Verify
+    // that immutable registry here; never infer ownership from possession of a path.
+    const ownershipResult = await db.execute(sql`
+      SELECT 1
+      FROM private_object_ownership
+      WHERE object_path = ${object_path}
+        AND user_id = ${userId}
+      LIMIT 1
+    `);
+    const ownershipRows = (ownershipResult as unknown as { rows?: unknown[] }).rows;
+    if (!ownershipRows || ownershipRows.length === 0) {
       res.status(403).json({ error: "No tienes permiso para usar este archivo" });
       return;
     }
 
+    const gcsFile = await storageService.getObjectEntityFile(object_path);
     const [buffer] = await gcsFile.download();
     const palette = await extractDominantColors(buffer as Buffer);
 
