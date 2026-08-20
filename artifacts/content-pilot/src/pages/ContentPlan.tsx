@@ -243,7 +243,7 @@ export default function ContentPlan() {
     scriptGenerationItemIdRef.current = null
     // Init per-video effects from item override or account default
     const itemOverride = (item as any).video_effects_override as VideoEffects | null
-    setLocalEffects(itemOverride ?? settings?.video_effects ?? DEFAULT_VIDEO_EFFECTS)
+    setLocalEffects({ ...(itemOverride ?? settings?.video_effects ?? DEFAULT_VIDEO_EFFECTS), text_cards: false })
 
     if (item.hook || item.script || item.cta) {
       setScriptDraft({ hook: item.hook ?? "", script: item.script ?? "", cta: item.cta ?? "" })

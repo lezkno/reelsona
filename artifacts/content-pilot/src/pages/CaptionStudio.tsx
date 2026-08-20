@@ -1517,61 +1517,11 @@ export default function CaptionStudio() {
   const overridesRef = useRef<Record<string, Partial<CaptionTemplate>>>({})
   const overrideSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // ── Multi-card config state (for text_cards effect) ─────────────────────
-  const [localCards, setLocalCards] = useState<MultiCardConfig>(DEFAULT_MULTI_CARDS)
-  const [savedCards, setSavedCards] = useState<MultiCardConfig | null>(null)
-  const [savingCards, setSavingCards] = useState(false)
-  // Derived: first enabled LOCAL card for the phone preview (live, reflects edits before saving)
-  const previewCard: { type: "hook"|"stat"|"cta"; useAi: boolean; text?: string; headline?: string; subtext?: string; templateId?: string } | null =
-    localCards.hook.enabled
-      ? { type: "hook", useAi: localCards.hook.useAi, text: localCards.hook.text, templateId: localCards.hook.templateId }
-    : localCards.stat.enabled
-      ? { type: "stat", useAi: localCards.stat.useAi, headline: localCards.stat.headline, subtext: localCards.stat.subtext, templateId: localCards.stat.templateId }
-    : localCards.cta.enabled
-      ? { type: "cta",  useAi: localCards.cta.useAi,  text: localCards.cta.text, templateId: localCards.cta.templateId }
-    : null
-  // activeCardCount reflects what's actually saved (for the badge in the effects toggle)
-  const activeCardCount = savedCards
-    ? [savedCards.hook, savedCards.stat, savedCards.cta].filter(s => s.enabled).length
-    : 0
-
   useEffect(() => {
     fetch("/api/captions/browser/status")
       .then((r) => r.json())
       .then((d: { available: boolean }) => setBrowserEngineAvailable(d.available))
       .catch(() => setBrowserEngineAvailable(false))
-  }, [])
-
-  // Load saved multi-card config from API
-  useEffect(() => {
-    fetch("/api/cards/template")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: { card_template: Record<string, unknown> | null } | null) => {
-        if (!d?.card_template) return
-        const ct = d.card_template
-        if (ct.version === 2) {
-          // New multi-card format
-          const mc = ct as unknown as MultiCardConfig
-          setLocalCards(mc)
-          setSavedCards(mc)
-        } else {
-          // Legacy single-card format — migrate into the matching slot
-          const legacy = ct as { type: "hook"|"stat"|"cta"; useAi: boolean; text?: string; headline?: string; subtext?: string }
-          const mc: MultiCardConfig = {
-            ...DEFAULT_MULTI_CARDS,
-            [legacy.type]: {
-              enabled: true,
-              useAi: legacy.useAi,
-              text: legacy.text ?? "",
-              headline: legacy.headline ?? "",
-              subtext: legacy.subtext ?? "",
-            },
-          }
-          setLocalCards(mc)
-          setSavedCards(mc)
-        }
-      })
-      .catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -1615,12 +1565,14 @@ export default function CaptionStudio() {
   }, [automation])
 
   useEffect(() => {
-    if (settings?.video_effects) setVideoEffects(settings.video_effects)
+    if (settings?.video_effects) {
+      setVideoEffects({ ...settings.video_effects, text_cards: false })
+    }
   }, [settings])
 
   const handleToggleEffect = (key: keyof VideoEffects, value: boolean) => {
     if (planLocked) { setPremiumOpen(true); return }
-    const next = { ...videoEffects, [key]: value }
+    const next = { ...videoEffects, text_cards: false, [key]: value }
     setVideoEffects(next)
     updateSettings.mutate({ data: { video_effects: next } }, {
       onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetSettingsQueryKey() }),
@@ -1629,31 +1581,6 @@ export default function CaptionStudio() {
         toast({ title: "Error", description: "No se pudo guardar los efectos.", variant: "destructive" })
       },
     })
-  }
-
-  const saveCardConfig = async () => {
-    if (planLocked) { setPremiumOpen(true); return }
-    setSavingCards(true)
-    try {
-      const r = await fetch("/api/cards/template", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ card_template: localCards }),
-      })
-      if (!r.ok) throw new Error("save failed")
-      setSavedCards(localCards)
-      const n = [localCards.hook, localCards.stat, localCards.cta].filter(s => s.enabled).length
-      toast({
-        title: "Configuración guardada ✓",
-        description: n > 0
-          ? `${n} card${n > 1 ? "s" : ""} activa${n > 1 ? "s" : ""} en el próximo video.`
-          : "Se desactivaron todas las cards.",
-      })
-    } catch {
-      toast({ title: "Error", description: "No se pudo guardar la configuración.", variant: "destructive" })
-    } finally {
-      setSavingCards(false)
-    }
   }
 
   const set = <K extends keyof CaptionConfig>(key: K, value: CaptionConfig[K]) => {
@@ -2302,7 +2229,6 @@ export default function CaptionStudio() {
               />
             </div>
             {/* Auto cover — hidden until cover generation is production-ready */}
-            {/* Text Cards — hidden until feature is production-ready */}
           </div>
         </CardContent>
       </Card>
@@ -2340,7 +2266,6 @@ export default function CaptionStudio() {
             <span className="text-violet-500 font-medium">WYSIWYG</span> — lo que ves se renderiza.
           </p>
 
-          {/* Card overlay preview — hidden until feature is production-ready */}
         </div>
 
       </div>{/* end 5-col grid */}

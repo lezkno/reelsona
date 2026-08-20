@@ -17,7 +17,7 @@ export const DEFAULT_VIDEO_EFFECTS: Readonly<VideoEffects> = Object.freeze({
 
 export type VideoEffectsOverride = Partial<VideoEffects>;
 
-const EFFECT_KEYS = ["zoom", "ai_broll", "text_cards"] as const;
+const EFFECT_KEYS = ["zoom", "ai_broll"] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -33,7 +33,9 @@ export function normalizeVideoEffects(value: unknown): VideoEffects {
   return {
     zoom: source.zoom === true,
     ai_broll: source.ai_broll === true,
-    text_cards: source.text_cards === true,
+    // Text cards are not currently offered, so historical settings cannot
+    // activate that rendering stage for a new or reprocessed video.
+    text_cards: false,
   };
 }
 

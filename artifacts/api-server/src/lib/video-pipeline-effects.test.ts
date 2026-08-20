@@ -32,8 +32,8 @@ test("a partial item override changes only its explicit switch", () => {
   );
 });
 
-test("each supported effect can be selected independently", () => {
-  for (const key of ["zoom", "ai_broll", "text_cards"] as const) {
+test("each available effect can be selected independently", () => {
+  for (const key of ["zoom", "ai_broll"] as const) {
     assert.deepEqual(
       resolveVideoEffectsForCreation(none, { [key]: true }),
       { ...none, [key]: true },
@@ -64,13 +64,13 @@ test("a partial or null current configuration cannot revive old effects", () => 
   );
 });
 
-test("legacy videos use their normalized snapshot only when settings are absent", () => {
+test("legacy card settings remain disabled when settings are absent", () => {
   assert.deepEqual(
     resolveVideoEffectsForProcessing(
       { zoom: true, ai_broll: false, text_cards: true },
       undefined,
       false,
     ),
-    { zoom: true, ai_broll: false, text_cards: true },
+    { zoom: true, ai_broll: false, text_cards: false },
   );
 });
