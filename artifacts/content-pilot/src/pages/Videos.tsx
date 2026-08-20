@@ -511,10 +511,9 @@ export default function Videos() {
             const hasPlayable = !!(video.captioned_video_url || video.video_url)
             const captionStatus = (video as any).caption_status as string | null
             // 'generating' excluded — GeneratingCardOverlay handles clicks for that state
-            const isProcessing = !hasPlayable && (
-              video.status === 'publishing' ||
-              (video.status === 'ready' && (captionStatus === null || captionStatus === 'processing'))
-            )
+            const captionsProcessing =
+              video.status === 'ready' && (captionStatus === null || captionStatus === 'processing')
+            const isProcessing = video.status === 'publishing' || captionsProcessing
 
             {/* Look up the avatar preview image for use as blurred background */}
             const avatarBgUrl =
@@ -536,7 +535,7 @@ export default function Videos() {
                   />
                 )}
                 {/* Full-card applying-effects overlay — same design as generating */}
-                {!hasPlayable && video.status === 'ready' && (captionStatus === null || captionStatus === 'processing') && !selectMode && (
+                {captionsProcessing && !selectMode && (
                   <GeneratingCardOverlay
                     createdAt={(video as any).created_at ?? (video as any).updated_at}
                     avatarBgUrl={avatarBgUrl}
@@ -585,7 +584,7 @@ export default function Videos() {
                   )}
 
                   {/* Play overlay (only in normal mode, video ready) */}
-                  {!selectMode && hasPlayable && (
+                   {!selectMode && hasPlayable && !isProcessing && (
                     <button
                       onClick={() => setPreviewVideo(video)}
                       className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/40 transition-colors"
@@ -617,10 +616,10 @@ export default function Videos() {
                   {/* Main status badge */}
                   <div className="absolute top-3 left-3">
                     {video.status === 'generating' && <Badge variant="warning" className="shadow-lg"><Clock className="w-3 h-3 mr-1"/> Generando</Badge>}
-                    {!hasPlayable && video.status === 'ready' && (captionStatus === null || captionStatus === 'processing') && (
+                    {captionsProcessing && (
                       <Badge variant="warning" className="shadow-lg"><Clock className="w-3 h-3 mr-1"/> Aplicando captions…</Badge>
                     )}
-                    {video.status === 'ready' && (captionStatus === 'done' || captionStatus === 'failed' || captionStatus === 'disabled' || (hasPlayable && (captionStatus === null || captionStatus === 'processing'))) && (
+                    {video.status === 'ready' && (captionStatus === 'done' || captionStatus === 'failed' || captionStatus === 'disabled') && (
                       <Badge variant="success" className="shadow-lg"><CheckCircle2 className="w-3 h-3 mr-1"/> Listo</Badge>
                     )}
                     {video.status === 'publishing' && (

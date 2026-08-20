@@ -60,8 +60,18 @@ function ItemPill({ item, lookById, onDelete, onGenerateVideo, onProcessNow, onP
   const [expanded, setExpanded] = useState(false)
   const look = item.avatar_id ? lookById.get(item.avatar_id) : null
   const canChange = item.status === "draft" || item.status === "scripted"
-  const Icon = STATUS_ICON[item.status] ?? Edit3
-  const dot = STATUS_COLOR[item.status] ?? "bg-muted-foreground/40"
+  const captionsProcessing = item.status === "ready" &&
+    (item.caption_status === null || item.caption_status === "processing")
+  const copyProcessing = item.status === "ready" && item.copy_status === "generating"
+  const Icon = captionsProcessing || copyProcessing ? Loader2 : (STATUS_ICON[item.status] ?? Edit3)
+  const dot = captionsProcessing || copyProcessing
+    ? "bg-amber-500"
+    : (STATUS_COLOR[item.status] ?? "bg-muted-foreground/40")
+  const statusLabel = captionsProcessing
+    ? "Aplicando captions y efectos…"
+    : copyProcessing
+      ? "Preparando descripción…"
+      : (STATUS_LABEL[item.status] ?? "En proceso")
 
   if (compact) {
     return (
@@ -95,7 +105,7 @@ function ItemPill({ item, lookById, onDelete, onGenerateVideo, onProcessNow, onP
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 mb-0.5">
             <span className={`w-2 h-2 rounded-full shrink-0 ${dot}`} />
-            <span className="text-[11px] text-muted-foreground">{STATUS_LABEL[item.status]}</span>
+            <span className="text-[11px] text-muted-foreground">{statusLabel}</span>
             {item.scheduled_at && (
               <span className="text-[11px] text-muted-foreground ml-auto">
                 {format(new Date(item.scheduled_at), "HH:mm")}

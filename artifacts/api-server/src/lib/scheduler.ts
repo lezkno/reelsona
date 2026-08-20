@@ -2379,6 +2379,47 @@ async function persistVideoAssetsToStorage(
 }
 
 /**
+ * WaveSpeed returns no provider thumbnail. Create a durable poster as soon as
+ * its raw MP4 is saved, so the library never shows an empty card while captions
+ * and effects are still rendering.
+ */
+async function createRawVideoThumbnail(videoId: number, videoUrl: string): Promise<string | null> {
+  const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
+  if (!bucketId) return null;
+
+  const tmpDir = `/tmp/reel-thumbnail-${videoId}-${randomUUID()}`;
+  const inputPath = nodePath.join(tmpDir, "input.mp4");
+  const thumbnailPath = nodePath.join(tmpDir, "thumbnail.jpg");
+  try {
+    nodeFs.mkdirSync(tmpDir, { recursive: true });
+    const response = await fetch(await getServerReadableMediaUrl(videoUrl), {
+      signal: AbortSignal.timeout(120_000),
+    });
+    if (!response.ok) throw new Error(`Video download failed: HTTP ${response.status}`);
+    nodeFs.writeFileSync(inputPath, Buffer.from(await response.arrayBuffer()));
+
+    await execFileAsync("ffmpeg", [
+      "-ss", "1", "-i", inputPath,
+      "-vframes", "1", "-vf", "scale=720:-2", "-q:v", "3", "-y", thumbnailPath,
+    ], { maxBuffer: 50 * 1024 * 1024, timeout: 60_000 });
+
+    const objectName = `thumbnails/raw_${videoId}.jpg`;
+    await objectStorageClient.bucket(bucketId).file(objectName).save(
+      nodeFs.readFileSync(thumbnailPath),
+      { contentType: "image/jpeg" },
+    );
+    const thumbnailUrl = `${getCanonicalOrigin()}/api/captioned-objects/${objectName}`;
+    logger.info({ videoId, objectName }, "[Thumbnail] Raw video poster uploaded ✓");
+    return thumbnailUrl;
+  } catch (err) {
+    logger.warn({ videoId, err }, "[Thumbnail] Raw video poster generation failed (non-fatal)");
+    return null;
+  } finally {
+    nodeFs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
+
+/**
  * Send a one-time email when an automated video generation permanently fails.
  * Rate-limited to one email per user per hour to avoid notification floods.
  * Always swallows errors so it never disrupts the calling code path.
@@ -2613,6 +2654,8 @@ async function finalizeWavespeedTalkingHead(
     // later recovery can re-persist it; never leave a completed provider job
     // stuck merely because an upload retry is needed.
     const persistent = await persistVideoAssetsToStorage(video.id, sourceVideoUrl, null);
+    const thumbnailUrl = persistent.thumbnailUrl ??
+      await createRawVideoThumbnail(video.id, persistent.videoUrl);
     const ready = await db
       .update(videosTable)
       .set({
@@ -2621,6 +2664,7 @@ async function finalizeWavespeedTalkingHead(
         // inspectable provider request id once completion is committed.
         heygenVideoId: sourceSentinel,
         videoUrl: persistent.videoUrl,
+        thumbnailUrl,
         updatedAt: new Date(),
       })
       .where(and(
@@ -2717,6 +2761,19 @@ async function advanceWavespeedReadyPostProcessing(
   video: typeof videosTable.$inferSelect,
 ): Promise<"waiting" | "complete"> {
   if (!video.videoUrl) return "complete";
+
+  // Backfill videos completed before raw thumbnail extraction was added. This
+  // is intentionally best-effort: a renderer can still continue/recover even
+  // if the provider URL has expired or FFmpeg cannot extract a frame.
+  if (!video.thumbnailUrl) {
+    const thumbnailUrl = await createRawVideoThumbnail(video.id, video.videoUrl);
+    if (thumbnailUrl) {
+      await db
+        .update(videosTable)
+        .set({ thumbnailUrl, updatedAt: new Date() })
+        .where(and(eq(videosTable.id, video.id), isNull(videosTable.thumbnailUrl)));
+    }
+  }
 
   const [[freshVideo], [automation], [item]] = await Promise.all([
     db.select({
@@ -3397,12 +3454,14 @@ export async function pollAndPublishVideos(): Promise<void> {
         const persistent = await persistVideoAssetsToStorage(
           video.id, status.video_url, status.thumbnail_url ?? null
         );
+        const thumbnailUrl = persistent.thumbnailUrl ??
+          await createRawVideoThumbnail(video.id, persistent.videoUrl);
         await db
           .update(videosTable)
           .set({
             status: "ready",
             videoUrl: persistent.videoUrl,
-            thumbnailUrl: persistent.thumbnailUrl,
+            thumbnailUrl,
             durationSeconds: status.duration ? Math.round(status.duration) : null,
             // Persist subtitle URL so captions can be re-applied with real word timings later
             heygenSubtitleUrl: status.subtitle_url ?? null,
