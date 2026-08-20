@@ -96,7 +96,7 @@ export function WelcomeModal() {
           <DialogHeader className="space-y-0.5 text-center items-center">
             <DialogTitle className="w-full text-lg font-display font-bold text-sidebar-foreground leading-tight text-center">
               <span className="block text-2xl sm:text-3xl text-center">Reelsona</span>
-              <span className="block">Tu Máquina de Contenido con IA está lista</span>
+              <span className="block">Tu Máquina de Contenido con IA</span>
             </DialogTitle>
             <DialogDescription className="text-sidebar-foreground/70 text-xs text-center">
               Mira el video y empieza el curso para publicar tu primer Reel hoy.
