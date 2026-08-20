@@ -95,7 +95,7 @@ export function WelcomeModal() {
           <img src="/logo.png" alt="Reelsona" className="w-10 h-10 mx-auto mb-2 object-contain drop-shadow-lg" />
           <DialogHeader className="space-y-0.5 text-left items-start">
             <DialogTitle className="text-lg font-display font-bold text-sidebar-foreground leading-tight">
-              <span className="block">Reelsona</span>
+              <span className="block text-2xl sm:text-3xl text-center">Reelsona</span>
               <span className="block">Tu Máquina de Contenido con IA está lista</span>
             </DialogTitle>
             <DialogDescription className="text-sidebar-foreground/70 text-xs">
