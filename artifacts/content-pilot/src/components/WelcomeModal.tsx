@@ -91,17 +91,21 @@ export function WelcomeModal() {
     <Dialog open={open} onOpenChange={(v) => { if (!v) handleClose() }}>
       <DialogContent className="w-[calc(100%-2rem)] max-w-xl p-0 overflow-hidden gap-0">
         {/* Header gradient strip */}
-        <div className="bg-sidebar px-4 sm:px-6 pt-5 pb-5 text-sidebar-foreground text-center">
-          <img src="/logo.png" alt="Reelsona" className="w-12 h-12 mx-auto mb-2 object-contain drop-shadow-lg" />
-          <DialogHeader className="space-y-1 items-center text-center">
-            <DialogTitle className="text-2xl sm:text-3xl font-display font-bold text-sidebar-foreground leading-tight text-center">
-              <span className="block text-lg sm:text-xl tracking-wide mb-1">Reelsona</span>
-              <span className="block">Tu Máquina de Contenido con IA está lista</span>
-            </DialogTitle>
-            <DialogDescription className="text-sidebar-foreground/70 text-sm text-center">
-              Mira el video y empieza el curso para publicar tu primer Reel hoy.
-            </DialogDescription>
-          </DialogHeader>
+        <div className="bg-sidebar px-4 sm:px-6 pt-4 pb-4 text-sidebar-foreground">
+          <div className="flex items-center gap-3 mb-2">
+            <img src="/logo.png" alt="Reelsona" className="w-10 h-10 object-contain drop-shadow-lg shrink-0" />
+            <div>
+              <DialogHeader className="space-y-0.5 text-left items-start">
+                <DialogTitle className="text-lg font-display font-bold text-sidebar-foreground leading-tight">
+                  <span className="block">Reelsona</span>
+                  <span className="block">Tu Máquina de Contenido con IA está lista</span>
+                </DialogTitle>
+                <DialogDescription className="text-sidebar-foreground/70 text-xs">
+                  Mira el video y empieza el curso para publicar tu primer Reel hoy.
+                </DialogDescription>
+              </DialogHeader>
+            </div>
+          </div>
         </div>
 
         {/* Video area — full modal width, preserving the original aspect ratio */}
