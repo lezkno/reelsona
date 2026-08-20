@@ -22,6 +22,7 @@ import { es } from "date-fns/locale"
 import { useToast } from "@/hooks/use-toast"
 import { useQueryClient } from "@tanstack/react-query"
 import { useState, useCallback, useEffect, useRef } from "react"
+import { VideoToolsSummary } from "@/components/VideoToolsSummary"
 
 // ── Video preview modal with caption/hashtag editing ─────────────────────────
 function VideoPreviewModal({ video, onClose }: { video: Video | null; onClose: () => void }) {
@@ -670,51 +671,12 @@ export default function Videos() {
                     </p>
                   )}
 
-                  {/* Caption status badge */}
-                  {video.status !== 'published' && video.status !== 'failed' && captionStatus && (
-                    <div className="mb-2">
-                      {captionStatus === 'processing' && (
-                        <Badge variant="outline" className="text-[10px] gap-1 text-yellow-600 border-yellow-300 bg-yellow-50">
-                          <Clock className="w-3 h-3" /> Aplicando captions
-                        </Badge>
-                      )}
-                      {captionStatus === 'done' && (
-                        <Badge variant="outline" className="text-[10px] gap-1 text-green-700 border-green-300 bg-green-50">
-                          <CheckCircle2 className="w-3 h-3" /> Captions listos
-                        </Badge>
-                      )}
-                      {captionStatus === 'failed' && (
-                        <Badge variant="outline" className="text-[10px] gap-1 text-destructive border-destructive/30 bg-destructive/5">
-                          <AlertTriangle className="w-3 h-3" /> Captions fallaron
-                        </Badge>
-                      )}
-                      {captionStatus === 'disabled' && (
-                        <Badge variant="outline" className="text-[10px] gap-1 text-muted-foreground">
-                          Sin captions
-                        </Badge>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Video effects badges */}
-                  {(() => {
-                    const fx = video.video_effects
-                    if (!fx) return null
-                    const active = [
-                      fx.zoom       && "Zoom",
-                      fx.ai_broll   && "B-roll",
-                    ].filter(Boolean) as string[]
-                    if (active.length === 0) return null
-                    return (
-                      <div className="flex flex-wrap gap-1 mb-2">
-                        {active.map((label) => (
-                          <Badge key={label} variant="outline" className="text-[10px] gap-0.5 text-violet-600 border-violet-300 bg-violet-50 dark:text-violet-400 dark:border-violet-700 dark:bg-violet-950/40">
-                            <Wand2 className="w-2.5 h-2.5" /> {label}
-                          </Badge>
-                        ))}
-                      </div>
-                    )
-                  })()}
+                  <VideoToolsSummary
+                    effects={video.video_effects}
+                    captionsEnabled={captionStatus !== "disabled"}
+                    captionStatus={captionStatus}
+                    compact
+                  />
 
                   {/* Publishing spinner — shown while Instagram is processing */}
                   {!selectMode && video.status === 'publishing' && (

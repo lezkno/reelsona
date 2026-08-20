@@ -23,6 +23,7 @@ import { useToast } from "@/hooks/use-toast"
 import { useQueryClient } from "@tanstack/react-query"
 import { useState, useRef, useEffect } from "react"
 import { useLocation } from "wouter"
+import { VideoToolsSummary, resolveVideoToolsEffects } from "@/components/VideoToolsSummary"
 
 const statusConfig: Record<string, { label: string, variant: string, icon: any }> = {
   draft: { label: "Borrador", variant: "outline", icon: Edit3 },
@@ -1136,24 +1137,23 @@ export default function ContentPlan() {
                                         </TooltipContent>
                                       </Tooltip>
                                     )}
-                                    {/* Video effects badges — only effects actually applied during processing */}
-                                    {(() => {
-                                      const fx = (item as any).video_effects as Record<string, boolean> | null
-                                      if (!fx) return null
-                                      const active = [
-                                        fx.zoom       && "Zoom",
-                                        fx.ai_broll   && "B-roll",
-                                        fx.text_cards && "Texto",
-                                      ].filter(Boolean) as string[]
-                                      if (active.length === 0) return null
-                                      return active.map((label) => (
-                                        <span key={label} className="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400">
-                                          <SlidersHorizontal className="w-2.5 h-2.5" /> {label}
-                                        </span>
-                                      ))
-                                    })()}
                                   </div>
                                 )}
+                                <div className="mt-2">
+                                  <VideoToolsSummary
+                                    effects={resolveVideoToolsEffects(
+                                      settings?.video_effects,
+                                      (item as any).video_effects_override,
+                                      (item as any).video_effects,
+                                    )}
+                                    captionsEnabled={
+                                      item.caption_status !== null && item.caption_status !== undefined
+                                        ? item.caption_status !== "disabled"
+                                        : automation?.captions_enabled === true
+                                    }
+                                    captionStatus={item.caption_status}
+                                  />
+                                </div>
                                 {/* ─────────────────────────────────────────────── */}
 
                                 {/* Inline AI suggestion */}
