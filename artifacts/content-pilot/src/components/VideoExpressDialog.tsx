@@ -38,6 +38,11 @@ export function VideoExpressDialog({ open, onOpenChange }: { open: boolean; onOp
   const chunksRef = useRef<Blob[]>([])
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const recordingStartedAtRef = useRef<number | null>(null)
+  // MediaRecorder containers can report encoder padding / a synthetic duration
+  // that is longer than the time the user actually held the recorder open.
+  // Keep the wall-clock duration for recorded audio and use file metadata only
+  // for uploaded audio.
+  const recordedDurationSecondsRef = useRef<number | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   const cleanupStream = () => {
@@ -49,6 +54,7 @@ export function VideoExpressDialog({ open, onOpenChange }: { open: boolean; onOp
 
   const resetAudio = () => {
     if (audioUrl) URL.revokeObjectURL(audioUrl)
+    recordedDurationSecondsRef.current = null
     setAudioBlob(null); setAudioUrl(null); setAudioDurationSeconds(null); setAudioMetadataReady(false); setFileName(null); setSeconds(0); setResult(null)
   }
 
@@ -75,8 +81,13 @@ export function VideoExpressDialog({ open, onOpenChange }: { open: boolean; onOp
       mr.onstop = () => {
         const mimeType = normalizeVideoExpressRecordingMime(mr.mimeType)
         const blob = new Blob(chunksRef.current, { type: mimeType })
+        const recordedDuration = recordedDurationSecondsRef.current
         setAudioBlob(blob)
         setAudioUrl(URL.createObjectURL(blob))
+        // Do not replace this with HTMLMediaElement.duration: WebM/Opus can
+        // include container padding after MediaRecorder.stop().
+        setAudioDurationSeconds(recordedDuration)
+        setAudioMetadataReady(recordedDuration !== null)
         setFileName(`orden.${getVideoExpressAudioExtension(mimeType)}`)
         setRecording(false)
         cleanupStream()
@@ -92,6 +103,7 @@ export function VideoExpressDialog({ open, onOpenChange }: { open: boolean; onOp
         const elapsedSeconds = (Date.now() - startedAt) / 1000
         setSeconds(getVideoExpressElapsedSeconds(startedAt))
         if (elapsedSeconds >= MAX_VIDEO_EXPRESS_ORDER_SECONDS) {
+          recordedDurationSecondsRef.current = Math.min(MAX_VIDEO_EXPRESS_ORDER_SECONDS, Math.max(0, elapsedSeconds))
           const recorder = mediaRecRef.current
           if (recorder?.state === "recording") recorder.stop()
           if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
@@ -104,7 +116,14 @@ export function VideoExpressDialog({ open, onOpenChange }: { open: boolean; onOp
 
   const stopRecording = () => {
     const startedAt = recordingStartedAtRef.current
-    if (startedAt !== null) setSeconds(getVideoExpressElapsedSeconds(startedAt))
+    if (startedAt !== null) {
+      const elapsedSeconds = Math.min(
+        MAX_VIDEO_EXPRESS_ORDER_SECONDS,
+        Math.max(0, (Date.now() - startedAt) / 1000),
+      )
+      recordedDurationSecondsRef.current = elapsedSeconds
+      setSeconds(Math.floor(elapsedSeconds))
+    }
     if (mediaRecRef.current?.state === "recording") mediaRecRef.current.stop()
     setRecording(false)
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
@@ -121,6 +140,7 @@ export function VideoExpressDialog({ open, onOpenChange }: { open: boolean; onOp
       return
     }
     resetAudio()
+    recordedDurationSecondsRef.current = null
     setAudioBlob(f)
     setAudioUrl(URL.createObjectURL(f))
     setFileName(f.name)
@@ -216,7 +236,11 @@ export function VideoExpressDialog({ open, onOpenChange }: { open: boolean; onOp
                     onLoadedMetadata={(event) => {
                       const duration = event.currentTarget.duration
                       setAudioMetadataReady(true)
-                      setAudioDurationSeconds(Number.isFinite(duration) ? duration : null)
+                      // Recorded blobs use the wall-clock duration captured at
+                      // stop time. Uploaded files use their media metadata.
+                      if (recordedDurationSecondsRef.current === null) {
+                        setAudioDurationSeconds(Number.isFinite(duration) ? duration : null)
+                      }
                     }}
                     onError={() => setAudioMetadataReady(true)}
                   />
@@ -224,7 +248,7 @@ export function VideoExpressDialog({ open, onOpenChange }: { open: boolean; onOp
                     <p className="text-xs text-muted-foreground">Leyendo la duración del audio…</p>
                   ) : audioDurationSeconds !== null ? (
                     <p className={`text-xs ${exceedsVideoExpressAudioLimit(audioDurationSeconds) ? "text-destructive" : "text-muted-foreground"}`}>
-                      Duración real: {fmt(Math.ceil(audioDurationSeconds))}
+                      Duración real: {fmt(Math.floor(audioDurationSeconds))}
                       {exceedsVideoExpressAudioLimit(audioDurationSeconds) && " — vuelve a grabar una instrucción más concreta"}
                     </p>
                   ) : (
