@@ -41,6 +41,8 @@ const ZOOM_DURATION_SEC = 3;
 const ZOOM_FACTOR = 1.4;
 const BROLL_FADE_SEC = 0.3;
 const BROLL_OVERSCAN = 1.1;
+const MIN_RENDER_TIMEOUT_MS = 3 * 60_000;
+const MAX_RENDER_TIMEOUT_MS = 6 * 60_000;
 export const RENDER_FAST_V2_ERROR_PREFIX = "Render Fast V2:";
 
 export function isRenderFastV2Failure(errorMessage: string | null | undefined): boolean {
@@ -92,6 +94,22 @@ function toEven(value: number): number {
 
 function elapsedMs(startedAt: number): number {
   return Date.now() - startedAt;
+}
+
+/**
+ * Keep the final encode predictably bounded. A stalled FFmpeg process must
+ * become a visible terminal error instead of retaining the caption lease and
+ * leaving a video in "processing" forever.
+ */
+export function getRenderFastV2TimeoutMs(durationSeconds: number): number {
+  const safeDuration = Number.isFinite(durationSeconds) && durationSeconds > 0
+    ? durationSeconds
+    : 0;
+
+  return Math.min(
+    MAX_RENDER_TIMEOUT_MS,
+    Math.max(MIN_RENDER_TIMEOUT_MS, Math.ceil(safeDuration * 15_000)),
+  );
 }
 
 function sanitizeZoomTimestamps(timestamps: number[], duration: number): number[] {
@@ -390,11 +408,18 @@ export async function applyCaptionsFastV2(
     });
     telemetry.buildFilterGraphMs = elapsedMs(stageStartedAt);
 
-    const renderTimeoutMs = Math.min(
-      12 * 60_000,
-      Math.max(4 * 60_000, Math.ceil(videoInfo.duration * 15_000)),
-    );
+    const renderTimeoutMs = getRenderFastV2TimeoutMs(videoInfo.duration);
     stageStartedAt = Date.now();
+    logger.info(
+      {
+        runId,
+        durationSec: videoInfo.duration,
+        timeoutMs: renderTimeoutMs,
+        zooms: sanitizeZoomTimestamps(zoomTimestamps, videoInfo.duration).length,
+        brollAssets: brollAssets.length,
+      },
+      "[RenderFastV2] Starting final FFmpeg render",
+    );
     await execFileAsync("ffmpeg", [
       "-noautorotate",
       "-i", inputPath,
@@ -403,11 +428,17 @@ export async function applyCaptionsFastV2(
       "-map", graph.videoMap,
       "-map", graph.audioMap,
       "-t", videoInfo.duration.toFixed(4),
-      "-c:v", "libx264", "-preset", "fast", "-crf", "20", "-pix_fmt", "yuv420p",
+      "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
       "-c:a", "aac", "-b:a", "192k",
       "-movflags", "+faststart",
       "-y", outputPath,
-    ], { maxBuffer: 500 * 1024 * 1024, timeout: renderTimeoutMs });
+    ], {
+      maxBuffer: 500 * 1024 * 1024,
+      timeout: renderTimeoutMs,
+      // FFmpeg may not stop promptly after SIGTERM while a filter graph is
+      // saturated. SIGKILL guarantees the timeout frees the caption lease.
+      killSignal: "SIGKILL",
+    });
     telemetry.renderFfmpegMs = elapsedMs(stageStartedAt);
 
     stageStartedAt = Date.now();

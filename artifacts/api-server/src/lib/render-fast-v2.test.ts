@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   buildRenderFastV2Graph,
+  getRenderFastV2TimeoutMs,
   isRenderFastV2Failure,
   shouldUseRenderFastV2,
 } from "./render-fast-v2.js";
@@ -85,4 +86,11 @@ test("Render Fast V2 is the default in every environment", () => {
   assert.equal(shouldUseRenderFastV2(undefined), true);
   assert.equal(shouldUseRenderFastV2("fast_v2"), true);
   assert.equal(shouldUseRenderFastV2(" LEGACY "), false);
+});
+
+test("Render Fast V2 final encoding has a hard six-minute ceiling", () => {
+  assert.equal(getRenderFastV2TimeoutMs(0), 3 * 60_000);
+  assert.equal(getRenderFastV2TimeoutMs(20), 5 * 60_000);
+  assert.equal(getRenderFastV2TimeoutMs(30), 6 * 60_000);
+  assert.equal(getRenderFastV2TimeoutMs(120), 6 * 60_000);
 });
