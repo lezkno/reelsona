@@ -9,6 +9,9 @@ on:
       - codex/prod-hardening
       - 'audit/**'
 
+permissions:
+  contents: write
+
 concurrency:
   group: validate-${{ github.ref }}
   cancel-in-progress: true
@@ -38,6 +41,27 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
+          fetch-depth: 0
+
+      - name: Apply audit hardening patch
+        if: github.event_name == 'pull_request' && github.head_ref == 'audit/prod-hardening-final'
+        run: python scripts/apply-audit-hardening.py
+
+      - name: Persist audit hardening patch
+        if: github.event_name == 'pull_request' && github.head_ref == 'audit/prod-hardening-final'
+        run: |
+          if git diff --quiet -- artifacts/api-server/src/lib/scheduler.ts artifacts/api-server/src/routes/instagram.ts; then
+            echo "No audit patch changes to persist"
+          else
+            git diff --check
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add artifacts/api-server/src/lib/scheduler.ts artifacts/api-server/src/routes/instagram.ts
+            git commit -m "audit: harden scheduler tenant isolation and WaveSpeed recovery"
+            git push origin HEAD:audit/prod-hardening-final
+          fi
 
       - name: Setup Node
         uses: actions/setup-node@v4
