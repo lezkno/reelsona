@@ -5,7 +5,7 @@ import { getBrowserTemplate } from "@workspace/caption-templates";
 import { buildHybridCaptionCues, clampHybridCueWindows } from "./hybrid-caption-cues.js";
 
 test("phrase SRT is split into sequential wordsPerLine chunks without accumulation", () => {
-  const base = getBrowserTemplate("dimigium");
+  const base = getBrowserTemplate("dimidium_mix");
   assert.ok(base);
   const template = { ...base, wordsPerLine: 2, buildingMode: false };
   const plan = buildHybridCaptionCues([
