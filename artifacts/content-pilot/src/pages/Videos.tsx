@@ -721,6 +721,10 @@ export default function Videos() {
                   <h4 className="font-bold font-display line-clamp-2 text-sm mb-2 flex-1" title={video.topic || 'Video'}>
                     {video.topic || `Video #${video.id}`}
                   </h4>
+                  <p className="flex items-center gap-1 text-[11px] text-muted-foreground mb-2" title="Fecha y hora de creación">
+                    <Clock className="w-3 h-3 shrink-0" />
+                    Creado el {format(new Date(video.created_at), "d MMM yyyy, HH:mm", { locale: es })}
+                  </p>
                   {video.status === 'cancelled' && video.video_url && (
                     <p className="text-[11px] text-muted-foreground mb-2">
                       Video original conservado · sin efectos
