@@ -839,6 +839,9 @@ export interface CaptionConfig {
   line_spacing_factor?: number;
   y_position?: number;
   margin_x?: number;
+  /** Maximum caption block width as a percentage of the 1080px canonical canvas. */
+  max_width_percent: number;
+  layout_customized: boolean;
   caption_engine: CaptionConfigCaptionEngine;
   /** @nullable */
   template_id?: string | null;
@@ -904,8 +907,8 @@ export interface CaptionConfigInput {
   background_color?: string | null;
   font_family?: string;
   /**
-     * @minimum 24
-     * @maximum 120
+     * @minimum 60
+     * @maximum 220
      */
   font_size?: number;
   /**
@@ -920,6 +923,12 @@ export interface CaptionConfigInput {
   line_spacing_factor?: number;
   y_position?: number;
   margin_x?: number;
+  /**
+     * @minimum 40
+     * @maximum 100
+     */
+  max_width_percent?: number;
+  layout_customized?: boolean;
   caption_engine?: CaptionConfigInputCaptionEngine;
   /** @nullable */
   template_id?: string | null;

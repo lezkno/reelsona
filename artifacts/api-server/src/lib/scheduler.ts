@@ -54,6 +54,10 @@ import { applyCaptionsBrowser } from "./browser-caption-engine";
 import { applyCaptionsFastV2, isRenderFastV2Enabled, isRenderFastV2Failure } from "./render-fast-v2";
 import { getBrowserTemplateStyleOverrides } from "./caption-style-adapter";
 import { BROWSER_CAPTION_TEMPLATES, type CaptionTemplate } from "@workspace/caption-templates";
+import {
+  marginXFromMaxWidthPercent,
+  maxWidthPercentFromMarginX,
+} from "@workspace/caption-templates";
 import { eq, and, lte, gte, lt, inArray, isNull, isNotNull, or, desc, like, sql, ne } from "drizzle-orm";
 import { logger } from "./logger";
 import { generateScript, regenerateCaption, generateContentTopics } from "./ai-scripts";
@@ -1966,7 +1970,10 @@ export async function runCaptionProcessing(
     fontSize:        rotatedPreset.fontSize,
     lineSpacingFactor: captionCfg.lineSpacingFactor,
     yPosition:       captionCfg.yPosition,
-    marginX:         captionCfg.marginX,
+    marginX:         marginXFromMaxWidthPercent(
+      captionCfg.maxWidthPercent ?? maxWidthPercentFromMarginX(captionCfg.marginX),
+    ),
+    maxWidthPercent: captionCfg.maxWidthPercent ?? maxWidthPercentFromMarginX(captionCfg.marginX),
     activeWordScale: rotatedPreset.activeWordScale,
     highlightMode:   rotatedPreset.highlightMode as CaptionStyle["highlightMode"],
     autoScale:       captionCfg.autoScale,
@@ -1984,7 +1991,10 @@ export async function runCaptionProcessing(
     fontSize: captionCfg.fontSize,
     lineSpacingFactor: captionCfg.lineSpacingFactor,
     yPosition: captionCfg.yPosition,
-    marginX: captionCfg.marginX,
+    marginX: marginXFromMaxWidthPercent(
+      captionCfg.maxWidthPercent ?? maxWidthPercentFromMarginX(captionCfg.marginX),
+    ),
+    maxWidthPercent: captionCfg.maxWidthPercent ?? maxWidthPercentFromMarginX(captionCfg.marginX),
     activeWordScale: captionCfg.activeWordScale,
     highlightMode: captionCfg.highlightMode as CaptionStyle["highlightMode"],
     autoScale: captionCfg.autoScale,
@@ -1993,7 +2003,11 @@ export async function runCaptionProcessing(
   };
 
   const browserTemplateStyle = captionCfg.captionEngine === "browser_experimental"
-    ? getBrowserTemplateStyleOverrides(effectiveTemplateId, parsedTemplateOverrides)
+    ? getBrowserTemplateStyleOverrides(
+        effectiveTemplateId,
+        parsedTemplateOverrides,
+        captionCfg.fontSize,
+      )
     : null;
   if (browserTemplateStyle) {
     // Position remains user-controlled through Caption Studio. Every visual

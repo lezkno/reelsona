@@ -8,8 +8,83 @@ import {
   isRenderFastV2Failure,
   shouldUseRenderFastV2,
 } from "./render-fast-v2.js";
+import { buildCaptionArtifactsFromSrt, type CaptionStyle } from "./caption-engine.js";
+import { getBrowserTemplateStyleOverrides } from "./caption-style-adapter.js";
+import {
+  marginXFromMaxWidthPercent,
+  maxWidthPercentFromMarginX,
+} from "@workspace/caption-templates";
 
 const assPath = "/tmp/contentpilot-captioned/test/captions.ass";
+
+const captionStyle: CaptionStyle = {
+  presetId: "test",
+  position: "bottom",
+  yPosition: 75,
+  marginX: 60,
+  maxWidthPercent: 80,
+  wordsPerLine: 3,
+  primaryColor: "#FFFFFF",
+  activeWordColor: "#FFE600",
+  outlineColor: "#000000",
+  backgroundColor: null,
+  fontFamily: "Oswald",
+  fontSize: 72,
+  lineSpacingFactor: 1.1,
+  activeWordScale: 1,
+  highlightMode: "color",
+  autoScale: false,
+  autoMovement: false,
+  subtleRotation: false,
+};
+
+function styleColumns(ass: string): string[] {
+  const line = ass.split("\n").find((value) => value.startsWith("Style: Caption,"));
+  assert.ok(line, "generated ASS contains a Caption style");
+  return line.split(",");
+}
+
+test("Render Fast V2 passes the saved font size to libass without auto-scaling", () => {
+  const { ass } = buildCaptionArtifactsFromSrt(
+    "1\n00:00:00,000 --> 00:00:01,000\npalabra extraordinariamente larga\n",
+    captionStyle,
+  );
+  assert.equal(styleColumns(ass)[2], "72", "ASS Fontsize exactly matches font_size=72");
+});
+
+test("switching browser templates preserves the saved canonical size unless an explicit override exists", () => {
+  const hormozi = getBrowserTemplateStyleOverrides("hormozi", undefined, 72);
+  const anotherTemplate = getBrowserTemplateStyleOverrides("authority_bold", undefined, 72);
+  const explicitOverride = getBrowserTemplateStyleOverrides("hormozi", { fontSize: 115 }, 72);
+
+  assert.equal(hormozi?.fontSize, 72);
+  assert.equal(anotherTemplate?.fontSize, 72);
+  assert.equal(explicitOverride?.fontSize, 115);
+});
+
+test("canonical layout maps proportionally to the 1080×1920 ASS canvas", () => {
+  const { ass } = buildCaptionArtifactsFromSrt(
+    "1\n00:00:00,000 --> 00:00:01,000\ntexto de prueba\n",
+    captionStyle,
+    1080,
+    1920,
+  );
+  const columns = styleColumns(ass);
+  assert.equal(columns[19], "108", "80% max width leaves 108px on the left");
+  assert.equal(columns[20], "108", "80% max width leaves 108px on the right");
+  assert.equal(columns[21], "480", "75% from the top becomes a 480px bottom margin");
+});
+
+test("preview and ASS derive identical safe margins from the canonical width", () => {
+  const maxWidthPercent = maxWidthPercentFromMarginX(108);
+  assert.equal(Math.round(maxWidthPercent), 80);
+  assert.equal(marginXFromMaxWidthPercent(maxWidthPercent, 1080), 108);
+  assert.equal(
+    Math.round(marginXFromMaxWidthPercent(maxWidthPercent, 250)),
+    25,
+    "the phone preview uses the same proportional edge inset",
+  );
+});
 
 test("Render Fast V2 creates one graph with ASS captions and no intermediate MP4 paths", () => {
   const graph = buildRenderFastV2Graph({

@@ -24,6 +24,10 @@ import { makeOpenAIClient } from "./openai-client";
 import { logger } from "./logger";
 import { getServerReadableMediaUrl, objectStorageClient } from "./objectStorage";
 import { getCanonicalOrigin } from "./appOrigin";
+import {
+  marginXFromMaxWidthPercent,
+  maxWidthPercentFromMarginX,
+} from "@workspace/caption-templates";
 
 const execFileAsync = promisify(execFile);
 
@@ -48,6 +52,11 @@ export interface CaptionStyle {
   backgroundColor: string | null; // CSS rgba() or null
   fontFamily: string;
   fontSize: number;
+  /** Maximum caption block width as % of the canonical 1080px canvas. */
+  maxWidthPercent?: number;
+  /** Browser template visual values carried into the ASS renderer. */
+  outlineWidth?: number;
+  letterSpacing?: number;
   lineSpacingFactor: number;   // multiplier: 1.0 = tightest, 2.0 = very spaced
   activeWordScale: number;     // unused in v3 (scale overrides cause ASS issues)
   highlightMode: "color" | "scale" | "both" | "mixed" | "zoom";
@@ -236,7 +245,9 @@ function buildASSHeader(
   // yPosition: 0=top edge, 100=bottom edge (percent from top of video)
   // Convert to ASS bottom-aligned marginV so text sits at that Y coordinate
   const yPos    = config.yPosition ?? (config.position === "top" ? 15 : config.position === "center" ? 50 : 75);
-  const marginX = config.marginX ?? 60;
+  const maxWidthPercent = config.maxWidthPercent
+    ?? maxWidthPercentFromMarginX(config.marginX ?? 60);
+  const marginX = marginXFromMaxWidthPercent(maxWidthPercent, videoWidth);
   const alignment = 2;
   const marginV = Math.round(videoHeight * (1 - yPos / 100));
   const fontName = resolveFontName(config.fontFamily);
@@ -248,10 +259,12 @@ function buildASSHeader(
   const borderStyle  = config.backgroundColor ? 3 : 1;
   // Match preview CSS text-shadow (2px at 444px preview = ~8.7 ASS pts at 1920px).
   // Use 7 (smooth ASS outline renders more prominently than blocky CSS shadow).
-  const outlineWidth = borderStyle === 3 ? 0 : 7;
+  const outlineWidth = borderStyle === 3 ? 0 : (config.outlineWidth ?? 7);
   const shadowDepth  = borderStyle === 3 ? 0 : 2;
   // Match preview's CSS letterSpacing: "0.04em" = 0.04 × fontSize ASS units
-  const letterSpacing = +(config.fontSize * 0.04).toFixed(1);
+  const letterSpacing = +(
+    config.fontSize * (config.letterSpacing ?? 0.04)
+  ).toFixed(1);
 
   return `[Script Info]
 ScriptType: v4.00+
@@ -373,8 +386,10 @@ function buildZoomASS(
   const primaryColor  = hexToAss(config.primaryColor);
   const accentColor   = hexToAss(config.activeWordColor);
   const outlineColor  = hexToAss(config.outlineColor);
-  const letterSpacing = +(config.fontSize * 0.04).toFixed(1);
-  const outlineWidth  = Math.max(4, Math.round(config.fontSize * 0.06));
+  const letterSpacing = +(
+    config.fontSize * (config.letterSpacing ?? 0.04)
+  ).toFixed(1);
+  const outlineWidth  = config.outlineWidth ?? Math.max(4, Math.round(config.fontSize * 0.06));
 
   const header = `[Script Info]
 ScriptType: v4.00+
@@ -476,7 +491,7 @@ function buildDimidiumASS(
   const outlineColor = hexToAss(config.outlineColor);
   // Match preview CSS shadow: 2px at preview scale ≈ 8.7 ASS pts; use 6 here
   // (smooth ASS outline reads heavier on small function-word text than CSS shadow)
-  const outlineW = 6;
+  const outlineW = config.outlineWidth ?? 6;
   const shadowD  = 2;
 
   const header = `[Script Info]
@@ -545,7 +560,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
   // Text is LEFT-aligned, starting from a fixed left margin — matching the
   // reference video where each new word extends the line to the right.
   const MAX_SLOTS   = 4;
-  const LEFT_X      = config.marginX ?? 60;            // left margin (px)
+  const LEFT_X      = marginXFromMaxWidthPercent(
+    config.maxWidthPercent ?? maxWidthPercentFromMarginX(config.marginX ?? 60),
+    videoWidth,
+  );
   const lsf         = config.lineSpacingFactor ?? 1.1; // user-configurable multiplier
   const lineSpacing = Math.round(largeSize * lsf);
   const yPos    = config.yPosition ?? (config.position === "bottom" ? 94.8 : config.position === "center" ? 50 : 15);

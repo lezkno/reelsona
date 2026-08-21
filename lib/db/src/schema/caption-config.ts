@@ -49,6 +49,10 @@ export const captionConfigTable = pgTable("caption_config", {
   lineSpacingFactor: real("line_spacing_factor").notNull().default(1.1),
   yPosition: real("y_position").notNull().default(75),
   marginX: real("margin_x").notNull().default(60),
+  /** Canonical caption block width, expressed as % of a 1080px reference canvas. */
+  maxWidthPercent: real("max_width_percent").notNull().default(88.9),
+  /** A selected template may seed the layout until the user changes any layout control. */
+  layoutCustomized: boolean("layout_customized").notNull().default(false),
   autoMovement: boolean("auto_movement").notNull().default(false),
   subtleRotation: boolean("subtle_rotation").notNull().default(false),
   captionEngine: text("caption_engine").notNull().default("standard"),

@@ -26,6 +26,11 @@ import {
   scaleToHeight,
   getBaselineY,
   getSafeMarginX,
+  CAPTION_FONT_SIZE_RANGE,
+  CAPTION_MAX_WIDTH_RANGE,
+  CAPTION_Y_POSITION_RANGE,
+  marginXFromMaxWidthPercent,
+  maxWidthPercentFromMarginX,
 } from "@workspace/caption-templates"
 import type { CaptionTemplate } from "@workspace/caption-templates"
 
@@ -196,17 +201,15 @@ const PREVIEW_WIDTH_PX = 250   // approximate screen width inside the phone mock
 function TemplateCaptionPreview({
   template,
   yOverride,
-  marginXOverride,
+  maxWidthOverride,
   onYPositionChange,
-  onXMarginChange,
 }: {
   template: CaptionTemplate
   /** y_position override in % (0–100). When set, overrides template.yPercent. */
   yOverride?: number
-  /** margin_x override in pixels at 1080-width scale. When set, overrides template.marginXPercent. */
-  marginXOverride?: number
+  /** Canonical caption block width as % of the 1080px reference frame. */
+  maxWidthOverride?: number
   onYPositionChange?: (y: number) => void
-  onXMarginChange?: (x: number) => void
 }) {
   const [activeIdx, setActiveIdx] = useState(0)
   const [isDragging, setIsDragging] = useState(false)
@@ -313,8 +316,9 @@ function TemplateCaptionPreview({
   const scaledBlur = +scaleToHeight(template.shadowBlur,    PHONE_SCREEN_H).toFixed(1)
 
   // Effective position: user override takes precedence over template default
-  const effectiveYPct       = yOverride       ?? template.yPercent
-  const effectiveMarginXPx  = marginXOverride ?? Math.round(template.marginXPercent * 1080 / 100)
+  const effectiveYPct = yOverride ?? template.yPercent
+  const effectiveMaxWidthPct = maxWidthOverride ?? (100 - template.marginXPercent * 2)
+  const effectiveMarginXPx = marginXFromMaxWidthPercent(effectiveMaxWidthPct)
   // Convert to preview-space pixels
   const baselineY  = Math.round(PHONE_SCREEN_H * effectiveYPct / 100)
   const marginX_px = Math.round(effectiveMarginXPx * PREVIEW_SCALE)
@@ -427,8 +431,6 @@ function TemplateCaptionPreview({
             const rect = e.currentTarget.getBoundingClientRect()
             const pctY = Math.max(10, Math.min(97, ((e.clientY - rect.top) / rect.height) * 100))
             onYPositionChange?.(Math.round(pctY * 10) / 10)
-            const pxX = Math.max(0, Math.min(400, (e.clientX - rect.left) / PREVIEW_SCALE))
-            onXMarginChange?.(Math.round(pxX))
           }}
           onPointerUp={() => setIsDragging(false)}
           onPointerLeave={() => setIsDragging(false)}
@@ -444,7 +446,7 @@ function TemplateCaptionPreview({
               : "1px dashed rgba(255,255,255,0.15)",
           }}
         />
-        {/* Vertical guide line */}
+        {/* Width guide lines — the block width is shared with libass margins. */}
         <div className="absolute top-0 bottom-0 z-41 pointer-events-none transition-all duration-75"
           style={{
             left: marginX_px - 1,
@@ -453,17 +455,25 @@ function TemplateCaptionPreview({
               : "1px dashed rgba(255,255,255,0.15)",
           }}
         />
-        {/* Crosshair grip */}
+        <div className="absolute top-0 bottom-0 z-41 pointer-events-none transition-all duration-75"
+          style={{
+            right: marginX_px - 1,
+            borderRight: isDragging
+              ? "1.5px dashed rgba(255,255,255,0.75)"
+              : "1px dashed rgba(255,255,255,0.15)",
+          }}
+        />
+        {/* Vertical drag grip */}
         <div className="absolute z-41 pointer-events-none"
-          style={{ left: marginX_px - 6, top: baselineY - 6 }}>
+          style={{ left: "50%", transform: "translateX(-50%)", top: baselineY - 6 }}>
           <div className="w-3 h-3 rounded-full border border-white/50 bg-white/20" />
         </div>
         {/* Badge while dragging */}
         {isDragging && (
           <div className="absolute z-42 pointer-events-none flex gap-1"
-            style={{ left: marginX_px + 4, top: baselineY - 22 }}>
+            style={{ left: "50%", transform: "translateX(-50%)", top: baselineY - 22 }}>
             <span className="text-white text-[8px] font-medium bg-black/75 px-1.5 py-0.5 rounded-full whitespace-nowrap">
-              ← {Math.round(effectiveMarginXPx)}px
+              ↔ {Math.round(effectiveMaxWidthPct)}%
             </span>
             <span className="text-white text-[8px] font-medium bg-black/75 px-1.5 py-0.5 rounded-full whitespace-nowrap">
               ↕ {Math.round(effectiveYPct)}%
@@ -1593,6 +1603,26 @@ export default function CaptionStudio() {
     setDirty(true)
   }
 
+  /**
+   * These three values are the only persisted geometry used by the phone
+   * preview and Render Fast V2. `margin_x` is maintained for the legacy
+   * renderer, derived from width rather than being a competing control.
+   */
+  const setCaptionLayout = (patch: Partial<CaptionConfig>) => {
+    if (planLocked) { setPremiumOpen(true); return }
+    const width = patch.max_width_percent
+    const normalizedPatch: Partial<CaptionConfig> = {
+      ...patch,
+      ...(width !== undefined && { margin_x: marginXFromMaxWidthPercent(width) }),
+      layout_customized: true,
+    }
+    const next = { ...localRef.current, ...normalizedPatch }
+    localRef.current = next
+    setLocal(next)
+    dirtyRef.current = true
+    setDirty(true)
+  }
+
   // ── Template override helpers (browser engine only) ───────────────────────
   // Active base template (if browser engine is selected)
   const activeTmpl = local.template_id
@@ -1602,9 +1632,21 @@ export default function CaptionStudio() {
   // Current template's override slice
   const currentOverrides: Partial<CaptionTemplate> = (activeTmpl && allTmplOverrides[activeTmpl.id]) ?? {}
 
-  // Merged template = base + user overrides (live preview + final render)
+  // Template defaults establish visual style only. Layout always comes from
+  // the shared caption config, apart from a deliberately saved old per-template
+  // font override which remains an explicit user choice.
+  const resolvedFontSize = currentOverrides.fontSize ?? local.font_size ?? activeTmpl?.fontSize ?? 88
+  const resolvedYPosition = local.y_position ?? activeTmpl?.yPercent ?? 75
+  const resolvedMaxWidth = local.max_width_percent
+    ?? (activeTmpl ? 100 - activeTmpl.marginXPercent * 2 : maxWidthPercentFromMarginX(local.margin_x ?? 60))
   const mergedTmpl: CaptionTemplate | null = activeTmpl
-    ? { ...activeTmpl, ...currentOverrides }
+    ? {
+        ...activeTmpl,
+        ...currentOverrides,
+        fontSize: resolvedFontSize,
+        yPercent: resolvedYPosition,
+        marginXPercent: (100 - resolvedMaxWidth) / 2,
+      }
     : null
 
   // Convenience: effective value = override ?? base template default
@@ -1701,6 +1743,18 @@ export default function CaptionStudio() {
       active_word_color:  template.activeWordColor,
       outline_color:      template.outlineColor,
     }
+    // A template supplies first-use values only. As soon as a user has edited
+    // the layout, switching styles must never replace their saved geometry.
+    if (!localRef.current.layout_customized) {
+      const initialMaxWidth = 100 - template.marginXPercent * 2
+      Object.assign(update, {
+        font_size: template.fontSize,
+        y_position: template.yPercent,
+        max_width_percent: initialMaxWidth,
+        margin_x: marginXFromMaxWidthPercent(initialMaxWidth),
+        layout_customized: false,
+      })
+    }
     const nextLocal = { ...localRef.current, ...update }
     localRef.current = nextLocal
     setLocal(nextLocal)
@@ -1738,6 +1792,7 @@ export default function CaptionStudio() {
       highlight_mode: preset.highlight_mode,
       auto_movement: preset.auto_movement,
       subtle_rotation: preset.subtle_rotation,
+      layout_customized: true,
     }
     // Some presets define their own words_per_line (e.g. Bold Stack = 2)
     if (preset.words_per_line != null) {
@@ -1960,6 +2015,63 @@ export default function CaptionStudio() {
             </div>
           </div>
 
+          <Card className="border-primary/25 bg-primary/[0.025]">
+            <CardContent className="p-6 space-y-5">
+              <div>
+                <h2 className="text-xl font-display font-bold">Layout final del caption</h2>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Estos valores son comunes al preview y al MP4 final en un canvas de 1080 × 1920. Arrastrá el caption en el celular para moverlo.
+                </p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                <div className="space-y-2">
+                  <Label>Tamaño: <span className="text-primary font-bold">{resolvedFontSize}px</span></Label>
+                  <Slider
+                    min={CAPTION_FONT_SIZE_RANGE.min}
+                    max={CAPTION_FONT_SIZE_RANGE.max}
+                    step={CAPTION_FONT_SIZE_RANGE.step}
+                    value={[local.font_size ?? activeTmpl?.fontSize ?? 88]}
+                    onValueChange={([v]) => setCaptionLayout({ font_size: v })}
+                    disabled={isVideoProcessing}
+                    className="mt-3"
+                  />
+                  <div className="flex justify-between text-[10px] text-muted-foreground"><span>{CAPTION_FONT_SIZE_RANGE.min}</span><span>{CAPTION_FONT_SIZE_RANGE.max} px</span></div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Posición vertical: <span className="text-primary font-bold">{Math.round(resolvedYPosition)}%</span></Label>
+                  <Slider
+                    min={CAPTION_Y_POSITION_RANGE.min}
+                    max={CAPTION_Y_POSITION_RANGE.max}
+                    step={0.5}
+                    value={[resolvedYPosition]}
+                    onValueChange={([v]) => setCaptionLayout({ y_position: v })}
+                    disabled={isVideoProcessing}
+                    className="mt-3"
+                  />
+                  <div className="flex justify-between text-[10px] text-muted-foreground"><span>arriba</span><span>abajo</span></div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Ancho máximo: <span className="text-primary font-bold">{Math.round(resolvedMaxWidth)}%</span></Label>
+                  <Slider
+                    min={CAPTION_MAX_WIDTH_RANGE.min}
+                    max={CAPTION_MAX_WIDTH_RANGE.max}
+                    step={CAPTION_MAX_WIDTH_RANGE.step}
+                    value={[resolvedMaxWidth]}
+                    onValueChange={([v]) => setCaptionLayout({ max_width_percent: v })}
+                    disabled={isVideoProcessing}
+                    className="mt-3"
+                  />
+                  <div className="flex justify-between text-[10px] text-muted-foreground"><span>compacto</span><span>ancho</span></div>
+                </div>
+              </div>
+              {currentOverrides.fontSize !== undefined && (
+                <p className="rounded-lg bg-violet-500/10 px-3 py-2 text-xs text-violet-700 dark:text-violet-300">
+                  Esta plantilla conserva un tamaño específico de <strong>{currentOverrides.fontSize}px</strong> que elegiste antes. Restaurá sus valores originales si querés que use el tamaño común.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
           {/* Browser template advanced settings */}
           {!rotationEnabled && mergedTmpl && (
             <div>
@@ -1981,19 +2093,6 @@ export default function CaptionStudio() {
               </p>
               <Card>
                 <CardContent className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <Label>
-                      Tamaño de letra:&nbsp;
-                      <span className="text-primary font-bold">{ov("fontSize")}px</span>
-                      {currentOverrides.fontSize !== undefined && (
-                        <span className="ml-1 text-[10px] text-violet-500">(modificado)</span>
-                      )}
-                    </Label>
-                    <Slider min={60} max={220} step={5} value={[ov("fontSize") ?? 88]} onValueChange={([v]) => setOverride("fontSize", v)} disabled={isVideoProcessing} className="mt-3" />
-                    <div className="flex justify-between text-[10px] text-muted-foreground">
-                      <span>60 — compacto</span><span>Default: {activeTmpl?.fontSize}px</span><span>220 — máximo</span>
-                    </div>
-                  </div>
                   <div className="space-y-2">
                     <Label>
                       Palabras por línea:&nbsp;
@@ -2081,10 +2180,10 @@ export default function CaptionStudio() {
                   <div className="sm:col-span-2 flex items-start gap-2 p-3 rounded-lg bg-muted/40">
                     <span className="text-base mt-0.5 shrink-0">✥</span>
                     <div>
-                      <p className="text-xs font-medium mb-0.5">Posición vertical y margen</p>
-                      <p className="text-xs text-muted-foreground leading-snug">Arrastrá el preview del celular para mover los captions.</p>
+                        <p className="text-xs font-medium mb-0.5">Geometría compartida</p>
+                        <p className="text-xs text-muted-foreground leading-snug">El tamaño, la posición y el ancho se ajustan una sola vez en “Layout final”.</p>
                       <p className="text-xs text-primary font-medium mt-1">
-                        ↕ {Math.round(local.y_position ?? (activeTmpl?.yPercent ?? 75))}% &nbsp;·&nbsp; ← {Math.round(local.margin_x ?? ((activeTmpl?.marginXPercent ?? 5) * 1080 / 100))}px
+                          ↕ {Math.round(resolvedYPosition)}% &nbsp;·&nbsp; ↔ {Math.round(resolvedMaxWidth)}%
                       </p>
                     </div>
                   </div>
@@ -2118,16 +2217,6 @@ export default function CaptionStudio() {
                           ↕ {Math.round(local.y_position ?? 75)}% &nbsp;·&nbsp; ← {Math.round(local.margin_x ?? 60)}px
                         </p>
                       </div>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Margen lateral: <span className="text-primary font-bold">{Math.round(local.margin_x ?? 60)}px</span></Label>
-                      <Slider min={0} max={300} step={5} value={[local.margin_x ?? 60]} onValueChange={([v]) => set("margin_x", v)} className="mt-3" />
-                      <div className="flex justify-between text-[10px] text-muted-foreground"><span>0 — sin margen</span><span>300 — centrado</span></div>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Tamaño de letra: <span className="text-primary font-bold">{local.font_size ?? 88}px</span></Label>
-                      <Slider min={60} max={220} step={5} value={[local.font_size ?? 88]} onValueChange={([v]) => set("font_size", v)} className="mt-3" />
-                      <div className="flex justify-between text-[10px] text-muted-foreground"><span>60 — compacto</span><span>220 — máximo impacto</span></div>
                     </div>
                     <div className="space-y-2">
                       <Label>
@@ -2247,17 +2336,20 @@ export default function CaptionStudio() {
               ? (
                   <TemplateCaptionPreview
                     template={mergedTmpl}
-                    yOverride={local.y_position ?? undefined}
-                    marginXOverride={local.margin_x ?? undefined}
-                    onYPositionChange={(y) => set("y_position", y)}
-                    onXMarginChange={(x) => set("margin_x", x)}
+                    yOverride={resolvedYPosition}
+                    maxWidthOverride={resolvedMaxWidth}
+                    onYPositionChange={(y) => setCaptionLayout({ y_position: y })}
                   />
                 )
               : (
                 <CaptionPreview
-                  config={local}
-                  onYPositionChange={(y) => set("y_position", y)}
-                  onXMarginChange={(x) => set("margin_x", x)}
+                    config={{
+                      ...local,
+                      margin_x: marginXFromMaxWidthPercent(
+                        local.max_width_percent ?? maxWidthPercentFromMarginX(local.margin_x ?? 60),
+                      ),
+                    }}
+                    onYPositionChange={(y) => setCaptionLayout({ y_position: y })}
                 />
               )
             }

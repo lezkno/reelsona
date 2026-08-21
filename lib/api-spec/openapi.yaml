@@ -1652,6 +1652,11 @@ components:
           type: number
         margin_x:
           type: number
+        max_width_percent:
+          type: number
+          description: Maximum caption block width as a percentage of the 1080px canonical canvas.
+        layout_customized:
+          type: boolean
         caption_engine:
           type: string
           enum: [standard, browser_experimental]
@@ -1690,6 +1695,8 @@ components:
         - auto_movement
         - subtle_rotation
         - caption_engine
+        - max_width_percent
+        - layout_customized
         - selected_preset_ids
         - caption_rotation_strategy
         - preset_usage_count
@@ -1719,8 +1726,8 @@ components:
           type: string
         font_size:
           type: number
-          minimum: 24
-          maximum: 120
+          minimum: 60
+          maximum: 220
         active_word_scale:
           type: number
           minimum: 1.0
@@ -1740,6 +1747,12 @@ components:
           type: number
         margin_x:
           type: number
+        max_width_percent:
+          type: number
+          minimum: 40
+          maximum: 100
+        layout_customized:
+          type: boolean
         caption_engine:
           type: string
           enum: [standard, browser_experimental]

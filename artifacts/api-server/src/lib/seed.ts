@@ -32,6 +32,8 @@ export async function seedAdminUser(): Promise<void> {
     // Caption Engine feature flag (browser_experimental vs standard)
     "ALTER TABLE caption_config ADD COLUMN IF NOT EXISTS caption_engine TEXT NOT NULL DEFAULT 'standard'",
     "ALTER TABLE caption_config ADD COLUMN IF NOT EXISTS template_id   TEXT",
+    "ALTER TABLE caption_config ADD COLUMN IF NOT EXISTS max_width_percent REAL NOT NULL DEFAULT 88.9",
+    "ALTER TABLE caption_config ADD COLUMN IF NOT EXISTS layout_customized BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name     VARCHAR(128)",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS email         VARCHAR(256)",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS phone         VARCHAR(32)",

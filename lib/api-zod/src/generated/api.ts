@@ -1055,6 +1055,8 @@ export const GetCaptionConfigResponse = zod.object({
   "line_spacing_factor": zod.number().optional(),
   "y_position": zod.number().optional(),
   "margin_x": zod.number().optional(),
+  "max_width_percent": zod.number().describe('Maximum caption block width as a percentage of the 1080px canonical canvas.'),
+  "layout_customized": zod.boolean(),
   "caption_engine": zod.enum(['standard', 'browser_experimental']),
   "template_id": zod.string().nullish(),
   "template_overrides": zod.string().nullish().describe('JSON-serialized Partial<CaptionTemplate> overrides saved per-template'),
@@ -1071,10 +1073,13 @@ export const GetCaptionConfigResponse = zod.object({
  */
 export const updateCaptionConfigBodyWordsPerLineMax = 8;
 
-export const updateCaptionConfigBodyFontSizeMin = 24;
-export const updateCaptionConfigBodyFontSizeMax = 120;
+export const updateCaptionConfigBodyFontSizeMin = 60;
+export const updateCaptionConfigBodyFontSizeMax = 220;
 
 export const updateCaptionConfigBodyActiveWordScaleMax = 2;
+
+export const updateCaptionConfigBodyMaxWidthPercentMin = 40;
+export const updateCaptionConfigBodyMaxWidthPercentMax = 100;
 
 
 
@@ -1096,6 +1101,8 @@ export const UpdateCaptionConfigBody = zod.object({
   "line_spacing_factor": zod.number().optional(),
   "y_position": zod.number().optional(),
   "margin_x": zod.number().optional(),
+  "max_width_percent": zod.number().min(updateCaptionConfigBodyMaxWidthPercentMin).max(updateCaptionConfigBodyMaxWidthPercentMax).optional(),
+  "layout_customized": zod.boolean().optional(),
   "caption_engine": zod.enum(['standard', 'browser_experimental']).optional(),
   "template_id": zod.string().nullish(),
   "template_overrides": zod.string().nullish().describe('JSON-serialized Partial<CaptionTemplate> overrides saved per-template'),
@@ -1123,6 +1130,8 @@ export const UpdateCaptionConfigResponse = zod.object({
   "line_spacing_factor": zod.number().optional(),
   "y_position": zod.number().optional(),
   "margin_x": zod.number().optional(),
+  "max_width_percent": zod.number().describe('Maximum caption block width as a percentage of the 1080px canonical canvas.'),
+  "layout_customized": zod.boolean(),
   "caption_engine": zod.enum(['standard', 'browser_experimental']),
   "template_id": zod.string().nullish(),
   "template_overrides": zod.string().nullish().describe('JSON-serialized Partial<CaptionTemplate> overrides saved per-template'),
