@@ -1,33 +1,17 @@
-import { BROWSER_CAPTION_TEMPLATES, type CaptionTemplate } from "@workspace/caption-templates";
+import {
+  getFastV2TemplatePreview,
+  getFastV2VisualOverrides,
+  type CaptionTemplate,
+} from "@workspace/caption-templates";
 
 import type { CaptionStyle } from "./caption-engine";
-
-/** Layout belongs to CaptionConfig. Overrides are visual-only by design. */
-const VISUAL_OVERRIDE_KEYS = new Set<keyof CaptionTemplate>([
-  "wordsPerLine", "primaryColor", "activeWordColor", "outlineColor",
-  "backgroundColor", "fontFamily", "activeWordScale", "outlineWidth",
-  "letterSpacing", "highlightMode", "inactiveOpacity", "stackWords",
-  "fontWeight", "shadowColor", "shadowOffsetX", "shadowOffsetY", "shadowBlur",
-  "uppercase",
-]);
-
-function visualOverrides(overrides?: Partial<CaptionTemplate>): Partial<CaptionTemplate> {
-  if (!overrides) return {};
-  return Object.fromEntries(
-    Object.entries(overrides).filter(([key]) => VISUAL_OVERRIDE_KEYS.has(key as keyof CaptionTemplate)),
-  ) as Partial<CaptionTemplate>;
-}
 
 /** Browser Engine uses the same visual-only override policy as Render Fast V2. */
 export function getBrowserTemplateVisualOverrides(
   overrides?: Partial<CaptionTemplate>,
   canonicalFontSize?: number,
 ): Partial<CaptionTemplate> {
-  return {
-    ...visualOverrides(overrides),
-    // Font size belongs to the common CaptionConfig, never a saved template.
-    ...(canonicalFontSize !== undefined && { fontSize: canonicalFontSize }),
-  };
+  return getFastV2VisualOverrides(overrides, canonicalFontSize);
 }
 
 /**
@@ -40,16 +24,14 @@ export function getBrowserTemplateStyleOverrides(
   overrides?: Partial<CaptionTemplate>,
   canonicalFontSize?: number,
 ): Partial<CaptionStyle> | null {
-  const baseTemplate = BROWSER_CAPTION_TEMPLATES.find((template) => template.id === templateId);
-  if (!baseTemplate) return null;
-
-  const template = {
-    ...baseTemplate,
-    ...getBrowserTemplateVisualOverrides(overrides, canonicalFontSize),
-  };
+  const fastV2 = getFastV2TemplatePreview(templateId, overrides, canonicalFontSize);
+  if (!fastV2) return null;
+  const { template } = fastV2;
   return {
     presetId: template.id,
-    wordsPerLine: template.wordsPerLine,
+    // Keep CaptionStyle aligned with the shared Fast V2 preview contract.
+    // Pop/zoom ultimately show one dialogue word; mixed mode ignores this value.
+    wordsPerLine: fastV2.wordsPerLine,
     primaryColor: template.primaryColor,
     activeWordColor: template.activeWordColor,
     outlineColor: template.outlineColor,

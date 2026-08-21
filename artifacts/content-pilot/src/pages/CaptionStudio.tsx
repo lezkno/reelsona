@@ -24,7 +24,6 @@ import {
   BROWSER_CAPTION_TEMPLATES,
   buildWordStyle,
   scaleToHeight,
-  getBaselineY,
   getSafeMarginX,
   CAPTION_FONT_SIZE_RANGE,
   CAPTION_MAX_WIDTH_RANGE,
@@ -33,6 +32,7 @@ import {
   captionHorizontalMargins,
   clampCaptionXPosition,
   getAssTemplateParity,
+  resolveFastV2TemplatePreview,
   marginXFromMaxWidthPercent,
   maxWidthPercentFromMarginX,
 } from "@workspace/caption-templates"
@@ -222,107 +222,38 @@ function TemplateCaptionPreview({
 }) {
   const [activeIdx, setActiveIdx] = useState(0)
   const [isDragging, setIsDragging] = useState(false)
+  // This is the same visual reduction the API uses before it gives CaptionStyle
+  // to libass. Browser-only zoom, blur, rounded word boxes and active scaling do
+  // not reach this preview.
+  const fastV2 = resolveFastV2TemplatePreview(template)
+  const assTemplate = fastV2.template
+  const wordsPerLine = fastV2.wordsPerLine
 
-  const isTypewriter  = template.animation === "typewriter"
-  const isZoom        = template.animation === "zoom"
-  const isBuildingMode = !!(template as CaptionTemplate & { buildingMode?: boolean }).buildingMode
-
-  // ── Zoom animation state ───────────────────────────────────────────────────
-  // Reset to false on each new word, then snap to true after 30ms to trigger
-  // the CSS scale transition — mirrors the video's 65%→100% zoom-in per word.
-  const [zoomed, setZoomed] = useState(true)
+  // Fast V2 has no CSS typewriter, per-word scale, or Browser building-mode
+  // transition. The preview advances through the same static ASS dialogue
+  // states used by the final MP4.
   useEffect(() => {
-    if (!isZoom) return
-    setZoomed(false)
-    const t = setTimeout(() => setZoomed(true), 30)
-    return () => clearTimeout(t)
-  }, [isZoom, activeIdx])
-
-  // ── Typewriter animation state ─────────────────────────────────────────────
-  const [twChunkIdx,      setTwChunkIdx]      = useState(0)
-  const [twRevealedChars, setTwRevealedChars] = useState(0)
-  const [twHolding,       setTwHolding]       = useState(false)
-
-  const twNumChunks   = Math.ceil(DEMO_WORDS.length / template.wordsPerLine)
-  const twChunkStart  = (twChunkIdx % twNumChunks) * template.wordsPerLine
-  const twChunk       = DEMO_WORDS.slice(twChunkStart, twChunkStart + template.wordsPerLine)
-  const twChunkText   = twChunk.map(w => template.uppercase ? w.toUpperCase() : w).join(" ")
-  const twTotalChars  = twChunkText.length
-
-  // Standard active-word cycling — disabled when typewriter is running
-  // Building mode reuses activeIdx but at a faster interval (350 ms/word)
-  useEffect(() => {
-    if (isTypewriter) return
-    const ms = isBuildingMode ? 350 : 700
-    const t = setInterval(() => setActiveIdx((a) => (a + 1) % DEMO_WORDS.length), ms)
+    const numberOfStates = fastV2.renderMode === "mixed"
+      ? MIXED_ASS_DEMO_WORD_COUNT
+      : DEMO_WORDS.length
+    const t = setInterval(() => setActiveIdx((a) => (a + 1) % numberOfStates), 700)
     return () => clearInterval(t)
-  }, [isTypewriter, isBuildingMode])
+  }, [fastV2.renderMode])
 
-  useEffect(() => { if (!isTypewriter) setActiveIdx(0) }, [template.wordsPerLine, isTypewriter])
-
-  // Typewriter: reveal chars, then hold, then advance chunk
-  useEffect(() => {
-    if (!isTypewriter) return undefined
-    if (twHolding) {
-      const t = setTimeout(() => {
-        setTwChunkIdx(i => i + 1)
-        setTwRevealedChars(0)
-        setTwHolding(false)
-      }, 900)
-      return () => clearTimeout(t)
-    }
-    if (twRevealedChars < twTotalChars) {
-      const msPerChar = template.animationDuration || 40
-      const t = setTimeout(() => setTwRevealedChars(c => c + 1), msPerChar)
-      return () => clearTimeout(t)
-    }
-    setTwHolding(true)
-    return undefined
-  }, [isTypewriter, twRevealedChars, twHolding, twTotalChars, template.animationDuration])
-
-  // Reset typewriter when template changes
-  useEffect(() => {
-    setTwChunkIdx(0); setTwRevealedChars(0); setTwHolding(false)
-  }, [template.id])
+  useEffect(() => { setActiveIdx(0) }, [wordsPerLine, template.id])
 
   // ── Standard chunk / active-word computation ──────────────────────────────
-  const chunkStart    = Math.floor(activeIdx / template.wordsPerLine) * template.wordsPerLine
-  const chunk         = DEMO_WORDS.slice(chunkStart, chunkStart + template.wordsPerLine)
+  const chunkStart    = Math.floor(activeIdx / wordsPerLine) * wordsPerLine
+  const chunk         = DEMO_WORDS.slice(chunkStart, chunkStart + wordsPerLine)
   const activeInChunk = activeIdx - chunkStart
 
-  // Building mode: accumulate words from block start up to activeIdx
-  const bmBlockStart = Math.floor(activeIdx / template.wordsPerLine) * template.wordsPerLine
-  const bmWords      = DEMO_WORDS.slice(bmBlockStart, activeIdx + 1)
-
-  // For typewriter mode, use twChunk and compute per-word visible text
-  const displayChunk         = isBuildingMode ? bmWords
-                              : isTypewriter   ? twChunk
-                              : chunk
-  const displayActiveInChunk = isBuildingMode ? (bmWords.length - 1)  // last = just-added word
-                              : isTypewriter   ? -1                    // no highlight during char reveal
-                              : activeInChunk
-
-  // Compute per-word display text
-  const twWordTexts: string[] = (() => {
-    // Building and standard modes: show full words
-    if (!isTypewriter) return displayChunk.map(w => template.uppercase ? w.toUpperCase() : w)
-    // Typewriter: char-by-char reveal
-    let left = twRevealedChars
-    return displayChunk.map(w => {
-      const full = template.uppercase ? w.toUpperCase() : w
-      if (left <= 0) return ""
-      const visible = full.slice(0, left)
-      left = Math.max(0, left - full.length - 1) // -1 for the space separator
-      return visible
-    })
-  })()
+  const displayChunk = chunk
+  const displayActiveInChunk = activeInChunk
 
   // Scale all 1920-reference values to preview dimensions
-  const scaledFS   = Math.round(scaleToHeight(template.fontSize,    PHONE_SCREEN_H))
-  const scaledOW   = +scaleToHeight(template.outlineWidth,  PHONE_SCREEN_H).toFixed(1)
-  const scaledSX   = +scaleToHeight(template.shadowOffsetX, PHONE_SCREEN_H).toFixed(1)
-  const scaledSY   = +scaleToHeight(template.shadowOffsetY, PHONE_SCREEN_H).toFixed(1)
-  const scaledBlur = +scaleToHeight(template.shadowBlur,    PHONE_SCREEN_H).toFixed(1)
+  const scaledFS   = Math.round(scaleToHeight(assTemplate.fontSize, PHONE_SCREEN_H))
+  const scaledOW   = +scaleToHeight(fastV2.outlineWidth, PHONE_SCREEN_H).toFixed(1)
+  const scaledShadow = +scaleToHeight(fastV2.shadowDepth, PHONE_SCREEN_H).toFixed(1)
 
   // Effective position: user override takes precedence over template default
   const effectiveYPct = yOverride ?? template.yPercent
@@ -345,12 +276,60 @@ function TemplateCaptionPreview({
   const extraBelowBaseline = Math.ceil(
     scaledFS   * 0.25 +           // font descender metric (~25% of em for Poppins/Oswald)
     scaledOW   * 1.2  +           // outline extends below the alphabetic baseline
-    scaledSY          +           // shadow offset downward
-    scaledBlur * 0.4              // shadow blur spreads downward
+    scaledShadow                     // ASS has a hard positive shadow, no blur
   )
   // Text container spans from top of frame to baselineY + extraBelowBaseline,
   // so the visual glyph bottom (including outline/shadow) lands at the correct position.
   const containerH = baselineY + extraBelowBaseline
+  // Dimidium's ASS renderer uses SRT phrases (not words-per-line) and keeps the
+  // current phrase plus up to three prior phrases stacked above it. The editor
+  // has no subtitle file to inspect, so this stable phrase fixture reproduces
+  // that exact dialogue-window rule without inventing a configurable wrapping.
+  let mixedRemainingWords = activeIdx % MIXED_ASS_DEMO_WORD_COUNT
+  const mixedPhraseIndex = MIXED_ASS_DEMO_PHRASES.findIndex((phrase) => {
+    if (mixedRemainingWords < phrase.length) return true
+    mixedRemainingWords -= phrase.length
+    return false
+  })
+  const mixedWordIndex = mixedRemainingWords
+  const mixedVisiblePhrases = Array.from(
+    { length: Math.min(4, mixedPhraseIndex + 1) },
+    (_, offset) => {
+      const phraseIndex = mixedPhraseIndex - (Math.min(4, mixedPhraseIndex + 1) - 1 - offset)
+      const phrase = MIXED_ASS_DEMO_PHRASES[phraseIndex]
+      return {
+        key: `${phraseIndex}-${mixedPhraseIndex}`,
+        words: phraseIndex === mixedPhraseIndex ? phrase.slice(0, mixedWordIndex + 1) : phrase,
+      }
+    },
+  )
+  const getAssWordStyle = (
+    word: string,
+    isActive: boolean,
+    isPast = false,
+    mixed = false,
+  ): React.CSSProperties => {
+    const isFuncWord = mixed && PREVIEW_FUNCTION_WORDS.has(word.toLowerCase())
+    const wordFS = mixed && isFuncWord ? scaledFS * 0.68 : scaledFS
+    return {
+      fontFamily: `'${fastV2.assFontFamily}', sans-serif`,
+      fontSize: `${wordFS}px`,
+      fontWeight: fastV2.assFontWeight,
+      letterSpacing: `${scaleToHeight(fastV2.assLetterSpacing, PHONE_SCREEN_H)}px`,
+      lineHeight: 1.15,
+      color: mixed
+        ? (isFuncWord ? assTemplate.primaryColor : assTemplate.activeWordColor)
+        : (isActive ? assTemplate.activeWordColor : assTemplate.primaryColor),
+      opacity: fastV2.renderMode === "highlight" && isPast ? assTemplate.inactiveOpacity : 1,
+      WebkitTextStroke: scaledOW > 0 ? `${scaledOW}px ${assTemplate.outlineColor}` : "none",
+      paintOrder: "stroke fill",
+      textShadow: scaledShadow > 0
+        ? `${scaledShadow}px ${scaledShadow}px 0 ${assTemplate.shadowColor}`
+        : "none",
+      textTransform: assTemplate.uppercase ? "uppercase" : "none",
+      display: "inline-block",
+    }
+  }
 
   return (
     <PhoneFrame>
@@ -397,36 +376,45 @@ function TemplateCaptionPreview({
             paddingRight: marginRightPx,
           }}
         >
-          <div className={template.stackWords
-            ? "flex flex-col items-center gap-y-1"
-            : "flex flex-wrap justify-center items-end gap-x-1 gap-y-0.5"}>
-            {displayChunk.map((word, i) => {
-              const isActive   = i === displayActiveInChunk
-              const isMixed    = template.highlightMode === "mixed"
-              const isFuncWord = isMixed && PREVIEW_FUNCTION_WORDS.has(word.toLowerCase())
-              const wordIsActive = isMixed ? !isFuncWord : isActive
-              const wordFS    = isMixed && isFuncWord ? scaledFS * 0.55 : scaledFS
-              const displayText = twWordTexts[i]
-              if (isTypewriter && displayText === "") return null
-              const zoomStyle: React.CSSProperties = isZoom ? {
-                display:    "inline-block",
-                transform:  zoomed ? "scale(1)" : "scale(0.65)",
-                opacity:    zoomed ? 1 : 0.3,
-                transition: `transform ${template.animationDuration || 180}ms ease-out, opacity ${template.animationDuration || 180}ms ease-out`,
-              } : {}
-              const span = (
-                <span
-                  key={`${twChunkStart || chunkStart}-${i}`}
-                  style={{ ...(buildWordStyle(template, wordIsActive, wordFS, scaledOW, scaledSX, scaledSY, scaledBlur) as React.CSSProperties), ...zoomStyle }}
-                >
-                  {displayText}
-                </span>
-              )
-              return template.stackWords
-                ? <div key={`${twChunkStart || chunkStart}-${i}`} className="w-full flex justify-center">{span}</div>
-                : span
-            })}
-          </div>
+          {fastV2.renderMode === "mixed" ? (
+            <div className="flex w-full flex-col items-start gap-y-0.5">
+              {mixedVisiblePhrases.map((phrase) => (
+                <div key={phrase.key} className="flex items-baseline gap-x-1">
+                  {phrase.words.map((word, index) => (
+                    <span key={`${phrase.key}-${index}`} style={getAssWordStyle(word, true, false, true)}>
+                      {assTemplate.uppercase ? word.toUpperCase() : word}
+                    </span>
+                  ))}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div
+              style={fastV2.hasDialogueBox ? {
+                backgroundColor: fastV2.assBackgroundColor ?? undefined,
+                borderRadius: 0,
+                padding: 0,
+              } : undefined}
+              className={assTemplate.stackWords
+                ? "flex flex-col items-center gap-y-1"
+                : "flex flex-wrap justify-center items-end gap-x-1 gap-y-0.5"}
+            >
+              {displayChunk.map((word, i) => {
+                const isActive = i === displayActiveInChunk
+                const wordIsActive = fastV2.renderMode === "pop"
+                  ? assTemplate.highlightMode === "both"
+                  : isActive
+                const span = (
+                  <span key={`${chunkStart}-${i}`} style={getAssWordStyle(word, wordIsActive, i < displayActiveInChunk)}>
+                    {assTemplate.uppercase ? word.toUpperCase() : word}
+                  </span>
+                )
+                return assTemplate.stackWords
+                  ? <div key={`${chunkStart}-${i}`} className="w-full flex justify-center">{span}</div>
+                  : span
+              })}
+            </div>
+          )}
         </div>
 
         {/* ── DRAG OVERLAY — same as CaptionPreview ── */}
@@ -553,6 +541,13 @@ const PREVIEW_SCALE  = PHONE_SCREEN_H / REAL_VIDEO_H  // ≈ 0.231
 
 const PHONE_SCREEN_W = 250  // px — matches PhoneFrame screen width (270 outer − 2×10 padding)
 const CARD_PREVIEW_H = 320  // px — h-[320px] on the card preview container
+const MIXED_ASS_DEMO_PHRASES = [
+  ["tu", "marca"],
+  ["puede", "crecer"],
+  ["desde", "hoy"],
+  ["sin", "pausas"],
+] as const
+const MIXED_ASS_DEMO_WORD_COUNT = MIXED_ASS_DEMO_PHRASES.reduce((total, phrase) => total + phrase.length, 0)
 // Thumbnail anchored at the BOTTOM of the frame (where captions live).
 // scale(0.80) → shows bottom ~90% of the 444px frame; top ~44px clipped.
 // Captions at any yPercent (62–87%) all land in the lower half of the card.
@@ -571,16 +566,35 @@ function BrowserTemplateCard({
 }) {
   // Use PHONE_SCREEN_H for all scaling — identical to TemplateCaptionPreview.
   // A CSS transform shrinks the 250×444 frame to fit the card thumbnail area.
-  const scaledFS = Math.round(scaleToHeight(template.fontSize,    PHONE_SCREEN_H))
-  const scaledOW = +scaleToHeight(template.outlineWidth,  PHONE_SCREEN_H).toFixed(1)
-  const scaledSX = +scaleToHeight(template.shadowOffsetX, PHONE_SCREEN_H).toFixed(1)
-  const scaledSY = +scaleToHeight(template.shadowOffsetY, PHONE_SCREEN_H).toFixed(1)
-  const scaledBl = +scaleToHeight(template.shadowBlur,    PHONE_SCREEN_H).toFixed(1)
-  const baselineY = getBaselineY(template, PHONE_SCREEN_H)
+  const fastV2 = resolveFastV2TemplatePreview(template)
+  const assTemplate = fastV2.template
+  const scaledFS = Math.round(scaleToHeight(assTemplate.fontSize, PHONE_SCREEN_H))
+  const scaledOW = +scaleToHeight(fastV2.outlineWidth, PHONE_SCREEN_H).toFixed(1)
+  const scaledShadow = +scaleToHeight(fastV2.shadowDepth, PHONE_SCREEN_H).toFixed(1)
 
-  const demoWords = template.highlightMode === "mixed"
-    ? ["tu", "MARCA", "puede", "CRECER", "así"]
-    : DEMO_WORDS.slice(0, template.wordsPerLine)
+  const demoWords = DEMO_WORDS.slice(0, fastV2.wordsPerLine)
+  const getCardWordStyle = (word: string, wordIsActive: boolean, mixed = false): React.CSSProperties => {
+    const isFuncWord = mixed && PREVIEW_FUNCTION_WORDS.has(word.toLowerCase())
+    const wordFS = mixed && isFuncWord ? scaledFS * 0.68 : scaledFS
+    return {
+      fontFamily: `'${fastV2.assFontFamily}', sans-serif`,
+      fontSize: `${wordFS}px`,
+      fontWeight: fastV2.assFontWeight,
+      letterSpacing: `${scaleToHeight(fastV2.assLetterSpacing, PHONE_SCREEN_H)}px`,
+      lineHeight: 1.15,
+      color: mixed
+        ? (isFuncWord ? assTemplate.primaryColor : assTemplate.activeWordColor)
+        : (wordIsActive ? assTemplate.activeWordColor : assTemplate.primaryColor),
+      opacity: fastV2.renderMode === "highlight" && !wordIsActive ? assTemplate.inactiveOpacity : 1,
+      WebkitTextStroke: scaledOW > 0 ? `${scaledOW}px ${assTemplate.outlineColor}` : "none",
+      paintOrder: "stroke fill",
+      textShadow: scaledShadow > 0
+        ? `${scaledShadow}px ${scaledShadow}px 0 ${assTemplate.shadowColor}`
+        : "none",
+      textTransform: assTemplate.uppercase ? "uppercase" : "none",
+      display: "inline-block",
+    }
+  }
 
   return (
     <button
@@ -622,31 +636,49 @@ function BrowserTemplateCard({
             className="absolute left-0 right-0 flex justify-center"
             style={{
               bottom:       Math.round(PHONE_SCREEN_H * 0.06),
-              paddingLeft:  `${template.marginXPercent}%`,
-              paddingRight: `${template.marginXPercent}%`,
+              paddingLeft:  `${assTemplate.marginXPercent}%`,
+              paddingRight: `${assTemplate.marginXPercent}%`,
             }}
           >
-            <div className={template.stackWords
+            {fastV2.renderMode === "mixed" ? (
+              <div className="flex w-full flex-col items-start gap-y-0.5">
+                {MIXED_ASS_DEMO_PHRASES.slice(0, 3).map((phrase, phraseIndex) => (
+                  <div key={phraseIndex} className="flex items-baseline gap-x-1">
+                    {phrase.map((word, index) => (
+                      <span key={index} style={getCardWordStyle(word, true, true)}>
+                        {assTemplate.uppercase ? word.toUpperCase() : word}
+                      </span>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            ) : (
+            <div
+              style={fastV2.hasDialogueBox ? {
+                backgroundColor: fastV2.assBackgroundColor ?? undefined,
+                borderRadius: 0,
+                padding: 0,
+              } : undefined}
+              className={assTemplate.stackWords
               ? "flex flex-col items-center gap-y-1"
-              : "flex flex-wrap justify-center items-end gap-x-1 gap-y-0.5"}>
+                : "flex flex-wrap justify-center items-end gap-x-1 gap-y-0.5"}>
               {demoWords.map((word, i) => {
-                const isMixed    = template.highlightMode === "mixed"
-                const isFuncWord = isMixed && PREVIEW_FUNCTION_WORDS.has(word.toLowerCase())
-                const wordIsActive = isMixed ? !isFuncWord : (i === 1)
-                const wordFS    = isMixed && isFuncWord ? scaledFS * 0.55 : scaledFS
+                const wordIsActive = fastV2.renderMode === "pop" ? assTemplate.highlightMode === "both"
+                  : i === 1
                 const span = (
                   <span
                     key={i}
-                    style={buildWordStyle(template, wordIsActive, wordFS, scaledOW, scaledSX, scaledSY, scaledBl) as React.CSSProperties}
+                    style={getCardWordStyle(word, wordIsActive)}
                   >
-                    {template.uppercase ? word.toUpperCase() : word}
+                    {assTemplate.uppercase ? word.toUpperCase() : word}
                   </span>
                 )
-                return template.stackWords
+                return assTemplate.stackWords
                   ? <div key={i} className="w-full flex justify-center">{span}</div>
                   : span
               })}
             </div>
+            )}
           </div>
         </div>
       </div>
@@ -1677,6 +1709,20 @@ export default function CaptionStudio() {
         marginXPercent: (100 - resolvedMaxWidth) / 2,
       }
     : null
+  const activeFastV2 = activeTmpl
+    ? resolveFastV2TemplatePreview(activeTmpl, currentOverrides, resolvedFontSize)
+    : null
+  const unavailableTemplateControls = activeFastV2
+    ? ([
+        ["wordsPerLine", "palabras por línea"],
+        ["outlineWidth", "grosor del outline"],
+        ["inactiveOpacity", "opacidad inactiva"],
+        ["activeWordColor", "color activo"],
+        ["outlineColor", "color del outline"],
+      ] as const)
+        .filter(([key]) => !activeFastV2.controls[key])
+        .map(([, label]) => label)
+    : []
 
   const previewRotationTemplates = rotationEnabled
     ? BROWSER_CAPTION_TEMPLATES.filter((template) => rotationIds.has(template.id))
@@ -2191,10 +2237,16 @@ export default function CaptionStudio() {
                 )}
               </div>
               <p className="text-sm text-muted-foreground mb-4">
-                Ajusta los valores de la plantilla <strong>{activeTmpl?.name}</strong>. El preview se actualiza en tiempo real y los cambios se aplican al video final.
+                Ajusta los valores de la plantilla <strong>{activeTmpl?.name}</strong>. Solo se muestran controles que cambian el MP4 de Render Fast V2; el preview se actualiza en tiempo real.
               </p>
+              {unavailableTemplateControls.length > 0 && (
+                <p className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
+                  Fast V2 no aplica {unavailableTemplateControls.join(", ")} en esta plantilla. Se ocultan para evitar ajustes sin efecto.
+                </p>
+              )}
               <Card>
                 <CardContent className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-6">
+                  {activeFastV2?.controls.wordsPerLine && (
                   <div className="space-y-2">
                     <Label>
                       Palabras por línea:&nbsp;
@@ -2208,6 +2260,8 @@ export default function CaptionStudio() {
                       <span>1 — una palabra</span><span>Default: {activeTmpl?.wordsPerLine}</span><span>6 — frase larga</span>
                     </div>
                   </div>
+                  )}
+                  {activeFastV2?.controls.outlineWidth && (
                   <div className="space-y-2">
                     <Label>
                       Grosor del outline:&nbsp;
@@ -2221,6 +2275,8 @@ export default function CaptionStudio() {
                       <span>0 — sin outline</span><span>Default: {activeTmpl?.outlineWidth}px</span><span>20 — trazo grueso</span>
                     </div>
                   </div>
+                  )}
+                  {activeFastV2?.controls.inactiveOpacity && (
                   <div className="space-y-2">
                     <Label>
                       Opacidad de palabras inactivas:&nbsp;
@@ -2234,6 +2290,7 @@ export default function CaptionStudio() {
                       <span>0% — invisibles</span><span>Default: {Math.round((activeTmpl?.inactiveOpacity ?? 1) * 100)}%</span><span>100% — igual que activa</span>
                     </div>
                   </div>
+                  )}
                   <div className="space-y-2">
                     <Label>
                       Color de texto
@@ -2249,6 +2306,7 @@ export default function CaptionStudio() {
                       </div>
                     </div>
                   </div>
+                  {activeFastV2?.controls.activeWordColor && (
                   <div className="space-y-2">
                     <Label>
                       Color de palabra activa
@@ -2264,6 +2322,8 @@ export default function CaptionStudio() {
                       </div>
                     </div>
                   </div>
+                  )}
+                  {activeFastV2?.controls.outlineColor && (
                   <div className="space-y-2">
                     <Label>
                       Color del outline
@@ -2279,6 +2339,7 @@ export default function CaptionStudio() {
                       </div>
                     </div>
                   </div>
+                  )}
                   <div className="sm:col-span-2 flex items-start gap-2 p-3 rounded-lg bg-muted/40">
                     <span className="text-base mt-0.5 shrink-0">✥</span>
                     <div>
