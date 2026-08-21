@@ -1596,9 +1596,19 @@ export default function CaptionStudio() {
       setLocal(config)
       // Restore rotation state
       const savedIds = (config.selected_preset_ids as string[] | null) ?? []
-      if (savedIds.length > 0) {
+      if (savedIds.length >= 2) {
         setRotationEnabled(true)
         setRotationIds(new Set(savedIds))
+      } else {
+        // Rotation only makes sense with at least two templates. Clean up an
+        // old one-template selection so the switch cannot come back enabled.
+        setRotationEnabled(false)
+        setRotationIds(new Set())
+        if (savedIds.length > 0 && !planLocked) {
+          updateConfig.mutate({
+            data: { selected_preset_ids: [], caption_rotation_strategy: (config.caption_rotation_strategy as string | null) ?? "sequential" } as any,
+          })
+        }
       }
       setRotationStrategy((config.caption_rotation_strategy as string | null) ?? "sequential")
       // Restore saved overrides from DB — stored as Record<templateId, Partial<CaptionTemplate>>
@@ -1712,6 +1722,9 @@ export default function CaptionStudio() {
   const activeFastV2 = activeTmpl
     ? resolveFastV2TemplatePreview(activeTmpl, currentOverrides, resolvedFontSize)
     : null
+  const hasAdjustableTemplateControls = Boolean(
+    activeFastV2 && Object.values(activeFastV2.controls).some(Boolean),
+  )
   const unavailableTemplateControls = activeFastV2
     ? ([
         ["wordsPerLine", "cantidad de palabras visibles"],
@@ -1970,11 +1983,23 @@ export default function CaptionStudio() {
   const toggleRotationTemplate = (id: string) => {
     if (isVideoProcessing) return
     const next = new Set(rotationIds)
+    // When starting from an empty rotation, keep the current template as the
+    // first member so clicking one additional card creates a valid pair.
+    if (next.size === 0 && local.template_id && local.template_id !== id) {
+      next.add(local.template_id)
+    }
     if (next.has(id)) next.delete(id)
     else next.add(id)
+    if (next.size < 2) {
+      // A single template cannot rotate. Turn the switch off and clear the
+      // persisted rotation list, while keeping the local selection available
+      // if the user enables rotation again.
+      setRotationEnabled(false)
+      setRotationIds(next)
+      saveRotation(new Set(), rotationStrategy)
+      return
+    }
     setRotationIds(next)
-    // If the user removed the last template, turn rotation off automatically
-    if (next.size === 0) setRotationEnabled(false)
     saveRotation(next, rotationStrategy)
   }
 
@@ -2069,9 +2094,9 @@ export default function CaptionStudio() {
               <p className="font-bold text-base">Rotar captions en modo automático</p>
               <p className="text-sm text-muted-foreground max-w-md">
                 {rotationEnabled
-                  ? rotationIds.size > 0
+                  ? rotationIds.size >= 2
                     ? `${rotationIds.size} plantilla${rotationIds.size !== 1 ? "s" : ""} en rotación. Haz clic en las plantillas para agregarlas o quitarlas.`
-                    : "Selecciona al menos una plantilla. Si no eliges ninguna se usa siempre la misma."
+                    : "Selecciona al menos 2 plantillas para activar la rotación."
                   : "Activa para que cada video use una plantilla diferente de forma automática."}
               </p>
               {rotationEnabled && rotationIds.size === 0 && (
@@ -2221,7 +2246,7 @@ export default function CaptionStudio() {
           </Card>
 
           {/* Browser template advanced settings */}
-          {!rotationEnabled && mergedTmpl && (
+          {!rotationEnabled && mergedTmpl && hasAdjustableTemplateControls && (
             <div>
               <div className="flex items-center justify-between mb-1">
                  <h2 className="text-xl font-display font-bold">Ajustar el estilo</h2>
