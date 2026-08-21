@@ -57,3 +57,4 @@
 - [Render failure publishing safety](render-failure-publishing-safety.md) — a renderer failure must be terminal and block copy, scheduled, and manual raw-source publishing.
 - [Long-running production renders](long-running-production-renders.md) — use an always-on VM for post-production; autoscale can interrupt background render workers, and the target is changed in Publishing settings.
 - [libass font pinning](libass-poppins-font-resolution.md) — Fast V2 stages one Canvas TTF per render; verify FFmpeg `fontselect`, not just `fontsdir`.
+- [Playwright Chromium runtime](playwright-chromium-runtime.md) — use the Nix Chromium runtime through Playwright launchOptions; downloaded Chromium lacks this environment’s shared libraries.

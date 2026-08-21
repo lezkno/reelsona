@@ -2078,7 +2078,13 @@ export default function CaptionStudio() {
               </p>
             </div>
           </div>
-          <Switch checked={captionsEnabled} onCheckedChange={handleToggle} disabled={isVideoProcessing} className="shrink-0" />
+          <Switch
+            checked={captionsEnabled}
+            onCheckedChange={handleToggle}
+            disabled={isVideoProcessing}
+            aria-label="Activar captions"
+            className="shrink-0"
+          />
         </CardContent>
       </Card>
 
@@ -2127,7 +2133,13 @@ export default function CaptionStudio() {
               )}
             </div>
           </div>
-          <Switch checked={rotationEnabled} onCheckedChange={handleRotationToggle} disabled={isVideoProcessing} className="shrink-0" />
+          <Switch
+            checked={rotationEnabled}
+            onCheckedChange={handleRotationToggle}
+            disabled={isVideoProcessing}
+            aria-label="Activar rotación de captions"
+            className="shrink-0"
+          />
         </CardContent>
       </Card>
       )}
@@ -2187,6 +2199,7 @@ export default function CaptionStudio() {
                 <div className="space-y-2">
                   <Label>Tamaño: <span className="text-primary font-bold">{resolvedFontSize}px</span></Label>
                   <Slider
+                    aria-label="Tamaño de texto"
                     min={CAPTION_FONT_SIZE_RANGE.min}
                     max={CAPTION_FONT_SIZE_RANGE.max}
                     step={CAPTION_FONT_SIZE_RANGE.step}
@@ -2200,6 +2213,7 @@ export default function CaptionStudio() {
                 <div className="space-y-2">
                   <Label>Posición horizontal: <span className="text-primary font-bold">{Math.round(resolvedXPosition)}%</span></Label>
                   <Slider
+                    aria-label="Posición horizontal"
                     min={Math.max(CAPTION_X_POSITION_RANGE.min, resolvedMaxWidth / 2)}
                     max={Math.min(CAPTION_X_POSITION_RANGE.max, 100 - resolvedMaxWidth / 2)}
                     step={CAPTION_X_POSITION_RANGE.step}
@@ -2213,6 +2227,7 @@ export default function CaptionStudio() {
                 <div className="space-y-2">
                   <Label>Posición vertical: <span className="text-primary font-bold">{Math.round(resolvedYPosition)}%</span></Label>
                   <Slider
+                    aria-label="Posición vertical"
                     min={CAPTION_Y_POSITION_RANGE.min}
                     max={CAPTION_Y_POSITION_RANGE.max}
                     step={0.5}
@@ -2226,6 +2241,7 @@ export default function CaptionStudio() {
                 <div className="space-y-2">
                   <Label>Ancho máximo: <span className="text-primary font-bold">{Math.round(resolvedMaxWidth)}%</span></Label>
                   <Slider
+                    aria-label="Ancho máximo"
                     min={CAPTION_MAX_WIDTH_RANGE.min}
                     max={CAPTION_MAX_WIDTH_RANGE.max}
                     step={CAPTION_MAX_WIDTH_RANGE.step}
