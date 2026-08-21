@@ -56,4 +56,4 @@
 - [Single-pass FFmpeg branching](single-pass-ffmpeg-branching.md) — normalized video must split before zoom trims; each concat segment must explicitly reset SAR.
 - [Render failure publishing safety](render-failure-publishing-safety.md) — a renderer failure must be terminal and block copy, scheduled, and manual raw-source publishing.
 - [Long-running production renders](long-running-production-renders.md) — use an always-on VM for post-production; autoscale can interrupt background render workers, and the target is changed in Publishing settings.
-- [libass Poppins resolution](libass-poppins-font-resolution.md) — `fontsdir` can still resolve Poppins to DejaVu; verify FFmpeg `fontselect` before trusting visual parity.
+- [libass font pinning](libass-poppins-font-resolution.md) — Fast V2 stages one Canvas TTF per render; verify FFmpeg `fontselect`, not just `fontsdir`.

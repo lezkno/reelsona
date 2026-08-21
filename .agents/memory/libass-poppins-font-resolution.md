@@ -1,10 +1,10 @@
 ---
-name: libass Poppins font resolution
-description: Fast V2 can load the bundled Poppins file yet select DejaVu Sans when ASS requests the Poppins family.
+name: libass font pinning
+description: Fast V2 must isolate and name the exact bundled Canvas TTF for libass, then verify selection with FFmpeg logs.
 ---
 
-Do not assume `fontsdir` guarantees libass uses the CSS font family. In a controlled Fast V2 ASS render, `Fontname: Poppins` with bold selected DejaVu Sans Bold even though `Poppins-ExtraBold.ttf` was loaded from the bundled fonts directory; Caption Studio loads that TTF directly in CSS.
+Do not assume a shared `fontsdir` guarantees libass uses the CSS font family. Fast V2 has to stage just the intended bundled Canvas TTF in its temporary render directory and set its concrete ASS face name. This applies to Poppins ExtraBold, Oswald, Bangers Regular, and Montserrat Black.
 
-**Why:** CSS and libass therefore use different glyph metrics at the same canonical `font_size`, producing a visible caption-size mismatch without any resolution-scale bug.
+**Why:** libass/fontconfig can select a system font or a sibling bundled face when given a generic family. Canvas registers a known file directly, so mismatched resolution produces a caption-size mismatch even when the persisted `font_size` and video resolution are correct.
 
-**How to apply:** When calibrating or changing Fast V2 typography, capture FFmpeg verbose `fontselect` output and compare actual glyph bounding boxes against the Studio preview. Treat a scalar size multiplier only as a temporary calibration; verify font-family resolution first.
+**How to apply:** When changing Fast V2 typography, capture FFmpeg debug `Loading font file` plus `fontselect` output and compare actual glyph bounding boxes against Canvas. A staged-file checksum is useful evidence. Do not add a scalar size multiplier until font selection is proven; ASS and Canvas can still have independent raster-metric differences after the same TTF is selected.

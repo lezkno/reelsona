@@ -24,6 +24,11 @@ import {
   type PunchWordTiming,
 } from "./caption-engine";
 import {
+  pinFastV2AssFont,
+  resolveFastV2FontFace,
+  stageFastV2Font,
+} from "./render-fast-v2-fonts";
+import {
   analyzeBRollSegments,
   generateBRollImages,
   type BRollBillingContext,
@@ -89,6 +94,7 @@ type FastGraphInput = {
   zoomTimestamps: number[];
   brollAssets: BRollImageAsset[];
   assPath: string;
+  fontsDir?: string;
 };
 
 type FastGraph = {
@@ -256,8 +262,9 @@ export function buildRenderFastV2Graph(input: FastGraphInput): FastGraph {
     videoLabel = nextLabel;
   });
 
+  const fontsDir = input.fontsDir ?? CAPTION_FONTS_DIR;
   parts.push(
-    `${videoLabel}ass='${escapeFilterPath(input.assPath)}':fontsdir='${escapeFilterPath(CAPTION_FONTS_DIR)}'[renderedv]`,
+    `${videoLabel}ass='${escapeFilterPath(input.assPath)}':fontsdir='${escapeFilterPath(fontsDir)}'[renderedv]`,
   );
 
   return {
@@ -381,7 +388,24 @@ export async function applyCaptionsFastV2(
     stageStartedAt = Date.now();
     const srt = await resolveSrt(options?.subtitleUrl, script, videoInfo.duration);
     const captions = buildCaptionArtifactsFromSrt(srt, config, OUTPUT_WIDTH, OUTPUT_HEIGHT);
-    await fs.writeFile(assPath, captions.ass, "utf8");
+    const fontFace = resolveFastV2FontFace(config.fontFamily);
+    const fontsDir = fontFace
+      ? await stageFastV2Font(fontFace, tmpDir)
+      : CAPTION_FONTS_DIR;
+    const ass = fontFace
+      ? pinFastV2AssFont(captions.ass, fontFace)
+      : captions.ass;
+    await fs.writeFile(assPath, ass, "utf8");
+    if (fontFace) {
+      logger.info(
+        {
+          fontFamily: config.fontFamily,
+          assFontName: fontFace.assFontName,
+          sourceFile: fontFace.sourceFile,
+        },
+        "[RenderFastV2] Pinned Canvas TTF for libass",
+      );
+    }
     telemetry.prepareCaptionsMs = elapsedMs(stageStartedAt);
 
     if (options?.videoEffects?.text_cards) {
@@ -423,6 +447,7 @@ export async function applyCaptionsFastV2(
       zoomTimestamps,
       brollAssets,
       assPath,
+      fontsDir,
     });
     telemetry.buildFilterGraphMs = elapsedMs(stageStartedAt);
 
