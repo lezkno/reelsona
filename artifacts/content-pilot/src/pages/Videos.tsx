@@ -23,10 +23,12 @@ import { useToast } from "@/hooks/use-toast"
 import { useQueryClient } from "@tanstack/react-query"
 import { useState, useCallback, useEffect, useRef } from "react"
 import { VideoToolsSummary } from "@/components/VideoToolsSummary"
+import { resolveVideoPreviewSources } from "@/lib/video-preview-source"
 
 // ── Video preview modal with caption/hashtag editing ─────────────────────────
 function VideoPreviewModal({ video, onClose }: { video: Video | null; onClose: () => void }) {
   const queryClient = useQueryClient()
+  const previewSources = resolveVideoPreviewSources(video)
   const { data: contentItem } = useGetContentItem(
     video?.content_plan_id ?? 0,
     { query: { enabled: !!video?.content_plan_id } as any }
@@ -65,10 +67,16 @@ function VideoPreviewModal({ video, onClose }: { video: Video | null; onClose: (
       open={!!video}
       onClose={onClose}
       title={video?.topic ?? `Video #${video?.id}`}
-      subtitle={video?.captioned_video_url ? "Con captions aplicados" : "Video generado"}
+      subtitle={
+        previewSources.showsOriginal
+          ? "Video original de WaveSpeed · sin efectos"
+          : video?.captioned_video_url
+            ? "Con captions aplicados"
+            : "Video generado"
+      }
       headerIcon={Eye}
-      videoSrc={video?.captioned_video_url}
-      fallbackSrc={video?.video_url}
+      videoSrc={previewSources.videoSrc}
+      fallbackSrc={previewSources.fallbackSrc}
       thumbnailSrc={video?.thumbnail_url}
       caption={contentItem?.caption}
       hashtags={contentItem?.hashtags}
@@ -713,6 +721,11 @@ export default function Videos() {
                   <h4 className="font-bold font-display line-clamp-2 text-sm mb-2 flex-1" title={video.topic || 'Video'}>
                     {video.topic || `Video #${video.id}`}
                   </h4>
+                  {video.status === 'cancelled' && video.video_url && (
+                    <p className="text-[11px] text-muted-foreground mb-2">
+                      Video original conservado · sin efectos
+                    </p>
+                  )}
 
                   {/* Error message for failed videos */}
                   {video.status === 'failed' && (video as any).error_message && (
@@ -804,6 +817,32 @@ export default function Videos() {
                           Descargar video
                         </Button>
                       )}
+                    </div>
+                  )}
+
+                  {/* Cancelled videos keep the WaveSpeed source available without effects. */}
+                  {!selectMode && video.status === 'cancelled' && video.video_url && (
+                    <div className="flex flex-col gap-1.5 mt-3 pt-3 border-t border-border/70 mb-3">
+                      <Button
+                        size="sm"
+                        className="w-full gap-1.5 text-xs"
+                        onClick={() => setPreviewVideo(video)}
+                      >
+                        <Play className="w-3.5 h-3.5 fill-current" /> Ver video original
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="w-full text-xs gap-1.5"
+                        disabled={!!downloading[`video-${video.id}`]}
+                        onClick={() => {
+                          const name = (video.topic ?? `video-${video.id}`).replace(/[^\w\s-]/g, "").replace(/\s+/g, "_").slice(0, 60) + "_original.mp4"
+                          downloadFile(video.video_url ?? "", name, `video-${video.id}`)
+                        }}
+                      >
+                        {downloading[`video-${video.id}`] ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                        Descargar original
+                      </Button>
                     </div>
                   )}
 
