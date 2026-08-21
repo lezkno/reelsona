@@ -7,6 +7,7 @@ uri = "file://test-cover.jpg"
 type = "image"
 title = "Miniatura de prueba — motor canvas"
 description = "Portada 1080×1920 generada con el motor de canvas (fallback). La versión con IA usa esta misma estructura base pero incorpora el frame del avatar de HeyGen como referencia visual."
+logical_id = "2acf9665-2da8-40aa-b46b-b0a3d8f22361"
 
 [[outputs]]
 id = "UV28s5wegiwn5fevtpv4P"
@@ -14,3 +15,18 @@ uri = "file://ai-cover-test.png"
 type = "image"
 title = "Miniatura IA — gpt-image-1"
 description = "Generada con tu avatar de HeyGen como referencia visual + hook del video + colores de marca."
+logical_id = "daab5b99-7167-4ee2-8bad-bcce2963ba08"
+
+[[outputs]]
+id = "gxvKIVHZYY2K7oHlIgRK0"
+uri = "file://attached_assets/hybrid-video-99-canvas-test.mp4"
+type = "video"
+title = "Prueba Canvas — video existente 99"
+description = "Render híbrido completo sobre la fuente raw del video 99: picture lock, captions Canvas Dimigium y audio conservado."
+logical_id = "8ea04363-dace-492c-a86a-c3013a51fab3"
+content_hash = "sha256:e245b7cd7a4ed2f87ff8643696047e70ceccac925df00383bdefe7764a82cd35"
+size = 27184225
+mtime_ms = 1787338582256
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:c73d3ea6-1747-46a3-9fff-d98eda8207e5/8ea04363-dace-492c-a86a-c3013a51fab3/bc5a999d-3019-498e-99c9-558a2c8d9e29"
+storage_version_token = "1787338592409079"
+content_type = "video/mp4"
