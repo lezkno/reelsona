@@ -52,6 +52,7 @@ import { applyCaptions, CAPTION_DIR, type CaptionStyle, CAPTION_PRESETS } from "
 import { computeUpcomingSlots } from "./schedule";
 import { applyCaptionsBrowser } from "./browser-caption-engine";
 import { applyCaptionsFastV2, isRenderFastV2Enabled, isRenderFastV2Failure } from "./render-fast-v2";
+import { applyHybridRenderV2 } from "./hybrid-render-v2";
 import {
   getBrowserTemplateStyleOverrides,
   getBrowserTemplateVisualOverrides,
@@ -2062,6 +2063,58 @@ export async function runCaptionProcessing(
   // V2 is intentionally scoped to WaveSpeed talking-head outputs. HeyGen
   // retains its established renderer while this controlled rollout is measured.
   const isWaveSpeedVideo = videoRow?.heygenVideoId?.startsWith("wavespeed-") === true;
+  const hybridBaseTemplate = captionCfg.captionEngine === "browser_experimental" && effectiveTemplateId
+    ? BROWSER_CAPTION_TEMPLATES.find((template) => template.id === effectiveTemplateId)
+    : undefined;
+  const hybridTemplate = hybridBaseTemplate
+    ? {
+        ...hybridBaseTemplate,
+        ...parsedTemplateOverrides,
+        ...(captionCfg.yPosition !== undefined && { yPercent: captionCfg.yPosition }),
+        ...(captionCfg.xPosition !== undefined && { xPercent: captionCfg.xPosition }),
+        marginXPercent: (100 - (
+          captionCfg.maxWidthPercent ?? maxWidthPercentFromMarginX(captionCfg.marginX)
+        )) / 2,
+      }
+    : undefined;
+
+  if (isWaveSpeedVideo && isRenderFastV2Enabled() && hybridTemplate) {
+    logger.info(
+      { videoId, templateId: effectiveTemplateId, videoEffects },
+      "[HybridV2] Selected for WaveSpeed Browser/Canvas captions",
+    );
+    const hybridResult = await applyHybridRenderV2(videoUrl, script, hybridTemplate, {
+      subtitleUrl:          resolvedSubtitleUrl ?? undefined,
+      videoDurationSeconds: durationSeconds ?? undefined,
+      videoEffects,
+      visualSuggestions,
+      brollBilling: userId ? { userId, videoId } : null,
+    });
+
+    if (hybridResult.url) {
+      const finalized = await lease.finish({
+        captionStatus: "done",
+        captionedVideoUrl: hybridResult.url,
+        thumbnailUrl: hybridResult.thumbnailUrl ?? undefined,
+      });
+      if (finalized) {
+        logger.info({ videoId }, "[HybridV2] Captioned video ready ✓");
+        if (contentPlanId) {
+          runCopyGeneration(contentPlanId).catch((err) =>
+            logger.error({ videoId, contentPlanId, err }, "[CopyEngine] Failed to start after Hybrid V2"),
+          );
+        }
+      }
+      return;
+    }
+
+    // Preserve the established Fast V2 renderer strictly as a rollback path.
+    logger.warn(
+      { videoId },
+      `[HybridV2] Failed (${hybridResult.error ?? "unknown error"}) — falling back to Render Fast V2`,
+    );
+  }
+
   if (isWaveSpeedVideo && isRenderFastV2Enabled()) {
     logger.info(
       { videoId, captionEngine: captionCfg.captionEngine, videoEffects },

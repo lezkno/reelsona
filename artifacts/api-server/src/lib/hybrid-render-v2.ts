@@ -153,14 +153,18 @@ export async function applyHybridRenderV2(
 
   try {
     await fs.mkdir(tmpDir, { recursive: true });
+    const downloadStartedAt = Date.now();
     await downloadFile(videoUrl, inputPath);
     const videoInfo = await probeVideo(inputPath);
+    const downloadMs = Date.now() - downloadStartedAt;
     const duration = options?.videoDurationSeconds ?? videoInfo.duration;
+    const timingStartedAt = Date.now();
     const timings = await resolveTimings({
       subtitleUrl: options?.subtitleUrl,
       script,
       durationSeconds: duration,
     });
+    const timingMs = Date.now() - timingStartedAt;
 
     if (!timings.length) {
       throw new Error("No caption timings available for hybrid render");
@@ -201,6 +205,7 @@ export async function applyHybridRenderV2(
     const picture = buildPictureLockGraph(fastInput);
 
     logger.info({ runId, zooms: zoomTimestamps.length, broll: brollAssets.length }, "[HybridV2] Rendering picture lock");
+    const pictureLockStartedAt = Date.now();
     await execFileAsync("ffmpeg", [
       "-noautorotate",
       "-i", inputPath,
@@ -218,6 +223,7 @@ export async function applyHybridRenderV2(
       timeout: getRenderFastV2TimeoutMs(videoInfo.duration),
       killSignal: "SIGKILL",
     });
+    const pictureLockMs = Date.now() - pictureLockStartedAt;
 
     const pictureInfo = await probeVideo(pictureLockPath);
     const canvasResult = await renderHybridCanvasCaptions({
@@ -230,10 +236,12 @@ export async function applyHybridRenderV2(
       template,
     });
 
+    const uploadStartedAt = Date.now();
     const [url, thumbnailUrl] = await Promise.all([
       uploadVideo(outputPath, runId),
       uploadThumbnail(outputPath, runId),
     ]);
+    const uploadMs = Date.now() - uploadStartedAt;
 
     logger.info({
       runId,
@@ -241,6 +249,14 @@ export async function applyHybridRenderV2(
       segmentCount: canvasResult.segmentCount,
       overlapFixes: canvasResult.overlapFixes,
       sourceMode: canvasResult.sourceMode,
+      compositionMode: canvasResult.compositionMode,
+      videoEncodeCount: 1 + canvasResult.videoEncodeCount,
+      downloadMs,
+      timingMs,
+      pictureLockMs,
+      pngGenerationMs: canvasResult.pngGenerationMs,
+      compositionMs: canvasResult.compositionMs,
+      uploadMs,
       totalMs: Date.now() - startedAt,
     }, "[HybridV2] Complete");
 

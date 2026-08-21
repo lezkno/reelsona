@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildHybridCaptionCompositePlan } from "./hybrid-caption-compositor.js";
+import {
+  buildHybridCaptionCompositePlan,
+  buildHybridCaptionVideoOnlyPlan,
+} from "./hybrid-caption-compositor.js";
 
 test("builds one FFmpeg graph and copies picture-lock audio", () => {
   const plan = buildHybridCaptionCompositePlan({
@@ -18,7 +21,7 @@ test("builds one FFmpeg graph and copies picture-lock audio", () => {
   assert.equal(plan.overlapFixes, 0);
   assert.ok(plan.filterComplex.includes("between(t,0.500000,1.500000)"));
   assert.ok(plan.filterComplex.includes("between(t,1.500000,2.500000)"));
-  assert.deepEqual(plan.args.slice(-8), [
+  assert.deepEqual(plan.args.slice(-9), [
     "-pix_fmt", "yuv420p",
     "-c:a", "copy",
     "-movflags", "+faststart",
@@ -55,4 +58,18 @@ test("uses the original MP4 when no captions were generated", () => {
   assert.equal(plan.filterComplex, "[0:v]null[captionedv]");
   assert.ok(plan.args.includes("0:a?"));
   assert.ok(plan.args.includes("copy"));
+});
+
+test("extreme batch fallback renders video-only before a single final audio mux", () => {
+  const plan = buildHybridCaptionVideoOnlyPlan({
+    videoPath: "picture-lock.mp4",
+    outputPath: "caption-batch.mp4",
+    width: 1080,
+    height: 1920,
+    segments: [{ pngPath: "a.png", startSec: 0.5, endSec: 1.5 }],
+  });
+
+  assert.ok(plan.args.includes("-an"));
+  assert.equal(plan.args.includes("-c:a"), false);
+  assert.equal(plan.args.includes("0:a?"), false);
 });

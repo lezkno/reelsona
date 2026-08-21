@@ -13,7 +13,12 @@ import {
   type CaptionTemplate,
 } from "@workspace/caption-templates";
 
-import { buildHybridCaptionCompositePlan } from "./hybrid-caption-compositor.js";
+import {
+  buildHybridCaptionCompositePlan,
+  buildHybridCaptionVideoOnlyPlan,
+  FALLBACK_BATCH_CAPTION_OVERLAYS,
+  MAX_SINGLE_PASS_CAPTION_OVERLAYS,
+} from "./hybrid-caption-compositor.js";
 import { buildHybridCaptionCues, clampHybridCueWindows } from "./hybrid-caption-cues.js";
 import type { CaptionOverlaySegment } from "./hybrid-caption-timeline.js";
 import type { WordTiming } from "./browser-caption-engine.js";
@@ -227,8 +232,17 @@ export async function renderHybridCanvasCaptions(input: {
   height: number;
   timings: WordTiming[];
   template: CaptionTemplate;
-}): Promise<{ segmentCount: number; overlapFixes: number; sourceMode: "phrase" | "word" }> {
+}): Promise<{
+  segmentCount: number;
+  overlapFixes: number;
+  sourceMode: "phrase" | "word";
+  compositionMode: "single_pass" | "batch_fallback";
+  pngGenerationMs: number;
+  compositionMs: number;
+  videoEncodeCount: number;
+}> {
   const canvas = await loadCanvas();
+  const pngStartedAt = Date.now();
   const cuePlan = buildHybridCaptionCues(input.timings, input.template);
   const cues = clampHybridCueWindows(cuePlan.cues);
   const rawSegments: CaptionOverlaySegment[] = [];
@@ -279,15 +293,67 @@ export async function renderHybridCanvasCaptions(input: {
     segments: rawSegments,
   });
 
-  await execFileAsync("ffmpeg", plan.args, {
-    maxBuffer: 500 * 1024 * 1024,
-    timeout: 6 * 60_000,
-    killSignal: "SIGKILL",
-  });
+  const pngGenerationMs = Date.now() - pngStartedAt;
+  const compositeStartedAt = Date.now();
+  let compositionMode: "single_pass" | "batch_fallback" = "single_pass";
+  let videoEncodeCount = 1;
+
+  if (plan.segments.length <= MAX_SINGLE_PASS_CAPTION_OVERLAYS) {
+    await execFileAsync("ffmpeg", plan.args, {
+      maxBuffer: 500 * 1024 * 1024,
+      timeout: 6 * 60_000,
+      killSignal: "SIGKILL",
+    });
+  } else {
+    compositionMode = "batch_fallback";
+    const batches: CaptionOverlaySegment[][] = [];
+    for (let index = 0; index < plan.segments.length; index += FALLBACK_BATCH_CAPTION_OVERLAYS) {
+      batches.push(plan.segments.slice(index, index + FALLBACK_BATCH_CAPTION_OVERLAYS));
+    }
+
+    let videoPath = input.pictureLockPath;
+    for (let index = 0; index < batches.length; index++) {
+      const batchPath = path.join(input.tmpDir, `hybrid_caption_batch_${String(index).padStart(3, "0")}.mp4`);
+      const batchPlan = buildHybridCaptionVideoOnlyPlan({
+        videoPath,
+        outputPath: batchPath,
+        width: input.width,
+        height: input.height,
+        segments: batches[index],
+      });
+      await execFileAsync("ffmpeg", batchPlan.args, {
+        maxBuffer: 500 * 1024 * 1024,
+        timeout: 6 * 60_000,
+        killSignal: "SIGKILL",
+      });
+      videoPath = batchPath;
+    }
+
+    await execFileAsync("ffmpeg", [
+      "-i", videoPath,
+      "-i", input.pictureLockPath,
+      "-map", "0:v:0",
+      "-map", "1:a?",
+      "-c:v", "copy",
+      "-c:a", "copy",
+      "-movflags", "+faststart",
+      "-shortest",
+      "-y", input.outputPath,
+    ], {
+      maxBuffer: 200 * 1024 * 1024,
+      timeout: 2 * 60_000,
+      killSignal: "SIGKILL",
+    });
+    videoEncodeCount = batches.length;
+  }
 
   return {
     segmentCount: plan.segments.length,
     overlapFixes: plan.overlapFixes,
     sourceMode: cuePlan.sourceMode,
+    compositionMode,
+    pngGenerationMs,
+    compositionMs: Date.now() - compositeStartedAt,
+    videoEncodeCount,
   };
 }
