@@ -74,6 +74,7 @@ import { getUserPlanSlug, getAvatarLimit, computePersonaPlanEnabled, PlanBlocked
 import { createReelContainer, checkContainerStatus, publishContainer, getPermalink, refreshInstagramToken } from "./instagram-api";
 import { getServerReadableMediaUrl, getSignedCaptionedVideoUrl, objectStorageClient } from "./objectStorage";
 import { makeOpenAIClient } from "./openai-client";
+import { getWavDurationMs, transcriptionResponseToSrt } from "./wavespeed-transcription-srt";
 import {
   captionsAreEnabled,
   resolveVideoEffectsForCreation,
@@ -2410,8 +2411,9 @@ async function refreshExpiringTokens(): Promise<void> {
  * Process:
  *   1. Download the MP4 to a tmp file.
  *   2. Extract audio as 16 kHz mono WAV (FFmpeg) — small file, Whisper-optimal.
- *   3. Transcribe with Whisper (word-level verbose_json).
- *   4. Build SRT and upload to Object Storage.
+ *   3. Transcribe with Whisper using the proxy-compatible JSON response.
+ *   4. Preserve provider timings when present, or convert transcript JSON to SRT.
+ *   5. Upload SRT to Object Storage.
  */
 async function transcribeAudioToSrt(videoUrl: string, videoId: number): Promise<string | null> {
   const tmpVideo = `/tmp/ws-video-${videoId}.mp4`;
@@ -2438,25 +2440,26 @@ async function transcribeAudioToSrt(videoUrl: string, videoId: number): Promise<
     ]);
     const audioBuffer = nodeFs.readFileSync(tmpAudio);
 
-    // 3. Transcribe with Whisper — word-level granularity for precise per-word timing.
+    // 3. Transcribe with Whisper. The proxy accepts JSON for this model, while
+    //    response_format:"srt" fails with HTTP 400 in production.
     //    The prompt primes the model with Spanish context so it doesn't mis-recognise
     //    Spanish phonemes as English words (common with accented vowels and ñ/ll/rr).
     const openai   = makeOpenAIClient({ timeout: 120_000 });
-    // The Replit AI proxy exposes gpt-4o-mini-transcribe but does NOT support
-    // response_format:"verbose_json" or timestamp_granularities.
-    // We use "srt" which the proxy does support and returns phrase-level timestamps —
-    // much better than proportional fallback even without word-level precision.
-    const srtContent = await openai.audio.transcriptions.create({
+    const transcription = await openai.audio.transcriptions.create({
       file:            new File([audioBuffer], "audio.wav", { type: "audio/wav" }),
       model:           "gpt-4o-mini-transcribe",
       language:        "es",
       prompt:          "Guion de video en español. Habla directamente a cámara sobre marketing, negocios o emprendimiento.",
-      response_format: "srt",
-    } as Parameters<typeof openai.audio.transcriptions.create>[0]) as unknown as string;
+      response_format: "json",
+    } as Parameters<typeof openai.audio.transcriptions.create>[0]);
 
-    if (!srtContent?.trim()) throw new Error("Whisper returned empty SRT");
+    const audioDurationMs = getWavDurationMs(audioBuffer);
+    if (!audioDurationMs) throw new Error("Could not determine extracted WAV duration");
+    const converted = transcriptionResponseToSrt(transcription, audioDurationMs);
+    if (!converted) throw new Error("Whisper returned no usable transcript or timestamps");
+    const { srt: srtContent, source: timingSource } = converted;
 
-    // Upload the SRT directly — the caption engine already knows how to parse it
+    // The caption engine already knows how to parse both word- and phrase-level SRTs.
     const objectName = `subtitles/${videoId}.srt`;
     await objectStorageClient
       .bucket(bucketId)
@@ -2466,7 +2469,7 @@ async function transcribeAudioToSrt(videoUrl: string, videoId: number): Promise<
     const srtUrl = `${getCanonicalOrigin()}/api/captioned-objects/${objectName}`;
 
     const cueCount = (srtContent.match(/^\d+$/gm) ?? []).length;
-    logger.info({ videoId, cueCount, srtUrl }, "[WaveSpeed] Whisper SRT uploaded ✓");
+    logger.info({ videoId, cueCount, timingSource, srtUrl }, "[WaveSpeed] Whisper SRT uploaded ✓");
     return srtUrl;
   } catch (err) {
     logger.warn({ videoId, err }, "[WaveSpeed] Whisper transcription failed — captions will use proportional fallback");

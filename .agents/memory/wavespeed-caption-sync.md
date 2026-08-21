@@ -28,14 +28,19 @@ MP4 files at 352×640 can reach 15-30 MB and risk Whisper's 25 MB file limit. Ex
 ## Whisper model compatibility
 `gpt-4o-mini-transcribe` — `whisper-1` is NOT supported by the Replit AI proxy.
 
-The proxy's accepted transcription response formats can change. Production
-currently rejects `response_format: "srt"` for this model with HTTP 400, and an
-earlier proxy version rejected `verbose_json` plus timestamp granularities.
+The proxy currently accepts `response_format: "json"` for this model and rejects
+`"srt"` with HTTP 400. JSON transcription responses must be converted to an SRT
+before caption processing: preserve word or segment timestamps exactly when the
+provider supplies them; for a text-only response, build phrase SRT against the
+duration of the final MP4's extracted audio.
 
-**Rule:** Verify the active proxy's supported formats before relying on a
-format-specific parser. A transcription incompatibility must remain non-fatal:
-log it and let the caption engine use proportional timings rather than blocking
-the completed video.
+**Why:** A rejected output format previously returned no subtitle URL, forcing
+the caption engine's generic proportional fallback even though transcription
+succeeded.
+
+**How to apply:** Keep transcription non-fatal, but treat a nonempty JSON
+transcript as a usable caption input. Always transcribe audio extracted from the
+final talking-head MP4 so any returned timings remain aligned to its real t=0.
 
 ## Storage
 - SRT namespace: `subtitles/{videoId}.srt` in Object Storage
