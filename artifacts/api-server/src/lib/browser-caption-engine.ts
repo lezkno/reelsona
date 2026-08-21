@@ -35,7 +35,7 @@ import {
   buildBuildingCues,
   formatWord,
   getBaselineY,
-  getSafeMarginX,
+  captionHorizontalMargins,
   scaleToHeight,
 } from "@workspace/caption-templates";
 import type { CaptionTemplate, CaptionCue } from "@workspace/caption-templates";
@@ -282,8 +282,12 @@ async function renderCueFrame(
   const shadowY     = scaleToHeight(template.shadowOffsetY,  videoH);
   const shadowBlur  = scaleToHeight(template.shadowBlur,     videoH);
   const baselineY   = getBaselineY(template, videoH);
-  const marginX     = getSafeMarginX(template, videoW);
-  const availableW  = videoW - 2 * marginX;
+  const margins     = captionHorizontalMargins(
+    100 - template.marginXPercent * 2,
+    template.xPercent ?? 50,
+    videoW,
+  );
+  const availableW  = margins.width;
 
   // Format words — typewriter: only show the first `revealedWords` words
   const visibleWords = revealedWords !== undefined
@@ -338,9 +342,9 @@ async function renderCueFrame(
   // Zoom animation: scale the entire text block around its anchor point
   if (zoomScale !== 1.0) {
     ctx.save();
-    ctx.translate(videoW / 2, baselineY);
+    ctx.translate(margins.center, baselineY);
     ctx.scale(zoomScale, zoomScale);
-    ctx.translate(-videoW / 2, -baselineY);
+    ctx.translate(-margins.center, -baselineY);
   }
 
   // Draw lines bottom-up: last line baseline = baselineY, earlier lines shifted up
@@ -349,7 +353,8 @@ async function renderCueFrame(
     // li=0 is the top line; li=(lines.length-1) is the bottom line at baselineY
     const lineY = baselineY - (lines.length - 1 - li) * lineSpacing;
     // Center each line within safe area
-    const lineX = Math.max(marginX, (videoW - lineWidth) / 2);
+    const preferredX = margins.center - lineWidth / 2;
+    const lineX = Math.max(margins.left, Math.min(preferredX, videoW - margins.right - lineWidth));
     let x = lineX;
 
     // ── Full-line background box (backgroundMode: "line") ─────────────────
@@ -662,8 +667,12 @@ export async function applyCaptionsBrowser(
     videoDurationSeconds?: number;
     /** Override template.yPercent (0–100). Set from caption_config.y_position when user dragged. */
     yPositionPct?: number;
-    /** Override template.marginXPercent (% of VIDEO_WIDTH). Converted from caption_config.margin_x. */
+    /** Legacy symmetric safe-area override, retained for old callers. */
     marginXPct?: number;
+    /** Canonical caption block width. Preferred over the legacy margin override. */
+    maxWidthPercent?: number;
+    /** Override the horizontal center of the caption block (0–100). */
+    xPositionPct?: number;
     /** Per-template style overrides from Caption Studio advanced settings. Applied on top of the base template. */
     templateOverrides?: Partial<CaptionTemplate>;
     /** Video effects to apply before caption compositing (e.g. Ken Burns zoom, B-roll, text cards). */
@@ -705,11 +714,13 @@ export async function applyCaptionsBrowser(
     ...styleOverrides,
     ...(opts?.yPositionPct !== undefined && { yPercent:       opts.yPositionPct }),
     ...(opts?.marginXPct   !== undefined && { marginXPercent: opts.marginXPct   }),
+    ...(opts?.maxWidthPercent !== undefined && { marginXPercent: (100 - opts.maxWidthPercent) / 2 }),
+    ...(opts?.xPositionPct !== undefined && { xPercent:       opts.xPositionPct }),
   };
 
-  if (opts?.yPositionPct !== undefined || opts?.marginXPct !== undefined) {
+  if (opts?.yPositionPct !== undefined || opts?.marginXPct !== undefined || opts?.xPositionPct !== undefined) {
     logger.info(
-      { yPercent: template.yPercent, marginXPercent: template.marginXPercent },
+      { yPercent: template.yPercent, xPercent: template.xPercent, marginXPercent: template.marginXPercent },
       "[BrowserEngine] Position overrides applied",
     );
   }

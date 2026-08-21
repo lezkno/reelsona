@@ -1054,6 +1054,7 @@ export const GetCaptionConfigResponse = zod.object({
   "subtle_rotation": zod.boolean(),
   "line_spacing_factor": zod.number().optional(),
   "y_position": zod.number().optional(),
+  "x_position": zod.number().describe('Horizontal center of the caption block as a percentage of the canonical canvas.'),
   "margin_x": zod.number().optional(),
   "max_width_percent": zod.number().describe('Maximum caption block width as a percentage of the 1080px canonical canvas.'),
   "layout_customized": zod.boolean(),
@@ -1078,6 +1079,9 @@ export const updateCaptionConfigBodyFontSizeMax = 220;
 
 export const updateCaptionConfigBodyActiveWordScaleMax = 2;
 
+export const updateCaptionConfigBodyXPositionMin = 0;
+export const updateCaptionConfigBodyXPositionMax = 100;
+
 export const updateCaptionConfigBodyMaxWidthPercentMin = 40;
 export const updateCaptionConfigBodyMaxWidthPercentMax = 100;
 
@@ -1100,6 +1104,7 @@ export const UpdateCaptionConfigBody = zod.object({
   "subtle_rotation": zod.boolean().optional(),
   "line_spacing_factor": zod.number().optional(),
   "y_position": zod.number().optional(),
+  "x_position": zod.number().min(updateCaptionConfigBodyXPositionMin).max(updateCaptionConfigBodyXPositionMax).optional(),
   "margin_x": zod.number().optional(),
   "max_width_percent": zod.number().min(updateCaptionConfigBodyMaxWidthPercentMin).max(updateCaptionConfigBodyMaxWidthPercentMax).optional(),
   "layout_customized": zod.boolean().optional(),
@@ -1129,6 +1134,7 @@ export const UpdateCaptionConfigResponse = zod.object({
   "subtle_rotation": zod.boolean(),
   "line_spacing_factor": zod.number().optional(),
   "y_position": zod.number().optional(),
+  "x_position": zod.number().describe('Horizontal center of the caption block as a percentage of the canonical canvas.'),
   "margin_x": zod.number().optional(),
   "max_width_percent": zod.number().describe('Maximum caption block width as a percentage of the 1080px canonical canvas.'),
   "layout_customized": zod.boolean(),

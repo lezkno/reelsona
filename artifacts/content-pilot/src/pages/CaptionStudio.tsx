@@ -15,7 +15,7 @@ import { useToast } from "@/hooks/use-toast"
 import { CheckCircle2, Wand2, AlertCircle, Sparkles, Loader2, Shuffle,
   Heart, MessageCircle, Send, Bookmark, MoreHorizontal,
   Music2, Home, Search, Plus, User, ChevronLeft, Clapperboard,
-  Zap, Images, Type,
+  Zap, Images, Type, Pause, Play, ChevronRight,
 } from "lucide-react"
 import type { CaptionConfig, CaptionPreset } from "@workspace/api-client-react"
 import { useQueryClient } from "@tanstack/react-query"
@@ -28,7 +28,11 @@ import {
   getSafeMarginX,
   CAPTION_FONT_SIZE_RANGE,
   CAPTION_MAX_WIDTH_RANGE,
+  CAPTION_X_POSITION_RANGE,
   CAPTION_Y_POSITION_RANGE,
+  captionHorizontalMargins,
+  clampCaptionXPosition,
+  getAssTemplateParity,
   marginXFromMaxWidthPercent,
   maxWidthPercentFromMarginX,
 } from "@workspace/caption-templates"
@@ -201,15 +205,20 @@ const PREVIEW_WIDTH_PX = 250   // approximate screen width inside the phone mock
 function TemplateCaptionPreview({
   template,
   yOverride,
+  xOverride,
   maxWidthOverride,
   onYPositionChange,
+  onXPositionChange,
 }: {
   template: CaptionTemplate
   /** y_position override in % (0–100). When set, overrides template.yPercent. */
   yOverride?: number
+  /** x_position override in % (0–100). Center of the caption block. */
+  xOverride?: number
   /** Canonical caption block width as % of the 1080px reference frame. */
   maxWidthOverride?: number
   onYPositionChange?: (y: number) => void
+  onXPositionChange?: (x: number) => void
 }) {
   const [activeIdx, setActiveIdx] = useState(0)
   const [isDragging, setIsDragging] = useState(false)
@@ -318,10 +327,13 @@ function TemplateCaptionPreview({
   // Effective position: user override takes precedence over template default
   const effectiveYPct = yOverride ?? template.yPercent
   const effectiveMaxWidthPct = maxWidthOverride ?? (100 - template.marginXPercent * 2)
-  const effectiveMarginXPx = marginXFromMaxWidthPercent(effectiveMaxWidthPct)
+  const effectiveXPct = clampCaptionXPosition(xOverride ?? template.xPercent ?? 50, effectiveMaxWidthPct)
+  const horizontal = captionHorizontalMargins(effectiveMaxWidthPct, effectiveXPct, PREVIEW_WIDTH_PX)
   // Convert to preview-space pixels
   const baselineY  = Math.round(PHONE_SCREEN_H * effectiveYPct / 100)
-  const marginX_px = Math.round(effectiveMarginXPx * PREVIEW_SCALE)
+  const marginLeftPx = horizontal.left
+  const marginRightPx = horizontal.right
+  const centerXpx = horizontal.center
 
   // ── Pixel-accurate text container height ────────────────────────────────
   // The canvas draws text with ctx.textBaseline="alphabetic" at baselineY.
@@ -381,8 +393,8 @@ function TemplateCaptionPreview({
           style={{
             top:          0,
             height:       containerH,
-            paddingLeft:  marginX_px,
-            paddingRight: marginX_px,
+            paddingLeft:  marginLeftPx,
+            paddingRight: marginRightPx,
           }}
         >
           <div className={template.stackWords
@@ -431,6 +443,8 @@ function TemplateCaptionPreview({
             const rect = e.currentTarget.getBoundingClientRect()
             const pctY = Math.max(10, Math.min(97, ((e.clientY - rect.top) / rect.height) * 100))
             onYPositionChange?.(Math.round(pctY * 10) / 10)
+            const pctX = ((e.clientX - rect.left) / rect.width) * 100
+            onXPositionChange?.(clampCaptionXPosition(pctX, effectiveMaxWidthPct))
           }}
           onPointerUp={() => setIsDragging(false)}
           onPointerLeave={() => setIsDragging(false)}
@@ -449,7 +463,7 @@ function TemplateCaptionPreview({
         {/* Width guide lines — the block width is shared with libass margins. */}
         <div className="absolute top-0 bottom-0 z-41 pointer-events-none transition-all duration-75"
           style={{
-            left: marginX_px - 1,
+            left: marginLeftPx - 1,
             borderLeft: isDragging
               ? "1.5px dashed rgba(255,255,255,0.75)"
               : "1px dashed rgba(255,255,255,0.15)",
@@ -457,7 +471,7 @@ function TemplateCaptionPreview({
         />
         <div className="absolute top-0 bottom-0 z-41 pointer-events-none transition-all duration-75"
           style={{
-            right: marginX_px - 1,
+            right: marginRightPx - 1,
             borderRight: isDragging
               ? "1.5px dashed rgba(255,255,255,0.75)"
               : "1px dashed rgba(255,255,255,0.15)",
@@ -465,15 +479,18 @@ function TemplateCaptionPreview({
         />
         {/* Vertical drag grip */}
         <div className="absolute z-41 pointer-events-none"
-          style={{ left: "50%", transform: "translateX(-50%)", top: baselineY - 6 }}>
+          style={{ left: centerXpx - 6, top: baselineY - 6 }}>
           <div className="w-3 h-3 rounded-full border border-white/50 bg-white/20" />
         </div>
         {/* Badge while dragging */}
         {isDragging && (
           <div className="absolute z-42 pointer-events-none flex gap-1"
-            style={{ left: "50%", transform: "translateX(-50%)", top: baselineY - 22 }}>
+            style={{ left: centerXpx, transform: "translateX(-50%)", top: baselineY - 22 }}>
             <span className="text-white text-[8px] font-medium bg-black/75 px-1.5 py-0.5 rounded-full whitespace-nowrap">
               ↔ {Math.round(effectiveMaxWidthPct)}%
+            </span>
+            <span className="text-white text-[8px] font-medium bg-black/75 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+              ↔ centro {Math.round(effectiveXPct)}%
             </span>
             <span className="text-white text-[8px] font-medium bg-black/75 px-1.5 py-0.5 rounded-full whitespace-nowrap">
               ↕ {Math.round(effectiveYPct)}%
@@ -1108,11 +1125,11 @@ function CardOverlayPreview({
 function CaptionPreview({
   config,
   onYPositionChange,
-  onXMarginChange,
+  onXPositionChange,
 }: {
   config: Partial<CaptionConfig>
   onYPositionChange?: (y: number) => void
-  onXMarginChange?: (x: number) => void
+  onXPositionChange?: (x: number) => void
 }) {
   const isMixedMode  = config.highlight_mode === "mixed"
   const isZoomMode   = config.highlight_mode === "zoom"
@@ -1125,8 +1142,12 @@ function CaptionPreview({
   // y_position: 0–100% from top of video → baseY_px in preview pixels
   const yPos     = config.y_position ?? 75
   const baseY_px = Math.round(PHONE_SCREEN_H * (yPos / 100))
-  // margin_x: left margin in real video pixels → preview pixels
-  const marginX_px = Math.max(4, Math.round((config.margin_x ?? 60) * PREVIEW_SCALE))
+  const maxWidth = config.max_width_percent ?? maxWidthPercentFromMarginX(config.margin_x ?? 60)
+  const xPosition = clampCaptionXPosition(config.x_position ?? 50, maxWidth)
+  const horizontal = captionHorizontalMargins(maxWidth, xPosition, PREVIEW_WIDTH_PX)
+  const marginLeftPx = horizontal.left
+  const marginRightPx = horizontal.right
+  const centerXpx = horizontal.center
 
   // Highlight / Pop cycling
   const allWords = DEMO_WORDS
@@ -1213,8 +1234,8 @@ function CaptionPreview({
               <div key={`${curLi}-${idx}`} style={{
                 position: 'absolute',
                 top: lineBottomY - lineH,
-                left: marginX_px,
-                right: 8,
+                left: marginLeftPx,
+                right: marginRightPx,
                 lineHeight: 1.15,
                 overflow: 'visible',
               }}>
@@ -1261,7 +1282,7 @@ function CaptionPreview({
     if (isPopMode) {
       const word = allWords[activeIdx]
       return (
-        <div className="absolute left-0 right-0 flex items-end justify-center" style={{ top: 0, height: baseY_px, paddingLeft: marginX_px, paddingRight: marginX_px }}>
+        <div className="absolute left-0 right-0 flex items-end justify-center" style={{ top: 0, height: baseY_px, paddingLeft: marginLeftPx, paddingRight: marginRightPx }}>
           <span className="transition-all duration-100" style={{
             fontFamily: fontFam, fontWeight: 700,
             fontSize: `${largePx}px`,
@@ -1281,7 +1302,7 @@ function CaptionPreview({
     const chunk        = allWords.slice(chunkStart, chunkStart + wordsPerLine)
     const activeInChunk = activeIdx - chunkStart
     return (
-      <div className="absolute left-0 right-0 flex items-end justify-center" style={{ top: 0, height: baseY_px, paddingLeft: marginX_px, paddingRight: marginX_px }}>
+      <div className="absolute left-0 right-0 flex items-end justify-center" style={{ top: 0, height: baseY_px, paddingLeft: marginLeftPx, paddingRight: marginRightPx }}>
         <div className="flex flex-wrap justify-center items-center gap-x-1.5 gap-y-0.5">
           {chunk.map((word, i) => {
             const isActive = i === activeInChunk
@@ -1418,9 +1439,9 @@ function CaptionPreview({
             // Y → y_position (%)
             const pctY = Math.max(10, Math.min(97, ((e.clientY - rect.top) / rect.height) * 100))
             onYPositionChange?.(Math.round(pctY * 10) / 10)
-            // X → margin_x (real video pixels)
-            const pxX = Math.max(0, Math.min(400, (e.clientX - rect.left) / PREVIEW_SCALE))
-            onXMarginChange?.(Math.round(pxX))
+            // X → center of the independently-sized caption block.
+            const pctX = ((e.clientX - rect.left) / rect.width) * 100
+            onXPositionChange?.(clampCaptionXPosition(pctX, maxWidth))
           }}
           onPointerUp={() => setIsDragging(false)}
           onPointerLeave={() => setIsDragging(false)}
@@ -1436,11 +1457,11 @@ function CaptionPreview({
               : "1px dashed rgba(255,255,255,0.18)",
           }}
         />
-        {/* Vertical line — X margin */}
+        {/* Vertical line — X center */}
         <div
           className="absolute top-0 bottom-0 z-41 pointer-events-none transition-all duration-75"
           style={{
-            left: marginX_px - 1,
+            left: centerXpx - 1,
             borderLeft: isDragging
               ? "1.5px dashed rgba(255,255,255,0.85)"
               : "1px dashed rgba(255,255,255,0.18)",
@@ -1451,10 +1472,10 @@ function CaptionPreview({
         {isDragging && (
           <div
             className="absolute z-42 pointer-events-none flex gap-1"
-            style={{ left: marginX_px + 4, top: baseY_px - 22 }}
+            style={{ left: centerXpx + 4, top: baseY_px - 22 }}
           >
             <span className="text-white text-[8px] font-medium bg-black/75 px-1.5 py-0.5 rounded-full whitespace-nowrap">
-              ← {Math.round(config.margin_x ?? 60)}px
+              ↔ centro {Math.round(xPosition)}%
             </span>
             <span className="text-white text-[8px] font-medium bg-black/75 px-1.5 py-0.5 rounded-full whitespace-nowrap">
               ↕ {Math.round(yPos)}%
@@ -1465,7 +1486,7 @@ function CaptionPreview({
         {/* Crosshair grip at the intersection — always visible */}
         <div
           className="absolute z-41 pointer-events-none"
-          style={{ left: marginX_px - 6, top: baseY_px - 6 }}
+          style={{ left: centerXpx - 6, top: baseY_px - 6 }}
         >
           <div className="w-3 h-3 rounded-full border border-white/50 bg-white/20" />
         </div>
@@ -1518,6 +1539,8 @@ export default function CaptionStudio() {
   const [rotationEnabled, setRotationEnabled] = useState(false)
   const [rotationIds, setRotationIds] = useState<Set<string>>(new Set())
   const [rotationStrategy, setRotationStrategy] = useState("sequential")
+  const [previewRotationIndex, setPreviewRotationIndex] = useState(0)
+  const [previewRotationPaused, setPreviewRotationPaused] = useState(false)
 
   // ── Per-template overrides map ────────────────────────────────────────────
   // Stored as Record<templateId, Partial<CaptionTemplate>> so each template
@@ -1635,19 +1658,67 @@ export default function CaptionStudio() {
   // Template defaults establish visual style only. Layout always comes from
   // the shared caption config, apart from a deliberately saved old per-template
   // font override which remains an explicit user choice.
-  const resolvedFontSize = currentOverrides.fontSize ?? local.font_size ?? activeTmpl?.fontSize ?? 88
+  const resolvedFontSize = local.font_size ?? activeTmpl?.fontSize ?? 88
   const resolvedYPosition = local.y_position ?? activeTmpl?.yPercent ?? 75
+  const resolvedXPosition = clampCaptionXPosition(
+    local.x_position ?? activeTmpl?.xPercent ?? 50,
+    local.max_width_percent
+      ?? (activeTmpl ? 100 - activeTmpl.marginXPercent * 2 : maxWidthPercentFromMarginX(local.margin_x ?? 60)),
+  )
   const resolvedMaxWidth = local.max_width_percent
     ?? (activeTmpl ? 100 - activeTmpl.marginXPercent * 2 : maxWidthPercentFromMarginX(local.margin_x ?? 60))
   const mergedTmpl: CaptionTemplate | null = activeTmpl
     ? {
         ...activeTmpl,
         ...currentOverrides,
-        fontSize: resolvedFontSize,
+        fontSize: local.font_size ?? activeTmpl.fontSize,
         yPercent: resolvedYPosition,
+        xPercent: resolvedXPosition,
         marginXPercent: (100 - resolvedMaxWidth) / 2,
       }
     : null
+
+  const previewRotationTemplates = rotationEnabled
+    ? BROWSER_CAPTION_TEMPLATES.filter((template) => rotationIds.has(template.id))
+    : []
+  const previewTemplateId = previewRotationTemplates.length > 0
+    ? previewRotationTemplates[previewRotationIndex % previewRotationTemplates.length]?.id
+    : activeTmpl?.id
+  const previewBaseTemplate = previewTemplateId
+    ? BROWSER_CAPTION_TEMPLATES.find((template) => template.id === previewTemplateId) ?? null
+    : null
+  const previewTmpl: CaptionTemplate | null = previewBaseTemplate
+    ? {
+        ...previewBaseTemplate,
+        ...allTmplOverrides[previewBaseTemplate.id],
+        fontSize: resolvedFontSize,
+        yPercent: resolvedYPosition,
+        xPercent: resolvedXPosition,
+        marginXPercent: (100 - resolvedMaxWidth) / 2,
+      }
+    : mergedTmpl
+  const previewParity = getAssTemplateParity(previewTmpl?.id)
+
+  useEffect(() => {
+    setPreviewRotationIndex((index) => Math.min(index, Math.max(previewRotationTemplates.length - 1, 0)))
+  }, [rotationEnabled, rotationIds.size])
+
+  useEffect(() => {
+    if (!rotationEnabled || previewRotationPaused || previewRotationTemplates.length < 2) return
+    const timer = setInterval(
+      () => setPreviewRotationIndex((index) => (index + 1) % previewRotationTemplates.length),
+      2500,
+    )
+    return () => clearInterval(timer)
+  }, [rotationEnabled, previewRotationPaused, previewRotationTemplates.length])
+
+  const movePreviewRotation = (direction: -1 | 1) => {
+    if (previewRotationTemplates.length < 2) return
+    setPreviewRotationPaused(true)
+    setPreviewRotationIndex((index) =>
+      (index + direction + previewRotationTemplates.length) % previewRotationTemplates.length,
+    )
+  }
 
   // Convenience: effective value = override ?? base template default
   function ov<K extends keyof CaptionTemplate>(key: K): CaptionTemplate[K] {
@@ -1676,7 +1747,7 @@ export default function CaptionStudio() {
 
   const setOverride = <K extends keyof CaptionTemplate>(key: K, val: CaptionTemplate[K]) => {
     if (planLocked) { setPremiumOpen(true); return }
-    if (!activeTmpl) return
+    if (!activeTmpl || (["fontSize", "yPercent", "xPercent", "marginXPercent"] as string[]).includes(key as string)) return
     const tid = activeTmpl.id
     const next = { ...overridesRef.current, [tid]: { ...overridesRef.current[tid], [key]: val } }
     overridesRef.current = next
@@ -1750,6 +1821,7 @@ export default function CaptionStudio() {
       Object.assign(update, {
         font_size: template.fontSize,
         y_position: template.yPercent,
+        x_position: template.xPercent ?? 50,
         max_width_percent: initialMaxWidth,
         margin_x: marginXFromMaxWidthPercent(initialMaxWidth),
         layout_customized: false,
@@ -2000,8 +2072,25 @@ export default function CaptionStudio() {
               )}
             </div>
             <p className="text-sm text-muted-foreground mb-4">
-              El preview es exactamente lo que queda en el video final. Lo que ves es lo que se renderiza.
+                El layout, el tamaño, los colores y la opacidad se comparten con el MP4 final. Cada plantilla indica sus límites de paridad V2.
             </p>
+            {rotationEnabled && previewRotationTemplates.length > 0 && (
+              <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border bg-muted/30 px-3 py-2 text-xs">
+                <span className="font-medium">Preview de rotación:</span>
+                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => movePreviewRotation(-1)} aria-label="Plantilla anterior">
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <span className="min-w-32 text-center font-semibold">{previewTmpl?.name}</span>
+                <span className="text-muted-foreground">{previewRotationIndex + 1}/{previewRotationTemplates.length}</span>
+                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setPreviewRotationPaused((value) => !value)} aria-label={previewRotationPaused ? "Reanudar rotación" : "Pausar rotación"}>
+                  {previewRotationPaused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
+                </Button>
+                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => movePreviewRotation(1)} aria-label="Plantilla siguiente">
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+                <span className="text-muted-foreground">{previewRotationPaused ? "Pausado para inspección" : "Cambia cada 2.5 s"}</span>
+              </div>
+            )}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
               {BROWSER_CAPTION_TEMPLATES.map((tmpl) => (
                 <BrowserTemplateCard
@@ -2023,7 +2112,7 @@ export default function CaptionStudio() {
                   Estos valores son comunes al preview y al MP4 final en un canvas de 1080 × 1920. Arrastrá el caption en el celular para moverlo.
                 </p>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-6">
                 <div className="space-y-2">
                   <Label>Tamaño: <span className="text-primary font-bold">{resolvedFontSize}px</span></Label>
                   <Slider
@@ -2036,6 +2125,19 @@ export default function CaptionStudio() {
                     className="mt-3"
                   />
                   <div className="flex justify-between text-[10px] text-muted-foreground"><span>{CAPTION_FONT_SIZE_RANGE.min}</span><span>{CAPTION_FONT_SIZE_RANGE.max} px</span></div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Posición horizontal: <span className="text-primary font-bold">{Math.round(resolvedXPosition)}%</span></Label>
+                  <Slider
+                    min={Math.max(CAPTION_X_POSITION_RANGE.min, resolvedMaxWidth / 2)}
+                    max={Math.min(CAPTION_X_POSITION_RANGE.max, 100 - resolvedMaxWidth / 2)}
+                    step={CAPTION_X_POSITION_RANGE.step}
+                    value={[resolvedXPosition]}
+                    onValueChange={([v]) => setCaptionLayout({ x_position: clampCaptionXPosition(v, resolvedMaxWidth) })}
+                    disabled={isVideoProcessing}
+                    className="mt-3"
+                  />
+                  <div className="flex justify-between text-[10px] text-muted-foreground"><span>izquierda</span><span>derecha</span></div>
                 </div>
                 <div className="space-y-2">
                   <Label>Posición vertical: <span className="text-primary font-bold">{Math.round(resolvedYPosition)}%</span></Label>
@@ -2066,7 +2168,7 @@ export default function CaptionStudio() {
               </div>
               {currentOverrides.fontSize !== undefined && (
                 <p className="rounded-lg bg-violet-500/10 px-3 py-2 text-xs text-violet-700 dark:text-violet-300">
-                  Esta plantilla conserva un tamaño específico de <strong>{currentOverrides.fontSize}px</strong> que elegiste antes. Restaurá sus valores originales si querés que use el tamaño común.
+                  Un tamaño antiguo guardado dentro de esta plantilla se ignora: el tamaño común de arriba es la única fuente de verdad.
                 </p>
               )}
             </CardContent>
@@ -2183,7 +2285,7 @@ export default function CaptionStudio() {
                         <p className="text-xs font-medium mb-0.5">Geometría compartida</p>
                         <p className="text-xs text-muted-foreground leading-snug">El tamaño, la posición y el ancho se ajustan una sola vez en “Layout final”.</p>
                       <p className="text-xs text-primary font-medium mt-1">
-                          ↕ {Math.round(resolvedYPosition)}% &nbsp;·&nbsp; ↔ {Math.round(resolvedMaxWidth)}%
+                          ↕ {Math.round(resolvedYPosition)}% &nbsp;·&nbsp; ↔ centro {Math.round(resolvedXPosition)}% &nbsp;·&nbsp; ancho {Math.round(resolvedMaxWidth)}%
                       </p>
                     </div>
                   </div>
@@ -2332,13 +2434,15 @@ export default function CaptionStudio() {
             Vista previa
           </p>
           <div className="relative">
-            {mergedTmpl
+            {previewTmpl
               ? (
                   <TemplateCaptionPreview
-                    template={mergedTmpl}
+                    template={previewTmpl}
                     yOverride={resolvedYPosition}
+                    xOverride={resolvedXPosition}
                     maxWidthOverride={resolvedMaxWidth}
                     onYPositionChange={(y) => setCaptionLayout({ y_position: y })}
+                    onXPositionChange={(x) => setCaptionLayout({ x_position: x })}
                   />
                 )
               : (
@@ -2350,6 +2454,7 @@ export default function CaptionStudio() {
                       ),
                     }}
                     onYPositionChange={(y) => setCaptionLayout({ y_position: y })}
+                    onXPositionChange={(x) => setCaptionLayout({ x_position: x })}
                 />
               )
             }
@@ -2357,6 +2462,11 @@ export default function CaptionStudio() {
           <p className="text-[10px] text-muted-foreground text-center">
             <span className="text-violet-500 font-medium">WYSIWYG</span> — lo que ves se renderiza.
           </p>
+          {previewParity && (
+            <p className={`text-[10px] text-center ${previewParity.level === "high" ? "text-emerald-600" : "text-amber-600"}`}>
+              Render Fast V2: {previewParity.level === "high" ? "paridad alta" : previewParity.limitations[0]}
+            </p>
+          )}
 
         </div>
 

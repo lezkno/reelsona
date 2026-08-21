@@ -30,6 +30,11 @@ export interface CaptionTemplate {
   wordsPerLine: number;        // words shown simultaneously per block
   stackWords?: boolean;        // true = each word on its own line (vertical stack)
   yPercent: number;            // 0–100 from top of video (text baseline anchor)
+  /**
+   * Horizontal center of the caption block. Templates default to 50; Caption
+   * Studio persists the selected value independently from the visual preset.
+   */
+  xPercent?: number;
   marginXPercent: number;      // horizontal safe-area padding as % of video width
   textAlign: TextAlign;
 

@@ -11,6 +11,7 @@ import {
 import { buildCaptionArtifactsFromSrt, type CaptionStyle } from "./caption-engine.js";
 import { getBrowserTemplateStyleOverrides } from "./caption-style-adapter.js";
 import {
+  captionHorizontalMargins,
   marginXFromMaxWidthPercent,
   maxWidthPercentFromMarginX,
 } from "@workspace/caption-templates";
@@ -52,14 +53,14 @@ test("Render Fast V2 passes the saved font size to libass without auto-scaling",
   assert.equal(styleColumns(ass)[2], "72", "ASS Fontsize exactly matches font_size=72");
 });
 
-test("switching browser templates preserves the saved canonical size unless an explicit override exists", () => {
+test("switching browser templates preserves the saved canonical size", () => {
   const hormozi = getBrowserTemplateStyleOverrides("hormozi", undefined, 72);
   const anotherTemplate = getBrowserTemplateStyleOverrides("authority_bold", undefined, 72);
   const explicitOverride = getBrowserTemplateStyleOverrides("hormozi", { fontSize: 115 }, 72);
 
   assert.equal(hormozi?.fontSize, 72);
   assert.equal(anotherTemplate?.fontSize, 72);
-  assert.equal(explicitOverride?.fontSize, 115);
+  assert.equal(explicitOverride?.fontSize, 72);
 });
 
 test("canonical layout maps proportionally to the 1080×1920 ASS canvas", () => {
@@ -72,7 +73,45 @@ test("canonical layout maps proportionally to the 1080×1920 ASS canvas", () => 
   const columns = styleColumns(ass);
   assert.equal(columns[19], "108", "80% max width leaves 108px on the left");
   assert.equal(columns[20], "108", "80% max width leaves 108px on the right");
-  assert.equal(columns[21], "480", "75% from the top becomes a 480px bottom margin");
+  assert.equal(columns[21], "452", "ASS visual-bottom anchor includes the preview's descender and effects");
+});
+
+test("canonical X center becomes asymmetric ASS margins without clipping the selected width", () => {
+  const { ass } = buildCaptionArtifactsFromSrt(
+    "1\n00:00:00,000 --> 00:00:01,000\ntexto de prueba\n",
+    { ...captionStyle, xPosition: 55 },
+  );
+  const columns = styleColumns(ass);
+  assert.equal(columns[19], "162");
+  assert.equal(columns[20], "54");
+  assert.deepEqual(captionHorizontalMargins(80, 55), { left: 162, right: 54, width: 864, center: 594 });
+});
+
+test("Render Fast V2 maps inactive opacity to ASS alpha", () => {
+  const source = "1\n00:00:00,000 --> 00:00:01,000\nuno dos tres\n";
+  const lowOpacity = buildCaptionArtifactsFromSrt(source, { ...captionStyle, inactiveOpacity: 0.25 }).ass;
+  const highOpacity = buildCaptionArtifactsFromSrt(source, { ...captionStyle, inactiveOpacity: 0.8 }).ass;
+  assert.match(lowOpacity, /\\c&HBFFFFFFF/);
+  assert.match(highOpacity, /\\c&H33FFFFFF/);
+});
+
+test("Render Fast V2 converts CSS rgba shadow colors into valid ASS back colors", () => {
+  const { ass } = buildCaptionArtifactsFromSrt(
+    "1\n00:00:00,000 --> 00:00:01,000\nuno dos\n",
+    { ...captionStyle, shadowColor: "rgba(0,0,0,0.5)" },
+  );
+  assert.equal(styleColumns(ass)[6], "&H80000000");
+  assert.doesNotMatch(ass, /\(0,0,0/);
+});
+
+test("Render Fast V2 follows a template's uppercase casing", () => {
+  const srt = "1\n00:00:00,000 --> 00:00:01,000\nHola mundo\n";
+  const upper = buildCaptionArtifactsFromSrt(srt, { ...captionStyle, uppercase: true }).ass;
+  const natural = buildCaptionArtifactsFromSrt(srt, { ...captionStyle, uppercase: false }).ass;
+  assert.match(upper, /HOLA/);
+  assert.match(upper, /MUNDO/);
+  assert.match(natural, /Hola/);
+  assert.match(natural, /mundo/);
 });
 
 test("preview and ASS derive identical safe margins from the canonical width", () => {

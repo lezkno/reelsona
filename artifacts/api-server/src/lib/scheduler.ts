@@ -52,7 +52,10 @@ import { applyCaptions, CAPTION_DIR, type CaptionStyle, CAPTION_PRESETS } from "
 import { computeUpcomingSlots } from "./schedule";
 import { applyCaptionsBrowser } from "./browser-caption-engine";
 import { applyCaptionsFastV2, isRenderFastV2Enabled, isRenderFastV2Failure } from "./render-fast-v2";
-import { getBrowserTemplateStyleOverrides } from "./caption-style-adapter";
+import {
+  getBrowserTemplateStyleOverrides,
+  getBrowserTemplateVisualOverrides,
+} from "./caption-style-adapter";
 import { BROWSER_CAPTION_TEMPLATES, type CaptionTemplate } from "@workspace/caption-templates";
 import {
   marginXFromMaxWidthPercent,
@@ -1970,6 +1973,7 @@ export async function runCaptionProcessing(
     fontSize:        rotatedPreset.fontSize,
     lineSpacingFactor: captionCfg.lineSpacingFactor,
     yPosition:       captionCfg.yPosition,
+    xPosition:       captionCfg.xPosition,
     marginX:         marginXFromMaxWidthPercent(
       captionCfg.maxWidthPercent ?? maxWidthPercentFromMarginX(captionCfg.marginX),
     ),
@@ -1991,6 +1995,7 @@ export async function runCaptionProcessing(
     fontSize: captionCfg.fontSize,
     lineSpacingFactor: captionCfg.lineSpacingFactor,
     yPosition: captionCfg.yPosition,
+    xPosition: captionCfg.xPosition,
     marginX: marginXFromMaxWidthPercent(
       captionCfg.maxWidthPercent ?? maxWidthPercentFromMarginX(captionCfg.marginX),
     ),
@@ -2009,6 +2014,9 @@ export async function runCaptionProcessing(
         captionCfg.fontSize,
       )
     : null;
+  const browserTemplateVisualOverrides = captionCfg.captionEngine === "browser_experimental"
+    ? getBrowserTemplateVisualOverrides(parsedTemplateOverrides, captionCfg.fontSize)
+    : undefined;
   if (browserTemplateStyle) {
     // Position remains user-controlled through Caption Studio. Every visual
     // property below shares the same 1920px reference frame as ASS in Fast V2.
@@ -2084,11 +2092,11 @@ export async function runCaptionProcessing(
       videoDurationSeconds: durationSeconds ?? undefined,
       // Pass user drag overrides so position set in Caption Studio is honoured in the render
       yPositionPct: captionCfg.yPosition  ?? undefined,
-      marginXPct:   captionCfg.marginX    != null
-        ? (captionCfg.marginX / 1080) * 100  // px at 1080-width scale → % of VIDEO_WIDTH
-        : undefined,
-      // Pass style overrides from Caption Studio advanced settings
-      templateOverrides: parsedTemplateOverrides,
+      xPositionPct: captionCfg.xPosition  ?? undefined,
+      maxWidthPercent: captionCfg.maxWidthPercent
+        ?? maxWidthPercentFromMarginX(captionCfg.marginX),
+      // Layout and font size remain canonical; only visual template overrides apply.
+      templateOverrides: browserTemplateVisualOverrides,
       // Pass video effects so the browser engine can apply zoom, B-roll, etc.
       videoEffects: videoEffects,
       visualSuggestions,

@@ -12,6 +12,7 @@ import {
 import { CAPTION_PRESETS } from "../lib/caption-engine";
 import { renderDiagnosticFrame, isBrowserEngineAvailable, applyCaptionsBrowser, BROWSER_CAPTION_TEMPLATES } from "../lib/browser-caption-engine";
 import { acquireCaptionProcessingLease, resetCaptionProcessingForReapply } from "../lib/scheduler";
+import { canonicalCaptionLayout } from "../lib/caption-config-layout";
 
 const router = Router();
 
@@ -28,6 +29,7 @@ function mapConfig(c: typeof captionConfigTable.$inferSelect) {
     font_size: c.fontSize,
     line_spacing_factor: c.lineSpacingFactor,
     y_position: c.yPosition,
+    x_position: c.xPosition,
     margin_x: c.marginX,
     max_width_percent: c.maxWidthPercent,
     layout_customized: c.layoutCustomized,
@@ -100,6 +102,9 @@ router.put("/captions/config", async (req, res): Promise<void> => {
   }
 
   const d = parsed.data;
+  const userId = req.session.user!.userId;
+  const [existing] = await db.select().from(captionConfigTable)
+    .where(eq(captionConfigTable.userId, userId)).limit(1);
   const updates: Partial<typeof captionConfigTable.$inferInsert> = {
     updatedAt: new Date(),
   };
@@ -115,8 +120,25 @@ router.put("/captions/config", async (req, res): Promise<void> => {
   if (d.font_size         !== undefined) updates.fontSize          = d.font_size;
   if (d.line_spacing_factor !== undefined) updates.lineSpacingFactor = d.line_spacing_factor;
   if (d.y_position        !== undefined) updates.yPosition         = d.y_position;
-  if (d.margin_x          !== undefined) updates.marginX           = d.margin_x;
-  if (d.max_width_percent !== undefined) updates.maxWidthPercent   = d.max_width_percent;
+  // Width, legacy margin and X are one coupled layout. Normalize partial API
+  // updates here so every renderer receives the same persisted geometry.
+  if (d.x_position !== undefined || d.max_width_percent !== undefined || d.margin_x !== undefined) {
+    const layout = canonicalCaptionLayout(
+      {
+        maxWidthPercent: d.max_width_percent,
+        marginX: d.margin_x,
+        xPosition: d.x_position,
+      },
+      {
+        maxWidthPercent: existing?.maxWidthPercent ?? 88.9,
+        marginX: existing?.marginX ?? 60,
+        xPosition: existing?.xPosition ?? 50,
+      },
+    );
+    updates.maxWidthPercent = layout.maxWidthPercent;
+    updates.marginX = layout.marginX;
+    updates.xPosition = layout.xPosition;
+  }
   if (d.layout_customized !== undefined) updates.layoutCustomized  = d.layout_customized;
   if (d.active_word_scale !== undefined) updates.activeWordScale   = d.active_word_scale;
   if (d.highlight_mode    !== undefined) updates.highlightMode     = d.highlight_mode;
@@ -133,9 +155,6 @@ router.put("/captions/config", async (req, res): Promise<void> => {
   if (d.last_used_preset_id        !== undefined) updates.lastUsedPresetId        = d.last_used_preset_id ?? null;
   if (d.preset_usage_count         !== undefined) updates.presetUsageCount        = d.preset_usage_count;
 
-  const userId = req.session.user!.userId;
-  const [existing] = await db.select().from(captionConfigTable)
-    .where(eq(captionConfigTable.userId, userId)).limit(1);
   let config;
   if (existing) {
     [config] = await db

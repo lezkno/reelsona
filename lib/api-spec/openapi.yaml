@@ -1650,6 +1650,9 @@ components:
           type: number
         y_position:
           type: number
+        x_position:
+          type: number
+          description: Horizontal center of the caption block as a percentage of the canonical canvas.
         margin_x:
           type: number
         max_width_percent:
@@ -1695,6 +1698,7 @@ components:
         - auto_movement
         - subtle_rotation
         - caption_engine
+        - x_position
         - max_width_percent
         - layout_customized
         - selected_preset_ids
@@ -1745,6 +1749,10 @@ components:
           type: number
         y_position:
           type: number
+        x_position:
+          type: number
+          minimum: 0
+          maximum: 100
         margin_x:
           type: number
         max_width_percent:

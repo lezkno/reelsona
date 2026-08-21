@@ -838,6 +838,8 @@ export interface CaptionConfig {
   subtle_rotation: boolean;
   line_spacing_factor?: number;
   y_position?: number;
+  /** Horizontal center of the caption block as a percentage of the canonical canvas. */
+  x_position: number;
   margin_x?: number;
   /** Maximum caption block width as a percentage of the 1080px canonical canvas. */
   max_width_percent: number;
@@ -922,6 +924,11 @@ export interface CaptionConfigInput {
   subtle_rotation?: boolean;
   line_spacing_factor?: number;
   y_position?: number;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  x_position?: number;
   margin_x?: number;
   /**
      * @minimum 40

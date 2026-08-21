@@ -48,6 +48,8 @@ export const captionConfigTable = pgTable("caption_config", {
   autoScale: boolean("auto_scale").notNull().default(true),
   lineSpacingFactor: real("line_spacing_factor").notNull().default(1.1),
   yPosition: real("y_position").notNull().default(75),
+  /** Horizontal center of the caption block (% of the 1080px reference canvas). */
+  xPosition: real("x_position").notNull().default(50),
   marginX: real("margin_x").notNull().default(60),
   /** Canonical caption block width, expressed as % of a 1080px reference canvas. */
   maxWidthPercent: real("max_width_percent").notNull().default(88.9),

@@ -25,6 +25,7 @@ import { logger } from "./logger";
 import { getServerReadableMediaUrl, objectStorageClient } from "./objectStorage";
 import { getCanonicalOrigin } from "./appOrigin";
 import {
+  captionHorizontalMargins,
   marginXFromMaxWidthPercent,
   maxWidthPercentFromMarginX,
 } from "@workspace/caption-templates";
@@ -44,6 +45,8 @@ export interface CaptionStyle {
   presetId: string;
   position: "top" | "center" | "bottom";  // legacy — yPosition takes priority
   yPosition: number;                       // 0–100, percent from top of video
+  /** Horizontal center of the caption block, 0–100% from left. */
+  xPosition?: number;
   marginX: number;                         // left (and symmetric right) margin in video pixels
   wordsPerLine: number;
   primaryColor: string;        // CSS hex (#RRGGBB)
@@ -57,6 +60,15 @@ export interface CaptionStyle {
   /** Browser template visual values carried into the ASS renderer. */
   outlineWidth?: number;
   letterSpacing?: number;
+  inactiveOpacity?: number;
+  stackWords?: boolean;
+  fontWeight?: number;
+  shadowColor?: string;
+  shadowOffsetX?: number;
+  shadowOffsetY?: number;
+  shadowBlur?: number;
+  /** Match Browser template casing rather than forcing source transcript casing. */
+  uppercase?: boolean;
   lineSpacingFactor: number;   // multiplier: 1.0 = tightest, 2.0 = very spaced
   activeWordScale: number;     // unused in v3 (scale overrides cause ASS issues)
   highlightMode: "color" | "scale" | "both" | "mixed" | "zoom";
@@ -127,6 +139,12 @@ function rgbaToAss(rgba: string): string {
   return `&H${aa}${b}${g}${r}`.toUpperCase();
 }
 
+/** CSS color → ASS color, preserving CSS rgba alpha and transparent shadows. */
+function cssColorToAss(color: string): string {
+  if (color === "transparent") return "&HFF000000";
+  return color.startsWith("#") ? hexToAss(color) : rgbaToAss(color);
+}
+
 /** ms → ASS timestamp H:MM:SS.cc */
 function msToAssTime(ms: number): string {
   const h = Math.floor(ms / 3_600_000);
@@ -134,6 +152,10 @@ function msToAssTime(ms: number): string {
   const s = Math.floor((ms % 60_000) / 1_000);
   const cs = Math.floor((ms % 1_000) / 10); // centiseconds
   return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.${String(cs).padStart(2, "0")}`;
+}
+
+function formatCaptionWord(word: string, config: CaptionStyle): string {
+  return config.uppercase ? word.toUpperCase() : word;
 }
 
 /** SRT timestamp HH:MM:SS,mmm → ms */
@@ -237,6 +259,27 @@ function resolveFontName(fontFamily: string): string {
 
 // ─── ASS header builder ───────────────────────────────────────────────────────
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+/**
+ * Caption Studio's y value is an alphabetic baseline. ASS anchors its normal
+ * style at the visual bottom, so this conversion includes the same descender,
+ * outline and shadow allowance used by the Canvas/React preview.
+ */
+function getVisualCaptionBottom(config: CaptionStyle, videoHeight: number): number {
+  const scale = videoHeight / 1920;
+  const baseline = videoHeight * ((config.yPosition ?? 75) / 100);
+  const outline = config.outlineWidth ?? 7;
+  const descenderAndEffects =
+    config.fontSize * 0.25 +
+    outline * 1.2 +
+    Math.max(0, config.shadowOffsetY ?? 2) +
+    Math.max(0, config.shadowBlur ?? 0) * 0.4;
+  return clamp(Math.round(baseline + descenderAndEffects * scale), 0, videoHeight);
+}
+
 function buildASSHeader(
   config: CaptionStyle,
   videoWidth: number,
@@ -247,20 +290,25 @@ function buildASSHeader(
   const yPos    = config.yPosition ?? (config.position === "top" ? 15 : config.position === "center" ? 50 : 75);
   const maxWidthPercent = config.maxWidthPercent
     ?? maxWidthPercentFromMarginX(config.marginX ?? 60);
-  const marginX = marginXFromMaxWidthPercent(maxWidthPercent, videoWidth);
+  const margins = captionHorizontalMargins(maxWidthPercent, config.xPosition ?? 50, videoWidth);
   const alignment = 2;
-  const marginV = Math.round(videoHeight * (1 - yPos / 100));
+  const marginV = Math.round(videoHeight - getVisualCaptionBottom({ ...config, yPosition: yPos }, videoHeight));
   const fontName = resolveFontName(config.fontFamily);
 
   const primaryColor = hexToAss(config.primaryColor);
   const activeColor  = hexToAss(config.activeWordColor);
   const outlineColor = hexToAss(config.outlineColor);
-  const backColor    = config.backgroundColor ? rgbaToAss(config.backgroundColor) : "&H00000000";
+  const backColor    = config.backgroundColor
+    ? rgbaToAss(config.backgroundColor)
+    : config.shadowColor ? cssColorToAss(config.shadowColor) : "&H00000000";
   const borderStyle  = config.backgroundColor ? 3 : 1;
   // Match preview CSS text-shadow (2px at 444px preview = ~8.7 ASS pts at 1920px).
   // Use 7 (smooth ASS outline renders more prominently than blocky CSS shadow).
   const outlineWidth = borderStyle === 3 ? 0 : (config.outlineWidth ?? 7);
-  const shadowDepth  = borderStyle === 3 ? 0 : 2;
+  const shadowDepth  = borderStyle === 3
+    ? 0
+    : Math.max(0, Math.round(Math.max(Math.abs(config.shadowOffsetX ?? 0), Math.abs(config.shadowOffsetY ?? 2))));
+  const bold = (config.fontWeight ?? 700) >= 600 ? -1 : 0;
   // Match preview's CSS letterSpacing: "0.04em" = 0.04 × fontSize ASS units
   const letterSpacing = +(
     config.fontSize * (config.letterSpacing ?? 0.04)
@@ -276,7 +324,7 @@ YCbCr Matrix: TV.709
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Caption,${fontName},${config.fontSize},${primaryColor},${activeColor},${outlineColor},${backColor},-1,0,0,0,100,100,${letterSpacing},0,${borderStyle},${outlineWidth},${shadowDepth},${alignment},${marginX},${marginX},${marginV},1
+Style: Caption,${fontName},${config.fontSize},${primaryColor},${activeColor},${outlineColor},${backColor},${bold},0,0,0,100,100,${letterSpacing},0,${borderStyle},${outlineWidth},${shadowDepth},${alignment},${margins.left},${margins.right},${marginV},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`;
@@ -304,9 +352,10 @@ function buildHighlightLineASS(
 
   const accentColor  = hexToAss(config.activeWordColor);
   const primaryColor = hexToAss(config.primaryColor);
-  // Faded version of primary color (50% alpha = &H80)
-  // Match preview CSS `${primary}88`: 0x88 hex = 53.3% opacity → ASS alpha = 0xFF - 0x88 = 0x77
-  const fadedColor   = hexToAss(config.primaryColor, 0x77);
+  // ASS alpha is inverse opacity (0 = opaque). This now follows the Studio
+  // control rather than retaining the old hard-coded 53% opacity.
+  const fadedAlpha = Math.round((1 - clamp(config.inactiveOpacity ?? 0.53, 0, 1)) * 255);
+  const fadedColor = hexToAss(config.primaryColor, fadedAlpha);
 
   const dialogues: string[] = [];
 
@@ -321,7 +370,7 @@ function buildHighlightLineASS(
 
       // Build the styled line text
       const parts = lineWords.map((w, j) => {
-        const word = w.text.toUpperCase();
+        const word = formatCaptionWord(w.text, config);
         if (j === wi) {
           // Active word: accent color, bold marker (already bold in style but emphasize)
           return `{\\c${accentColor}}${word}{\\c${primaryColor}}`;
@@ -335,7 +384,7 @@ function buildHighlightLineASS(
       });
 
       dialogues.push(
-        `Dialogue: 0,${msToAssTime(slotStart)},${msToAssTime(slotEnd)},Caption,,0,0,0,,${parts.join(" ")}`
+        `Dialogue: 0,${msToAssTime(slotStart)},${msToAssTime(slotEnd)},Caption,,0,0,0,,${parts.join(config.stackWords ? "\\N" : " ")}`
       );
     }
   }
@@ -361,7 +410,7 @@ function buildPopASS(
   const colorTag = useAccentColor ? `{\\c${accentColor}}` : "";
 
   const dialogues = wordTimings.map((w) => {
-    const word = w.text.toUpperCase();
+    const word = formatCaptionWord(w.text, config);
     return `Dialogue: 0,${msToAssTime(w.start)},${msToAssTime(w.end)},Caption,,0,0,0,,${colorTag}${word}`;
   });
 
@@ -381,8 +430,10 @@ function buildZoomASS(
   videoHeight: number
 ): string {
   const fontName      = resolveFontName(config.fontFamily);
-  const cx            = Math.round(videoWidth / 2);
-  const cy            = Math.round(videoHeight * (config.yPosition / 100));
+  const maxWidthPercent = config.maxWidthPercent
+    ?? maxWidthPercentFromMarginX(config.marginX ?? 60);
+  const cx            = captionHorizontalMargins(maxWidthPercent, config.xPosition ?? 50, videoWidth).center;
+  const cy            = getVisualCaptionBottom(config, videoHeight);
   const primaryColor  = hexToAss(config.primaryColor);
   const accentColor   = hexToAss(config.activeWordColor);
   const outlineColor  = hexToAss(config.outlineColor);
@@ -401,7 +452,7 @@ YCbCr Matrix: TV.709
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Caption,${fontName},${config.fontSize},${primaryColor},${accentColor},${outlineColor},&H00000000,-1,0,0,0,100,100,${letterSpacing},0,1,${outlineWidth},2,5,0,0,0,1
+Style: Caption,${fontName},${config.fontSize},${primaryColor},${accentColor},${outlineColor},${config.shadowColor ? cssColorToAss(config.shadowColor) : "&H00000000"},-1,0,0,0,100,100,${letterSpacing},0,1,${outlineWidth},${Math.max(0, Math.round(Math.max(Math.abs(config.shadowOffsetX ?? 0), Math.abs(config.shadowOffsetY ?? 2))))},2,0,0,0,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`;
@@ -412,10 +463,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
   const ANIM_MS      = 200;  // zoom duration ms
 
   const dialogues = wordTimings.map((w) => {
-    const word    = w.text;  // preserve natural case — no forced uppercase
+    const word    = formatCaptionWord(w.text, config);
     const animDur = Math.min(ANIM_MS, Math.round((w.end - w.start) * 0.5));
     // Start: 60% scale, 50% transparent. Animate to 100% / fully opaque.
-    const tag = `{${colorPrefix}\\pos(${cx},${cy})\\fscx60\\fscy60\\alpha&H80&\\t(0,${animDur},1,\\fscx100\\fscy100\\alpha&H00&)}`;
+    const tag = `{${colorPrefix}\\an2\\pos(${cx},${cy})\\fscx60\\fscy60\\alpha&H80&\\t(0,${animDur},1,\\fscx100\\fscy100\\alpha&H00&)}`;
     return `Dialogue: 0,${msToAssTime(w.start)},${msToAssTime(w.end)},Caption,,0,0,0,,${tag}${word}`;
   });
 
@@ -550,8 +601,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
       .slice(0, upToPos + 1)
       .map((w) =>
         w.isEmphasis
-          ? `{\\fs${largeSize}\\c${accentColor}}${w.text}`
-          : `{\\fs${smallSize}\\c${primaryColor}}${w.text}`
+          ? `{\\fs${largeSize}\\c${accentColor}}${formatCaptionWord(w.text, config)}`
+          : `{\\fs${smallSize}\\c${primaryColor}}${formatCaptionWord(w.text, config)}`
       )
       .join(" ");
   }
@@ -560,10 +611,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
   // Text is LEFT-aligned, starting from a fixed left margin — matching the
   // reference video where each new word extends the line to the right.
   const MAX_SLOTS   = 4;
-  const LEFT_X      = marginXFromMaxWidthPercent(
+  const LEFT_X      = captionHorizontalMargins(
     config.maxWidthPercent ?? maxWidthPercentFromMarginX(config.marginX ?? 60),
+    config.xPosition ?? 50,
     videoWidth,
-  );
+  ).left;
   const lsf         = config.lineSpacingFactor ?? 1.1; // user-configurable multiplier
   const lineSpacing = Math.round(largeSize * lsf);
   const yPos    = config.yPosition ?? (config.position === "bottom" ? 94.8 : config.position === "center" ? 50 : 15);
