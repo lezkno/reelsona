@@ -38,6 +38,35 @@ type VideoInfo = {
   rotation: number;
 };
 
+function getFfmpegFailureDetails(error: unknown) {
+  if (!error || typeof error !== "object") return undefined;
+  const candidate = error as {
+    ffmpeg?: {
+      stage: string;
+      segmentCount: number;
+      batchIndex?: number;
+      batchCount?: number;
+      exitCode?: string | number;
+      signal?: string;
+      killed?: boolean;
+      stderr?: string;
+    };
+    code?: string | number;
+    signal?: string;
+    killed?: boolean;
+    stderr?: string | Buffer;
+  };
+  if (candidate.ffmpeg) return candidate.ffmpeg;
+  const stderr = candidate.stderr ? String(candidate.stderr).slice(-12_000) : undefined;
+  return {
+    stage: "picture_lock_or_preparation",
+    exitCode: candidate.code,
+    signal: candidate.signal,
+    killed: candidate.killed,
+    stderr,
+  };
+}
+
 export type HybridRenderOptions = {
   subtitleUrl?: string | null;
   videoDurationSeconds?: number | null;
@@ -232,6 +261,7 @@ export async function applyHybridRenderV2(
       tmpDir,
       width: pictureInfo.width,
       height: pictureInfo.height,
+      durationSeconds: pictureInfo.duration,
       timings,
       template,
     });
@@ -262,7 +292,12 @@ export async function applyHybridRenderV2(
 
     return { url, thumbnailUrl };
   } catch (error) {
-    logger.error({ error, runId, totalMs: Date.now() - startedAt }, "[HybridV2] Failed");
+    logger.error({
+      error,
+      ffmpeg: getFfmpegFailureDetails(error),
+      runId,
+      totalMs: Date.now() - startedAt,
+    }, "[HybridV2] Failed");
     return { url: null, error: error instanceof Error ? error.message : String(error) };
   } finally {
     await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => undefined);

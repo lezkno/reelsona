@@ -20,13 +20,70 @@ import {
   MAX_SINGLE_PASS_CAPTION_OVERLAYS,
 } from "./hybrid-caption-compositor.js";
 import { buildHybridCaptionCues, clampHybridCueWindows } from "./hybrid-caption-cues.js";
-import type { CaptionOverlaySegment } from "./hybrid-caption-timeline.js";
+import {
+  assertCaptionOverlayTimelineIsExclusive,
+  normalizeCaptionOverlayTimeline,
+  type CaptionOverlaySegment,
+} from "./hybrid-caption-timeline.js";
 import type { WordTiming } from "./browser-caption-engine.js";
 
 const execFileAsync = promisify(execFile);
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 const fontsDir = path.join(moduleDir, "../assets/fonts");
 const WORD_GAP_FACTOR = 0.18;
+
+type CaptionFfmpegError = Error & {
+  ffmpeg?: {
+    stage: string;
+    segmentCount: number;
+    batchIndex?: number;
+    batchCount?: number;
+    exitCode?: string | number;
+    signal?: string;
+    killed?: boolean;
+    stderr?: string;
+  };
+};
+
+async function runCaptionFfmpeg(input: {
+  stage: string;
+  args: string[];
+  segmentCount: number;
+  batchIndex?: number;
+  batchCount?: number;
+  maxBuffer: number;
+  timeout: number;
+}): Promise<void> {
+  try {
+    await execFileAsync("ffmpeg", input.args, {
+      maxBuffer: input.maxBuffer,
+      timeout: input.timeout,
+      killSignal: "SIGKILL",
+    });
+  } catch (error) {
+    const candidate = error as {
+      code?: string | number;
+      signal?: string;
+      killed?: boolean;
+      stderr?: string | Buffer;
+    };
+    const contextualError = new Error(
+      `FFmpeg ${input.stage} failed (segments=${input.segmentCount})`,
+      { cause: error },
+    ) as CaptionFfmpegError;
+    contextualError.ffmpeg = {
+      stage: input.stage,
+      segmentCount: input.segmentCount,
+      batchIndex: input.batchIndex,
+      batchCount: input.batchCount,
+      exitCode: candidate.code,
+      signal: candidate.signal,
+      killed: candidate.killed,
+      stderr: candidate.stderr ? String(candidate.stderr).slice(-12_000) : undefined,
+    };
+    throw contextualError;
+  }
+}
 
 const FUNCTION_WORDS = new Set([
   "el","la","los","las","un","una","unos","unas","al","del","yo","me","mi","tú","tu","te","él","ella","nosotros","ellos","se","nos","le","les","lo",
@@ -224,12 +281,59 @@ async function renderCuePng(input: {
   return cvs.encode("png");
 }
 
+function quoteFfconcatPath(filePath: string): string {
+  return `'${filePath.replace(/'/g, "'\\''")}'`;
+}
+
+/**
+ * A concat manifest exposes all Canvas PNGs as one FFmpeg input stream. This
+ * avoids the memory blow-up from holding a full-resolution image stream for
+ * every cue inside a long overlay chain.
+ */
+export function buildCaptionTrackManifest(input: {
+  blankPngPath: string;
+  segments: CaptionOverlaySegment[];
+  durationSeconds: number;
+}): string {
+  const normalized = normalizeCaptionOverlayTimeline(input.segments);
+  assertCaptionOverlayTimelineIsExclusive(normalized.segments);
+
+  const entries: Array<{ pngPath: string; durationSec: number }> = [];
+  let cursor = 0;
+  const addEntry = (pngPath: string, durationSec: number) => {
+    if (durationSec >= 0.001) entries.push({ pngPath, durationSec });
+  };
+
+  for (const segment of normalized.segments) {
+    if (segment.startSec > cursor + 0.001) {
+      addEntry(input.blankPngPath, segment.startSec - cursor);
+    }
+    addEntry(segment.pngPath, segment.endSec - segment.startSec);
+    cursor = Math.max(cursor, segment.endSec);
+  }
+
+  addEntry(input.blankPngPath, Math.max(0, input.durationSeconds - cursor));
+
+  const lines = ["ffconcat version 1.0"];
+  for (const entry of entries) {
+    lines.push(`file ${quoteFfconcatPath(entry.pngPath)}`);
+    lines.push(`duration ${entry.durationSec.toFixed(6)}`);
+  }
+
+  // The concat demuxer uses the following file to honor the previous duration.
+  // A transparent sentinel means that the last visible cue never leaks past
+  // its intended end time.
+  lines.push(`file ${quoteFfconcatPath(input.blankPngPath)}`);
+  return `${lines.join("\n")}\n`;
+}
+
 export async function renderHybridCanvasCaptions(input: {
   pictureLockPath: string;
   outputPath: string;
   tmpDir: string;
   width: number;
   height: number;
+  durationSeconds: number;
   timings: WordTiming[];
   template: CaptionTemplate;
 }): Promise<{
@@ -285,30 +389,46 @@ export async function renderHybridCanvasCaptions(input: {
     }
   }
 
-  const plan = buildHybridCaptionCompositePlan({
-    pictureLockPath: input.pictureLockPath,
-    outputPath: input.outputPath,
-    width: input.width,
-    height: input.height,
-    segments: rawSegments,
-  });
+  const normalizedTimeline = normalizeCaptionOverlayTimeline(rawSegments);
+  assertCaptionOverlayTimelineIsExclusive(normalizedTimeline.segments);
+  const segments = normalizedTimeline.segments;
+  const overlapFixes = normalizedTimeline.issues.filter((issue) => issue.reason === "overlap").length;
 
   const pngGenerationMs = Date.now() - pngStartedAt;
   const compositeStartedAt = Date.now();
   let compositionMode: "single_pass" | "batch_fallback" = "single_pass";
   let videoEncodeCount = 1;
 
-  if (plan.segments.length <= MAX_SINGLE_PASS_CAPTION_OVERLAYS) {
-    await execFileAsync("ffmpeg", plan.args, {
+  if (segments.length <= MAX_SINGLE_PASS_CAPTION_OVERLAYS) {
+    const blankPngPath = path.join(input.tmpDir, "hybrid_transparent.png");
+    const transparentCanvas = canvas.createCanvas(input.width, input.height);
+    await fs.writeFile(blankPngPath, await transparentCanvas.encode("png"));
+
+    const captionTrackManifestPath = path.join(input.tmpDir, "hybrid_captions.ffconcat");
+    await fs.writeFile(captionTrackManifestPath, buildCaptionTrackManifest({
+      blankPngPath,
+      segments,
+      durationSeconds: input.durationSeconds,
+    }));
+
+    const plan = buildHybridCaptionCompositePlan({
+      pictureLockPath: input.pictureLockPath,
+      captionTrackManifestPath,
+      outputPath: input.outputPath,
+      segments,
+    });
+    await runCaptionFfmpeg({
+      stage: "caption_track_composite",
+      args: plan.args,
+      segmentCount: segments.length,
       maxBuffer: 500 * 1024 * 1024,
       timeout: 6 * 60_000,
-      killSignal: "SIGKILL",
     });
   } else {
     compositionMode = "batch_fallback";
     const batches: CaptionOverlaySegment[][] = [];
-    for (let index = 0; index < plan.segments.length; index += FALLBACK_BATCH_CAPTION_OVERLAYS) {
-      batches.push(plan.segments.slice(index, index + FALLBACK_BATCH_CAPTION_OVERLAYS));
+    for (let index = 0; index < segments.length; index += FALLBACK_BATCH_CAPTION_OVERLAYS) {
+      batches.push(segments.slice(index, index + FALLBACK_BATCH_CAPTION_OVERLAYS));
     }
 
     let videoPath = input.pictureLockPath;
@@ -321,35 +441,41 @@ export async function renderHybridCanvasCaptions(input: {
         height: input.height,
         segments: batches[index],
       });
-      await execFileAsync("ffmpeg", batchPlan.args, {
+      await runCaptionFfmpeg({
+        stage: "caption_batch_composite",
+        args: batchPlan.args,
+        segmentCount: batches[index].length,
+        batchIndex: index + 1,
+        batchCount: batches.length,
         maxBuffer: 500 * 1024 * 1024,
         timeout: 6 * 60_000,
-        killSignal: "SIGKILL",
       });
       videoPath = batchPath;
     }
 
-    await execFileAsync("ffmpeg", [
-      "-i", videoPath,
-      "-i", input.pictureLockPath,
-      "-map", "0:v:0",
-      "-map", "1:a?",
-      "-c:v", "copy",
-      "-c:a", "copy",
-      "-movflags", "+faststart",
-      "-shortest",
-      "-y", input.outputPath,
-    ], {
+    await runCaptionFfmpeg({
+      stage: "caption_batch_audio_mux",
+      args: [
+        "-i", videoPath,
+        "-i", input.pictureLockPath,
+        "-map", "0:v:0",
+        "-map", "1:a?",
+        "-c:v", "copy",
+        "-c:a", "copy",
+        "-movflags", "+faststart",
+        "-y", input.outputPath,
+      ],
+      segmentCount: segments.length,
+      batchCount: batches.length,
       maxBuffer: 200 * 1024 * 1024,
       timeout: 2 * 60_000,
-      killSignal: "SIGKILL",
     });
     videoEncodeCount = batches.length;
   }
 
   return {
-    segmentCount: plan.segments.length,
-    overlapFixes: plan.overlapFixes,
+    segmentCount: segments.length,
+    overlapFixes,
     sourceMode: cuePlan.sourceMode,
     compositionMode,
     pngGenerationMs,
