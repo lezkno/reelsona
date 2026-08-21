@@ -1714,11 +1714,11 @@ export default function CaptionStudio() {
     : null
   const unavailableTemplateControls = activeFastV2
     ? ([
-        ["wordsPerLine", "palabras por línea"],
-        ["outlineWidth", "grosor del outline"],
-        ["inactiveOpacity", "opacidad inactiva"],
-        ["activeWordColor", "color activo"],
-        ["outlineColor", "color del outline"],
+        ["wordsPerLine", "cantidad de palabras visibles"],
+        ["outlineWidth", "borde del texto"],
+        ["inactiveOpacity", "opacidad de palabras anteriores"],
+        ["activeWordColor", "color de la palabra destacada"],
+        ["outlineColor", "color del borde"],
       ] as const)
         .filter(([key]) => !activeFastV2.controls[key])
         .map(([, label]) => label)
@@ -2118,7 +2118,7 @@ export default function CaptionStudio() {
               )}
             </div>
             <p className="text-sm text-muted-foreground mb-4">
-                El layout, el tamaño, los colores y la opacidad se comparten con el MP4 final. Cada plantilla indica sus límites de paridad V2.
+                Elegí una plantilla para cambiar el aspecto de tus captions. La posición y el tamaño se ajustan por separado y se conservan en el video final.
             </p>
             {rotationEnabled && previewRotationTemplates.length > 0 && (
               <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border bg-muted/30 px-3 py-2 text-xs">
@@ -2153,9 +2153,9 @@ export default function CaptionStudio() {
           <Card className="border-primary/25 bg-primary/[0.025]">
             <CardContent className="p-6 space-y-5">
               <div>
-                <h2 className="text-xl font-display font-bold">Layout final del caption</h2>
+                <h2 className="text-xl font-display font-bold">Posición y tamaño</h2>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Estos valores son comunes al preview y al MP4 final en un canvas de 1080 × 1920. Arrastrá el caption en el celular para moverlo.
+                  Estos controles deciden dónde aparece el caption y cuánto espacio ocupa. Se aplican a todas las plantillas y al video final. También podés arrastrarlo en el celular.
                 </p>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-6">
@@ -2214,7 +2214,7 @@ export default function CaptionStudio() {
               </div>
               {currentOverrides.fontSize !== undefined && (
                 <p className="rounded-lg bg-violet-500/10 px-3 py-2 text-xs text-violet-700 dark:text-violet-300">
-                  Un tamaño antiguo guardado dentro de esta plantilla se ignora: el tamaño común de arriba es la única fuente de verdad.
+                  El tamaño se controla arriba para que sea igual en todas las plantillas.
                 </p>
               )}
             </CardContent>
@@ -2224,7 +2224,7 @@ export default function CaptionStudio() {
           {!rotationEnabled && mergedTmpl && (
             <div>
               <div className="flex items-center justify-between mb-1">
-                <h2 className="text-xl font-display font-bold">Ajustes de plantilla</h2>
+                 <h2 className="text-xl font-display font-bold">Ajustar el estilo</h2>
                 {Object.keys(currentOverrides).length > 0 && (
                   <button
                     type="button"
@@ -2237,11 +2237,11 @@ export default function CaptionStudio() {
                 )}
               </div>
               <p className="text-sm text-muted-foreground mb-4">
-                Ajusta los valores de la plantilla <strong>{activeTmpl?.name}</strong>. Solo se muestran controles que cambian el MP4 de Render Fast V2; el preview se actualiza en tiempo real.
+                 Cambiá los colores, el borde y el resaltado de <strong>{activeTmpl?.name}</strong>. Estos cambios afectan el aspecto del caption en el preview y en el video final.
               </p>
               {unavailableTemplateControls.length > 0 && (
                 <p className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
-                  Fast V2 no aplica {unavailableTemplateControls.join(", ")} en esta plantilla. Se ocultan para evitar ajustes sin efecto.
+                   Este estilo no usa {unavailableTemplateControls.join(", ")}. Por eso no mostramos esos controles: cambiarlos no tendría ningún efecto en el video.
                 </p>
               )}
               <Card>
@@ -2249,7 +2249,7 @@ export default function CaptionStudio() {
                   {activeFastV2?.controls.wordsPerLine && (
                   <div className="space-y-2">
                     <Label>
-                      Palabras por línea:&nbsp;
+                       Palabras visibles a la vez:&nbsp;
                       <span className="text-primary font-bold">{ov("wordsPerLine")}</span>
                       {currentOverrides.wordsPerLine !== undefined && (
                         <span className="ml-1 text-[10px] text-violet-500">(modificado)</span>
@@ -2264,7 +2264,7 @@ export default function CaptionStudio() {
                   {activeFastV2?.controls.outlineWidth && (
                   <div className="space-y-2">
                     <Label>
-                      Grosor del outline:&nbsp;
+                       Grosor del borde:&nbsp;
                       <span className="text-primary font-bold">{ov("outlineWidth")}px</span>
                       {currentOverrides.outlineWidth !== undefined && (
                         <span className="ml-1 text-[10px] text-violet-500">(modificado)</span>
@@ -2272,14 +2272,14 @@ export default function CaptionStudio() {
                     </Label>
                     <Slider min={0} max={20} step={1} value={[ov("outlineWidth") ?? 0]} onValueChange={([v]) => setOverride("outlineWidth", v)} disabled={isVideoProcessing} className="mt-3" />
                     <div className="flex justify-between text-[10px] text-muted-foreground">
-                      <span>0 — sin outline</span><span>Default: {activeTmpl?.outlineWidth}px</span><span>20 — trazo grueso</span>
+                      <span>0 — sin borde</span><span>Original: {activeTmpl?.outlineWidth}px</span><span>20 — borde grueso</span>
                     </div>
                   </div>
                   )}
                   {activeFastV2?.controls.inactiveOpacity && (
                   <div className="space-y-2">
                     <Label>
-                      Opacidad de palabras inactivas:&nbsp;
+                       Opacidad de palabras anteriores:&nbsp;
                       <span className="text-primary font-bold">{Math.round((ov("inactiveOpacity") ?? 1) * 100)}%</span>
                       {currentOverrides.inactiveOpacity !== undefined && (
                         <span className="ml-1 text-[10px] text-violet-500">(modificado)</span>
@@ -2302,14 +2302,14 @@ export default function CaptionStudio() {
                       <input type="color" value={ov("primaryColor") ?? "#FFFFFF"} onChange={(e) => setOverride("primaryColor", e.target.value)} disabled={isVideoProcessing} className="w-10 h-10 rounded-md border cursor-pointer bg-background p-0.5" />
                       <div>
                         <p className="text-sm font-mono">{ov("primaryColor")}</p>
-                        <p className="text-[10px] text-muted-foreground">Default: {activeTmpl?.primaryColor}</p>
+                        <p className="text-[10px] text-muted-foreground">Color original: {activeTmpl?.primaryColor}</p>
                       </div>
                     </div>
                   </div>
                   {activeFastV2?.controls.activeWordColor && (
                   <div className="space-y-2">
                     <Label>
-                      Color de palabra activa
+                       Color de palabra destacada
                       {currentOverrides.activeWordColor !== undefined && (
                         <span className="ml-1 text-[10px] text-violet-500">(modificado)</span>
                       )}
@@ -2318,7 +2318,7 @@ export default function CaptionStudio() {
                       <input type="color" value={ov("activeWordColor") ?? "#FFFFFF"} onChange={(e) => setOverride("activeWordColor", e.target.value)} disabled={isVideoProcessing} className="w-10 h-10 rounded-md border cursor-pointer bg-background p-0.5" />
                       <div>
                         <p className="text-sm font-mono">{ov("activeWordColor")}</p>
-                        <p className="text-[10px] text-muted-foreground">Default: {activeTmpl?.activeWordColor}</p>
+                        <p className="text-[10px] text-muted-foreground">Color original: {activeTmpl?.activeWordColor}</p>
                       </div>
                     </div>
                   </div>
@@ -2326,7 +2326,7 @@ export default function CaptionStudio() {
                   {activeFastV2?.controls.outlineColor && (
                   <div className="space-y-2">
                     <Label>
-                      Color del outline
+                       Color del borde
                       {currentOverrides.outlineColor !== undefined && (
                         <span className="ml-1 text-[10px] text-violet-500">(modificado)</span>
                       )}
@@ -2335,7 +2335,7 @@ export default function CaptionStudio() {
                       <input type="color" value={ov("outlineColor") ?? "#000000"} onChange={(e) => setOverride("outlineColor", e.target.value)} disabled={isVideoProcessing} className="w-10 h-10 rounded-md border cursor-pointer bg-background p-0.5" />
                       <div>
                         <p className="text-sm font-mono">{ov("outlineColor")}</p>
-                        <p className="text-[10px] text-muted-foreground">Default: {activeTmpl?.outlineColor}</p>
+                        <p className="text-[10px] text-muted-foreground">Color original: {activeTmpl?.outlineColor}</p>
                       </div>
                     </div>
                   </div>
@@ -2343,8 +2343,8 @@ export default function CaptionStudio() {
                   <div className="sm:col-span-2 flex items-start gap-2 p-3 rounded-lg bg-muted/40">
                     <span className="text-base mt-0.5 shrink-0">✥</span>
                     <div>
-                        <p className="text-xs font-medium mb-0.5">Geometría compartida</p>
-                        <p className="text-xs text-muted-foreground leading-snug">El tamaño, la posición y el ancho se ajustan una sola vez en “Layout final”.</p>
+                         <p className="text-xs font-medium mb-0.5">Posición y tamaño compartidos</p>
+                         <p className="text-xs text-muted-foreground leading-snug">El tamaño, la posición y el ancho se ajustan una sola vez en “Posición y tamaño”.</p>
                       <p className="text-xs text-primary font-medium mt-1">
                           ↕ {Math.round(resolvedYPosition)}% &nbsp;·&nbsp; ↔ centro {Math.round(resolvedXPosition)}% &nbsp;·&nbsp; ancho {Math.round(resolvedMaxWidth)}%
                       </p>
@@ -2521,11 +2521,13 @@ export default function CaptionStudio() {
             }
           </div>
           <p className="text-[10px] text-muted-foreground text-center">
-            <span className="text-violet-500 font-medium">WYSIWYG</span> — lo que ves se renderiza.
+            <span className="text-violet-500 font-medium">Vista previa</span> — así se verá el caption en tu video.
           </p>
           {previewParity && (
             <p className={`text-[10px] text-center ${previewParity.level === "high" ? "text-emerald-600" : "text-amber-600"}`}>
-              Render Fast V2: {previewParity.level === "high" ? "paridad alta" : previewParity.limitations[0]}
+              {previewParity.level === "high"
+                ? "El video final coincidirá con esta vista previa."
+                : `Nota sobre este estilo: ${previewParity.limitations[0]}`}
             </p>
           )}
 
