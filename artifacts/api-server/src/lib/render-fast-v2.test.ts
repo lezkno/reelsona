@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   buildRenderFastV2Graph,
+  formatRenderFastV2Error,
   getRenderFastV2TimeoutMs,
   isRenderFastV2Failure,
   shouldUseRenderFastV2,
@@ -59,6 +60,9 @@ test("Render Fast V2 puts B-roll stills and timed motion overlays in the same gr
   assert.match(graph.filterComplex, /fade=t=in:st=10\.000:d=0\.3/);
   assert.match(graph.filterComplex, /overlay=0:0:eof_action=pass:shortest=1/);
   assert.match(graph.filterComplex, /scale=1080:1920:force_original_aspect_ratio=decrease/);
+  assert.match(graph.filterComplex, /loop=loop=-1:size=1:start=0,setpts=N\/\(30\*TB\),crop=1080:1920/);
+  assert.doesNotMatch(graph.inputArgs.join(" "), /(?:^|\s)-loop(?:\s|$)/);
+  assert.doesNotMatch(graph.inputArgs.join(" "), /(?:^|\s)-t(?:\s|$)/);
 });
 
 test("Render Fast V2 emits silent synchronized audio when the source has no audio stream", () => {
@@ -80,6 +84,13 @@ test("Render Fast V2 failure marker is explicit and can block raw-source publish
   assert.equal(isRenderFastV2Failure("Render Fast V2: ffmpeg exited with code 1"), true);
   assert.equal(isRenderFastV2Failure("Caption engine: ffmpeg exited with code 1"), false);
   assert.equal(isRenderFastV2Failure(null), false);
+});
+
+test("Render Fast V2 turns a killed FFmpeg process into an actionable timeout message", () => {
+  assert.equal(
+    formatRenderFastV2Error({ killed: true, signal: "SIGKILL" }),
+    "Render Fast V2: El render tardó demasiado y se detuvo. Intenta de nuevo; no se publicará el video sin los efectos.",
+  );
 });
 
 test("Render Fast V2 is the default in every environment", () => {

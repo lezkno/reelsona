@@ -49,6 +49,20 @@ export function isRenderFastV2Failure(errorMessage: string | null | undefined): 
   return errorMessage?.startsWith(RENDER_FAST_V2_ERROR_PREFIX) === true;
 }
 
+export function formatRenderFastV2Error(error: unknown): string {
+  const timedOut = typeof error === "object" && error !== null && (
+    (error as { killed?: unknown }).killed === true ||
+    (error as { code?: unknown }).code === "ETIMEDOUT" ||
+    (error as { signal?: unknown }).signal === "SIGKILL"
+  );
+  if (timedOut) {
+    return `${RENDER_FAST_V2_ERROR_PREFIX} El render tardó demasiado y se detuvo. Intenta de nuevo; no se publicará el video sin los efectos.`;
+  }
+
+  const message = error instanceof Error ? error.message : String(error);
+  return `${RENDER_FAST_V2_ERROR_PREFIX} ${message}`;
+}
+
 type VideoInfo = {
   width: number;
   height: number;
@@ -218,7 +232,10 @@ export function buildRenderFastV2Graph(input: FastGraphInput): FastGraph {
 
   input.brollAssets.forEach((asset, index) => {
     const inputIndex = index + 1;
-    inputArgs.push("-loop", "1", "-framerate", String(fps), "-t", String(Math.ceil(duration + 1)), "-i", asset.tmpPath);
+    // A B-roll source is one still image. Decode and scale it only once, then
+    // repeat the scaled frame inside the filter graph. Re-reading a PNG at the
+    // video frame rate made renders on low-CPU production instances stall.
+    inputArgs.push("-framerate", String(fps), "-i", asset.tmpPath);
     const motion = motionExpression(index, asset.segment.startSec, asset.segment.durationSec);
     const overscanW = toEven(OUTPUT_WIDTH * BROLL_OVERSCAN);
     const overscanH = toEven(OUTPUT_HEIGHT * BROLL_OVERSCAN);
@@ -230,6 +247,7 @@ export function buildRenderFastV2Graph(input: FastGraphInput): FastGraph {
     const nextLabel = index === input.brollAssets.length - 1 ? "[withbroll]" : `[overlay${index}]`;
     parts.push(
       `[${inputIndex}:v]scale=${overscanW}:${overscanH}:force_original_aspect_ratio=increase,` +
+      `loop=loop=-1:size=1:start=0,setpts=N/(${fps}*TB),` +
       `crop=${OUTPUT_WIDTH}:${OUTPUT_HEIGHT}:x='${motion.x}':y='${motion.y}',setsar=1,format=yuva420p,` +
       `fade=t=in:st=${asset.segment.startSec.toFixed(3)}:d=${BROLL_FADE_SEC}:alpha=1,` +
       `fade=t=out:st=${fadeOutStart.toFixed(3)}:d=${BROLL_FADE_SEC}:alpha=1${brollLabel}`,
@@ -464,9 +482,8 @@ export async function applyCaptionsFastV2(
     return { url, thumbnailUrl };
   } catch (error) {
     telemetry.totalMs = elapsedMs(runStartedAt);
-    const message = error instanceof Error ? error.message : String(error);
     logger.error({ error, runId, ...telemetry }, "[RenderFastV2] Failed — no automatic retry");
-    return { url: null, error: `${RENDER_FAST_V2_ERROR_PREFIX} ${message}` };
+    return { url: null, error: formatRenderFastV2Error(error) };
   } finally {
     await fs.rm(tmpDir, { recursive: true, force: true }).catch((error) =>
       logger.warn({ error, tmpDir }, "[RenderFastV2] Temporary cleanup failed"),
