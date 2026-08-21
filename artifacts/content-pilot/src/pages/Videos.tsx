@@ -1,6 +1,6 @@
 import {
   useGetVideos, usePublishVideo, useScheduleVideo, useDeleteVideo, useRetryVideo, useReapplyCaptions,
-  useGetContentItem, useUpdateContentItem, useGetHeyGenAllLooks, useWavespeedPersonas,
+  useGetContentItem, useUpdateContentItem, useGetHeyGenAllLooks, useWavespeedPersonas, useCancelVideo,
   getGetVideosQueryKey, getGetContentPlanQueryKey,
 } from "@workspace/api-client-react"
 import { useAccessState } from "@/hooks/useAccessState"
@@ -16,7 +16,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
-import { ExternalLink, Play, Clock, AlertTriangle, CheckCircle2, Instagram, CalendarClock, Send, Trash2, CheckSquare, Square, X, RotateCcw, Loader2, Eye, Wand2, Download } from "lucide-react"
+import { ExternalLink, Play, Clock, AlertTriangle, CheckCircle2, Instagram, CalendarClock, Send, Trash2, CheckSquare, Square, X, RotateCcw, Loader2, Eye, Wand2, Download, CircleOff } from "lucide-react"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
 import { useToast } from "@/hooks/use-toast"
@@ -315,6 +315,7 @@ export default function Videos() {
   const deleteVideo = useDeleteVideo()
   const retryVideo = useRetryVideo()
   const reapplyCaptions = useReapplyCaptions()
+  const cancelVideo = useCancelVideo()
 
   const [scheduleDialog, setScheduleDialog] = useState<{ videoId: number; topic: string; current?: string } | null>(null)
   const [scheduleDatetime, setScheduleDatetime] = useState("")
@@ -327,6 +328,7 @@ export default function Videos() {
   const [selectMode, setSelectMode] = useState(false)
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [confirmDelete, setConfirmDelete] = useState<{ ids: number[]; label: string } | null>(null)
+  const [cancelConfirm, setCancelConfirm] = useState<Video | null>(null)
   const [downloading, setDownloading] = useState<Record<string, boolean>>({})
 
   const downloadFile = useCallback(async (url: string, filename: string, key: string) => {
@@ -375,6 +377,40 @@ export default function Videos() {
   }
 
   const askDelete = (ids: number[], label: string) => setConfirmDelete({ ids, label })
+
+  const handleCancelConfirmed = () => {
+    if (!cancelConfirm) return
+    const video = cancelConfirm
+    setCancelConfirm(null)
+
+    // Reflect the terminal state immediately; a failed request is reconciled
+    // from the server below so we never leave an optimistic stale card behind.
+    queryClient.setQueryData<Video[]>(getGetVideosQueryKey(), current =>
+      current?.map(item => item.id === video.id
+        ? { ...item, status: "cancelled" as Video["status"], caption_status: "cancelled" as Video["caption_status"], error_message: "Cancelado por el usuario" }
+        : item,
+      ),
+    )
+
+    cancelVideo.mutate({ id: video.id }, {
+      onSuccess: (cancelled) => {
+        queryClient.setQueryData<Video[]>(getGetVideosQueryKey(), current =>
+          current?.map(item => item.id === cancelled.id ? cancelled : item),
+        )
+        queryClient.invalidateQueries({ queryKey: getGetContentPlanQueryKey() })
+        queryClient.invalidateQueries({ queryKey: ["credits", "balance"] })
+        toast({ title: "Video cancelado", description: "Se detuvo la generación o postproducción. Los créditos pendientes se ajustaron de forma segura." })
+      },
+      onError: (err: any) => {
+        queryClient.invalidateQueries({ queryKey: getGetVideosQueryKey() })
+        const detail = err?.response?.data?.error || err?.message || "No se pudo cancelar el video."
+        toast({ title: "No se pudo cancelar", description: detail, variant: "destructive" })
+      },
+      onSettled: () => {
+        queryClient.invalidateQueries({ queryKey: getGetVideosQueryKey() })
+      },
+    })
+  }
 
   // ── Retry ─────────────────────────────────────────────────────────────────
   const handleRetry = (video: Video) => {
@@ -514,6 +550,7 @@ export default function Videos() {
             const captionsProcessing =
               video.status === 'ready' && (captionStatus === null || captionStatus === 'processing')
             const isProcessing = video.status === 'publishing' || captionsProcessing
+            const canCancel = video.status === 'generating' || (video.status === 'ready' && captionStatus === 'processing')
 
             {/* Look up the avatar preview image for use as blurred background */}
             const avatarBgUrl =
@@ -543,6 +580,21 @@ export default function Videos() {
                     sublabel="Captions y efectos…"
                     onClick={() => toast({ title: 'Aplicando efectos', description: 'Se están aplicando captions y efectos al video. Estará listo en unos minutos.' })}
                   />
+                )}
+                {!selectMode && canCancel && (
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    className="absolute bottom-4 left-4 right-4 z-20 gap-1.5 text-xs shadow-lg"
+                    disabled={cancelVideo.isPending}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      setCancelConfirm(video)
+                    }}
+                  >
+                    {cancelVideo.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CircleOff className="w-3.5 h-3.5" />}
+                    {cancelVideo.isPending ? "Cancelando…" : "Cancelar video"}
+                  </Button>
                 )}
                 <div
                   className="aspect-[9/16] bg-muted relative"
@@ -627,6 +679,7 @@ export default function Videos() {
                     )}
                     {video.status === 'published' && <Badge className="shadow-lg bg-blue-500 hover:bg-blue-600"><ExternalLink className="w-3 h-3 mr-1"/> Publicado</Badge>}
                     {video.status === 'failed' && <Badge variant="destructive" className="shadow-lg"><AlertTriangle className="w-3 h-3 mr-1"/> Error</Badge>}
+                    {video.status === 'cancelled' && <Badge variant="secondary" className="shadow-lg"><CircleOff className="w-3 h-3 mr-1"/> Cancelado</Badge>}
                   </div>
 
                   {/* Delete button (normal mode, appears on hover) */}
@@ -774,7 +827,7 @@ export default function Videos() {
                   )}
 
                   {/* Retry button for failed videos */}
-                  {!selectMode && video.status === 'failed' && (
+                  {!selectMode && (video.status === 'failed' || video.status === 'cancelled') && (
                     <div className="mt-3 pt-3 border-t border-border/70 mb-3">
                       <Button
                         size="sm"
@@ -847,6 +900,30 @@ export default function Videos() {
       </AlertDialog>
 
       {/* ── Confirm delete dialog ────────────────────────────────────────────── */}
+      <AlertDialog open={!!cancelConfirm} onOpenChange={(open) => { if (!open && !cancelVideo.isPending) setCancelConfirm(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-destructive">
+              <CircleOff className="w-5 h-5" /> ¿Cancelar video?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Se detendrá la generación o postproducción de “{cancelConfirm?.topic ?? `Video #${cancelConfirm?.id}`}”.
+              Si el video fuente ya terminó, no se devolverán sus créditos de generación; solo se liberarán recursos que sigan reservados.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={cancelVideo.isPending}>Seguir esperando</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleCancelConfirmed}
+              disabled={cancelVideo.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {cancelVideo.isPending ? "Cancelando…" : "Cancelar video"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <Dialog open={!!confirmDelete} onOpenChange={(o) => { if (!o) setConfirmDelete(null) }}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>

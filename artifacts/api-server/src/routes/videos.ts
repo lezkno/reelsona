@@ -15,6 +15,8 @@ import {
   ScheduleVideoParams,
   ScheduleVideoBody,
   ScheduleVideoResponse,
+  CancelVideoParams,
+  CancelVideoResponse,
 } from "@workspace/api-zod";
 import { generateVideo } from "../lib/heygen";
 import { reserveCredits, releaseVideoCredits, estimateDurationFromScript, computeReelCreditCost, hasEnoughCredits } from "../lib/credits";
@@ -28,6 +30,7 @@ import {
 import { getBrowserMediaUrl } from "../lib/objectStorage";
 // brand-cover import removed — AI cover generation is discontinued
 import { logger } from "../lib/logger";
+import { cancelVideoForUser } from "../lib/video-cancellation";
 
 const router = Router();
 
@@ -384,7 +387,11 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
   }, heygenApiKey)
     .then(async (heygenVideoId) => {
       await db.update(videosTable).set({ heygenVideoId, updatedAt: new Date() })
-        .where(and(eq(videosTable.id, videoRow.id), eq(videosTable.userId, userId)));
+        .where(and(
+          eq(videosTable.id, videoRow.id),
+          eq(videosTable.userId, userId),
+          eq(videosTable.status, "generating"),
+        ));
       // Update avatar usage
       const [avatarCfg] = await db.select().from(avatarConfigTable)
         .where(eq(avatarConfigTable.userId, userId)).limit(1);
@@ -399,16 +406,25 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
     .catch(async (err) => {
       const error = err instanceof Error ? err.message : String(err);
       logger.error({ err, videoId: videoRow.id, contentPlanId: item.id }, "[VideoGeneration] Submission failed");
-      await db.update(videosTable).set({
+      const failed = await db.update(videosTable).set({
         status: "failed",
         errorMessage: "No se pudo iniciar la generación del video. Intenta de nuevo.",
         updatedAt: new Date(),
       })
-        .where(and(eq(videosTable.id, videoRow.id), eq(videosTable.userId, userId)));
+        .where(and(
+          eq(videosTable.id, videoRow.id),
+          eq(videosTable.userId, userId),
+          eq(videosTable.status, "generating"),
+        ))
+        .returning({ id: videosTable.id });
       await db.update(contentPlanItemsTable).set({ status: "failed", updatedAt: new Date() })
-        .where(and(eq(contentPlanItemsTable.id, item.id), eq(contentPlanItemsTable.userId, userId)));
+        .where(and(
+          eq(contentPlanItemsTable.id, item.id),
+          eq(contentPlanItemsTable.userId, userId),
+          eq(contentPlanItemsTable.videoId, videoRow.id),
+        ));
       // Release reserved credits on immediate submission failure
-      if (!isAdminUser) {
+      if (!isAdminUser && failed[0]) {
         releaseVideoCredits(videoRow.id, "Fallo al iniciar la generación").catch((creditErr) =>
           logger.error({ videoId: videoRow.id, creditErr }, "[Credits] release failed after submission error"),
         );
@@ -452,6 +468,10 @@ router.post("/videos/:id/publish", async (req, res): Promise<void> => {
     .where(and(eq(videosTable.id, paramsParsed.data.id), eq(videosTable.userId, userId))).limit(1);
   if (!video) {
     res.status(404).json({ error: "Video not found" });
+    return;
+  }
+  if (video.status === "cancelled") {
+    res.status(409).json({ error: "Este video fue cancelado. Reintenta la generación antes de publicarlo." });
     return;
   }
 
@@ -531,8 +551,8 @@ router.post("/videos/:id/retry", async (req, res): Promise<void> => {
   const [video] = await db.select().from(videosTable)
     .where(and(eq(videosTable.id, id), eq(videosTable.userId, userId))).limit(1);
   if (!video) { res.status(404).json({ error: "Video not found" }); return; }
-  if (video.status !== "failed") {
-    res.status(400).json({ error: "Solo se pueden reintentar videos en estado fallido" });
+  if (video.status !== "failed" && video.status !== "cancelled") {
+    res.status(400).json({ error: "Solo se pueden reintentar videos fallidos o cancelados" });
     return;
   }
 
@@ -548,6 +568,33 @@ router.post("/videos/:id/retry", async (req, res): Promise<void> => {
   await db.delete(videosTable).where(and(eq(videosTable.id, id), eq(videosTable.userId, userId)));
 
   res.json({ success: true });
+});
+
+/**
+ * POST /api/videos/:id/cancel
+ * Atomically fences an active generation/render before idempotently releasing
+ * only the reservations that are still open for this user's video.
+ */
+router.post("/videos/:id/cancel", async (req, res): Promise<void> => {
+  const userId = req.session.user!.userId;
+  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const paramsParsed = CancelVideoParams.safeParse({ id: Number(raw) });
+  if (!paramsParsed.success) {
+    res.status(400).json({ error: "Invalid id" });
+    return;
+  }
+
+  const result = await cancelVideoForUser(paramsParsed.data.id, userId);
+  if (result.kind !== "cancelled" && result.kind !== "already_cancelled") {
+    if (result.kind === "not_found") {
+      res.status(404).json({ error: "Video not found" });
+      return;
+    }
+    res.status(409).json({ error: "Este video ya terminó y no se puede cancelar" });
+    return;
+  }
+
+  res.json(CancelVideoResponse.parse(mapVideo(result.video)));
 });
 
 /**

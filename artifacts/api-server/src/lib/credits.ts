@@ -18,7 +18,7 @@
  */
 
 import { db } from "@workspace/db";
-import { userCreditsTable, creditLedgerTable } from "@workspace/db";
+import { userCreditsTable, creditLedgerTable, videosTable } from "@workspace/db";
 import { eq, and, inArray, isNull, sql } from "drizzle-orm";
 import { logger } from "./logger";
 import { computeRenewalBalances, computeReleaseRestore } from "./credit-cycle-policy";
@@ -300,26 +300,27 @@ async function reserveGeneric(
   return reservationId;
 }
 
-async function settleGeneric(
+async function settleGenericInTransaction(
+  tx: Tx,
   reservation: any,
   mode: "consume" | "release",
   reason: string,
   ledgerFields: Record<string, unknown>,
-): Promise<void> {
+): Promise<boolean> {
   const amount = Math.abs(reservation.amount);
   const userId = reservation.userId;
+  let settled = false;
 
-  await db.transaction(async (tx) => {
-    const [lockedReservation] = await tx
+  const [lockedReservation] = await tx
       .select()
       .from(creditLedgerTable)
       .where(eq(creditLedgerTable.id, reservation.id))
       .for("update")
       .limit(1);
 
-    if (!lockedReservation || lockedReservation.type !== "reserve") return;
+  if (!lockedReservation || lockedReservation.type !== "reserve") return settled;
 
-    const [alreadySettled] = await tx
+  const [alreadySettled] = await tx
       .select({ id: creditLedgerTable.id })
       .from(creditLedgerTable)
       .where(and(
@@ -327,18 +328,18 @@ async function settleGeneric(
         inArray(creditLedgerTable.type, ["consume", "release"]),
       ))
       .limit(1);
-    if (alreadySettled) return;
+  if (alreadySettled) return settled;
 
-    const [wallet] = await tx
+  const [wallet] = await tx
       .select()
       .from(userCreditsTable)
       .where(eq(userCreditsTable.userId, userId))
       .for("update")
       .limit(1);
-    if (!wallet) return;
+  if (!wallet) return settled;
 
-    if (mode === "consume") {
-      await tx
+  if (mode === "consume") {
+    await tx
         .update(userCreditsTable)
         .set({
           reservedCredits: Math.max(0, wallet.reservedCredits - amount),
@@ -347,7 +348,7 @@ async function settleGeneric(
         })
         .where(eq(userCreditsTable.userId, userId));
 
-      await tx.insert(creditLedgerTable).values({
+    await tx.insert(creditLedgerTable).values({
         userId,
         type: "consume",
         amount: -amount,
@@ -360,13 +361,14 @@ async function settleGeneric(
         relatedLedgerId: lockedReservation.id,
         description: reason,
       });
-      return;
-    }
+    settled = true;
+    return settled;
+  }
 
-    const restore = await computeReservationRestore(tx, lockedReservation);
-    const restoredAmount = restore.restoreSubscription + restore.restorePurchased;
+  const restore = await computeReservationRestore(tx, lockedReservation);
+  const restoredAmount = restore.restoreSubscription + restore.restorePurchased;
 
-    await tx
+  await tx
       .update(userCreditsTable)
       .set({
         availableCredits: wallet.availableCredits + restoredAmount,
@@ -377,7 +379,7 @@ async function settleGeneric(
       })
       .where(eq(userCreditsTable.userId, userId));
 
-    await tx.insert(creditLedgerTable).values({
+  await tx.insert(creditLedgerTable).values({
       userId,
       type: "release",
       amount: restoredAmount,
@@ -392,7 +394,23 @@ async function settleGeneric(
         ? `${reason} · ${restore.expiredSubscriptionAmount} créditos de suscripción pertenecían a un ciclo vencido y no se trasladaron`
         : reason,
     });
-  });
+  settled = true;
+  return settled;
+}
+
+async function settleGeneric(
+  reservation: any,
+  mode: "consume" | "release",
+  reason: string,
+  ledgerFields: Record<string, unknown>,
+): Promise<boolean> {
+  return db.transaction((tx) => settleGenericInTransaction(
+    tx,
+    reservation,
+    mode,
+    reason,
+    ledgerFields,
+  ));
 }
 
 export async function reserveCredits(
@@ -420,7 +438,7 @@ export async function consumeVideoCredits(videoId: number): Promise<void> {
   logger.info({ videoId }, "[Credits] Consumed");
 }
 
-export async function releaseVideoCredits(videoId: number, reason: string): Promise<void> {
+export async function releaseVideoCredits(videoId: number, reason: string): Promise<boolean> {
   const [reservation] = await db
     .select()
     .from(creditLedgerTable)
@@ -430,9 +448,10 @@ export async function releaseVideoCredits(videoId: number, reason: string): Prom
       isNull(creditLedgerTable.feature),
     ))
     .limit(1);
-  if (!reservation) return;
-  await settleGeneric(reservation, "release", reason, { videoId });
-  logger.info({ videoId, reason }, "[Credits] Released");
+  if (!reservation) return false;
+  const released = await settleGeneric(reservation, "release", reason, { videoId });
+  if (released) logger.info({ videoId, reason }, "[Credits] Released");
+  return released;
 }
 
 export async function adjustCredits(
@@ -601,6 +620,10 @@ export async function releaseVoiceCredits(
 
 export const BROLL_IMAGE_CREDIT_COST = 2;
 
+export function canUseBRollCredits(videoStatus: string | null | undefined): boolean {
+  return videoStatus !== "cancelled";
+}
+
 export async function reserveBRollImageCredits(
   userId: number,
   videoId: number,
@@ -612,6 +635,17 @@ export async function reserveBRollImageCredits(
 
   await db.transaction(async (tx) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${'broll:' + videoId + ':' + segmentIdx}))`);
+
+    const [video] = await tx
+      .select({ status: videosTable.status })
+      .from(videosTable)
+      .where(and(eq(videosTable.id, videoId), eq(videosTable.userId, userId)))
+      .for("update")
+      .limit(1);
+    if (!video || !canUseBRollCredits(video.status)) {
+      logger.info({ userId, videoId, segmentIdx }, "[Credits] B-roll reserve skipped for cancelled or unavailable video");
+      return;
+    }
 
     const [prior] = await tx
       .select({ id: creditLedgerTable.id })
@@ -691,8 +725,10 @@ async function settleBRollReservation(
   reservationId: number,
   mode: "consume" | "release",
   reason: string,
-): Promise<void> {
-  const [reservation] = await db
+  tx?: Tx,
+): Promise<boolean> {
+  const executor = tx ?? db;
+  const [reservation] = await executor
     .select()
     .from(creditLedgerTable)
     .where(and(
@@ -701,8 +737,17 @@ async function settleBRollReservation(
       eq(creditLedgerTable.feature, "broll"),
     ))
     .limit(1);
-  if (!reservation) return;
-  await settleGeneric(
+  if (!reservation) return false;
+  if (tx) {
+    return settleGenericInTransaction(
+      tx,
+      reservation,
+      mode,
+      reason,
+      { videoId: reservation.videoId ?? undefined, feature: "broll" },
+    );
+  }
+  return settleGeneric(
     reservation,
     mode,
     reason,
@@ -710,12 +755,107 @@ async function settleBRollReservation(
   );
 }
 
-export async function consumeBRollImageCredits(reservationId: number, videoId: number): Promise<void> {
-  return settleBRollReservation(reservationId, "consume", `B-roll imagen generada (video ${videoId})`);
+export async function consumeBRollImageCredits(reservationId: number, videoId: number): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    const [video] = await tx
+      .select({ status: videosTable.status })
+      .from(videosTable)
+      .where(eq(videosTable.id, videoId))
+      .for("update")
+      .limit(1);
+
+    if (!video || !canUseBRollCredits(video.status)) {
+      await settleBRollReservation(
+        reservationId,
+        "release",
+        "B-roll: video cancelado antes de liquidar la imagen",
+        tx,
+      );
+      logger.info({ reservationId, videoId }, "[Credits] B-roll consume fenced by cancellation");
+      return false;
+    }
+
+    return settleBRollReservation(
+      reservationId,
+      "consume",
+      `B-roll imagen generada (video ${videoId})`,
+      tx,
+    );
+  });
 }
 
-export async function releaseBRollImageCredits(reservationId: number, reason: string): Promise<void> {
+export async function releaseBRollImageCredits(reservationId: number, reason: string): Promise<boolean> {
   return settleBRollReservation(reservationId, "release", reason);
+}
+
+export interface ReleasedVideoReservation {
+  reservationId: number;
+  feature: string | null;
+}
+
+export function shouldReleaseCancelledVideoReservation(
+  feature: string | null,
+  includeGenerationReservation: boolean,
+): boolean {
+  return includeGenerationReservation || feature !== null;
+}
+
+/**
+ * Release only the unsettled reservations belonging to one cancelled video.
+ * The underlying ledger settlement locks each reservation and no-ops if another
+ * worker consumed or released it first, which makes retries safe.
+ */
+export async function releaseOpenVideoReservations(input: {
+  userId: number;
+  videoId: number;
+  includeGenerationReservation: boolean;
+  reason: string;
+}): Promise<ReleasedVideoReservation[]> {
+  const reservations = await db
+    .select({
+      id: creditLedgerTable.id,
+      feature: creditLedgerTable.feature,
+      userId: creditLedgerTable.userId,
+      videoId: creditLedgerTable.videoId,
+      amount: creditLedgerTable.amount,
+      pool: creditLedgerTable.pool,
+      subscriptionAmount: creditLedgerTable.subscriptionAmount,
+      purchasedAmount: creditLedgerTable.purchasedAmount,
+    })
+    .from(creditLedgerTable)
+    .where(and(
+      eq(creditLedgerTable.userId, input.userId),
+      eq(creditLedgerTable.videoId, input.videoId),
+      eq(creditLedgerTable.type, "reserve"),
+      sql`NOT EXISTS (
+        SELECT 1 FROM credit_ledger settlement
+        WHERE settlement.related_ledger_id = ${creditLedgerTable.id}
+          AND settlement.type IN ('consume', 'release')
+      )`,
+    ));
+
+  const released: ReleasedVideoReservation[] = [];
+  for (const reservation of reservations) {
+    if (!shouldReleaseCancelledVideoReservation(
+      reservation.feature,
+      input.includeGenerationReservation,
+    )) continue;
+
+    const didRelease = await settleGeneric(
+      reservation,
+      "release",
+      input.reason,
+      {
+        videoId: input.videoId,
+        ...(reservation.feature ? { feature: reservation.feature } : {}),
+      },
+    );
+    if (didRelease) {
+      released.push({ reservationId: reservation.id, feature: reservation.feature });
+    }
+  }
+
+  return released;
 }
 
 export async function releaseStaleBRollReserves(maxAgeMinutes = 60): Promise<void> {

@@ -321,9 +321,9 @@ export const GetContentPlanResponseItem = zod.object({
   "scheduled_at": zod.string().nullish(),
   "status": zod.enum(['draft', 'scripting', 'scripted', 'generating', 'ready', 'published', 'failed']),
   "video_id": zod.number().nullish(),
-  "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish().describe('Caption Studio processing state for the associated video'),
+  "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal('cancelled'),zod.literal(null)]).nullish().describe('Caption Studio processing state for the associated video'),
   "copy_status": zod.union([zod.literal('pending'),zod.literal('processing'),zod.literal('generating'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish().describe('IG copy generation state'),
-  "video_status": zod.union([zod.literal('pending'),zod.literal('generating'),zod.literal('ready'),zod.literal('published'),zod.literal('publishing'),zod.literal('failed'),zod.literal(null)]).nullish().describe('Status of the associated video record'),
+  "video_status": zod.union([zod.literal('pending'),zod.literal('generating'),zod.literal('ready'),zod.literal('published'),zod.literal('publishing'),zod.literal('failed'),zod.literal('cancelled'),zod.literal(null)]).nullish().describe('Status of the associated video record'),
   "video_url": zod.string().nullish().describe('HeyGen-rendered video URL from the associated video record'),
   "captioned_video_url": zod.string().nullish().describe('Caption-processed video URL from the associated video record'),
   "viral_score": zod.number().nullish(),
@@ -377,9 +377,9 @@ export const GenerateContentPlanResponseItem = zod.object({
   "scheduled_at": zod.string().nullish(),
   "status": zod.enum(['draft', 'scripting', 'scripted', 'generating', 'ready', 'published', 'failed']),
   "video_id": zod.number().nullish(),
-  "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish().describe('Caption Studio processing state for the associated video'),
+  "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal('cancelled'),zod.literal(null)]).nullish().describe('Caption Studio processing state for the associated video'),
   "copy_status": zod.union([zod.literal('pending'),zod.literal('processing'),zod.literal('generating'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish().describe('IG copy generation state'),
-  "video_status": zod.union([zod.literal('pending'),zod.literal('generating'),zod.literal('ready'),zod.literal('published'),zod.literal('publishing'),zod.literal('failed'),zod.literal(null)]).nullish().describe('Status of the associated video record'),
+  "video_status": zod.union([zod.literal('pending'),zod.literal('generating'),zod.literal('ready'),zod.literal('published'),zod.literal('publishing'),zod.literal('failed'),zod.literal('cancelled'),zod.literal(null)]).nullish().describe('Status of the associated video record'),
   "video_url": zod.string().nullish().describe('HeyGen-rendered video URL from the associated video record'),
   "captioned_video_url": zod.string().nullish().describe('Caption-processed video URL from the associated video record'),
   "viral_score": zod.number().nullish(),
@@ -432,9 +432,9 @@ export const CreateContentItemResponse = zod.object({
   "scheduled_at": zod.string().nullish(),
   "status": zod.enum(['draft', 'scripting', 'scripted', 'generating', 'ready', 'published', 'failed']),
   "video_id": zod.number().nullish(),
-  "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish().describe('Caption Studio processing state for the associated video'),
+  "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal('cancelled'),zod.literal(null)]).nullish().describe('Caption Studio processing state for the associated video'),
   "copy_status": zod.union([zod.literal('pending'),zod.literal('processing'),zod.literal('generating'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish().describe('IG copy generation state'),
-  "video_status": zod.union([zod.literal('pending'),zod.literal('generating'),zod.literal('ready'),zod.literal('published'),zod.literal('publishing'),zod.literal('failed'),zod.literal(null)]).nullish().describe('Status of the associated video record'),
+  "video_status": zod.union([zod.literal('pending'),zod.literal('generating'),zod.literal('ready'),zod.literal('published'),zod.literal('publishing'),zod.literal('failed'),zod.literal('cancelled'),zod.literal(null)]).nullish().describe('Status of the associated video record'),
   "video_url": zod.string().nullish().describe('HeyGen-rendered video URL from the associated video record'),
   "captioned_video_url": zod.string().nullish().describe('Caption-processed video URL from the associated video record'),
   "viral_score": zod.number().nullish(),
@@ -516,9 +516,9 @@ export const GetContentItemResponse = zod.object({
   "scheduled_at": zod.string().nullish(),
   "status": zod.enum(['draft', 'scripting', 'scripted', 'generating', 'ready', 'published', 'failed']),
   "video_id": zod.number().nullish(),
-  "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish().describe('Caption Studio processing state for the associated video'),
+  "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal('cancelled'),zod.literal(null)]).nullish().describe('Caption Studio processing state for the associated video'),
   "copy_status": zod.union([zod.literal('pending'),zod.literal('processing'),zod.literal('generating'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish().describe('IG copy generation state'),
-  "video_status": zod.union([zod.literal('pending'),zod.literal('generating'),zod.literal('ready'),zod.literal('published'),zod.literal('publishing'),zod.literal('failed'),zod.literal(null)]).nullish().describe('Status of the associated video record'),
+  "video_status": zod.union([zod.literal('pending'),zod.literal('generating'),zod.literal('ready'),zod.literal('published'),zod.literal('publishing'),zod.literal('failed'),zod.literal('cancelled'),zod.literal(null)]).nullish().describe('Status of the associated video record'),
   "video_url": zod.string().nullish().describe('HeyGen-rendered video URL from the associated video record'),
   "captioned_video_url": zod.string().nullish().describe('Caption-processed video URL from the associated video record'),
   "viral_score": zod.number().nullish(),
@@ -582,9 +582,9 @@ export const UpdateContentItemResponse = zod.object({
   "scheduled_at": zod.string().nullish(),
   "status": zod.enum(['draft', 'scripting', 'scripted', 'generating', 'ready', 'published', 'failed']),
   "video_id": zod.number().nullish(),
-  "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish().describe('Caption Studio processing state for the associated video'),
+  "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal('cancelled'),zod.literal(null)]).nullish().describe('Caption Studio processing state for the associated video'),
   "copy_status": zod.union([zod.literal('pending'),zod.literal('processing'),zod.literal('generating'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish().describe('IG copy generation state'),
-  "video_status": zod.union([zod.literal('pending'),zod.literal('generating'),zod.literal('ready'),zod.literal('published'),zod.literal('publishing'),zod.literal('failed'),zod.literal(null)]).nullish().describe('Status of the associated video record'),
+  "video_status": zod.union([zod.literal('pending'),zod.literal('generating'),zod.literal('ready'),zod.literal('published'),zod.literal('publishing'),zod.literal('failed'),zod.literal('cancelled'),zod.literal(null)]).nullish().describe('Status of the associated video record'),
   "video_url": zod.string().nullish().describe('HeyGen-rendered video URL from the associated video record'),
   "captioned_video_url": zod.string().nullish().describe('Caption-processed video URL from the associated video record'),
   "viral_score": zod.number().nullish(),
@@ -628,7 +628,7 @@ export const DeleteContentItemResponse = zod.object({
 export const getVideosQueryStatusDefault = `all`;
 
 export const GetVideosQueryParams = zod.object({
-  "status": zod.enum(['pending', 'generating', 'ready', 'published', 'publishing', 'failed', 'all']).default(getVideosQueryStatusDefault)
+  "status": zod.enum(['pending', 'generating', 'ready', 'published', 'publishing', 'failed', 'cancelled', 'all']).default(getVideosQueryStatusDefault)
 })
 
 export const GetVideosResponseItem = zod.object({
@@ -637,7 +637,7 @@ export const GetVideosResponseItem = zod.object({
   "heygen_video_id": zod.string().nullish(),
   "topic": zod.string().nullish(),
   "avatar_id": zod.string().nullish(),
-  "status": zod.enum(['pending', 'generating', 'ready', 'published', 'publishing', 'failed']),
+  "status": zod.enum(['pending', 'generating', 'ready', 'published', 'publishing', 'failed', 'cancelled']),
   "video_url": zod.string().nullish(),
   "thumbnail_url": zod.string().nullish(),
   "ig_media_id": zod.string().nullish(),
@@ -645,7 +645,7 @@ export const GetVideosResponseItem = zod.object({
   "error_message": zod.string().nullish(),
   "duration_seconds": zod.number().nullish(),
   "captioned_video_url": zod.string().nullish(),
-  "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish(),
+  "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal('cancelled'),zod.literal(null)]).nullish(),
   "video_effects": zod.union([zod.object({
   "zoom": zod.boolean().describe('Ken Burns \/ zoompan effect applied at key script moments'),
   "ai_broll": zod.boolean().describe('AI-generated (gpt-image-1) B-roll images overlaid at timed segments'),
@@ -673,7 +673,7 @@ export const GenerateVideoResponse = zod.object({
   "heygen_video_id": zod.string().nullish(),
   "topic": zod.string().nullish(),
   "avatar_id": zod.string().nullish(),
-  "status": zod.enum(['pending', 'generating', 'ready', 'published', 'publishing', 'failed']),
+  "status": zod.enum(['pending', 'generating', 'ready', 'published', 'publishing', 'failed', 'cancelled']),
   "video_url": zod.string().nullish(),
   "thumbnail_url": zod.string().nullish(),
   "ig_media_id": zod.string().nullish(),
@@ -681,7 +681,7 @@ export const GenerateVideoResponse = zod.object({
   "error_message": zod.string().nullish(),
   "duration_seconds": zod.number().nullish(),
   "captioned_video_url": zod.string().nullish(),
-  "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish(),
+  "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal('cancelled'),zod.literal(null)]).nullish(),
   "video_effects": zod.union([zod.object({
   "zoom": zod.boolean().describe('Ken Burns \/ zoompan effect applied at key script moments'),
   "ai_broll": zod.boolean().describe('AI-generated (gpt-image-1) B-roll images overlaid at timed segments'),
@@ -712,7 +712,7 @@ export const ScheduleVideoResponse = zod.object({
   "heygen_video_id": zod.string().nullish(),
   "topic": zod.string().nullish(),
   "avatar_id": zod.string().nullish(),
-  "status": zod.enum(['pending', 'generating', 'ready', 'published', 'publishing', 'failed']),
+  "status": zod.enum(['pending', 'generating', 'ready', 'published', 'publishing', 'failed', 'cancelled']),
   "video_url": zod.string().nullish(),
   "thumbnail_url": zod.string().nullish(),
   "ig_media_id": zod.string().nullish(),
@@ -720,7 +720,42 @@ export const ScheduleVideoResponse = zod.object({
   "error_message": zod.string().nullish(),
   "duration_seconds": zod.number().nullish(),
   "captioned_video_url": zod.string().nullish(),
-  "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish(),
+  "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal('cancelled'),zod.literal(null)]).nullish(),
+  "video_effects": zod.union([zod.object({
+  "zoom": zod.boolean().describe('Ken Burns \/ zoompan effect applied at key script moments'),
+  "ai_broll": zod.boolean().describe('AI-generated (gpt-image-1) B-roll images overlaid at timed segments'),
+  "text_cards": zod.boolean().describe('Animated stats\/hook\/CTA cards rendered via canvas and overlaid')
+}).describe('Video post-processing effects applied after HeyGen renders the avatar'),zod.null()]).optional(),
+  "created_at": zod.string(),
+  "updated_at": zod.string(),
+  "published_at": zod.string().nullish(),
+  "scheduled_publish_at": zod.string().nullish().describe('ISO timestamp at which the video is scheduled to be auto-published'),
+  "thumbnail_cover_url": zod.string().nullish().describe('AI-generated Reel cover image URL (gpt-image-1); stored after first generation, reused on retry')
+})
+
+
+/**
+ * @summary Cancel an in-progress generation or caption render
+ */
+export const CancelVideoParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const CancelVideoResponse = zod.object({
+  "id": zod.number(),
+  "content_plan_id": zod.number().nullish(),
+  "heygen_video_id": zod.string().nullish(),
+  "topic": zod.string().nullish(),
+  "avatar_id": zod.string().nullish(),
+  "status": zod.enum(['pending', 'generating', 'ready', 'published', 'publishing', 'failed', 'cancelled']),
+  "video_url": zod.string().nullish(),
+  "thumbnail_url": zod.string().nullish(),
+  "ig_media_id": zod.string().nullish(),
+  "ig_permalink": zod.string().nullish(),
+  "error_message": zod.string().nullish(),
+  "duration_seconds": zod.number().nullish(),
+  "captioned_video_url": zod.string().nullish(),
+  "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal('cancelled'),zod.literal(null)]).nullish(),
   "video_effects": zod.union([zod.object({
   "zoom": zod.boolean().describe('Ken Burns \/ zoompan effect applied at key script moments'),
   "ai_broll": zod.boolean().describe('AI-generated (gpt-image-1) B-roll images overlaid at timed segments'),
@@ -747,7 +782,7 @@ export const GetVideoResponse = zod.object({
   "heygen_video_id": zod.string().nullish(),
   "topic": zod.string().nullish(),
   "avatar_id": zod.string().nullish(),
-  "status": zod.enum(['pending', 'generating', 'ready', 'published', 'publishing', 'failed']),
+  "status": zod.enum(['pending', 'generating', 'ready', 'published', 'publishing', 'failed', 'cancelled']),
   "video_url": zod.string().nullish(),
   "thumbnail_url": zod.string().nullish(),
   "ig_media_id": zod.string().nullish(),
@@ -755,7 +790,7 @@ export const GetVideoResponse = zod.object({
   "error_message": zod.string().nullish(),
   "duration_seconds": zod.number().nullish(),
   "captioned_video_url": zod.string().nullish(),
-  "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish(),
+  "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal('cancelled'),zod.literal(null)]).nullish(),
   "video_effects": zod.union([zod.object({
   "zoom": zod.boolean().describe('Ken Burns \/ zoompan effect applied at key script moments'),
   "ai_broll": zod.boolean().describe('AI-generated (gpt-image-1) B-roll images overlaid at timed segments'),
@@ -787,7 +822,7 @@ export const PublishVideoResponse = zod.object({
   "heygen_video_id": zod.string().nullish(),
   "topic": zod.string().nullish(),
   "avatar_id": zod.string().nullish(),
-  "status": zod.enum(['pending', 'generating', 'ready', 'published', 'publishing', 'failed']),
+  "status": zod.enum(['pending', 'generating', 'ready', 'published', 'publishing', 'failed', 'cancelled']),
   "video_url": zod.string().nullish(),
   "thumbnail_url": zod.string().nullish(),
   "ig_media_id": zod.string().nullish(),
@@ -795,7 +830,7 @@ export const PublishVideoResponse = zod.object({
   "error_message": zod.string().nullish(),
   "duration_seconds": zod.number().nullish(),
   "captioned_video_url": zod.string().nullish(),
-  "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal(null)]).nullish(),
+  "caption_status": zod.union([zod.literal('disabled'),zod.literal('processing'),zod.literal('done'),zod.literal('failed'),zod.literal('cancelled'),zod.literal(null)]).nullish(),
   "video_effects": zod.union([zod.object({
   "zoom": zod.boolean().describe('Ken Burns \/ zoompan effect applied at key script moments'),
   "ai_broll": zod.boolean().describe('AI-generated (gpt-image-1) B-roll images overlaid at timed segments'),

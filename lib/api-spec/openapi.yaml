@@ -468,7 +468,7 @@ paths:
           in: query
           schema:
             type: string
-            enum: [pending, generating, ready, published, publishing, failed, all]
+            enum: [pending, generating, ready, published, publishing, failed, cancelled, all]
             default: all
       responses:
         "200":
@@ -529,6 +529,29 @@ paths:
                 $ref: "#/components/schemas/Video"
         "404":
           description: Not found
+
+  /videos/{id}/cancel:
+    post:
+      operationId: cancelVideo
+      tags: [videos]
+      summary: Cancel an in-progress generation or caption render
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: number
+      responses:
+        "200":
+          description: Cancelled video
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Video"
+        "404":
+          description: Not found
+        "409":
+          description: Video is already terminal
 
   /videos/{id}:
     get:
@@ -1122,7 +1145,7 @@ components:
           type: ["number", "null"]
         caption_status:
           type: ["string", "null"]
-          enum: [disabled, processing, done, failed, null]
+          enum: [disabled, processing, done, failed, cancelled, null]
           description: Caption Studio processing state for the associated video
         copy_status:
           type: ["string", "null"]
@@ -1130,7 +1153,7 @@ components:
           description: IG copy generation state
         video_status:
           type: ["string", "null"]
-          enum: [pending, generating, ready, published, publishing, failed, null]
+          enum: [pending, generating, ready, published, publishing, failed, cancelled, null]
           description: Status of the associated video record
         video_url:
           type: ["string", "null"]
@@ -1283,7 +1306,7 @@ components:
           type: ["string", "null"]
         status:
           type: string
-          enum: [pending, generating, ready, published, publishing, failed]
+          enum: [pending, generating, ready, published, publishing, failed, cancelled]
         video_url:
           type: ["string", "null"]
         thumbnail_url:
@@ -1300,7 +1323,7 @@ components:
           type: ["string", "null"]
         caption_status:
           type: ["string", "null"]
-          enum: [disabled, processing, done, failed, null]
+          enum: [disabled, processing, done, failed, cancelled, null]
         video_effects:
           oneOf:
             - $ref: "#/components/schemas/VideoEffects"

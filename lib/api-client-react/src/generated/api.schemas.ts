@@ -311,6 +311,7 @@ export const ContentPlanItemCaptionStatus = {
   processing: 'processing',
   done: 'done',
   failed: 'failed',
+  cancelled: 'cancelled',
 } as const;
 
 /**
@@ -342,6 +343,7 @@ export const ContentPlanItemVideoStatus = {
   published: 'published',
   publishing: 'publishing',
   failed: 'failed',
+  cancelled: 'cancelled',
 } as const;
 
 /**
@@ -520,6 +522,7 @@ export const VideoStatus = {
   published: 'published',
   publishing: 'publishing',
   failed: 'failed',
+  cancelled: 'cancelled',
 } as const;
 
 /**
@@ -533,6 +536,7 @@ export const VideoCaptionStatus = {
   processing: 'processing',
   done: 'done',
   failed: 'failed',
+  cancelled: 'cancelled',
 } as const;
 
 export interface Video {
@@ -973,6 +977,7 @@ export const GetVideosStatus = {
   published: 'published',
   publishing: 'publishing',
   failed: 'failed',
+  cancelled: 'cancelled',
   all: 'all',
 } as const;
 

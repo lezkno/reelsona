@@ -38,6 +38,10 @@ test("an interrupted handoff fails safely instead of submitting a duplicate talk
   assert.equal(recoveryStage("tts-handoff"), "fail_safely");
 });
 
+test("a cancelled TTS video is not eligible for a talking-head handoff", () => {
+  assert.equal(shouldMonitorWavespeedVideo("cancelled", "wavespeed-tts:req"), false);
+});
+
 test("a concurrent poller observes finalization but cannot start a second finalizer", () => {
   const sentinel = parseWavespeedVideoSentinel("wavespeed-th-finalizing:video_1");
   assert.equal(sentinel?.stage, "th-finalizing");

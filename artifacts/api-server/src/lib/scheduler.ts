@@ -31,6 +31,7 @@ import {
   reserveCredits,
   consumeVideoCredits,
   releaseVideoCredits,
+  releaseOpenVideoReservations,
   releaseStaleBRollReserves,
   consumeVoiceCredits,
   releaseVoiceCredits,
@@ -53,7 +54,7 @@ import { applyCaptionsBrowser } from "./browser-caption-engine";
 import { applyCaptionsFastV2, isRenderFastV2Enabled, isRenderFastV2Failure } from "./render-fast-v2";
 import { getBrowserTemplateStyleOverrides } from "./caption-style-adapter";
 import { BROWSER_CAPTION_TEMPLATES, type CaptionTemplate } from "@workspace/caption-templates";
-import { eq, and, lte, gte, lt, inArray, isNull, isNotNull, or, desc, like, sql } from "drizzle-orm";
+import { eq, and, lte, gte, lt, inArray, isNull, isNotNull, or, desc, like, sql, ne } from "drizzle-orm";
 import { logger } from "./logger";
 import { generateScript, regenerateCaption, generateContentTopics } from "./ai-scripts";
 import { getLatestAuditCache } from "./audit-cache";
@@ -750,6 +751,20 @@ export async function insertVideoClaimingUserSlot(
       .limit(1);
     if (existing) return null;
     const [row] = await tx.insert(videosTable).values(values).returning();
+    if (row.contentPlanId) {
+      const [linkedItem] = await tx
+        .update(contentPlanItemsTable)
+        .set({ videoId: row.id, updatedAt: new Date() })
+        .where(and(
+          eq(contentPlanItemsTable.id, row.contentPlanId),
+          eq(contentPlanItemsTable.userId, userId),
+          eq(contentPlanItemsTable.status, "generating"),
+        ))
+        .returning({ id: contentPlanItemsTable.id });
+      if (!linkedItem) {
+        throw new Error("No se pudo vincular el video nuevo con su item en generación");
+      }
+    }
     return row;
   });
 }
@@ -1403,7 +1418,17 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
       );
       const sentinel = `wavespeed-tts:${ttsRequestId}`;
 
-      // Track the job in wavespeed_jobs so the poller can find imageUrl later.
+      const [tracked] = await db
+        .update(videosTable)
+        .set({ heygenVideoId: sentinel, updatedAt: new Date() })
+        .where(and(eq(videosTable.id, videoRow.id), eq(videosTable.status, "generating")))
+        .returning({ id: videosTable.id });
+      if (!tracked) {
+        logger.info({ videoId: videoRow.id }, "[WaveSpeed] TTS submission fenced by cancellation");
+        return { success: false, message: "La generación se canceló antes de registrar la solicitud", contentItemId: contentItem.id, videoId: videoRow.id };
+      }
+
+      // Track the job only after its sentinel is durably owned by this video.
       await db.insert(wavespeedJobsTable).values({
         userId,
         model: WAVESPEED_MODELS.SPEECH,
@@ -1417,16 +1442,6 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
         }),
         relatedVideoId: videoRow.id,
       });
-
-      await db
-        .update(videosTable)
-        .set({ heygenVideoId: sentinel, updatedAt: new Date() })
-        .where(eq(videosTable.id, videoRow.id));
-
-      await db
-        .update(contentPlanItemsTable)
-        .set({ videoId: videoRow.id, updatedAt: new Date() })
-        .where(eq(contentPlanItemsTable.id, contentItem.id));
 
       // The targeted worker follows this one accepted request through TTS,
       // talking-head, persistence and post-processing. This is deliberately
@@ -1450,15 +1465,15 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
       userId,
     }, heygenApiKey);
 
-    await db
+    const [tracked] = await db
       .update(videosTable)
       .set({ heygenVideoId, updatedAt: new Date() })
-      .where(eq(videosTable.id, videoRow.id));
-
-    await db
-      .update(contentPlanItemsTable)
-      .set({ videoId: videoRow.id, updatedAt: new Date() })
-      .where(eq(contentPlanItemsTable.id, contentItem.id));
+      .where(and(eq(videosTable.id, videoRow.id), eq(videosTable.status, "generating")))
+      .returning({ id: videosTable.id });
+    if (!tracked) {
+      logger.info({ videoId: videoRow.id }, "[VideoGeneration] Submission fenced by cancellation");
+      return { success: false, message: "La generación se canceló antes de registrar la solicitud", contentItemId: contentItem.id, videoId: videoRow.id };
+    }
 
     // Update avatar usage count
     const usageCount = (avatarCfg.avatarUsageCount as Record<string, number>) ?? {};
@@ -1477,6 +1492,19 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
     // back to 'scripted' so the scheduler picks it up again next cycle automatically.
     // The video row is marked failed (record of the attempt) but the item stays retryable.
     const isRateLimit = error.includes("generation deferred to next cycle") || error.includes("rate limit");
+
+    const [submissionFailed] = await db.update(videosTable).set({
+      status: "failed",
+      errorMessage: "No se pudo iniciar la generación del video. Intenta de nuevo.",
+      updatedAt: new Date(),
+    }).where(and(
+      eq(videosTable.id, videoRow.id),
+      eq(videosTable.status, "generating"),
+    )).returning({ id: videosTable.id });
+    if (!submissionFailed) {
+      logger.info({ videoId: videoRow.id }, "[VideoGeneration] Submission error fenced by cancellation");
+      return { success: false, message: "La generación ya fue cancelada", contentItemId: contentItem.id, videoId: videoRow.id };
+    }
 
     // If HeyGen rejected because the avatar was deleted, auto-remove it from the
     // selection so the next cycle picks a valid avatar instead of looping forever.
@@ -1503,16 +1531,14 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
       );
     }
 
-    await db.update(videosTable).set({
-      status: "failed",
-      errorMessage: "No se pudo iniciar la generación del video. Intenta de nuevo.",
-      updatedAt: new Date(),
-    }).where(eq(videosTable.id, videoRow.id));
-
     // Rate-limit: item goes back to 'scripted' so the next automation cycle retries it.
     // All other errors: item goes to 'failed' and requires manual intervention.
     const nextItemStatus = isRateLimit ? "scripted" : "failed";
-    await db.update(contentPlanItemsTable).set({ status: nextItemStatus, updatedAt: new Date() }).where(eq(contentPlanItemsTable.id, contentItem.id));
+    await db.update(contentPlanItemsTable).set({ status: nextItemStatus, updatedAt: new Date() }).where(and(
+      eq(contentPlanItemsTable.id, contentItem.id),
+      eq(contentPlanItemsTable.videoId, videoRow.id),
+      eq(contentPlanItemsTable.status, "generating"),
+    ));
 
     if (isRateLimit) {
       logger.warn(
@@ -1543,6 +1569,7 @@ async function claimCaptionProcessing(videoId: number): Promise<string | null> {
     .where(
       and(
         eq(videosTable.id, videoId),
+        ne(videosTable.status, "cancelled"),
         or(
           isNull(videosTable.captionStatus),
           and(
@@ -1574,6 +1601,7 @@ function startCaptionProcessingHeartbeat(videoId: number, leaseId: string): () =
         .set({ updatedAt: new Date() })
         .where(and(
           eq(videosTable.id, videoId),
+          ne(videosTable.status, "cancelled"),
           eq(videosTable.captionStatus, "processing"),
           eq(videosTable.captionProcessingLeaseId, leaseId),
         ))
@@ -1638,12 +1666,27 @@ async function finishCaptionProcessing(
     })
     .where(and(
       eq(videosTable.id, videoId),
+      ne(videosTable.status, "cancelled"),
       eq(videosTable.captionStatus, "processing"),
       eq(videosTable.captionProcessingLeaseId, leaseId),
     ))
     .returning({ id: videosTable.id });
 
   if (!completed[0]) {
+    const [video] = await db
+      .select({ userId: videosTable.userId, status: videosTable.status })
+      .from(videosTable)
+      .where(eq(videosTable.id, videoId))
+      .limit(1);
+    if (video?.status === "cancelled") {
+      const released = await releaseOpenVideoReservations({
+        userId: video.userId,
+        videoId,
+        includeGenerationReservation: false,
+        reason: "B-roll liberado porque el render perdió su lease por cancelación",
+      });
+      logger.info({ videoId, releasedReservations: released }, "[CaptionEngine] Released open B-roll reservations after cancellation fence");
+    }
     logger.warn(
       { videoId },
       "[CaptionEngine] Skipped terminal update because this worker no longer owns the caption-processing lease",
@@ -1698,6 +1741,7 @@ export async function resetCaptionProcessingForReapply(
     })
     .where(and(
       eq(videosTable.id, videoId),
+      ne(videosTable.status, "cancelled"),
       or(
         isNull(videosTable.captionStatus),
         inArray(videosTable.captionStatus as any, ["done", "failed", "disabled"]),
@@ -2500,7 +2544,11 @@ async function advanceWavespeedTtsToTalkingHead(
   const handoffClaim = await db
     .update(videosTable)
     .set({ heygenVideoId: handoffSentinel, updatedAt: new Date() })
-    .where(and(eq(videosTable.id, videoId), eq(videosTable.heygenVideoId, ttsSentinel)))
+    .where(and(
+      eq(videosTable.id, videoId),
+      eq(videosTable.status, "generating"),
+      eq(videosTable.heygenVideoId, ttsSentinel),
+    ))
     .returning({ id: videosTable.id });
 
   // A scheduler or another monitor has already moved this video forward.
@@ -2549,7 +2597,11 @@ async function advanceWavespeedTtsToTalkingHead(
     await db
       .update(videosTable)
       .set({ heygenVideoId: `wavespeed-th:${thRequestId}`, updatedAt: new Date() })
-      .where(and(eq(videosTable.id, videoId), eq(videosTable.heygenVideoId, handoffSentinel)));
+        .where(and(
+          eq(videosTable.id, videoId),
+          eq(videosTable.status, "generating"),
+          eq(videosTable.heygenVideoId, handoffSentinel),
+        ));
 
     logger.info({ videoId, thRequestId }, "[WaveSpeed] Talking-head job enviado");
     return "advanced";
@@ -3358,10 +3410,16 @@ export async function pollAndPublishVideos(): Promise<void> {
       if (orphanAgeMs > 5 * 60 * 1000) {
         const orphanMsg = "ID de HeyGen no persistido (posible caída del servidor). El item fue restablecido para reintento automático.";
         logger.warn({ videoId: video.id, orphanAgeMs }, "[Recovery] Video huérfano (sin heygenVideoId) — marcando fallido, restableciendo item a 'scripted'");
-        await db
+        const orphaned = await db
           .update(videosTable)
           .set({ status: "failed", errorMessage: orphanMsg, updatedAt: new Date() })
-          .where(eq(videosTable.id, video.id));
+          .where(and(
+            eq(videosTable.id, video.id),
+            eq(videosTable.status, "generating"),
+            isNull(videosTable.heygenVideoId),
+          ))
+          .returning({ id: videosTable.id });
+        if (!orphaned[0]) continue;
         if (video.contentPlanId) {
           // Reset to 'scripted' so the scheduler retries automatically on the next cycle.
           await db
@@ -3369,6 +3427,7 @@ export async function pollAndPublishVideos(): Promise<void> {
             .set({ status: "scripted", updatedAt: new Date() })
             .where(and(
               eq(contentPlanItemsTable.id, video.contentPlanId),
+              eq(contentPlanItemsTable.videoId, video.id),
               eq(contentPlanItemsTable.status, "generating"),
             ));
         }
@@ -3392,17 +3451,27 @@ export async function pollAndPublishVideos(): Promise<void> {
         generatingStartedAt: video.generatingStartedAt ?? pollNow,
         updatedAt: pollNow,
       })
-      .where(eq(videosTable.id, video.id));
+      .where(and(
+        eq(videosTable.id, video.id),
+        eq(videosTable.status, "generating"),
+        eq(videosTable.heygenVideoId, video.heygenVideoId),
+      ));
 
     const ageMs = pollNow.getTime() - startedAt.getTime();
     if (ageMs > pollTimeoutMs) {
       const timeoutMinutes = Math.round(pollTimeoutMs / 60000);
       const providerName = isWaveSpeedVideo ? "WaveSpeed" : "HeyGen";
       const timeoutMsg = `Video atascado: ${providerName} no respondió en ${timeoutMinutes} minutos (${newAttempts} intentos)`;
-      await db
+      const timedOut = await db
         .update(videosTable)
         .set({ status: "failed", errorMessage: timeoutMsg, updatedAt: pollNow })
-        .where(eq(videosTable.id, video.id));
+        .where(and(
+          eq(videosTable.id, video.id),
+          eq(videosTable.status, "generating"),
+          eq(videosTable.heygenVideoId, video.heygenVideoId),
+        ))
+        .returning({ id: videosTable.id });
+      if (!timedOut[0]) continue;
       if (video.contentPlanId) {
         await db
           .update(contentPlanItemsTable)
@@ -3410,7 +3479,11 @@ export async function pollAndPublishVideos(): Promise<void> {
             // an expired provider job back to "scripted", which makes the UI
             // look like nothing happened and can hide a stale generation.
             .set({ status: "failed", updatedAt: pollNow })
-          .where(eq(contentPlanItemsTable.id, video.contentPlanId));
+          .where(and(
+            eq(contentPlanItemsTable.id, video.contentPlanId),
+            eq(contentPlanItemsTable.videoId, video.id),
+            eq(contentPlanItemsTable.status, "generating"),
+          ));
       }
       sendVideoFailedAlert(video.userId, video.contentPlanId ?? null).catch(() => {});
       logger.warn({ videoId: video.id, providerName, ageMs, attempts: newAttempts }, timeoutMsg);
@@ -3456,7 +3529,7 @@ export async function pollAndPublishVideos(): Promise<void> {
         );
         const thumbnailUrl = persistent.thumbnailUrl ??
           await createRawVideoThumbnail(video.id, persistent.videoUrl);
-        await db
+        const completed = await db
           .update(videosTable)
           .set({
             status: "ready",
@@ -3467,7 +3540,16 @@ export async function pollAndPublishVideos(): Promise<void> {
             heygenSubtitleUrl: status.subtitle_url ?? null,
             updatedAt: new Date(),
           })
-          .where(eq(videosTable.id, video.id));
+          .where(and(
+            eq(videosTable.id, video.id),
+            eq(videosTable.status, "generating"),
+            eq(videosTable.heygenVideoId, video.heygenVideoId),
+          ))
+          .returning({ id: videosTable.id });
+        if (!completed[0]) {
+          logger.info({ videoId: video.id }, "[VideoGeneration] Completion fenced by a newer terminal transition");
+          continue;
+        }
 
         // Consume the credit reservation — video completed successfully.
         await consumeVideoCredits(video.id).catch((err) =>
@@ -3478,7 +3560,11 @@ export async function pollAndPublishVideos(): Promise<void> {
           await db
             .update(contentPlanItemsTable)
             .set({ status: "ready", updatedAt: new Date() })
-            .where(eq(contentPlanItemsTable.id, video.contentPlanId));
+            .where(and(
+              eq(contentPlanItemsTable.id, video.contentPlanId),
+              eq(contentPlanItemsTable.videoId, video.id),
+              eq(contentPlanItemsTable.status, "generating"),
+            ));
         }
 
         logger.info({ videoId: video.id }, "Video ready");
@@ -3528,14 +3614,23 @@ export async function pollAndPublishVideos(): Promise<void> {
         }
       } else if (status.status === "failed") {
         const providerError = status.error ?? "Error desconocido en la generación";
-        await db
+        const failed = await db
           .update(videosTable)
           .set({
             status: "failed",
             errorMessage: "No se pudo completar la generación del video. Intenta de nuevo.",
             updatedAt: new Date(),
           })
-          .where(eq(videosTable.id, video.id));
+          .where(and(
+            eq(videosTable.id, video.id),
+            eq(videosTable.status, "generating"),
+            eq(videosTable.heygenVideoId, video.heygenVideoId),
+          ))
+          .returning({ id: videosTable.id });
+        if (!failed[0]) {
+          logger.info({ videoId: video.id }, "[VideoGeneration] Failure fenced by a newer terminal transition");
+          continue;
+        }
 
         logger.error({ videoId: video.id, providerError }, "[VideoGeneration] Provider reported a failure");
         await releaseVideoCredits(video.id, "Generación de video fallida").catch((err) =>
@@ -3543,7 +3638,11 @@ export async function pollAndPublishVideos(): Promise<void> {
         );
 
         if (video.contentPlanId) {
-          await db.update(contentPlanItemsTable).set({ status: "failed", updatedAt: new Date() }).where(eq(contentPlanItemsTable.id, video.contentPlanId));
+          await db.update(contentPlanItemsTable).set({ status: "failed", updatedAt: new Date() }).where(and(
+            eq(contentPlanItemsTable.id, video.contentPlanId),
+            eq(contentPlanItemsTable.videoId, video.id),
+            eq(contentPlanItemsTable.status, "generating"),
+          ));
         }
         sendVideoFailedAlert(video.userId, video.contentPlanId ?? null).catch(() => {});
       }
@@ -3571,15 +3670,28 @@ export async function pollAndPublishVideos(): Promise<void> {
       }
 
       if (markFailed) {
-        await db
+        const failed = await db
           .update(videosTable)
           .set({ status: "failed", errorMessage: userMsg, updatedAt: new Date() })
-          .where(eq(videosTable.id, video.id));
+          .where(and(
+            eq(videosTable.id, video.id),
+            eq(videosTable.status, "generating"),
+            eq(videosTable.heygenVideoId, video.heygenVideoId),
+          ))
+          .returning({ id: videosTable.id });
+        if (!failed[0]) {
+          logger.info({ videoId: video.id }, "[VideoGeneration] Permanent error fenced by a newer terminal transition");
+          continue;
+        }
         await releaseVideoCredits(video.id, `Error HTTP ${httpStatus}: ${userMsg}`).catch((err) =>
           logger.error({ videoId: video.id, err }, "[Credits] Release falló tras error HTTP permanente")
         );
         if (video.contentPlanId) {
-          await db.update(contentPlanItemsTable).set({ status: "failed", updatedAt: new Date() }).where(eq(contentPlanItemsTable.id, video.contentPlanId));
+          await db.update(contentPlanItemsTable).set({ status: "failed", updatedAt: new Date() }).where(and(
+            eq(contentPlanItemsTable.id, video.contentPlanId),
+            eq(contentPlanItemsTable.videoId, video.id),
+            eq(contentPlanItemsTable.status, "generating"),
+          ));
         }
         sendVideoFailedAlert(video.userId, video.contentPlanId ?? null).catch(() => {});
         logger.error({ videoId: video.id, httpStatus }, userMsg);
@@ -3612,6 +3724,9 @@ export async function publishVideoToInstagram(videoId: number, videoUrl?: string
 async function _publishVideoToInstagramInner(videoId: number, videoUrl?: string): Promise<void> {
   const [initial] = await db.select().from(videosTable).where(eq(videosTable.id, videoId));
   if (!initial) throw new Error("Video not found");
+  if (initial.status === "cancelled") {
+    throw new Error("No se puede publicar un video cancelado");
+  }
   if (isRenderFastV2Failure(initial.errorMessage)) {
     throw new Error(`No se puede publicar: ${initial.errorMessage}`);
   }
@@ -3631,7 +3746,11 @@ async function _publishVideoToInstagramInner(videoId: number, videoUrl?: string)
     const claimed = await db
       .update(videosTable)
       .set({ status: "publishing", updatedAt: new Date() })
-      .where(and(eq(videosTable.id, videoId), eq(videosTable.status, initial.status)))
+      .where(and(
+        eq(videosTable.id, videoId),
+        eq(videosTable.status, initial.status),
+        ne(videosTable.status, "cancelled"),
+      ))
       .returning({ id: videosTable.id });
     if (claimed.length === 0) {
       // Another concurrent request claimed it first — bail out safely.
