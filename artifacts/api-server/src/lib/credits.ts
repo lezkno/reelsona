@@ -434,8 +434,8 @@ export async function consumeVideoCredits(videoId: number): Promise<void> {
     ))
     .limit(1);
   if (!reservation) return;
-  await settleGeneric(reservation, "consume", `Video ${videoId} completado`, { videoId });
-  logger.info({ videoId }, "[Credits] Consumed");
+  const consumed = await settleGeneric(reservation, "consume", `Video ${videoId} completado`, { videoId });
+  if (consumed) logger.info({ videoId }, "[Credits] Consumed");
 }
 
 export async function releaseVideoCredits(videoId: number, reason: string): Promise<boolean> {

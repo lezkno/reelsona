@@ -1773,9 +1773,11 @@ export type CaptionProcessingRunner = (
 ) => Promise<void>;
 
 /**
- * Restarts a stale renderer without dropping B-roll. Generated B-roll files
- * only live in the previous worker's temporary directory, so a retry must run
- * the effect again; per-segment credit reservations prevent duplicate charges.
+ * Restarts a stale renderer without starting a second B-roll pass. Generated
+ * B-roll files only live in the previous worker's temporary directory, and a
+ * retry that recreates them can repeatedly call the image provider after worker
+ * restarts. Recovery prioritizes completing captions and zoom over recreating
+ * temporary B-roll assets; the next deliberate render can include B-roll again.
  */
 export async function recoverCaptionProcessing(
   video: RecoverableCaptionVideo,
@@ -1787,7 +1789,7 @@ export async function recoverCaptionProcessing(
     video.contentPlanId,
     null,
     video.durationSeconds,
-    false,
+    true,
   );
 }
 
@@ -2876,6 +2878,7 @@ async function advanceWavespeedReadyPostProcessing(
         video.contentPlanId ?? null,
         freshVideo.heygenSubtitleUrl,
         freshVideo.durationSeconds,
+        true,
       );
     }
     return "waiting";
