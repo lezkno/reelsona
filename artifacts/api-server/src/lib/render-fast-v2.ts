@@ -47,7 +47,11 @@ const ZOOM_FACTOR = 1.4;
 const BROLL_FADE_SEC = 0.3;
 const BROLL_OVERSCAN = 1.1;
 const MIN_RENDER_TIMEOUT_MS = 3 * 60_000;
-const MAX_RENDER_TIMEOUT_MS = 6 * 60_000;
+// A 1080×1920 picture lock with punch zooms and full-resolution B-roll can
+// legitimately encode below 0.2× realtime on the production VM. Keep the
+// duration-based safety bound, but leave enough headroom for a long Reel to
+// finish instead of killing active FFmpeg work at six minutes.
+const MAX_RENDER_TIMEOUT_MS = 15 * 60_000;
 export const RENDER_FAST_V2_ERROR_PREFIX = "Render Fast V2:";
 
 export function isRenderFastV2Failure(errorMessage: string | null | undefined): boolean {

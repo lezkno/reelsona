@@ -7,4 +7,4 @@ Video post-production runs as a long-lived background worker and must use an alw
 
 **Why:** Autoscale instances can be interrupted when traffic drops. A renderer can lose its worker while retaining a processing lease, leaving the video awaiting recovery instead of producing a final file or terminal error.
 
-**How to apply:** Before publishing render-pipeline changes, set the deployment type to VM / always-on in the Publishing settings. This target is selected in the Publishing UI, not by editing application or artifact configuration files. Keep render jobs bounded and terminal on timeout as an additional safeguard.
+**How to apply:** Before publishing render-pipeline changes, set the deployment type to VM / always-on in the Publishing settings. This target is selected in the Publishing UI, not by editing application or artifact configuration files. Keep render jobs bounded and terminal on timeout as an additional safeguard. For Fast V2 picture locks, use the duration-based 15-second-per-source-second budget with a 3–15 minute range: high-resolution zoom + B-roll encodes can run below 0.2× realtime, so a six-minute cap terminates healthy long-Reel renders.

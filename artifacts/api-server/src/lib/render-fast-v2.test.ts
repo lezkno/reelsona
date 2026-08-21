@@ -213,9 +213,10 @@ test("Render Fast V2 is the default in every environment", () => {
   assert.equal(shouldUseRenderFastV2(" LEGACY "), false);
 });
 
-test("Render Fast V2 final encoding has a hard six-minute ceiling", () => {
+test("Render Fast V2 final encoding has a hard fifteen-minute ceiling", () => {
   assert.equal(getRenderFastV2TimeoutMs(0), 3 * 60_000);
   assert.equal(getRenderFastV2TimeoutMs(20), 5 * 60_000);
-  assert.equal(getRenderFastV2TimeoutMs(30), 6 * 60_000);
-  assert.equal(getRenderFastV2TimeoutMs(120), 6 * 60_000);
+  assert.equal(getRenderFastV2TimeoutMs(30), 7.5 * 60_000);
+  assert.equal(getRenderFastV2TimeoutMs(60), 15 * 60_000);
+  assert.equal(getRenderFastV2TimeoutMs(120), 15 * 60_000);
 });
