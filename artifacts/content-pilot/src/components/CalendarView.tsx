@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ChevronLeft, ChevronRight, Plus, Trash2, Video, CheckCircle2, Clock, AlertTriangle, Edit3, Zap, Users, Send, Loader2, Play } from "lucide-react"
 import type { ContentPlanItem } from "@workspace/api-client-react"
+import { getItemsScheduledOnDay } from "./CalendarView.logic"
 
 const STATUS_COLOR: Record<string, string> = {
   draft: "bg-muted-foreground/40",
@@ -178,8 +179,7 @@ export default function CalendarView({ items, lookById, onAddDay, onDelete, onGe
   const [view, setView] = useState<CalView>("month")
   const [current, setCurrent] = useState(startOfDay(new Date()))
 
-  const itemsOnDay = (day: Date) =>
-    items.filter((i) => i.scheduled_at && isSameDay(new Date(i.scheduled_at), day))
+  const itemsOnDay = (day: Date) => getItemsScheduledOnDay(items, day)
 
   /** Is this weekday active in the automation schedule? */
   const isScheduledDay = (day: Date) => scheduledDays ? scheduledDays.includes(day.getDay()) : false

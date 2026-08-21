@@ -660,13 +660,9 @@ router.post("/content/:id/process", async (req, res): Promise<void> => {
     return;
   }
 
-  // Bring the item forward to now, then kick off the full pipeline
-  await db
-    .update(contentPlanItemsTable)
-    .set({ scheduledAt: new Date(), updatedAt: new Date() })
-    .where(and(eq(contentPlanItemsTable.id, item.id), eq(contentPlanItemsTable.userId, userId)));
-
-  const result = await runAutomationCycle(userId, item.id);
+  // The scheduler moves the card only in its successful scripted -> generating
+  // claim. Do not move the calendar date merely because this request was opened.
+  const result = await runAutomationCycle(userId, item.id, { rescheduleOnManualStart: true });
   res.json(ProcessContentItemNowResponse.parse({ success: result.success, message: result.message }));
 });
 

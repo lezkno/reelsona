@@ -31,6 +31,10 @@ import { getBrowserMediaUrl } from "../lib/objectStorage";
 // brand-cover import removed — AI cover generation is discontinued
 import { logger } from "../lib/logger";
 import { cancelVideoForUser } from "../lib/video-cancellation";
+import {
+  buildGenerationStartClaim,
+  buildGenerationStartRollback,
+} from "../lib/generation-start-schedule";
 
 const router = Router();
 
@@ -158,7 +162,7 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
   // resolution, video row, WaveSpeed submission and recovery without creating a
   // second pipeline in this route.
   const beginWavespeedGeneration = () => {
-    runAutomationCycle(userId, item.id).catch((err) => {
+    runAutomationCycle(userId, item.id, { rescheduleOnManualStart: true }).catch((err) => {
       logger.error({ itemId: item.id, err }, "[/videos/generate] WaveSpeed runAutomationCycle failed");
     });
     // Return schema-compliant 202 immediately — the scheduler updates DB state
@@ -280,32 +284,31 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
       .where(and(eq(contentPlanItemsTable.id, item.id), eq(contentPlanItemsTable.userId, userId)));
   }
 
+  // Check the balance before claiming. A manual request rejected for insufficient
+  // credits must keep the card in its original calendar slot.
+  const isAdminUser = req.session.user!.role === "admin";
+  const estimatedDurationSec = estimateDurationFromScript(item.script!);
+  const estimatedCreditCost = computeReelCreditCost(estimatedDurationSec);
+  if (!isAdminUser) {
+    const enough = await hasEnoughCredits(userId, estimatedCreditCost);
+    if (!enough) {
+      res.status(402).json({ error: "Créditos insuficientes para generar este video. Recarga tu saldo para continuar." });
+      return;
+    }
+  }
+
   // Atomically claim the item (scripted -> generating) so concurrent requests
-  // or a scheduler tick can't both submit a HeyGen generation for it.
+  // or a scheduler tick can't both submit a HeyGen generation. This explicit
+  // manual path moves scheduledAt only in that successful claim.
+  const claimStartedAt = new Date();
   const claimed = await db
     .update(contentPlanItemsTable)
-    .set({ status: "generating", updatedAt: new Date() })
+    .set(buildGenerationStartClaim({ isManualTargetedStart: true, startedAt: claimStartedAt }))
     .where(and(eq(contentPlanItemsTable.id, item.id), eq(contentPlanItemsTable.status, "scripted"), eq(contentPlanItemsTable.userId, userId)))
     .returning({ id: contentPlanItemsTable.id });
   if (claimed.length === 0) {
     res.status(409).json({ error: "Este video ya se está generando" });
     return;
-  }
-
-  // ── Credit check (HeyGen path) ────────────────────────────────────────────
-  const isAdminUser = req.session.user!.role === "admin";
-  const estimatedDurationSec = estimateDurationFromScript(item.script!);
-  const estimatedCreditCost  = computeReelCreditCost(estimatedDurationSec);
-  if (!isAdminUser) {
-    const enough = await hasEnoughCredits(userId, estimatedCreditCost);
-    if (!enough) {
-      await db
-        .update(contentPlanItemsTable)
-        .set({ status: "scripted", updatedAt: new Date() })
-        .where(and(eq(contentPlanItemsTable.id, item.id), eq(contentPlanItemsTable.userId, userId)));
-      res.status(402).json({ error: "Créditos insuficientes para generar este video. Recarga tu saldo para continuar." });
-      return;
-    }
   }
 
   const [automationCfg] = await db.select().from(automationConfigTable)
@@ -336,7 +339,11 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
     // Slot lost at the DB level (concurrent launch) — release the item claim.
     await db
       .update(contentPlanItemsTable)
-      .set({ status: "scripted", updatedAt: new Date() })
+      .set(buildGenerationStartRollback({
+        isManualTargetedStart: true,
+        originalScheduledAt: item.scheduledAt,
+        startedAt: new Date(),
+      }))
       .where(eq(contentPlanItemsTable.id, item.id));
     res.status(409).json({ error: "Ya tienes un video generándose. Espera a que termine para generar otro." });
     return;
@@ -354,7 +361,11 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
     } catch {
       await db.update(videosTable).set({ status: "failed", errorMessage: "Error al reservar créditos", updatedAt: new Date() })
         .where(and(eq(videosTable.id, videoRow.id), eq(videosTable.userId, userId)));
-      await db.update(contentPlanItemsTable).set({ status: "scripted", updatedAt: new Date() })
+      await db.update(contentPlanItemsTable).set(buildGenerationStartRollback({
+        isManualTargetedStart: true,
+        originalScheduledAt: item.scheduledAt,
+        startedAt: new Date(),
+      }))
         .where(and(eq(contentPlanItemsTable.id, item.id), eq(contentPlanItemsTable.userId, userId)));
       res.status(402).json({ error: "Créditos insuficientes para generar este video. Recarga tu saldo para continuar." });
       return;
@@ -417,7 +428,11 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
           eq(videosTable.status, "generating"),
         ))
         .returning({ id: videosTable.id });
-      await db.update(contentPlanItemsTable).set({ status: "failed", updatedAt: new Date() })
+      await db.update(contentPlanItemsTable).set(buildGenerationStartRollback({
+        isManualTargetedStart: true,
+        originalScheduledAt: item.scheduledAt,
+        startedAt: new Date(),
+      }, "failed"))
         .where(and(
           eq(contentPlanItemsTable.id, item.id),
           eq(contentPlanItemsTable.userId, userId),

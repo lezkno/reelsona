@@ -83,6 +83,11 @@ import {
   recoveryStage as getWavespeedRecoveryStage,
   shouldMonitorWavespeedVideo,
 } from "./wavespeed-video-pipeline-policy";
+import {
+  buildGenerationStartClaim,
+  buildGenerationStartRollback,
+  isManualTargetedGenerationStart,
+} from "./generation-start-schedule";
 // brand-cover removed — AI cover generation is discontinued
 
 // ── Low-credit alert rate-limiter ─────────────────────────────────────────────
@@ -776,13 +781,30 @@ export async function insertVideoClaimingUserSlot(
   });
 }
 
-export async function runAutomationCycle(userId: number, targetItemId?: number): Promise<{
+export interface RunAutomationCycleOptions {
+  /**
+   * Only explicit manual actions for one content item may opt in. The global
+   * AutoPilot trigger calls without a target and therefore always preserves
+   * the planned calendar date.
+   */
+  rescheduleOnManualStart?: boolean;
+}
+
+export async function runAutomationCycle(
+  userId: number,
+  targetItemId?: number,
+  options: RunAutomationCycleOptions = {},
+): Promise<{
   success: boolean;
   message: string;
   contentItemId?: number;
   videoId?: number;
 }> {
-  logger.info({ userId, targetItemId }, "Starting automation cycle");
+  const isManualTargetedStart = isManualTargetedGenerationStart(
+    targetItemId,
+    options.rescheduleOnManualStart,
+  );
+  logger.info({ userId, targetItemId, isManualTargetedStart }, "Starting automation cycle");
 
   // Load automation config scoped to this user
   const [automation] = await db.select().from(automationConfigTable)
@@ -1282,27 +1304,10 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
     return { success: false, message: "Content item missing avatar, voice, or script" };
   }
 
-  // Atomically claim the item (scripted -> generating) so concurrent manual
-  // runs / scheduler ticks can't both submit a HeyGen generation for it.
-  const claimed = await db
-    .update(contentPlanItemsTable)
-    .set({ status: "generating", updatedAt: new Date() })
-    .where(and(eq(contentPlanItemsTable.id, contentItem.id), eq(contentPlanItemsTable.status, "scripted")))
-    .returning({ id: contentPlanItemsTable.id });
-  if (claimed.length === 0) {
-    return { success: false, message: "Content item is already being processed" };
-  }
-
-  // ── Dynamic credit cost estimate ──────────────────────────────────────────
-  // Estimate the video cost from the script length + engine type before
-  // reserving. WaveSpeed: 100 cr / 30 s; HeyGen: 150 cr / 30 s.
+  // Check the balance before the claim. A rejected manual start must leave the
+  // card on its planned calendar date rather than briefly moving it to now.
   const estimatedDurationSec = estimateDurationFromScript(contentItem.script);
   const estimatedCreditCost = computeReelCreditCost(estimatedDurationSec);
-
-  // ── Credit check ──────────────────────────────────────────────────────────
-  // Admin users bypass the credit check. Regular users must have enough credits
-  // before we create the video row. If insufficient: reset item to 'scripted'
-  // (not 'failed') so the automation retries it when credits are available.
   const [userForCredits] = await db
     .select({ role: users.role })
     .from(users)
@@ -1312,16 +1317,11 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
   if (!isAdmin) {
     const enough = await hasEnoughCredits(userId, estimatedCreditCost);
     if (!enough) {
-      await db
-        .update(contentPlanItemsTable)
-        .set({ status: "scripted", updatedAt: new Date() })
-        .where(eq(contentPlanItemsTable.id, contentItem.id));
       logger.warn(
         { userId, itemId: contentItem.id, required: estimatedCreditCost, estimatedDurationSec },
-        "[Credits] Saldo insuficiente — item restablecido a 'scripted'",
+        "[Credits] Saldo insuficiente — generación no reclamada",
       );
-
-      // Fire-and-forget low-credit alert email (rate-limited to once per 24h per user)
+      // Fire-and-forget low-credit alert email (rate-limited to once per 24h per user).
       const lastAlert = lowCreditAlertsSent.get(userId) ?? 0;
       if (Date.now() - lastAlert > LOW_CREDIT_ALERT_COOLDOWN_MS) {
         lowCreditAlertsSent.set(userId, Date.now());
@@ -1337,17 +1337,29 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
 <p>Tu saldo de créditos en Reelsona es insuficiente para generar nuevos videos. La automatización está pausada hasta que tengas créditos disponibles.</p>
 <p>Entra a la plataforma para ver tu saldo actual en <strong>Configuración</strong>.</p>
 <p style="color:#888;font-size:12px">Este aviso se envía como máximo una vez cada 24 horas.</p>`,
-              text: "Tu saldo de créditos en Reelsona está por agotarse. La automatización está pausada. Entra a la plataforma para ver tu saldo.",
+              text: "Tu saldo de créditos en Reelsona es insuficiente para generar nuevos videos. La automatización está pausada hasta que tengas créditos disponibles. Entra a la plataforma para ver tu saldo.",
             });
           })
           .catch((err) => logger.warn({ err, userId }, "[Credits] No se pudo enviar alerta de saldo bajo"));
       }
-
       return {
         success: false,
         message: `Saldo de créditos insuficiente (se requieren ~${estimatedCreditCost} créditos para ~${estimatedDurationSec}s de video). El item se reintentará cuando haya saldo.`,
       };
     }
+  }
+
+  // Atomically claim the item (scripted -> generating) so concurrent manual
+  // runs / scheduler ticks can't both submit a generation. A manual targeted
+  // run moves scheduledAt in this exact same successful claim.
+  const claimStartedAt = new Date();
+  const claimed = await db
+    .update(contentPlanItemsTable)
+    .set(buildGenerationStartClaim({ isManualTargetedStart, startedAt: claimStartedAt }))
+    .where(and(eq(contentPlanItemsTable.id, contentItem.id), eq(contentPlanItemsTable.status, "scripted")))
+    .returning({ id: contentPlanItemsTable.id });
+  if (claimed.length === 0) {
+    return { success: false, message: "Content item is already being processed" };
   }
 
   const videoRow = await insertVideoClaimingUserSlot(userId, {
@@ -1370,7 +1382,11 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
     // level). Reset the item so it can be retried once the slot frees up.
     await db
       .update(contentPlanItemsTable)
-      .set({ status: "scripted", updatedAt: new Date() })
+      .set(buildGenerationStartRollback({
+        isManualTargetedStart,
+        originalScheduledAt: contentItem.scheduledAt,
+        startedAt: new Date(),
+      }))
       .where(eq(contentPlanItemsTable.id, contentItem.id));
     return { success: false, message: "Ya hay un video generándose para este usuario. El item quedó listo para reintentar." };
   }
@@ -1383,15 +1399,31 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
   // request to HeyGen without an outstanding reservation would produce a video
   // whose credit cost can never be settled correctly.
   if (!isAdmin) {
-    await reserveCredits(
-      userId,
-      estimatedCreditCost,
-      videoRow.id,
-      `Generación de video ${videoRow.id}: ~${estimatedDurationSec}s ${wavespeedCtx ? "WaveSpeed" : "HeyGen"} — ${contentItem.topic ?? "sin tema"}`,
-    ).catch((creditErr) => {
-      logger.error({ creditErr, videoId: videoRow.id }, "[Credits] Reserve falló — abortando generación (no se enviará a HeyGen)");
-      throw creditErr;
-    });
+    try {
+      await reserveCredits(
+        userId,
+        estimatedCreditCost,
+        videoRow.id,
+        `Generación de video ${videoRow.id}: ~${estimatedDurationSec}s ${wavespeedCtx ? "WaveSpeed" : "HeyGen"} — ${contentItem.topic ?? "sin tema"}`,
+      );
+    } catch (creditErr) {
+      logger.error({ creditErr, videoId: videoRow.id }, "[Credits] Reserve falló — abortando generación");
+      await db.update(videosTable).set({
+        status: "failed",
+        errorMessage: "Error al reservar créditos",
+        updatedAt: new Date(),
+      }).where(and(eq(videosTable.id, videoRow.id), eq(videosTable.status, "generating")));
+      await db.update(contentPlanItemsTable).set(buildGenerationStartRollback({
+        isManualTargetedStart,
+        originalScheduledAt: contentItem.scheduledAt,
+        startedAt: new Date(),
+      })).where(and(
+        eq(contentPlanItemsTable.id, contentItem.id),
+        eq(contentPlanItemsTable.videoId, videoRow.id),
+        eq(contentPlanItemsTable.status, "generating"),
+      ));
+      return { success: false, message: "No se pudieron reservar créditos para iniciar la generación" };
+    }
   }
 
   // Look up per-voice speed and pitch for SSML prosody wrapping
@@ -1541,7 +1573,11 @@ export async function runAutomationCycle(userId: number, targetItemId?: number):
     // Rate-limit: item goes back to 'scripted' so the next automation cycle retries it.
     // All other errors: item goes to 'failed' and requires manual intervention.
     const nextItemStatus = isRateLimit ? "scripted" : "failed";
-    await db.update(contentPlanItemsTable).set({ status: nextItemStatus, updatedAt: new Date() }).where(and(
+    await db.update(contentPlanItemsTable).set(buildGenerationStartRollback({
+      isManualTargetedStart,
+      originalScheduledAt: contentItem.scheduledAt,
+      startedAt: new Date(),
+    }, nextItemStatus)).where(and(
       eq(contentPlanItemsTable.id, contentItem.id),
       eq(contentPlanItemsTable.videoId, videoRow.id),
       eq(contentPlanItemsTable.status, "generating"),
