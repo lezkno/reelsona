@@ -423,6 +423,17 @@ router.post("/checkout/create-session", async (req: Request, res: Response): Pro
   const userId = req.session?.user?.userId ?? null;
   let stripeCustomerId: string | null = null;
 
+  // Credit packages are account-scoped. The legacy hosted checkout must enforce
+  // the same rule as Payment Element; otherwise a caller could submit another
+  // user's email and create an unattributed topup checkout.
+  if (planSlug.startsWith("topup") && !userId) {
+    res.status(401).json({
+      error: "authentication_required",
+      message: "Inicia sesión para comprar créditos adicionales.",
+    });
+    return;
+  }
+
   if (userId) {
     const [[user], [sub]] = await Promise.all([
       db.select({ email: usersTable.email }).from(usersTable).where(eq(usersTable.id, userId)).limit(1),

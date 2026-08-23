@@ -174,11 +174,17 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, stripe:
             creditsAmount = resolveVerifiedCreditAmount(creditsAmount, priceRow.creditAmount);
           }
         } else {
-          logger.warn({ sessionId, paidPriceId, metadataPlan: planSlug }, "[webhook/stripe] Paid price not found in stripe_price_configs — trusting metadata");
+          throw new Error(
+            `Paid Stripe price ${paidPriceId} is not configured for checkout ${sessionId}; refusing to provision`,
+          );
         }
       }
     } catch (err: any) {
-      logger.warn({ sessionId, err: err?.message }, "[webhook/stripe] Could not list line items for price verification — proceeding with metadata plan");
+      logger.error(
+        { sessionId, err: err?.message },
+        "[webhook/stripe] Price verification failed — refusing to provision; Stripe will retry",
+      );
+      throw err;
     }
   }
 
@@ -659,7 +665,9 @@ async function handlePaymentElementSubscriptionCreate(
       );
       planSlug = resolveVerifiedPlanSlug(planSlug, priceRow.planSlug);
     } else if (!priceRow) {
-      logger.warn({ stripeSubId, paidPriceId, metadataPlan: planSlug }, "[webhook/stripe] Paid price not found in stripe_price_configs — trusting metadata");
+      throw new Error(
+        `Paid Stripe price ${paidPriceId} is not configured for subscription ${stripeSubId}; refusing to provision`,
+      );
     }
   }
   const periodEndTs: number | null =
@@ -750,6 +758,10 @@ async function handlePaymentIntentSucceeded(pi: Stripe.PaymentIntent, stripe: St
         );
         creditsAmount = resolveVerifiedCreditAmount(creditsAmount, priceRow.creditAmount);
       }
+    } else {
+      throw new Error(
+        `Topup plan ${planSlug} is not configured in stripe_price_configs; refusing to provision PaymentIntent ${piId}`,
+      );
     }
   }
 
