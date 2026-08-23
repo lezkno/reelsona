@@ -16,6 +16,7 @@ import { upsertEntitlement } from "../lib/access";
 import { invalidateAccessCache } from "../middleware/requireToolAccess";
 import { invalidatePlanCache } from "../middleware/requirePlanAccess";
 import { provisionPurchase, provisionPaymentElementSubscription } from "../lib/provision-purchase";
+import { revertPurchasedCreditsForRefund } from "../lib/credits";
 import { db } from "@workspace/db";
 import { stripePriceConfigsTable } from "@workspace/db/schema";
 import {
@@ -96,6 +97,7 @@ const EVENT_HANDLERS: Record<string, (obj: any, stripe: Stripe) => Promise<void>
   "subscription_schedule.released":      handleSubscriptionScheduleReleased,
   // Payment Element flow (no Checkout Session)
   "payment_intent.succeeded":            handlePaymentIntentSucceeded,
+  "charge.refunded":                     handleChargeRefunded,
 };
 
 async function handleCheckoutCompleted(session: Stripe.Checkout.Session, stripe: Stripe): Promise<void> {
@@ -815,6 +817,64 @@ async function handlePaymentIntentSucceeded(pi: Stripe.PaymentIntent, stripe: St
   }
 
   await provisionPurchase(inserted, stripe);
+}
+
+/**
+ * Handles full refunds for credit-package charges. Subscription refunds are
+ * intentionally not converted into credit deductions here: subscription
+ * credits are cycle-scoped and have no single refundable package to reverse.
+ */
+async function handleChargeRefunded(charge: Stripe.Charge, stripe: Stripe): Promise<void> {
+  if (!charge.refunded) return;
+
+  const paymentIntentId =
+    typeof charge.payment_intent === "string"
+      ? charge.payment_intent
+      : charge.payment_intent?.id ?? null;
+  if (!paymentIntentId) {
+    logger.warn({ chargeId: charge.id }, "[webhook/stripe] Refunded charge has no PaymentIntent — skipping safely");
+    return;
+  }
+
+  const [purchase] = await db
+    .select()
+    .from(purchases)
+    .where(eq(purchases.providerSessionId, paymentIntentId))
+    .limit(1);
+
+  if (!purchase || purchase.purchaseType !== "topup") {
+    logger.info(
+      { chargeId: charge.id, paymentIntentId },
+      "[webhook/stripe] Refunded charge is not a credit topup — no credit reversal",
+    );
+    return;
+  }
+
+  if (!purchase.userId) {
+    logger.error(
+      { chargeId: charge.id, paymentIntentId, purchaseId: purchase.id },
+      "[webhook/stripe] Refunded topup has no userId — refusing to guess account",
+    );
+    return;
+  }
+
+  const result = await revertPurchasedCreditsForRefund(
+    purchase.userId,
+    purchase.creditsPurchased ?? 0,
+    `charge:${charge.id}`,
+  );
+
+  logger.info(
+    {
+      chargeId: charge.id,
+      paymentIntentId,
+      purchaseId: purchase.id,
+      userId: purchase.userId,
+      reversed: result.reversed,
+      alreadyProcessed: result.alreadyProcessed,
+    },
+    "[webhook/stripe] Refunded topup credits reconciled",
+  );
 }
 
 function mapStripeStatus(stripeStatus: string): string {

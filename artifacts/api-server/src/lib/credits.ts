@@ -243,6 +243,78 @@ export async function provisionCredits(userId: number, amount: number, descripti
   return provisionPurchasedCredits(userId, amount, description);
 }
 
+export function computeRefundCreditReversal(
+  purchasedBalance: number,
+  purchasedAmount: number,
+): number {
+  return Math.min(Math.max(0, purchasedBalance), Math.max(0, purchasedAmount));
+}
+
+/**
+ * Reverses the still-available portion of a refunded credit package.
+ *
+ * The refund key is stored in the ledger description and checked inside the
+ * wallet transaction, making repeated Stripe refund events harmless.
+ */
+export async function revertPurchasedCreditsForRefund(
+  userId: number,
+  purchasedAmount: number,
+  refundKey: string,
+): Promise<{ reversed: number; alreadyProcessed: boolean }> {
+  if (purchasedAmount <= 0) return { reversed: 0, alreadyProcessed: false };
+
+  return db.transaction(async (tx) => {
+    const marker = `Stripe refund ${refundKey}`;
+    const [alreadyProcessed] = await tx
+      .select({ id: creditLedgerTable.id })
+      .from(creditLedgerTable)
+      .where(and(
+        eq(creditLedgerTable.userId, userId),
+        eq(creditLedgerTable.type, "adjustment"),
+        eq(creditLedgerTable.description, marker),
+      ))
+      .limit(1);
+
+    if (alreadyProcessed) return { reversed: 0, alreadyProcessed: true };
+
+    const [wallet] = await tx
+      .select()
+      .from(userCreditsTable)
+      .where(eq(userCreditsTable.userId, userId))
+      .for("update")
+      .limit(1);
+
+    if (!wallet) {
+      throw new Error(`Refund ${refundKey}: wallet not found for user ${userId}`);
+    }
+
+    const reversed = computeRefundCreditReversal(wallet.purchasedCredits, purchasedAmount);
+    const balanceAfter = wallet.availableCredits - reversed;
+
+    await tx
+      .update(userCreditsTable)
+      .set({
+        purchasedCredits: wallet.purchasedCredits - reversed,
+        availableCredits: balanceAfter,
+        updatedAt: new Date(),
+      })
+      .where(eq(userCreditsTable.userId, userId));
+
+    await tx.insert(creditLedgerTable).values({
+      userId,
+      type: "adjustment",
+      amount: -reversed,
+      balanceBefore: wallet.availableCredits,
+      balanceAfter,
+      pool: "purchased",
+      purchasedAmount: -reversed,
+      description: marker,
+    });
+
+    return { reversed, alreadyProcessed: false };
+  });
+}
+
 async function reserveGeneric(
   userId: number,
   amount: number,
