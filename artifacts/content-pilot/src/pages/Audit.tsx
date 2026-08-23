@@ -417,6 +417,13 @@ function TabRadar() {
                   {acc.bio && <p className="text-xs text-muted-foreground mt-0.5 truncate">{acc.bio}</p>}
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
+                  {/* Build the destination from the username so stale CDN image URLs
+                      from older radar records can never be opened as profiles. */}
+                  {acc.ig_username && (
+                    <a href={`https://www.instagram.com/${encodeURIComponent(acc.ig_username)}/`} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-foreground transition-colors">
+                      <ExternalLink className="w-4 h-4" />
+                    </a>
+                  )}
                   <TooltipProvider>
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -433,11 +440,6 @@ function TabRadar() {
                       <TooltipContent side="top" className="text-xs">{acc.use_as_reference ? "Usar como referencia (activo)" : "No usar como referencia"}</TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
-                  {acc.profile_url && (
-                    <a href={acc.profile_url} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-foreground transition-colors">
-                      <ExternalLink className="w-4 h-4" />
-                    </a>
-                  )}
                   <button type="button" onClick={() => handleDelete(acc.id)} disabled={deleteAccount.isPending} className="text-muted-foreground hover:text-destructive transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
                     <Trash2 className="w-4 h-4" />
                   </button>
