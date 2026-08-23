@@ -11,11 +11,11 @@ import {
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
-import { BookOpen, Play } from "lucide-react"
+import { BookOpen, ExternalLink } from "lucide-react"
 import { useGetSettings, useUpdateSettings, getGetSettingsQueryKey } from "@workspace/api-client-react"
 import { useQueryClient } from "@tanstack/react-query"
 
-const WELCOME_VIDEO_URL = "/welcome-video.mp4"
+const YT_VIDEO_ID = "QtjG9kv1nvQ"
 
 const STORAGE_KEY = "reelsona_welcome_dismissed"
 
@@ -104,28 +104,17 @@ export function WelcomeModal() {
           </DialogHeader>
         </div>
 
-        {/* Video area — full modal width, preserving the original aspect ratio */}
-        <div className="w-full overflow-hidden border-y border-border bg-black shadow-md">
-          {WELCOME_VIDEO_URL ? (
-            <video
-              src={WELCOME_VIDEO_URL}
-              controls
-              playsInline
-              preload="metadata"
-              controlsList="nodownload noplaybackrate noremoteplayback"
-              disablePictureInPicture
-              disableRemotePlayback
-              onContextMenu={(e) => e.preventDefault()}
-              className="w-full h-auto block object-contain"
+        {/* Video area — YouTube embed, sin videos recomendados al finalizar */}
+        <div className="w-full border-y border-border bg-black shadow-md">
+          <div className="relative w-full" style={{ paddingBottom: "56.25%" }}>
+            <iframe
+              src={`https://www.youtube.com/embed/${YT_VIDEO_ID}?rel=0&modestbranding=1&color=white`}
+              title="Reelsona — introducción"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+              className="absolute inset-0 w-full h-full border-0"
             />
-          ) : (
-            <div className="h-[160px] bg-gradient-to-br from-muted/60 to-muted flex flex-col items-center justify-center gap-3 text-muted-foreground">
-              <div className="w-12 h-12 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center">
-                <Play className="w-5 h-5 text-primary fill-primary/30" />
-              </div>
-              <p className="text-sm font-medium">Video de introducción próximamente</p>
-            </div>
-          )}
+          </div>
         </div>
 
         {/* Footer */}
@@ -144,14 +133,30 @@ export function WelcomeModal() {
             ))}
           </div>
 
-          {/* CTA */}
-          <Button
-            className="w-full gap-2 text-sm font-semibold h-9"
-            onClick={handleStartCourse}
-          >
-            <BookOpen className="w-4 h-4" />
-            Comenzar curso de implementación
-          </Button>
+          {/* CTAs */}
+          <div className="flex gap-2">
+            <Button
+              className="flex-1 gap-2 text-sm font-semibold h-9"
+              onClick={handleStartCourse}
+            >
+              <BookOpen className="w-4 h-4" />
+              Comenzar curso de implementación
+            </Button>
+            <Button
+              variant="outline"
+              className="gap-1.5 text-sm h-9 shrink-0"
+              asChild
+            >
+              <a
+                href={`https://youtu.be/${YT_VIDEO_ID}`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                Ver en YouTube
+              </a>
+            </Button>
+          </div>
 
           {/* Don't show again + skip */}
           <div className="flex items-center justify-between gap-2">
