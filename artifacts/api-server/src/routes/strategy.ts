@@ -50,7 +50,9 @@ function serializeAccount(a: typeof nicheRadarAccountsTable.$inferSelect) {
   return {
     id:               a.id,
     ig_username:      a.igUsername,
-    profile_url:      a.profileUrl ?? null,
+    // Always derive the navigational URL from the username. Older records may
+    // contain Apify's profilePicUrl in profileUrl, which is an image/CDN URL.
+    profile_url:      instagramProfileUrl(a.igUsername),
     bio:              a.bio ?? null,
     followers:        a.followers ?? null,
     relevance_score:  a.relevanceScore ?? null,
