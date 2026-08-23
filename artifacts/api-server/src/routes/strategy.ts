@@ -62,6 +62,10 @@ function serializeAccount(a: typeof nicheRadarAccountsTable.$inferSelect) {
   };
 }
 
+function instagramProfileUrl(username: string): string {
+  return `https://www.instagram.com/${encodeURIComponent(username)}/`;
+}
+
 // ── Plan gate — all Radar/Market/Strategy write endpoints require Pro or Founder ─
 const PRO_PLANS = ["pro", "founder"];
 
@@ -324,7 +328,8 @@ router.post("/strategy/radar", requirePlanAccess(PRO_PLANS), async (req, res): P
     .values({
       userId,
       igUsername:     username,
-      profileUrl:     profile_url ?? null,
+      // profileUrl is the account page, never the profile image URL returned by Apify.
+      profileUrl:     profile_url ?? instagramProfileUrl(username),
       bio:            bio ?? null,
       followers:      followers ? Number(followers) : null,
       relevanceScore: relevance_score ? Number(relevance_score) : 5,
@@ -341,7 +346,7 @@ router.post("/strategy/radar", requirePlanAccess(PRO_PLANS), async (req, res): P
         .set({
           bio:          apifyData.biography ?? inserted.bio,
           followers:    apifyData.followersCount ?? inserted.followers,
-          profileUrl:   apifyData.profilePicUrl ?? inserted.profileUrl,
+          profileUrl:   instagramProfileUrl(username),
           topPostsJson: apifyData.topPosts.length > 0 ? apifyData.topPosts : null,
           lastSyncedAt: new Date(),
         })
@@ -406,7 +411,7 @@ router.post("/strategy/radar/:id/sync", requirePlanAccess(PRO_PLANS), async (req
       .set({
         bio:          apifyData.biography ?? account.bio,
         followers:    apifyData.followersCount ?? account.followers,
-        profileUrl:   apifyData.profilePicUrl ?? account.profileUrl,
+        profileUrl:   instagramProfileUrl(account.igUsername),
         topPostsJson: apifyData.topPosts.length > 0 ? apifyData.topPosts : account.topPostsJson,
         lastSyncedAt: new Date(),
       })

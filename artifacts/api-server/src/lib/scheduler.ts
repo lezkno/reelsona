@@ -4754,7 +4754,8 @@ export async function syncAllStaleRadarAccounts(userId?: number): Promise<{ sync
         .set({
           bio:          apifyData.biography ?? account.bio,
           followers:    apifyData.followersCount ?? account.followers,
-          profileUrl:   apifyData.profilePicUrl ?? account.profileUrl,
+          // Keep the saved link pointed at the Instagram account, not its profile image.
+          profileUrl:   `https://www.instagram.com/${encodeURIComponent(account.igUsername)}/`,
           topPostsJson: apifyData.topPosts.length > 0 ? apifyData.topPosts : account.topPostsJson,
           lastSyncedAt: new Date(),
         })
