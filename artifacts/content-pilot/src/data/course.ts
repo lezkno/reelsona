@@ -65,7 +65,7 @@ export const COURSE_MODULES: Module[] = [
         description:
           "Analiza tu punto de partida antes de crear contenido. Reelsona revisa la información disponible de tu cuenta para identificar patrones, oportunidades y señales que ayudarán a construir una estrategia más alineada con tu situación actual.",
         duration: "8 min",
-        videoUrl: null,
+        videoUrl: "https://www.youtube.com/embed/UeOnX8KZMpM?rel=0&modestbranding=1&color=white",
         actionLabel: "Ejecutar Auditoría",
         actionHref: "/audit",
       },
