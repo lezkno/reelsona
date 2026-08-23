@@ -356,12 +356,16 @@ export function buildCheckoutSessionParams(args: {
   appUrl: string;
   embedded: boolean;
   stripeCustomerId?: string | null;
+  /** Optional authenticated user id — included in Stripe metadata for reliable webhook attribution. */
+  userId?: number | null;
 }): Stripe.Checkout.SessionCreateParams {
   const metadata: Record<string, string> = {
     plan_slug: args.planSlug,
     product: args.isSubscription ? "reelsona_subscription" : "reelsona_topup",
     full_name: (args.fullName ?? "").trim(),
     credits_amount: String(args.creditsAmount),
+    // user_id lets the webhook attribute the purchase without relying on email alone
+    ...(args.userId ? { user_id: String(args.userId) } : {}),
   };
 
   const customerIdentity: Pick<Stripe.Checkout.SessionCreateParams, "customer" | "customer_email"> =
@@ -515,6 +519,7 @@ router.post("/checkout/create-session", async (req: Request, res: Response): Pro
       appUrl,
       embedded: useEmbedded,
       stripeCustomerId,
+      userId,
     });
 
     const session = await stripe.checkout.sessions.create(params, { idempotencyKey });

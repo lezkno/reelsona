@@ -60,4 +60,40 @@ describe("RC1 Stripe Checkout contract", () => {
     assert.equal(params.success_url, "https://reelsona.com/checkout/success?session_id={CHECKOUT_SESSION_ID}");
     assert.equal(params.cancel_url, "https://reelsona.com/checkout/cancel");
   });
+
+  test("user_id is included in metadata when userId is provided", () => {
+    const params = buildCheckoutSessionParams({
+      planSlug: "pro",
+      stripePriceId: "price_pro",
+      isSubscription: true,
+      email: "user@example.com",
+      creditsAmount: 1500,
+      appUrl: "https://reelsona.com",
+      embedded: true,
+      userId: 42,
+    });
+
+    assert.equal(params.metadata?.user_id, "42", "user_id must appear in session metadata");
+    // subscription_data should carry the same metadata so the webhook can read it from the sub
+    const subMeta = (params as any).subscription_data?.metadata;
+    assert.equal(subMeta?.user_id, "42", "user_id must also appear in subscription_data.metadata");
+  });
+
+  test("user_id is absent from metadata when userId is not provided", () => {
+    const params = buildCheckoutSessionParams({
+      planSlug: "topup-300",
+      stripePriceId: "price_topup_300",
+      isSubscription: false,
+      email: "user@example.com",
+      creditsAmount: 300,
+      appUrl: "https://reelsona.com",
+      embedded: true,
+    });
+
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(params.metadata ?? {}, "user_id"),
+      false,
+      "user_id must not appear in metadata when userId is absent",
+    );
+  });
 });
