@@ -826,6 +826,25 @@ export function useGetStrategyProfile() {
   });
 }
 
+/** Remove the current user's audit profile, cache, and niche radar accounts. */
+export function useResetStrategyAudit() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      customFetch<{ success: boolean; deleted: { profiles: number; auditCache: number; radarAccounts: number } }>(
+        "/api/strategy/profile/reset",
+        { method: "DELETE" },
+      ),
+    onSuccess: () => {
+      qc.setQueryData(STRATEGY_PROFILE_KEY, { profile: null });
+      qc.setQueryData(RADAR_ACCOUNTS_KEY, { accounts: [] });
+      qc.invalidateQueries({ queryKey: STRATEGY_PROFILE_KEY });
+      qc.invalidateQueries({ queryKey: RADAR_ACCOUNTS_KEY });
+      qc.invalidateQueries({ queryKey: RADAR_SUGGESTIONS_KEY });
+    },
+  });
+}
+
 /** Run the Instagram account audit and save account_data to the strategy profile. */
 export function useRunAccountAudit() {
   const qc = useQueryClient();

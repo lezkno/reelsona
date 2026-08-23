@@ -5,12 +5,18 @@ import { es } from "date-fns/locale"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { useToast } from "@/hooks/use-toast"
 import {
   useGetStrategyProfile,
+  useResetStrategyAudit,
   useRunAccountAudit,
   useGetRadarAccounts,
   useGetRadarStatus,
@@ -879,11 +885,26 @@ export default function Audit() {
 
   const [tab, setTab] = useState<StepId>("account")
   const { data, isLoading } = useGetStrategyProfile()
+  const resetAudit = useResetStrategyAudit()
+  const { toast } = useToast()
   const profile = data?.profile ?? null
   const steps = profile?.steps_completed ?? []
   const { data: igStatus } = useGetInstagramAccount()
   const igConnected = !!(igStatus?.connected && igStatus.account)
   const [, navigate] = useLocation()
+
+  const handleResetAudit = () => {
+    resetAudit.mutate(undefined, {
+      onSuccess: () => {
+        initialTabSet.current = true
+        setTab("account")
+        toast({ title: "Auditoría reiniciada", description: "Se eliminaron los resultados y las cuentas del Radar. Puedes comenzar de nuevo." })
+      },
+      onError: (e: any) => {
+        toast({ title: "No se pudo reiniciar", description: e?.data?.error ?? "Intenta de nuevo en unos segundos.", variant: "destructive" })
+      },
+    })
+  }
 
   // On first profile load, jump to the step after the last completed one so
   // returning to this page doesn't reset the user back to step 1.
@@ -958,6 +979,38 @@ export default function Audit() {
           {updatedAt && (
             <span className="text-xs text-muted-foreground">Actualizado {updatedAt}</span>
           )}
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2 border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                disabled={resetAudit.isPending}
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Reiniciar auditoría
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>¿Reiniciar toda la auditoría?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Esta acción eliminará permanentemente los resultados de Cuenta, Mercado y Estrategia,
+                  las cuentas guardadas en Radar y el caché de auditoría de Instagram. No eliminará tu
+                  cuenta de Instagram conectada, planes de contenido, videos, créditos ni automatizaciones.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={handleResetAudit}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  Sí, eliminar y comenzar de cero
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       </div>
 

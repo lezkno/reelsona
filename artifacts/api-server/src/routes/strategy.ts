@@ -21,6 +21,8 @@ import {
   nicheRadarAccountsTable,
   settingsTable,
   contentPlanItemsTable,
+  auditProfilesTable,
+  instagramAuditCacheTable,
 } from "@workspace/db";
 import { getMediaList, getMediaInsights } from "../lib/instagram-api";
 import { analyzeAuditAndRecommend, reanalyzeTopicsWithStrategy } from "../lib/ai-scripts";
@@ -73,6 +75,31 @@ router.get("/strategy/profile", async (req, res): Promise<void> => {
   } catch (err) {
     logger.error({ err }, "Failed to load strategy profile");
     res.status(500).json({ error: "Failed to load strategy profile" });
+  }
+});
+
+// ── DELETE /strategy/profile/reset — erase this user's audit workspace ─────────
+router.delete("/strategy/profile/reset", requirePlanAccess(PRO_PLANS), async (req, res): Promise<void> => {
+  const userId = req.session.user!.userId;
+  try {
+    const deleted = await db.transaction(async (tx) => {
+      const [profileResult, cacheResult, radarResult] = await Promise.all([
+        tx.delete(auditProfilesTable).where(eq(auditProfilesTable.userId, userId)).returning({ id: auditProfilesTable.id }),
+        tx.delete(instagramAuditCacheTable).where(eq(instagramAuditCacheTable.userId, userId)).returning({ id: instagramAuditCacheTable.id }),
+        tx.delete(nicheRadarAccountsTable).where(eq(nicheRadarAccountsTable.userId, userId)).returning({ id: nicheRadarAccountsTable.id }),
+      ]);
+      return {
+        profiles: profileResult.length,
+        auditCache: cacheResult.length,
+        radarAccounts: radarResult.length,
+      };
+    });
+
+    logger.info({ userId, deleted }, "Strategic audit reset completed");
+    res.json({ success: true, deleted });
+  } catch (err) {
+    logger.error({ err, userId }, "Strategic audit reset failed");
+    res.status(500).json({ error: "No se pudo reiniciar la auditoría. Intenta de nuevo." });
   }
 });
 
