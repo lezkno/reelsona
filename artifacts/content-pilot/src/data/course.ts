@@ -38,7 +38,7 @@ export const COURSE_MODULES: Module[] = [
         description:
           "Completa la información que Reelsona necesita para entender qué haces, qué vendes, a quién ayudas, cuál es tu propuesta de valor, qué problemas resuelves, qué tono quieres usar y qué acción quieres que tome tu audiencia.",
         duration: "8 min",
-        videoUrl: null,
+        videoUrl: "https://www.youtube.com/embed/-RS3HfjICwk?rel=0&modestbranding=1&color=white",
         actionLabel: "Configurar mi negocio",
         actionHref: "/settings",
       },
