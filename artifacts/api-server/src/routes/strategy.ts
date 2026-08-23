@@ -164,7 +164,7 @@ router.post("/strategy/account", requirePlanAccess(PRO_PLANS), async (req, res):
     const top5Captions = sorted.slice(0, 5).map((p) => p.caption ?? "").filter(Boolean);
 
     // Backward-compat: keep saving the audit cache
-    saveAuditCache({
+     saveAuditCache(userId, {
       topCaptions:        top5Captions,
       recommendedTopics:  aiAnalysis.recommended_topics,
       avgEngagement,
@@ -173,10 +173,11 @@ router.post("/strategy/account", requirePlanAccess(PRO_PLANS), async (req, res):
     }).catch(() => {});
 
     const accountData: AccountData = {
+       analyzed_posts: postsWithInsights.length,
       avg_engagement:       avgEngagement,
       avg_reach:            avgReach,
       best_posting_times:   aiAnalysis.best_posting_times,
-      top_posts:            sorted.slice(0, 6) as AccountData["top_posts"],
+       top_posts:            sorted as AccountData["top_posts"],
       top_captions:         top5Captions,
       follower_count:       account.followersCount ?? 0,
       media_count:          account.mediaCount ?? 0,

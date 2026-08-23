@@ -757,6 +757,7 @@ interface AccountDataTopPost {
   engagement_rate: number | null; permalink: string | null;
 }
 interface AccountData {
+  analyzed_posts: number;
   avg_engagement: number; avg_reach: number; best_posting_times: string[];
   top_posts: AccountDataTopPost[]; top_captions: string[];
   follower_count: number; media_count: number; fetched_at: string;

@@ -9,6 +9,7 @@ import { makeOpenAIClient } from "./openai-client";
 // ── Shared types (exported so routes and ai-scripts can import them) ──────────
 
 export interface AccountData {
+  analyzed_posts: number;
   avg_engagement: number;
   avg_reach: number;
   best_posting_times: string[];

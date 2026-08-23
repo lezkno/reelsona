@@ -150,7 +150,37 @@ function TabCuenta({ profile, onNext }: { profile: StrategyProfile | null; onNex
 
       {ad && !runAudit.isPending && (
         <>
-          {/* Métricas */}
+          {/* Resumen básico de la cuenta */}
+          <Card className="border-primary/20 bg-primary/[0.03]">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                <BarChart2 className="w-4 h-4 text-primary" /> Resumen de tu cuenta
+              </CardTitle>
+              <CardDescription>
+                Lectura básica de las {ad.analyzed_posts ?? ad.top_posts.length} publicaciones más recientes disponibles en Instagram.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="rounded-lg bg-background/80 border p-3">
+                <p className="text-xs text-muted-foreground">Seguidores</p>
+                <p className="text-xl font-bold mt-1">{ad.follower_count.toLocaleString()}</p>
+              </div>
+              <div className="rounded-lg bg-background/80 border p-3">
+                <p className="text-xs text-muted-foreground">Posts analizados</p>
+                <p className="text-xl font-bold mt-1">{ad.analyzed_posts ?? ad.top_posts.length}</p>
+              </div>
+              <div className="rounded-lg bg-background/80 border p-3">
+                <p className="text-xs text-muted-foreground">Posts publicados</p>
+                <p className="text-xl font-bold mt-1">{ad.media_count.toLocaleString()}</p>
+              </div>
+              <div className="rounded-lg bg-background/80 border p-3">
+                <p className="text-xs text-muted-foreground">Alcance promedio</p>
+                <p className="text-xl font-bold mt-1">{Math.round(ad.avg_reach).toLocaleString()}</p>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Métricas básicas */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <Card>
               <CardContent className="pt-5">
@@ -177,12 +207,14 @@ function TabCuenta({ profile, onNext }: { profile: StrategyProfile | null; onNex
             </Card>
           </div>
 
-          {/* Top posts */}
+          {/* Publicaciones analizadas */}
           {ad.top_posts.length > 0 && (
             <div>
-              <h3 className="text-sm font-bold uppercase tracking-wide text-muted-foreground mb-3">Mejores publicaciones</h3>
+              <h3 className="text-sm font-bold uppercase tracking-wide text-muted-foreground mb-3">
+                Últimas publicaciones analizadas ({ad.top_posts.length})
+              </h3>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {ad.top_posts.slice(0, 6).map((post) => (
+                {ad.top_posts.map((post) => (
                   <a key={post.id} href={post.permalink ?? "#"} target="_blank" rel="noopener noreferrer"
                     className="group relative aspect-square rounded-xl overflow-hidden border bg-muted">
                     {post.thumbnail_url
