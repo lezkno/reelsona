@@ -27,6 +27,11 @@ import {
 } from "@workspace/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { logger } from "../lib/logger";
+import {
+  isTopupAmountValid,
+  resolveVerifiedCreditAmount,
+  resolveVerifiedPlanSlug,
+} from "../lib/payment-validation";
 
 const router = Router();
 
@@ -159,14 +164,14 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, stripe:
               { sessionId, metadataPlan: planSlug, paidPlan: priceRow.planSlug, paidPriceId },
               "[webhook/stripe] PLAN MISMATCH: metadata plan_slug does not match paid price — overriding with actual paid plan",
             );
-            planSlug = priceRow.planSlug;
+            planSlug = resolveVerifiedPlanSlug(planSlug, priceRow.planSlug);
           }
           if (priceRow.creditAmount && priceRow.creditAmount !== creditsAmount) {
             logger.warn(
               { sessionId, metadataCredits: creditsAmount, dbCredits: priceRow.creditAmount },
               "[webhook/stripe] Credits mismatch in checkout — using DB value",
             );
-            creditsAmount = priceRow.creditAmount;
+            creditsAmount = resolveVerifiedCreditAmount(creditsAmount, priceRow.creditAmount);
           }
         } else {
           logger.warn({ sessionId, paidPriceId, metadataPlan: planSlug }, "[webhook/stripe] Paid price not found in stripe_price_configs — trusting metadata");
@@ -652,7 +657,7 @@ async function handlePaymentElementSubscriptionCreate(
         { stripeSubId, metadataPlan: planSlug, paidPlan: priceRow.planSlug, paidPriceId },
         "[webhook/stripe] PLAN MISMATCH in Payment Element subscription — overriding with actual paid plan",
       );
-      planSlug = priceRow.planSlug;
+      planSlug = resolveVerifiedPlanSlug(planSlug, priceRow.planSlug);
     } else if (!priceRow) {
       logger.warn({ stripeSubId, paidPriceId, metadataPlan: planSlug }, "[webhook/stripe] Paid price not found in stripe_price_configs — trusting metadata");
     }
@@ -731,7 +736,7 @@ async function handlePaymentIntentSucceeded(pi: Stripe.PaymentIntent, stripe: St
       .limit(1);
     if (priceRow) {
       const paidAmount = pi.amount_received ?? 0;
-      if (paidAmount > 0 && paidAmount !== priceRow.amountCents) {
+      if (!isTopupAmountValid(paidAmount, priceRow.amountCents)) {
         logger.error(
           { piId, planSlug, paidAmount, expectedAmount: priceRow.amountCents },
           "[webhook/stripe] AMOUNT MISMATCH for topup — refusing to provision",
@@ -743,7 +748,7 @@ async function handlePaymentIntentSucceeded(pi: Stripe.PaymentIntent, stripe: St
           { piId, metadataCredits: creditsAmount, dbCredits: priceRow.creditAmount },
           "[webhook/stripe] Credits mismatch for topup — using DB value",
         );
-        creditsAmount = priceRow.creditAmount;
+        creditsAmount = resolveVerifiedCreditAmount(creditsAmount, priceRow.creditAmount);
       }
     }
   }

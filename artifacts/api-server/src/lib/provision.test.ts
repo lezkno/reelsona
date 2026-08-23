@@ -66,6 +66,33 @@ test(
     createdUserId = firstResult.userId;
     assert.ok(createdUserId > 0, "provisionUser must return a valid userId");
 
+    // A Stripe webhook may carry the user's stable ID while the email in the
+    // event is stale or has changed. It must reuse the existing account rather
+    // than creating a second user.
+    const changedEmailResult = await provisionUser({
+      email: `changed-${Date.now()}@example.invalid`,
+      name: "Test Provision Cache User",
+      userId: createdUserId,
+      toolAccessDays: 30,
+      source: "stripe-user-id-test",
+    });
+    assert.equal(
+      changedEmailResult.userId,
+      createdUserId,
+      "provisionUser must prioritize userId over a changed email",
+    );
+    assert.equal(changedEmailResult.created, false);
+
+    await assert.rejects(
+      () => provisionUser({
+        email: `unknown-${Date.now()}@example.invalid`,
+        name: "Unknown User",
+        userId: 2147483647,
+        source: "stripe-invalid-user-id-test",
+      }),
+      /was not found; refusing to create an account/,
+    );
+
     // Step 2 – Simulate the cache state a real user experiences:
     //          the middleware previously ran and cached toolAccessActive=false
     //          (e.g. the first page load happened before payment was confirmed).

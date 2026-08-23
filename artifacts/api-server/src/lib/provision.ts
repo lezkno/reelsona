@@ -75,6 +75,10 @@ export async function provisionUser(params: ProvisionParams): Promise<ProvisionR
     .where(requestedUserId ? eq(users.id, requestedUserId) : eq(users.username, username))
     .limit(1);
 
+  if (requestedUserId && !existingUser) {
+    throw new Error(`Provisioning userId ${requestedUserId} was not found; refusing to create an account from webhook email`);
+  }
+
   const activationToken   = randomBytes(32).toString("hex");
   const activationExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
