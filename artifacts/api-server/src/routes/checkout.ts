@@ -182,6 +182,8 @@ router.post("/checkout/create-payment-intent", async (req: Request, res: Respons
     full_name:      (fullName ?? "").trim(),
     credits_amount: String(planConfig.creditAmount),
     product:        planConfig.isRecurring ? "reelsona_subscription" : "reelsona_topup",
+    // user_id lets the webhook attribute the purchase without relying on email alone
+    ...(userId ? { user_id: String(userId) } : {}),
   };
 
   // ── Idempotency bucket ───────────────────────────────────────────────────────

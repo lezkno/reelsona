@@ -95,7 +95,7 @@ const EVENT_HANDLERS: Record<string, (obj: any, stripe: Stripe) => Promise<void>
 
 async function handleCheckoutCompleted(session: Stripe.Checkout.Session, stripe: Stripe): Promise<void> {
   const sessionId = session.id;
-  const planSlug = session.metadata?.plan_slug ?? "";
+  let planSlug = session.metadata?.plan_slug ?? "";   // let — may be corrected by price verification
   const product = session.metadata?.product ?? "";
 
   logger.info({ sessionId, planSlug, product, paymentStatus: session.payment_status }, "[webhook/stripe] checkout.session.completed");
@@ -136,7 +136,45 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, stripe:
 
   const isSubscription = product === "reelsona_subscription" || session.mode === "subscription";
   const isTopup = product === "reelsona_topup";
-  const creditsAmount = parseInt(session.metadata?.credits_amount ?? "0", 10) || 0;
+  let creditsAmount = parseInt(session.metadata?.credits_amount ?? "0", 10) || 0; // let — may be corrected below
+
+  // ── Price verification ─────────────────────────────────────────────────────
+  // Cross-check the metadata plan_slug against the Stripe line item that was
+  // actually charged. Metadata is backend-written, but if a DB row was edited
+  // after the session was created the wrong plan could be provisioned.
+  if (isSubscription || isTopup) {
+    try {
+      const lineItems = await stripe.checkout.sessions.listLineItems(sessionId, { limit: 5 });
+      const paidPriceId = lineItems.data[0]?.price?.id ?? null;
+      if (paidPriceId) {
+        const [priceRow] = await db
+          .select({ planSlug: stripePriceConfigsTable.planSlug, creditAmount: stripePriceConfigsTable.creditAmount })
+          .from(stripePriceConfigsTable)
+          .where(eq(stripePriceConfigsTable.stripePriceId, paidPriceId))
+          .limit(1);
+        if (priceRow) {
+          if (priceRow.planSlug !== planSlug) {
+            logger.error(
+              { sessionId, metadataPlan: planSlug, paidPlan: priceRow.planSlug, paidPriceId },
+              "[webhook/stripe] PLAN MISMATCH: metadata plan_slug does not match paid price — overriding with actual paid plan",
+            );
+            planSlug = priceRow.planSlug;
+          }
+          if (priceRow.creditAmount && priceRow.creditAmount !== creditsAmount) {
+            logger.warn(
+              { sessionId, metadataCredits: creditsAmount, dbCredits: priceRow.creditAmount },
+              "[webhook/stripe] Credits mismatch in checkout — using DB value",
+            );
+            creditsAmount = priceRow.creditAmount;
+          }
+        } else {
+          logger.warn({ sessionId, paidPriceId, metadataPlan: planSlug }, "[webhook/stripe] Paid price not found in stripe_price_configs — trusting metadata");
+        }
+      }
+    } catch (err: any) {
+      logger.warn({ sessionId, err: err?.message }, "[webhook/stripe] Could not list line items for price verification — proceeding with metadata plan");
+    }
+  }
 
   const purchaseType: "subscription" | "topup" | "program" =
     isSubscription ? "subscription" : isTopup ? "topup" : "program";
@@ -584,7 +622,7 @@ async function handlePaymentElementSubscriptionCreate(
   const stripeSub = await stripe.subscriptions.retrieve(stripeSubId, { expand: ["items"] });
   const metadata  = stripeSub.metadata ?? {};
 
-  const planSlug = metadata.plan_slug ?? "";
+  let planSlug = metadata.plan_slug ?? "";   // let — may be corrected by price verification
   const email    = (metadata.email ?? "").toLowerCase().trim();
   const fullName = (metadata.full_name ?? "").trim();
 
@@ -595,6 +633,27 @@ async function handlePaymentElementSubscriptionCreate(
   }
 
   const firstItem    = (stripeSub.items?.data?.[0] as any) ?? null;
+
+  // ── Price verification ─────────────────────────────────────────────────────
+  // The subscription carries the actual Stripe price that was charged.
+  // Cross-check it against the DB to catch any plan_slug / price mismatch.
+  const paidPriceId = firstItem?.price?.id ?? null;
+  if (paidPriceId) {
+    const [priceRow] = await db
+      .select({ planSlug: stripePriceConfigsTable.planSlug })
+      .from(stripePriceConfigsTable)
+      .where(eq(stripePriceConfigsTable.stripePriceId, paidPriceId))
+      .limit(1);
+    if (priceRow && priceRow.planSlug !== planSlug) {
+      logger.error(
+        { stripeSubId, metadataPlan: planSlug, paidPlan: priceRow.planSlug, paidPriceId },
+        "[webhook/stripe] PLAN MISMATCH in Payment Element subscription — overriding with actual paid plan",
+      );
+      planSlug = priceRow.planSlug;
+    } else if (!priceRow) {
+      logger.warn({ stripeSubId, paidPriceId, metadataPlan: planSlug }, "[webhook/stripe] Paid price not found in stripe_price_configs — trusting metadata");
+    }
+  }
   const periodEndTs: number | null =
     firstItem?.current_period_end ?? (stripeSub as any).current_period_end ?? null;
   const periodEnd = periodEndTs
@@ -646,7 +705,7 @@ async function handlePaymentIntentSucceeded(pi: Stripe.PaymentIntent, stripe: St
   const planSlug      = metadata.plan_slug ?? "";
   const email         = (metadata.email ?? "").toLowerCase().trim();
   const fullName      = (metadata.full_name ?? "").trim();
-  const creditsAmount = parseInt(metadata.credits_amount ?? "0", 10);
+  let creditsAmount   = parseInt(metadata.credits_amount ?? "0", 10); // let — may be corrected by DB
   const customerId    = typeof pi.customer === "string" ? pi.customer : (pi.customer as any)?.id ?? null;
 
   logger.info({ piId, planSlug, email, creditsAmount }, "[webhook/stripe] payment_intent.succeeded (topup)");
@@ -654,6 +713,34 @@ async function handlePaymentIntentSucceeded(pi: Stripe.PaymentIntent, stripe: St
   if (!email || creditsAmount <= 0) {
     logger.warn({ piId }, "[webhook/stripe] payment_intent.succeeded: missing email or credits — cannot provision");
     return;
+  }
+
+  // ── Amount + credit verification ───────────────────────────────────────────
+  // Verify the charged amount and credit count against the DB config so a
+  // metadata/DB mismatch can never silently grant the wrong number of credits.
+  if (planSlug) {
+    const [priceRow] = await db
+      .select({ amountCents: stripePriceConfigsTable.amountCents, creditAmount: stripePriceConfigsTable.creditAmount })
+      .from(stripePriceConfigsTable)
+      .where(eq(stripePriceConfigsTable.planSlug, planSlug))
+      .limit(1);
+    if (priceRow) {
+      const paidAmount = pi.amount_received ?? 0;
+      if (paidAmount > 0 && paidAmount !== priceRow.amountCents) {
+        logger.error(
+          { piId, planSlug, paidAmount, expectedAmount: priceRow.amountCents },
+          "[webhook/stripe] AMOUNT MISMATCH for topup — refusing to provision",
+        );
+        return; // Return 200 to stop Stripe retries; the ops team must investigate
+      }
+      if (creditsAmount !== priceRow.creditAmount) {
+        logger.warn(
+          { piId, metadataCredits: creditsAmount, dbCredits: priceRow.creditAmount },
+          "[webhook/stripe] Credits mismatch for topup — using DB value",
+        );
+        creditsAmount = priceRow.creditAmount;
+      }
+    }
   }
 
   // Idempotency via providerSessionId = piId (same pattern as handleCheckoutCompleted)
