@@ -125,7 +125,6 @@ function LessonDetail({
             </Badge>
           )}
         </div>
-        <h2 className="text-2xl font-display font-bold tracking-tight leading-snug">{lesson.title}</h2>
       </div>
 
       {/* Video */}
