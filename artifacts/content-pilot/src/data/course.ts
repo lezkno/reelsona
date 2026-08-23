@@ -28,7 +28,7 @@ export const COURSE_MODULES: Module[] = [
         description:
           "Conoce el recorrido completo que vas a implementar: Reelsona entiende tu negocio y tu mercado, crea una estrategia, prepara tus avatares y voces, produce tus Reels y finalmente automatiza la publicación. Esta clase te muestra el mapa antes de comenzar.",
         duration: "3 min",
-        videoUrl: "/course/clase-1.mp4",
+        videoUrl: "https://www.youtube.com/embed/QtjG9kv1nvQ?rel=0&modestbranding=1&color=white",
         actionLabel: "Ver Dashboard",
         actionHref: "/",
       },

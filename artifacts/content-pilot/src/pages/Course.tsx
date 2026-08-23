@@ -21,6 +21,7 @@ import {
   Clock,
   Trophy,
   Zap,
+  ExternalLink,
 } from "lucide-react"
 import { COURSE_MODULES, ALL_LESSONS, TOTAL_LESSONS, getNextLesson, type Lesson, type Module } from "@/data/course"
 
@@ -28,28 +29,46 @@ import { COURSE_MODULES, ALL_LESSONS, TOTAL_LESSONS, getNextLesson, type Lesson,
 function VideoPlaceholder({ videoUrl, title }: { videoUrl: string | null; title: string }) {
   if (videoUrl) {
     const isDirectVideo = /\.(mp4|webm|ogg)(?:$|\?)/i.test(videoUrl)
+    const ytMatch = videoUrl.match(/youtube\.com\/embed\/([^?&]+)/)
+    const ytWatchUrl = ytMatch ? `https://youtu.be/${ytMatch[1]}` : null
 
     return (
-      <div className="w-full aspect-video rounded-xl overflow-hidden bg-black">
-        {isDirectVideo ? (
-          <video
-            src={videoUrl}
-            title={title}
-            controls
-            playsInline
-            preload="metadata"
-            controlsList="nodownload noplaybackrate noremoteplayback"
-            disablePictureInPicture
-            disableRemotePlayback
-            className="w-full h-full object-contain"
-          />
-        ) : (
-          <iframe
-            src={videoUrl}
-            title={title}
-            className="w-full h-full"
-            allowFullScreen
-          />
+      <div className="flex flex-col gap-2">
+        <div className="w-full aspect-video rounded-xl overflow-hidden bg-black">
+          {isDirectVideo ? (
+            <video
+              src={videoUrl}
+              title={title}
+              controls
+              playsInline
+              preload="metadata"
+              controlsList="nodownload noplaybackrate noremoteplayback"
+              disablePictureInPicture
+              disableRemotePlayback
+              className="w-full h-full object-contain"
+            />
+          ) : (
+            <iframe
+              src={videoUrl}
+              title={title}
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+              className="w-full h-full border-0"
+            />
+          )}
+        </div>
+        {ytWatchUrl && (
+          <div className="flex justify-end">
+            <a
+              href={ytWatchUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <ExternalLink className="w-3 h-3" />
+              Ver en YouTube
+            </a>
+          </div>
         )}
       </div>
     )
