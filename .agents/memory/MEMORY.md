@@ -58,4 +58,7 @@
 - [Render failure publishing safety](render-failure-publishing-safety.md) — a renderer failure must be terminal and block copy, scheduled, and manual raw-source publishing.
 - [Long-running production renders](long-running-production-renders.md) — use an always-on VM for post-production; autoscale can interrupt background render workers, and the target is changed in Publishing settings.
 - [libass font pinning](libass-poppins-font-resolution.md) — Fast V2 stages one Canvas TTF per render; verify FFmpeg `fontselect`, not just `fontsdir`.
-- [Playwright Chromium runtime](playwright-chromium-runtime.md) — use the Nix Chromium runtime through Playwright launchOptions; downloaded Chromium lacks this environment’s shared libraries.
+- [Playwright Chromium runtime](playwright-chromium-runtime.md) — use the Nix Chromium runtime through Playwright launchOptions; downloaded Chromium lacks this environment's shared libraries.
+- [Voice failure notifications](voice-failure-notifications.md) — onVoiceFailed callback in VoicePollerDeps; HeyGen timeout path also calls it; WaveSpeed poller notifies inline.
+- [Look metadata auto-populate](look-metadata-auto-populate.md) — ensureSelectedLooksHaveMetadata() exported from heygen.ts lib; called fire-and-forget in runAutomationCycle after pruneDeletedAvatars so Avatar V reference_look_id works without manual Save.
+- [Webhook unknown subscription no-op](webhook-unknown-sub.md) — invoice.payment_failed for a sub not in local DB now returns 200 (no-op) instead of throwing 500, stopping Stripe retries for zombie subs.

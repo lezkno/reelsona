@@ -25,7 +25,14 @@ export function useEntitlement() {
     queryKey: ENTITLEMENT_QUERY_KEY,
     queryFn:  async () => {
       const res = await fetch(`${BASE}/api/auth/entitlement`, { credentials: "include" })
-      if (!res.ok) throw new Error("Error al cargar licencia")
+      if (!res.ok) {
+        // Propagate HTTP status so the global 401 handler in App.tsx can redirect
+        // unauthenticated / expired-session calls to /login instead of showing a
+        // blank screen.
+        const err: any = new Error("Error al cargar licencia")
+        err.status = res.status
+        throw err
+      }
       return res.json()
     },
     staleTime: 1000 * 60 * 5, // 5 min — React Query deduplicates across components

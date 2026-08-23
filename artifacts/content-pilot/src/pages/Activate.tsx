@@ -19,7 +19,7 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "")
 type CheckState =
   | { status: "loading" }
   | { status: "valid"; email: string; fullName: string }
-  | { status: "invalid"; message: string; resendEmail?: string }
+  | { status: "invalid"; message: string; resendEmail?: string; autoResent?: boolean }
 
 async function checkToken(token: string): Promise<{ email: string; fullName: string }> {
   const res  = await fetch(`${BASE}/api/auth/activate/check?token=${encodeURIComponent(token)}`, {
@@ -29,6 +29,7 @@ async function checkToken(token: string): Promise<{ email: string; fullName: str
   if (!res.ok) {
     const err: any = new Error(data.error ?? "Token inválido")
     err.resendEmail = data.resend_email ?? null
+    err.autoResent  = data.auto_resent  ?? false
     throw err
   }
   return data
@@ -86,7 +87,12 @@ export default function Activate() {
     }
     checkToken(token)
       .then(({ email, fullName }) => setCheck({ status: "valid", email, fullName }))
-      .catch((err: any) => setCheck({ status: "invalid", message: err.message, resendEmail: err.resendEmail ?? undefined }))
+      .catch((err: any) => setCheck({
+        status:      "invalid",
+        message:     err.message,
+        resendEmail: err.resendEmail  ?? undefined,
+        autoResent:  err.autoResent   ?? false,
+      }))
   }, [token])
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -140,8 +146,8 @@ export default function Activate() {
               )}
             </div>
             {isExpired && check.resendEmail && (
-              resendDone ? (
-                <p className="text-sm text-emerald-600 font-medium">✓ Enlace reenviado — revisa tu correo.</p>
+              check.autoResent || resendDone ? (
+                <p className="text-sm text-emerald-600 font-medium">✓ Te enviamos un nuevo enlace — revisa tu correo.</p>
               ) : (
                 <Button
                   size="sm"

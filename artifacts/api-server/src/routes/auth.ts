@@ -5,7 +5,7 @@ import { db } from "@workspace/db";
 import { users } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
 import { verifyPassword, hashPassword } from "../lib/password";
-import { sendEmail, passwordChangedEmail, passwordResetEmail, verificationEmail, getAppUrl } from "../lib/email";
+import { sendEmail, passwordChangedEmail, passwordResetEmail, verificationEmail, activationEmail, getAppUrl } from "../lib/email";
 import { getUserAccess } from "../lib/access";
 
 const router = Router();
@@ -260,9 +260,27 @@ router.get("/auth/activate/check", async (req: Request, res: Response): Promise<
 
     if (!user) { res.status(400).json({ error: "El enlace no es válido o ya fue utilizado." }); return; }
     if (user.activationTokenExpiresAt && user.activationTokenExpiresAt < new Date()) {
+      // Automatically generate and send a new activation link so the student
+      // doesn't need to contact support — one less friction point when returning
+      // after the 7-day window.
+      try {
+        const newToken   = randomBytes(32).toString("hex");
+        const newExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+        await db
+          .update(users)
+          .set({ activationToken: newToken, activationTokenExpiresAt: newExpires, updatedAt: new Date() })
+          .where(eq(users.id, user.id));
+        const activateUrl = `${getAppUrl()}/activate?token=${newToken}`;
+        const tpl = activationEmail(user.fullName ?? (user.email ?? user.username) ?? "", activateUrl, 7);
+        await sendEmail({ to: user.email ?? user.username ?? "", ...tpl });
+      } catch (resendErr) {
+        console.error("[activate/check] Auto-resend failed:", resendErr);
+        // Non-fatal — still inform the user their link expired
+      }
       res.status(400).json({
-        error: "El enlace expiró. Solicita uno nuevo a tu asesor.",
+        error: "El enlace expiró. Te enviamos uno nuevo a tu correo — revisa tu bandeja de entrada.",
         resend_email: user.email ?? user.username,
+        auto_resent: true,
       }); return;
     }
 

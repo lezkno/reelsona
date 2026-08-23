@@ -528,7 +528,10 @@ async function handleInvoicePaymentFailed(invoice: Stripe.Invoice, _stripe: Stri
       logger.info({ stripeSubId }, "[webhook/stripe] invoice.payment_failed for superseded (Founder-swapped) subscription — acknowledged no-op");
       return;
     }
-    throw new Error(`invoice.payment_failed arrived before local subscription ${stripeSubId} exists`);
+    // Unknown subscription — possibly created before this deployment or already cancelled
+    // on Stripe's side without a local record. Return no-op so Stripe stops retrying.
+    logger.warn({ stripeSubId }, "[webhook/stripe] invoice.payment_failed for unknown subscription — acknowledged no-op");
+    return;
   }
 
   await db

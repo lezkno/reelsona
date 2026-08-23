@@ -67,7 +67,7 @@ import { logger } from "./logger";
 import { generateScript, regenerateCaption, generateContentTopics } from "./ai-scripts";
 import { getLatestAuditCache } from "./audit-cache";
 import { getStrategyProfile, toStrategyContext } from "./strategy-profile";
-import { generateVideo, getVideoStatus, listVoices, getAvatarDefaultVoiceId, getAllAvailableAvatarIds, invalidateAvatarIdsCache, getVoiceCloneStatus } from "./heygen";
+import { generateVideo, getVideoStatus, listVoices, getAvatarDefaultVoiceId, getAllAvailableAvatarIds, invalidateAvatarIdsCache, getVoiceCloneStatus, ensureSelectedLooksHaveMetadata } from "./heygen";
 import { isWavespeedConfigured, submitSpeech, submitTalkingHead, getJobStatus as getWavespeedJobStatus, WAVESPEED_MODELS } from "./wavespeed";
 import { wavespeedPersonasTable, wavespeedLooksTable, wavespeedVoicesTable, wavespeedJobsTable } from "@workspace/db";
 import { getUserPlanSlug, getAvatarLimit, computePersonaPlanEnabled, PlanBlockedError } from "./planLimits";
@@ -845,6 +845,16 @@ export async function runAutomationCycle(
     } catch (syncErr) {
       logger.warn({ syncErr }, "[AvatarSync] pruneDeletedAvatars threw — skipping sync");
     }
+  }
+
+  // Ensure every selected look has metadata in avatar_look_metadata so that
+  // generateHeyGenVideo can use reference_look_id for Avatar V stabilization
+  // without the user needing to manually save Avatar Config.
+  if (avatarCfg?.selectedAvatarIds && avatarCfg.selectedAvatarIds.length > 0 && heygenApiKey) {
+    const rawIds = (avatarCfg.selectedAvatarIds as string[]).map(id => id.startsWith("tp:") ? id.slice(3) : id);
+    ensureSelectedLooksHaveMetadata(userId, rawIds, heygenApiKey).catch((metaErr) =>
+      logger.warn({ metaErr, userId }, "[AvatarSync] ensureSelectedLooksHaveMetadata threw — skipping"),
+    );
   }
 
   // For targeted runs of WaveSpeed items the HeyGen avatar requirement does not
@@ -3775,6 +3785,9 @@ export async function pollAndPublishVideos(): Promise<void> {
       } else if (httpStatus === 402) {
         userMsg = "Cuota de generación agotada — el servicio está temporalmente no disponible";
         markFailed = true; // Permanent — won't self-heal on retry
+      } else if (httpStatus === 404) {
+        userMsg = "El video ya no existe en el servicio de generación — puede haber sido eliminado. Genera el video nuevamente.";
+        markFailed = true; // Permanent — video ID is gone, retrying will never succeed
       } else if (httpStatus === 429) {
         userMsg = "Límite de generación alcanzado — el sistema reintentará en el próximo ciclo";
         markFailed = false; // Transient — will retry
@@ -4106,6 +4119,8 @@ export interface VoicePollerDeps {
   updateVoice: (id: number, patch: { status: string; voiceId?: string }) => Promise<void>;
   /** Called when a voice transitions to "ready" — used for side-effects like email notification */
   onVoiceReady?: (voice: { id: number; userId: number; finalVoiceId: string }) => Promise<void>;
+  /** Called when a voice transitions to "failed" — used to notify the user so they can re-record */
+  onVoiceFailed?: (voice: { id: number; userId: number }) => Promise<void>;
   /** "Current" time — injected so tests can control it */
   now: Date;
   /** Voices pending longer than this are force-failed (default 60 min) */
@@ -4159,12 +4174,21 @@ export async function runVoicePollerCycle(deps: VoicePollerDeps): Promise<void> 
           { voiceId: voice.voiceId, userId: voice.userId, error: cloneStatus.error },
           "[VoicePoller] HeyGen reported voice clone failed",
         );
+        // Notify the user so they know to re-record — without this their HeyGen
+        // avatars silently fall back to the default voice with no explanation.
+        await deps.onVoiceFailed?.({ id: voice.id, userId: voice.userId }).catch((err) =>
+          logger.warn({ err, voiceId: voice.voiceId }, "[VoicePoller] onVoiceFailed callback failed"),
+        );
       } else if (ageMs > timeoutMs) {
         // Still "processing" but has been pending too long — force-fail
         await updateVoice(voice.id, { status: "failed" });
         logger.warn(
           { voiceId: voice.voiceId, userId: voice.userId, ageMs },
           "[VoicePoller] Cloned voice timed out — marking failed",
+        );
+        // Also notify on timeout — same UX problem as explicit failure
+        await deps.onVoiceFailed?.({ id: voice.id, userId: voice.userId }).catch((err) =>
+          logger.warn({ err, voiceId: voice.voiceId }, "[VoicePoller] onVoiceFailed (timeout) callback failed"),
         );
       } else {
         logger.debug(
@@ -4240,6 +4264,23 @@ async function pollPendingClonedVoices(): Promise<void> {
 <p>Entra a la plataforma, ve a <strong>Avatares → Mis Voces</strong> y asígnala a tus avatares para empezar a generar contenido con tu propia voz.</p>
 <p style="color:#888;font-size:12px">ID de voz: ${finalVoiceId}</p>`,
             text: `Tu voz clonada está lista. Entra a Reelsona, ve a Avatares → Mis Voces y asígnala a tus avatares.`,
+          });
+        },
+        onVoiceFailed: async ({ userId }) => {
+          const [user] = await db
+            .select({ email: users.email, username: users.username, fullName: users.fullName })
+            .from(users)
+            .where(eq(users.id, userId))
+            .limit(1);
+          const to = user?.email ?? user?.username;
+          if (!to) return;
+          await sendEmail({
+            to,
+            subject: "Tu voz clonada no pudo procesarse — Reelsona",
+            html: `<p>Hola ${user?.fullName ?? ""},</p>
+<p>Tuvimos un problema al procesar tu voz clonada y no pudimos completar la clonación.</p>
+<p>Por favor, entra a la plataforma en <strong>Avatares → Mis Voces</strong> y crea una nueva grabación de al menos 30 segundos de audio claro.</p>`,
+            text: "Tu voz clonada no pudo procesarse. Entra a Reelsona, ve a Avatares → Mis Voces y crea una nueva grabación.",
           });
         },
         now,
@@ -4335,6 +4376,26 @@ async function pollPendingWavespeedVoices(): Promise<void> {
             { requestId: voice.wavespeedRequestId, userId: voice.userId, error: result.error },
             "[WSVoicePoller] WaveSpeed voice clone failed",
           );
+          // Notify the user so they can re-record — without this they would never
+          // know why their personas stopped generating videos.
+          const [failedUser] = await db
+            .select({ email: users.email, username: users.username, fullName: users.fullName })
+            .from(users)
+            .where(eq(users.id, voice.userId))
+            .limit(1);
+          const failTo = failedUser?.email ?? failedUser?.username;
+          if (failTo) {
+            await sendEmail({
+              to: failTo,
+              subject: "Tu voz clonada no pudo procesarse — Reelsona",
+              html: `<p>Hola ${failedUser?.fullName ?? ""},</p>
+<p>Tuvimos un problema al procesar tu voz clonada y no pudimos completar la clonación.</p>
+<p>Por favor, entra a la plataforma en <strong>Avatares → Mis Voces</strong> y crea una nueva voz con una grabación de al menos 30 segundos de audio claro.</p>`,
+              text: "Tu voz clonada no pudo procesarse. Entra a Reelsona, ve a Avatares → Mis Voces y crea una nueva grabación.",
+            }).catch((err) =>
+              logger.warn({ err, userId: voice.userId }, "[WSVoicePoller] Failed-voice email notification failed"),
+            );
+          }
         } else if (ageMs > TIMEOUT_MS) {
           // Still queued/processing but exceeded 60-minute timeout — force-fail
           await db
@@ -4348,6 +4409,25 @@ async function pollPendingWavespeedVoices(): Promise<void> {
             { requestId: voice.wavespeedRequestId, userId: voice.userId, ageMs },
             "[WSVoicePoller] WaveSpeed voice clone timed out — marking failed",
           );
+          // Notify on timeout — same UX problem as explicit failure
+          const [timedOutUser] = await db
+            .select({ email: users.email, username: users.username, fullName: users.fullName })
+            .from(users)
+            .where(eq(users.id, voice.userId))
+            .limit(1);
+          const timedOutTo = timedOutUser?.email ?? timedOutUser?.username;
+          if (timedOutTo) {
+            await sendEmail({
+              to: timedOutTo,
+              subject: "Tu voz clonada no pudo procesarse — Reelsona",
+              html: `<p>Hola ${timedOutUser?.fullName ?? ""},</p>
+<p>El procesamiento de tu voz clonada tomó más tiempo del esperado y no pudimos completarla.</p>
+<p>Por favor, entra a la plataforma en <strong>Avatares → Mis Voces</strong> y crea una nueva grabación.</p>`,
+              text: "Tu voz clonada no pudo procesarse (tiempo de espera agotado). Entra a Reelsona, ve a Avatares → Mis Voces y crea una nueva grabación.",
+            }).catch((err) =>
+              logger.warn({ err, userId: voice.userId }, "[WSVoicePoller] Timeout email notification failed"),
+            );
+          }
         } else {
           logger.debug(
             { requestId: voice.wavespeedRequestId, status: result.status, ageMs },

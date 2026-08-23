@@ -470,9 +470,16 @@ function TabRadar() {
 function TabMercado({ profile, onNext }: { profile: StrategyProfile | null; onNext: () => void }) {
   const runMarket = useRunMarketStudy()
   const { toast } = useToast()
+  const { data: radarAccounts } = useGetRadarAccounts()
   const mi = profile?.market_insights
   const hasAccount = !!profile?.account_data
   const done = profile?.steps_completed.includes("market") ?? false
+
+  // Accounts marked as reference but with no bio and no posts — they will be silently
+  // excluded from the AI prompt. Show a count so the user can sync them first.
+  const excludedCount = (radarAccounts?.accounts ?? []).filter(
+    (a) => a.use_as_reference && !a.bio && !(a.top_posts_json && (a.top_posts_json as unknown[]).length > 0)
+  ).length
 
   const handleRun = () => {
     runMarket.mutate(undefined, {
@@ -492,6 +499,18 @@ function TabMercado({ profile, onNext }: { profile: StrategyProfile | null; onNe
           {runMarket.isPending ? <><Loader2 className="w-4 h-4 animate-spin" /> Sincronizando referentes y analizando…</> : done ? <><RefreshCw className="w-4 h-4" /> Actualizar</> : <><TrendingUp className="w-4 h-4" /> Sintetizar Mercado</>}
         </Button>
       </div>
+
+      {excludedCount > 0 && !runMarket.isPending && (
+        <div className="flex items-start gap-2 px-4 py-3 rounded-xl border border-amber-500/30 bg-amber-50/50 text-sm text-amber-700 dark:text-amber-400">
+          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+          <span>
+            <strong>{excludedCount} {excludedCount === 1 ? "referente sin datos" : "referentes sin datos"}</strong>
+            {" "}— {excludedCount === 1 ? "será ignorado" : "serán ignorados"} en el análisis porque no{" "}
+            {excludedCount === 1 ? "tiene" : "tienen"} bio ni posts sincronizados.
+            Sincronízalos en la pestaña <strong>Radar</strong> para que aporten al estudio.
+          </span>
+        </div>
+      )}
 
       {!hasAccount && (
         <div className="flex items-center gap-2 px-4 py-3 rounded-xl border border-amber-500/30 bg-amber-50/50 text-sm text-amber-700 dark:text-amber-400">

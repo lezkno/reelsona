@@ -3,7 +3,7 @@ import { createHash } from "crypto";
 import { logger } from "./logger";
 import { db } from "@workspace/db";
 import { avatarLookMetadataTable } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 
 const HEYGEN_BASE_URL = "https://api.heygen.com";
 
@@ -1278,4 +1278,82 @@ export function invalidateAllLookCachesForKey(apiKey?: string): void {
     if (key.startsWith(`${prefix}:`)) avatarImageCache.delete(key);
   }
   defaultVoiceMapByKey.delete(prefix);
+}
+
+/**
+ * Ensures that every look in `selectedRawIds` has a row in `avatar_look_metadata`
+ * for the given user.  Missing rows are fetched from HeyGen and inserted/upserted
+ * so that `generateHeyGenVideo` can use `reference_look_id` for Avatar V without
+ * the user needing to visit the Avatar Config page and press Save.
+ *
+ * Called proactively at the start of each automation cycle.  Errors per-look are
+ * non-fatal — generation falls back to Avatar V without reference stabilization.
+ */
+export async function ensureSelectedLooksHaveMetadata(
+  userId: number,
+  selectedRawIds: string[],
+  apiKey?: string,
+): Promise<void> {
+  if (selectedRawIds.length === 0 || !apiKey) return;
+
+  // Find which selected looks are missing from the metadata table
+  const existingRows = await db
+    .select({ lookId: avatarLookMetadataTable.lookId })
+    .from(avatarLookMetadataTable)
+    .where(and(
+      eq(avatarLookMetadataTable.userId, userId),
+      inArray(avatarLookMetadataTable.lookId, selectedRawIds),
+    ));
+  const existingSet = new Set(existingRows.map(r => r.lookId));
+  const missingRawIds = selectedRawIds.filter(id => !existingSet.has(id));
+  if (missingRawIds.length === 0) return;
+
+  logger.info(
+    { userId, count: missingRawIds.length },
+    "[ensureSelectedLooksHaveMetadata] Auto-populating look metadata for missing rows",
+  );
+
+  // Track which groups already have a master look so we don't create duplicates
+  const existingMasters = await db
+    .select({ groupId: avatarLookMetadataTable.groupId })
+    .from(avatarLookMetadataTable)
+    .where(and(
+      eq(avatarLookMetadataTable.userId, userId),
+      eq(avatarLookMetadataTable.isMasterLook, true),
+    ));
+  const masterGroups = new Set(existingMasters.map(r => r.groupId).filter((g): g is string => g != null));
+
+  await Promise.allSettled(
+    missingRawIds.map(async (rawId) => {
+      const [lookStatus, engines] = await Promise.all([
+        getAvatarLookStatus(rawId, apiKey).catch(() => null),
+        getLookSupportedEngines(rawId, apiKey).catch(() => [] as string[]),
+      ]);
+      if (!lookStatus) return;
+
+      const groupId   = lookStatus.group_id;
+      const avatarType = lookStatus.avatar_type;
+      const isDigitalTwin = avatarType === "digital_twin";
+      const shouldBeMaster = isDigitalTwin && groupId != null && !masterGroups.has(groupId);
+      if (shouldBeMaster && groupId) masterGroups.add(groupId);
+
+      await db
+        .insert(avatarLookMetadataTable)
+        .values({ userId, lookId: rawId, groupId, avatarType, supportedApiEngines: engines, isMasterLook: shouldBeMaster })
+        .onConflictDoUpdate({
+          target: [avatarLookMetadataTable.userId, avatarLookMetadataTable.lookId],
+          set: {
+            groupId,
+            avatarType,
+            supportedApiEngines: engines,
+            ...(shouldBeMaster ? { isMasterLook: true } : {}),
+            updatedAt: new Date(),
+          },
+        });
+      logger.info(
+        { userId, rawId, groupId, avatarType, shouldBeMaster },
+        "[ensureSelectedLooksHaveMetadata] Populated look metadata ✓",
+      );
+    }),
+  );
 }

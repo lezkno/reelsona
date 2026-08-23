@@ -211,7 +211,7 @@ export const GetHeyGenVoicesResponseItem = zod.object({
   "is_mine": zod.boolean().optional().describe('True when the voice was cloned by the current user (platform-level ownership)'),
   "speed": zod.number().nullish().describe('Voice speed multiplier (0.5–1.5). null = HeyGen default.'),
   "status": zod.string().nullish().describe('Cloned voice processing status: pending | ready | failed. null for public voices.'),
-  "clone_id": zod.number().int().optional().describe('Stable database row ID for the cloned voice (unchanged across voice_id updates). Only set for owned cloned voices; allows UI to track status transitions even when the final voice_id differs from the original clone job ID.')
+  "clone_id": zod.number().optional().describe('Stable database row ID for the cloned voice (unchanged across voice_id updates). Only set for owned cloned voices; allows UI to track status transitions even when the final voice_id differs from the original clone job ID.')
 })
 export const GetHeyGenVoicesResponse = zod.array(GetHeyGenVoicesResponseItem)
 
