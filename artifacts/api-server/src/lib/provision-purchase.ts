@@ -61,7 +61,7 @@ export async function provisionPurchase(
 
   try {
     if (purchaseType === "topup") {
-      await provisionTopup({ purchase, creditsPurchased, email });
+      await provisionTopup({ purchase, creditsPurchased, email, userId: purchase.userId });
     } else if (purchaseType === "subscription" && planSlug) {
       await provisionSubscription({ purchase, email, fullName, planSlug, providerCustomerId, providerSessionId, stripe });
     } else {
@@ -105,16 +105,18 @@ async function provisionTopup({
   purchase,
   creditsPurchased,
   email,
+  userId,
 }: {
   purchase: typeof purchases.$inferSelect;
   creditsPurchased: number | null | undefined;
   email: string;
+  userId: number | null | undefined;
 }): Promise<void> {
   // Topups require an existing account (they're purchased from within the app)
   const [existingUser] = await db
     .select({ id: users.id })
     .from(users)
-    .where(eq(users.username, email.toLowerCase()))
+    .where(userId ? eq(users.id, userId) : eq(users.username, email.toLowerCase()))
     .limit(1);
 
   if (!existingUser) {
@@ -305,6 +307,7 @@ async function provisionSubscription({
       toolAccessEndsAt: periodEnd,
       courseAccess:     true,
       source:           "stripe_subscription",
+      userId:           purchase.userId,
       planSlug,
       creditsToGrant:   0,
       skipEntitlement:  true, // entitlement set inside locked tx below
@@ -787,6 +790,7 @@ export async function provisionPaymentElementSubscription({
   email,
   fullName,
   planSlug,
+  userId,
   periodEnd,
   stripe,
 }: {
@@ -796,6 +800,7 @@ export async function provisionPaymentElementSubscription({
   email:              string;
   fullName:           string;
   planSlug:           string;
+  userId:             number | null;
   periodEnd:          Date;
   stripe:             Stripe;
 }): Promise<void> {
@@ -832,6 +837,7 @@ export async function provisionPaymentElementSubscription({
         toolAccessDays:     0,
         purchaseType:       "subscription",
         planSlug,
+        userId,
         creditsPurchased:   PLAN_CREDITS[planSlug] ?? 0,
       })
       .onConflictDoNothing()

@@ -97,6 +97,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, stripe:
   const sessionId = session.id;
   let planSlug = session.metadata?.plan_slug ?? "";   // let — may be corrected by price verification
   const product = session.metadata?.product ?? "";
+  const userId = parseMetadataUserId(session.metadata?.user_id);
 
   logger.info({ sessionId, planSlug, product, paymentStatus: session.payment_status }, "[webhook/stripe] checkout.session.completed");
 
@@ -194,6 +195,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, stripe:
       purchaseType,
       planSlug: planSlug || null,
       creditsPurchased: creditsAmount > 0 ? creditsAmount : null,
+      userId,
     })
     .returning();
 
@@ -623,6 +625,7 @@ async function handlePaymentElementSubscriptionCreate(
   const metadata  = stripeSub.metadata ?? {};
 
   let planSlug = metadata.plan_slug ?? "";   // let — may be corrected by price verification
+  const userId = parseMetadataUserId(metadata.user_id);
   const email    = (metadata.email ?? "").toLowerCase().trim();
   const fullName = (metadata.full_name ?? "").trim();
 
@@ -679,6 +682,7 @@ async function handlePaymentElementSubscriptionCreate(
     email,
     fullName,
     planSlug,
+    userId,
     periodEnd,
     stripe,
   });
@@ -703,6 +707,7 @@ async function handlePaymentIntentSucceeded(pi: Stripe.PaymentIntent, stripe: St
 
   const piId          = pi.id;
   const planSlug      = metadata.plan_slug ?? "";
+  const userId        = parseMetadataUserId(metadata.user_id);
   const email         = (metadata.email ?? "").toLowerCase().trim();
   const fullName      = (metadata.full_name ?? "").trim();
   let creditsAmount   = parseInt(metadata.credits_amount ?? "0", 10); // let — may be corrected by DB
@@ -776,6 +781,7 @@ async function handlePaymentIntentSucceeded(pi: Stripe.PaymentIntent, stripe: St
       purchaseType:      "topup",
       planSlug:          planSlug || null,
       creditsPurchased:  creditsAmount,
+      userId,
     })
     .onConflictDoNothing()
     .returning();
@@ -810,6 +816,12 @@ function mapStripeStatus(stripeStatus: string): string {
 
 function getPlanSlugFromSub(sub: Stripe.Subscription): string | null {
   return sub.metadata?.plan_slug ?? null;
+}
+
+function parseMetadataUserId(value: string | undefined): number | null {
+  if (!value) return null;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 export default router;

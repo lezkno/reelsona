@@ -25,6 +25,8 @@ import { provisionCredits } from "./credits";
 export interface ProvisionParams {
   email:          string;
   name:           string;
+  /** Existing account to provision, even when its current email differs. */
+  userId?:        number | null;
   /** Legacy: number of days of tool access to grant (used by admin/manual). */
   toolAccessDays?: number;
   /** Explicit end date — takes precedence over toolAccessDays if provided. */
@@ -55,6 +57,7 @@ export async function provisionUser(params: ProvisionParams): Promise<ProvisionR
   const {
     email,
     name,
+    userId:          requestedUserId = null,
     toolAccessDays   = 365,
     toolAccessEndsAt: explicitEndsAt,
     courseAccess     = true,
@@ -69,7 +72,7 @@ export async function provisionUser(params: ProvisionParams): Promise<ProvisionR
   const [existingUser] = await db
     .select()
     .from(users)
-    .where(eq(users.username, username))
+    .where(requestedUserId ? eq(users.id, requestedUserId) : eq(users.username, username))
     .limit(1);
 
   const activationToken   = randomBytes(32).toString("hex");
