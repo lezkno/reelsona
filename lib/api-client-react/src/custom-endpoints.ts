@@ -911,7 +911,31 @@ export function useUpdateRadarAccount() {
         body: JSON.stringify(data),
         headers: { "Content-Type": "application/json" },
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: RADAR_ACCOUNTS_KEY }),
+    onMutate: async ({ id, ...data }) => {
+      await qc.cancelQueries({ queryKey: RADAR_ACCOUNTS_KEY });
+      const previous = qc.getQueryData<{ accounts: NicheRadarAccount[] }>(RADAR_ACCOUNTS_KEY);
+      if (previous) {
+        qc.setQueryData<{ accounts: NicheRadarAccount[] }>(RADAR_ACCOUNTS_KEY, {
+          accounts: previous.accounts.map((account) =>
+            account.id === id ? { ...account, ...data } : account
+          ),
+        });
+      }
+      return { previous };
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previous) {
+        qc.setQueryData(RADAR_ACCOUNTS_KEY, context.previous);
+      }
+    },
+    onSuccess: ({ account }) => {
+      qc.setQueryData<{ accounts: NicheRadarAccount[] }>(RADAR_ACCOUNTS_KEY, (current) =>
+        current
+          ? { accounts: current.accounts.map((item) => item.id === account.id ? account : item) }
+          : { accounts: [account] }
+      );
+      void qc.invalidateQueries({ queryKey: RADAR_ACCOUNTS_KEY });
+    },
   });
 }
 
