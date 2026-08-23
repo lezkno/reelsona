@@ -55,7 +55,7 @@ export const COURSE_MODULES: Module[] = [
         description:
           "Conecta tu cuenta profesional de Instagram para que Reelsona pueda analizar tu presencia actual, utilizar la información disponible de tu cuenta y preparar posteriormente la publicación de tus Reels. También entenderás los permisos necesarios y cómo funciona la conexión.",
         duration: "8 min",
-        videoUrl: null,
+        videoUrl: "https://www.youtube.com/embed/F6q9gzQbU1w?rel=0&modestbranding=1&color=white",
         actionLabel: "Conectar Instagram",
         actionHref: "/connect",
       },
