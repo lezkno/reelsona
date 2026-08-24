@@ -70,6 +70,16 @@ export const COURSE_MODULES: Module[] = [
         actionHref: "/audit",
       },
       {
+        id: "m2-l6-market-study",
+        title: "Realiza el estudio de mercado",
+        description:
+          "En la pestaña Estudio de Mercado, Reelsona combina la información de tu cuenta con los referentes que guardaste en el Radar para identificar qué temas, formatos, ángulos y oportunidades tienen más sentido para tu nicho. Con este análisis automático obtendrás una lectura práctica de tu mercado y recomendaciones útiles para tomar mejores decisiones antes de crear tu estrategia y tu plan de contenido.",
+        duration: "8 min",
+        videoUrl: null,
+        actionLabel: "Ver Estudio de Mercado",
+        actionHref: "/audit",
+      },
+      {
         id: "m2-l6",
         title: "Ejecuta el Radar y Estudio de Mercado",
         description:
