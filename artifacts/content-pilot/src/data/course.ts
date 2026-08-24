@@ -70,6 +70,16 @@ export const COURSE_MODULES: Module[] = [
         actionHref: "/audit",
       },
       {
+        id: "m2-l6",
+        title: "Ejecuta el Radar de la competencia",
+        description:
+          "Activa el Radar de la competencia y agrega referentes de tu nicho para que Reelsona pueda observar sus perfiles, contenidos y patrones. Aprende a seleccionar las cuentas que quieres usar como referencia y a preparar los datos que alimentarán tu estrategia.",
+        duration: "10 min",
+        videoUrl: "https://www.youtube.com/embed/9Sy6ZHMo490?rel=0&modestbranding=1&color=white",
+        actionLabel: "Abrir Radar",
+        actionHref: "/audit",
+      },
+      {
         id: "m2-l6-market-study",
         title: "Realiza el estudio de mercado",
         description:
@@ -77,16 +87,6 @@ export const COURSE_MODULES: Module[] = [
         duration: "8 min",
         videoUrl: null,
         actionLabel: "Ver Estudio de Mercado",
-        actionHref: "/audit",
-      },
-      {
-        id: "m2-l6",
-        title: "Ejecuta el Radar y Estudio de Mercado",
-        description:
-          "Haz que Reelsona estudie tu nicho, competidores, temas, patrones de contenido y oportunidades. Sigue el proceso paso a paso para alimentar al sistema con contexto real antes de generar tu estrategia y tus primeros contenidos.",
-        duration: "10 min",
-        videoUrl: "https://www.youtube.com/embed/9Sy6ZHMo490?rel=0&modestbranding=1&color=white",
-        actionLabel: "Estudiar mi mercado",
         actionHref: "/audit",
       },
       {
