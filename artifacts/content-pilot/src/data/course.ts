@@ -91,12 +91,12 @@ export const COURSE_MODULES: Module[] = [
       },
       {
         id: "m2-l7",
-        title: "Revisa tu estrategia personalizada",
+        title: "Tu plan de contenidos",
         description:
-          "Revisa los pilares, ángulos, dolores, oportunidades, tono y recomendaciones que Reelsona preparó para tu negocio. El objetivo no es estudiar marketing, sino confirmar que el sistema entendió correctamente tu marca antes de comenzar a producir.",
+          "Revisa el plan de contenidos que Reelsona prepara a partir de tu negocio, tu cuenta y el análisis de tu mercado. Conoce cómo se organizan los temas y las ideas recomendadas para que puedas avanzar con una dirección clara y coherente.",
         duration: "8 min",
-        videoUrl: null,
-        actionLabel: "Ver mi Estrategia",
+        videoUrl: "https://www.youtube.com/embed/z-wc-609caI?rel=0&modestbranding=1&color=white",
+        actionLabel: "Ver mi Plan de Contenidos",
         actionHref: "/audit",
       },
     ],
