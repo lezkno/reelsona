@@ -75,7 +75,7 @@ export const COURSE_MODULES: Module[] = [
         description:
           "Haz que Reelsona estudie tu nicho, competidores, temas, patrones de contenido y oportunidades. Sigue el proceso paso a paso para alimentar al sistema con contexto real antes de generar tu estrategia y tus primeros contenidos.",
         duration: "10 min",
-        videoUrl: null,
+        videoUrl: "https://www.youtube.com/embed/9Sy6ZHMo490?rel=0&modestbranding=1&color=white",
         actionLabel: "Estudiar mi mercado",
         actionHref: "/audit",
       },
