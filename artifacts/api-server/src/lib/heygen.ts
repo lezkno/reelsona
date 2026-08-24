@@ -744,6 +744,10 @@ export interface VideoStatus {
   thumbnail_url?: string | null;
   duration?: number | null;
   error?: string | null;
+  /** Provider-specific terminal failure code, when HeyGen returns one. */
+  failure_code?: string | null;
+  /** Provider-specific terminal failure message, when HeyGen returns one. */
+  failure_message?: string | null;
   /** SRT subtitle file URL returned by HeyGen when caption was requested. */
   subtitle_url?: string | null;
 }
@@ -935,6 +939,15 @@ export async function getVideoStatus(videoId: string, apiKey?: string): Promise<
   const res = await client.get(`/v3/videos/${videoId}`);
   const data = res.data?.data;
   const mapped = mapStatus(data?.status);
+  const providerError =
+    typeof data?.failure_message === "string" ? data.failure_message :
+    typeof data?.error?.message === "string" ? data.error.message :
+    typeof data?.error === "string" ? data.error :
+    null;
+  const failureCode =
+    typeof data?.failure_code === "string" ? data.failure_code :
+    typeof data?.error?.code === "string" ? data.error.code :
+    null;
   // Log the full raw HeyGen response whenever a video fails so we can diagnose
   // future failures even when HeyGen omits the error field.
   if (mapped === "failed") {
@@ -946,7 +959,9 @@ export async function getVideoStatus(videoId: string, apiKey?: string): Promise<
     video_url: data?.video_url ?? null,
     thumbnail_url: data?.thumbnail_url ?? null,
     duration: data?.duration ?? null,
-    error: data?.error?.message ?? data?.error ?? null,
+    error: providerError,
+    failure_code: failureCode,
+    failure_message: providerError,
     subtitle_url: data?.subtitle_url ?? null,
   };
 }

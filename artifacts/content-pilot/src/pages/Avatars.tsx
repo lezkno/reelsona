@@ -79,6 +79,46 @@ type V3Look = {
   avatar_type: string
 }
 
+type PreviewOrientation = "vertical" | "horizontal" | "unavailable"
+
+/**
+ * Preview assets are the only orientation signal provided by HeyGen's public
+ * avatar catalog. Natural image dimensions work cross-origin and let the
+ * picker fail closed when a preview is missing, square, or cannot be loaded.
+ */
+function usePreviewOrientations(urls: Array<string | null | undefined>) {
+  const [orientations, setOrientations] = useState<Record<string, PreviewOrientation>>({})
+  const resolvedUrls = useRef(new Set<string>())
+  const urlKey = Array.from(new Set(urls.filter((url): url is string => Boolean(url))))
+    .sort()
+    .join("\u0001")
+
+  useEffect(() => {
+    if (!urlKey) return
+    let cancelled = false
+
+    for (const url of urlKey.split("\u0001")) {
+      if (resolvedUrls.current.has(url)) continue
+      resolvedUrls.current.add(url)
+
+      const image = new Image()
+      image.onload = () => {
+        if (cancelled) return
+        const isVertical = image.naturalHeight > image.naturalWidth
+        setOrientations(prev => ({ ...prev, [url]: isVertical ? "vertical" : "horizontal" }))
+      }
+      image.onerror = () => {
+        if (!cancelled) setOrientations(prev => ({ ...prev, [url]: "unavailable" }))
+      }
+      image.src = url
+    }
+
+    return () => { cancelled = true }
+  }, [urlKey])
+
+  return orientations
+}
+
 type VoiceOption = {
   voice_id: string
   name: string
@@ -404,6 +444,8 @@ function LooksDialogV3({
   onChangeVoice,
   onClose,
   onLooksLoaded,
+  verticalOnly = false,
+  onDeselect,
   saveStatus = "idle",
   onPlanRequired,
 }: {
@@ -416,6 +458,10 @@ function LooksDialogV3({
   onChangeVoice: (lookId: string, voiceId: string) => void
   onClose: () => void
   onLooksLoaded?: (groupId: string, looks: V3Look[]) => void
+  /** Public HeyGen avatars are kept vertical so they always fit the Reel canvas. */
+  verticalOnly?: boolean
+  /** Remove stale public horizontal looks that were selected before filtering existed. */
+  onDeselect?: (ids: string[]) => void
   saveStatus?: "idle" | "saving" | "saved"
   /** Called when a plan-gated action is attempted without an active plan. */
   onPlanRequired?: () => void
@@ -438,18 +484,39 @@ function LooksDialogV3({
   const deleteGroup = useDeleteAvatarGroup()
 
   const looks: V3Look[] = data?.looks ?? []
+  const lookOrientations = usePreviewOrientations(
+    verticalOnly ? looks.map(look => look.preview_image_url) : [],
+  )
+  const verticalLooks = useMemo(
+    () => verticalOnly
+      ? looks.filter(look => look.preview_image_url && lookOrientations[look.preview_image_url] === "vertical")
+      : looks,
+    [looks, lookOrientations, verticalOnly],
+  )
+  const staleHorizontalSelection = useMemo(
+    () => verticalOnly
+      ? looks
+          .filter(look => look.preview_image_url && lookOrientations[look.preview_image_url] === "horizontal" && selectedIds.has(look.id))
+          .map(look => look.id)
+      : [],
+    [looks, lookOrientations, selectedIds, verticalOnly],
+  )
   const deletableLooks = looks.filter(isLookDeletable)
   const allDeletableSelected = deletableLooks.length > 0 && deletableLooks.every(l => forDelete.has(l.id))
 
-  const selectedInGroup = looks.filter(l => selectedIds.has(l.id))
-  const visibleLooks = showOnlySelected ? selectedInGroup : looks
+  const selectedInGroup = verticalLooks.filter(l => selectedIds.has(l.id))
+  const visibleLooks = showOnlySelected ? selectedInGroup : verticalLooks
 
   // Reset filter when dialog opens/closes or when leaving select mode
   useEffect(() => { if (selectMode) setShowOnlySelected(false) }, [selectMode])
 
   useEffect(() => {
-    if (looks.length > 0) onLooksLoaded?.(group.id, looks)
-  }, [looks.length]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (verticalLooks.length > 0) onLooksLoaded?.(group.id, verticalLooks)
+  }, [group.id, onLooksLoaded, verticalLooks])
+
+  useEffect(() => {
+    if (staleHorizontalSelection.length > 0) onDeselect?.(staleHorizontalSelection)
+  }, [onDeselect, staleHorizontalSelection])
 
   const toggleForDelete = (id: string) => {
     setForDelete(prev => {
@@ -607,7 +674,11 @@ function LooksDialogV3({
               ) : visibleLooks.length === 0 ? (
                 <div className="text-center py-10 text-muted-foreground">
                   <CheckCircle2 className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                  <p className="text-sm">Ningún look seleccionado en este avatar</p>
+                  <p className="text-sm">
+                    {verticalOnly && !showOnlySelected
+                      ? "Este avatar no tiene looks verticales disponibles"
+                      : "Ningún look seleccionado en este avatar"}
+                  </p>
                 </div>
               ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
@@ -3669,6 +3740,18 @@ export default function Avatars() {
     isLoading: isLoadingPublic,
   } = usePublicHeyGenAvatarGroups()
   const publicGroups: V3Group[] = publicPages?.pages.flatMap(p => p.groups) ?? []
+  const publicPreviewOrientations = usePreviewOrientations(
+    publicGroups.map(group => group.preview_image_url),
+  )
+  const verticalPublicGroups = useMemo(
+    () => publicGroups.filter(
+      group => group.preview_image_url && publicPreviewOrientations[group.preview_image_url] === "vertical",
+    ),
+    [publicGroups, publicPreviewOrientations],
+  )
+  const hasPendingPublicPreviewCheck = publicGroups.some(
+    group => group.preview_image_url && !publicPreviewOrientations[group.preview_image_url],
+  )
 
   // voiceId → selected HeyGen groups that have that voice assigned
   const heygenVoiceAssignedGroups = useMemo(() => {
@@ -4198,8 +4281,8 @@ export default function Avatars() {
     ? myGroups.filter(g => (selectedByGroup.get(g.id) ?? 0) > 0)
     : myGroups
   const filteredPublicGroups = showOnlySelected
-    ? publicGroups.filter(g => (selectedByGroup.get(g.id) ?? 0) > 0)
-    : publicGroups
+    ? verticalPublicGroups.filter(g => (selectedByGroup.get(g.id) ?? 0) > 0)
+    : verticalPublicGroups
 
   // ── Handlers ──────────────────────────────────────────────────────────────
   const toggleLook = (id: string) => {
@@ -4212,6 +4295,17 @@ export default function Avatars() {
     else newSet.add(id)
     setSelectedIds(newSet)
   }
+
+  const deselectLooks = useCallback((ids: string[]) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      let changed = false
+      for (const id of ids) {
+        if (next.delete(id)) changed = true
+      }
+      return changed ? next : prev
+    })
+  }, [])
 
   const handleVoiceChange = (lookId: string, voiceId: string) => {
     setVoiceOverrides(prev => {
@@ -4446,7 +4540,7 @@ export default function Avatars() {
         <TabsContent value="public" className="space-y-6">
           <div className="flex items-center gap-2 flex-wrap">
             <p className="text-sm text-muted-foreground">
-              Más de 500 avatares de la librería pública disponibles para usar en tus videos.
+              Avatares públicos verticales listos para usar en Reels.
             </p>
             {selectedIds.size > 0 && (
               <button
@@ -4464,7 +4558,7 @@ export default function Avatars() {
             )}
           </div>
 
-          {isLoadingPublic ? (
+          {isLoadingPublic || (hasPendingPublicPreviewCheck && filteredPublicGroups.length === 0) ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-6">
               {Array.from({ length: 12 }).map((_, i) => <Skeleton key={i} className="aspect-square rounded-xl" />)}
             </div>
@@ -5163,6 +5257,8 @@ export default function Avatars() {
           onChangeVoice={handleVoiceChange}
           onClose={() => { setOpenGroup(null); setDialogSaveStatus("idle") }}
           onLooksLoaded={handleLooksLoaded}
+          verticalOnly={!openGroup.isOwned}
+          onDeselect={deselectLooks}
           saveStatus={dialogSaveStatus}
           onPlanRequired={() => setPremiumOpen(true)}
         />

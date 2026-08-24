@@ -735,6 +735,7 @@ export default function Videos() {
                   {video.status === 'failed' && (video as any).error_message && (
                     <p className="text-[11px] text-destructive mb-2 line-clamp-3 leading-relaxed">
                       {/\b(heygen|wavespeed)\b/i.test(String((video as any).error_message))
+                        && !/(?:créditos?\s+api|insufficient.*(?:credit|balance)|(?:credit|quota).*(?:insufficient|exhausted))/i.test(String((video as any).error_message))
                         ? "No se pudo completar el video. Puedes reintentarlo."
                         : (video as any).error_message}
                     </p>

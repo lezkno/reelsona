@@ -162,11 +162,13 @@ export function videoFailedEmail(
   name: string,
   topic: string,
   scheduledAt: Date | null,
+  failureReason?: string | null,
   appUrl?: string
 ) {
   const baseUrl = appUrl ?? getAppUrl()
   const safeName = escapeHtml(name)
   const safeTopic = escapeHtml(topic)
+  const safeFailureReason = failureReason ? escapeHtml(failureReason) : null
   const scheduledStr = scheduledAt
     ? scheduledAt.toLocaleDateString("es-MX", {
         weekday: "long",
@@ -182,14 +184,15 @@ export function videoFailedEmail(
       <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#111">
         <h1 style="font-size:20px;margin-bottom:8px">Hubo un problema con tu Reel 😔</h1>
         <p style="color:#555">Hola${safeName ? ` ${safeName}` : ""}, el Reel <strong>"${safeTopic}"</strong>${scheduledStr ? ` programado para el <strong>${scheduledStr}</strong>` : ""} no pudo generarse automáticamente.</p>
+        ${safeFailureReason ? `<p style="color:#555"><strong>Motivo:</strong> ${safeFailureReason}</p>` : ""}
         <p style="color:#555">Puedes ver el detalle y reagendarlo desde tu Plan de Contenido:</p>
-        <a href="${baseUrl}/content-plan"
+        <a href="${baseUrl}/content"
            style="display:inline-block;margin-top:16px;padding:12px 24px;background:#6366f1;color:#fff;border-radius:8px;text-decoration:none;font-weight:600">
           Ver Plan de Contenido →
         </a>
         <p style="margin-top:20px;color:#888;font-size:13px">Si el problema persiste, contáctanos respondiendo este correo.</p>
         <p style="margin-top:32px;font-size:12px;color:#999">Reelsona · info@reelsona.com</p>
       </div>`,
-    text: `Hola${name ? ` ${name}` : ""}! El Reel "${topic}"${scheduledStr ? ` programado para ${scheduledStr}` : ""} no pudo generarse. Reagéndalo en ${baseUrl}/content-plan`,
+    text: `Hola${name ? ` ${name}` : ""}! El Reel "${topic}"${scheduledStr ? ` programado para ${scheduledStr}` : ""} no pudo generarse.${failureReason ? ` Motivo: ${failureReason}` : ""} Reagéndalo en ${baseUrl}/content`,
   }
 }

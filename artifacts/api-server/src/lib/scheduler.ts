@@ -2594,7 +2594,11 @@ async function createRawVideoThumbnail(videoId: number, videoUrl: string): Promi
  * Rate-limited to one email per user per hour to avoid notification floods.
  * Always swallows errors so it never disrupts the calling code path.
  */
-async function sendVideoFailedAlert(userId: number, contentPlanItemId: number | null): Promise<void> {
+async function sendVideoFailedAlert(
+  userId: number,
+  contentPlanItemId: number | null,
+  failureReason?: string,
+): Promise<void> {
   if (!contentPlanItemId) return;
   const now = Date.now();
   const lastAlert = failureAlertsSent.get(userId) ?? 0;
@@ -2616,12 +2620,43 @@ async function sendVideoFailedAlert(userId: number, contentPlanItemId: number | 
     const name = user.name ?? "";
     const topic = item?.topic ?? "Sin título";
     const scheduledAt = item?.scheduledAt ? new Date(item.scheduledAt) : null;
-    const { subject, html, text } = videoFailedEmail(name, topic, scheduledAt);
+    const { subject, html, text } = videoFailedEmail(name, topic, scheduledAt, failureReason);
     await sendEmail({ to: user.email, subject, html, text });
-    logger.info({ userId, contentPlanItemId }, "[Alert] Video failure email sent");
+    logger.info({ userId, contentPlanItemId, failureReason }, "[Alert] Video failure email sent");
   } catch (err) {
     logger.warn({ userId, contentPlanItemId, err }, "[Alert] Could not send video failure email — non-fatal");
   }
+}
+
+/**
+ * Turn HeyGen's terminal failure payload into a concise Spanish explanation.
+ * Provider details are retained for unexpected cases, while quota failures get
+ * an actionable message instead of looking like a formatting issue.
+ */
+function describeHeyGenGenerationFailure(
+  failureCode?: string | null,
+  failureMessage?: string | null,
+  fallbackError?: string | null,
+): string {
+  const details = [failureCode, failureMessage, fallbackError]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .join(" ");
+
+  if (
+    /MOVIO_PAYMENT_INSUFFICIENT_CREDIT|insufficient.*(?:credit|balance)|(?:credit|quota).*(?:insufficient|exhausted)|payment.*insufficient/i.test(details)
+  ) {
+    return "HeyGen no tiene créditos API suficientes para generar este video. Agrega créditos en tu cuenta de HeyGen y vuelve a intentarlo.";
+  }
+
+  const providerMessage = failureMessage ?? fallbackError;
+  if (!providerMessage) {
+    return "No se pudo completar la generación del video. Intenta de nuevo.";
+  }
+
+  const normalized = providerMessage.replace(/\s+/g, " ").trim();
+  return normalized.length > 400
+    ? `${normalized.slice(0, 397)}…`
+    : normalized;
 }
 
 // ── WaveSpeed TTS → talking-head handoff ───────────────────────────────────────
@@ -3740,12 +3775,17 @@ export async function pollAndPublishVideos(): Promise<void> {
           await publishVideoToInstagram(video.id);
         }
       } else if (status.status === "failed") {
-        const providerError = status.error ?? "Error desconocido en la generación";
+        const providerError = status.failure_message ?? status.error ?? "Error desconocido en la generación";
+        const failureReason = describeHeyGenGenerationFailure(
+          status.failure_code,
+          status.failure_message,
+          status.error,
+        );
         const failed = await db
           .update(videosTable)
           .set({
             status: "failed",
-            errorMessage: "No se pudo completar la generación del video. Intenta de nuevo.",
+            errorMessage: failureReason,
             updatedAt: new Date(),
           })
           .where(and(
@@ -3759,7 +3799,10 @@ export async function pollAndPublishVideos(): Promise<void> {
           continue;
         }
 
-        logger.error({ videoId: video.id, providerError }, "[VideoGeneration] Provider reported a failure");
+        logger.error(
+          { videoId: video.id, providerError, failureCode: status.failure_code, failureReason },
+          "[VideoGeneration] Provider reported a failure",
+        );
         await releaseVideoCredits(video.id, "Generación de video fallida").catch((err) =>
           logger.error({ videoId: video.id, err }, "[Credits] Release falló tras fallo en generación")
         );
@@ -3771,7 +3814,7 @@ export async function pollAndPublishVideos(): Promise<void> {
             eq(contentPlanItemsTable.status, "generating"),
           ));
         }
-        sendVideoFailedAlert(video.userId, video.contentPlanId ?? null).catch(() => {});
+        sendVideoFailedAlert(video.userId, video.contentPlanId ?? null, failureReason).catch(() => {});
       }
     } catch (err: any) {
       // ── Classify HeyGen HTTP errors ──────────────────────────────────────
@@ -3823,7 +3866,7 @@ export async function pollAndPublishVideos(): Promise<void> {
             eq(contentPlanItemsTable.status, "generating"),
           ));
         }
-        sendVideoFailedAlert(video.userId, video.contentPlanId ?? null).catch(() => {});
+        sendVideoFailedAlert(video.userId, video.contentPlanId ?? null, userMsg).catch(() => {});
         logger.error({ videoId: video.id, httpStatus }, userMsg);
       } else {
         logger.warn({ videoId: video.id, httpStatus, err }, `Transient polling error (will retry): ${userMsg}`);
