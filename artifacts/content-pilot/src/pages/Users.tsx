@@ -5,7 +5,7 @@ import {
   CheckCircle2, XCircle, Clock, GraduationCap,
   RefreshCw, AlertCircle, Info, BookOpen, Wrench,
   CalendarDays, Download, Coins, PlusCircle, MinusCircle, Crown, Eye,
-  PauseCircle, PlayCircle,
+  PauseCircle, PlayCircle, Video,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -1262,7 +1262,7 @@ function EntitlementsSection() {
                     <span className="flex items-center justify-end gap-1"><Coins className="w-3.5 h-3.5" /> Créditos</span>
                   </th>
                    <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">
-                     <span className="flex items-center justify-end gap-1"><CalendarDays className="w-3.5 h-3.5" /> Vídeos generados</span>
+                     <span className="flex items-center justify-end gap-1"><Video className="w-3.5 h-3.5" /> Vídeos generados</span>
                    </th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Fuente</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Alta</th>
