@@ -155,28 +155,26 @@ const forWhom = [
   { Icon: TrendingUp, title: "Educadores online", desc: "Que necesitan generar autoridad y comunidad con Reels constantes sin que la producción los consuma." },
 ];
 
-// Guía Paso a Paso de Implementación ($47 acceso de por vida)
+// Academia de implementación — disponible con el acceso al producto
 const programIncludes = [
-  "7 módulos completos con 23 clases en video",
-  "Módulo 1 — Fundamentos de la máquina de contenido con avatar",
-  "Módulo 2 — Configuración técnica esencial (IA, Instagram)",
-  "Módulo 3 — Estrategia antes de crear contenido",
-  "Módulo 4 — Crear los primeros Reels con tu avatar",
-  "Módulo 5 — Captions, edición y calidad",
-  "Módulo 6 — Publicación y automatización",
-  "Módulo 7 — Escalar sin perder calidad",
-  "Plantillas y checklists de lanzamiento",
-  "Acceso de por vida al programa",
+  "5 módulos completos con 21 clases en video",
+  "Módulo 1 — Prepara Reelsona para tu negocio",
+  "Módulo 2 — Haz que Reelsona entienda tu negocio y tu mercado",
+  "Módulo 3 — Configura tus Avatares y Voces",
+  "Módulo 4 — Crea y publica tu primer Reel",
+  "Módulo 5 — Activa tu máquina de contenido",
+  "Lecciones prácticas dentro de Academia",
+  "Acceso continuo al curso de implementación",
 ];
 
-// Herramientas de automatización (30 días gratis incluidos en los $47)
+// Herramientas disponibles según el plan contratado
 const toolsIncludes = [
-  "Estudio de mercado con análisis de competidores",
-  "Generador de temas y guiones con IA para Reels",
-  "Producción de videos con tu avatar",
+  "Plan de contenido y guiones con IA",
+  "Creación manual de Reels",
+  "Avatares públicos y Avatar AI propio",
   "Caption Studio con plantillas visuales",
-  "Publicación programada en Instagram",
-  "Modo Autopilot — el sistema ejecuta todo el pipeline",
+  "B-roll AI para tus videos",
+  "Créditos mensuales según el plan elegido",
 ];
 
 const notJustAiToolItems = [
@@ -193,7 +191,7 @@ const faqs = [
   { q: "¿Cómo funciona el modo Autopilot?", a: "Cuando tienes tu estrategia, herramientas y preferencias configuradas, Autopilot ejecuta el pipeline completo: genera guiones, produce los videos con tu avatar, aplica captions y los publica en Instagram según el calendario que definiste." },
   { q: "¿Necesito saber editar videos?", a: "No. El sistema genera los videos completos con tu avatar y captions incluidos. No necesitas abrir ningún editor de video." },
   { q: "¿Tengo que grabarme frente a una cámara?", a: "No. Tu avatar IA habla por ti en cada Reel. Tú defines la estrategia y el guión — el sistema produce el video." },
-  { q: "¿Qué pasa después de comprar?", a: "Recibirás un email de activación. Con ese link creas tu contraseña y accedes a la Guía Paso a Paso de Implementación completa (7 módulos, 23 clases) de inmediato, más 30 días gratis de acceso a todas las herramientas de automatización de Instagram." },
+  { q: "¿Qué pasa después de comprar?", a: "Recibirás un email de activación. Con ese link creas tu contraseña y accedes a Academia, con sus 5 módulos y 21 clases, además de las herramientas y créditos incluidos en el plan que hayas elegido." },
   { q: "¿Puedo publicar directamente en Instagram?", a: "Sí. Conectas tu cuenta de Instagram Business desde la plataforma y programas la publicación de tus Reels desde ahí." },
 ];
 
@@ -372,7 +370,7 @@ export default function Landing() {
               </div>
 
               {/* floating pills */}
-              <FloatingPill icon={<Calendar size={14} />} text="✦ 23 Reels / mes"    style={{ left: -90, top: 80,  zIndex: 10, transform: "rotate(-3deg)" }} />
+               <FloatingPill icon={<Calendar size={14} />} text="✦ Créditos mensuales" style={{ left: -90, top: 80,  zIndex: 10, transform: "rotate(-3deg)" }} />
               <FloatingPill icon={<Bot size={14} />}      text="100% automático"       style={{ right: -95, top: 170, zIndex: 10, transform: "rotate(4deg)" }} />
               <FloatingPill icon={<Video size={14} />}    text="Avatar activo"          style={{ left: -70, bottom: 150, zIndex: 10, transform: "rotate(2deg)" }} />
               <FloatingPill icon={<Instagram size={14} />} text="Publicado en Instagram" style={{ right: -105, bottom: 80, zIndex: 10, transform: "rotate(-3deg)" }} />
@@ -893,7 +891,7 @@ export default function Landing() {
           <div className="text-center reveal-up" style={{ marginBottom: "3rem" }}>
             <SectionLabel>Lo que obtienes</SectionLabel>
             <h2 style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "clamp(1.6rem,4vw,2.4rem)", fontWeight: 800, letterSpacing: "-0.025em", lineHeight: 1.15 }}>Todo lo que incluye tu plan</h2>
-            <p style={{ color: "#666", fontSize: "0.9rem", lineHeight: 1.75, maxWidth: 520, margin: "0.75rem auto 0" }}>Cada plan incluye acceso completo a las herramientas de automatización, Avatar AI, captions y publicación en Instagram.</p>
+            <p style={{ color: "#666", fontSize: "0.9rem", lineHeight: 1.75, maxWidth: 520, margin: "0.75rem auto 0" }}>Cada plan incluye créditos mensuales y herramientas para crear tus Reels. La automatización avanzada y la publicación programada dependen del plan elegido.</p>
           </div>
 
           <div className="grid gap-5 reveal-up stagger-1" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(360px,1fr))" }}>
@@ -906,7 +904,7 @@ export default function Landing() {
                 </div>
                 <div>
                   <p style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontWeight: 800, fontSize: "0.95rem", color: "#e0e0e0", margin: 0 }}>Guía Paso a Paso de Implementación</p>
-                  <p style={{ fontSize: "0.72rem", color: "#4F6EF7", fontWeight: 700, margin: 0 }}>Acceso de por vida · 7 módulos · 23 clases</p>
+                  <p style={{ fontSize: "0.72rem", color: "#4F6EF7", fontWeight: 700, margin: 0 }}>5 módulos · 21 clases en video</p>
                 </div>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
@@ -931,11 +929,11 @@ export default function Landing() {
                 </div>
                 <div>
                   <p style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontWeight: 800, fontSize: "0.95rem", color: "#e0e0e0", margin: 0 }}>Herramientas de automatización de IG</p>
-                  <p style={{ fontSize: "0.72rem", color: "#9B5CF6", fontWeight: 700, margin: 0 }}>30 días gratis incluidos</p>
+                  <p style={{ fontSize: "0.72rem", color: "#9B5CF6", fontWeight: 700, margin: 0 }}>Herramientas según tu plan</p>
                 </div>
               </div>
               <p style={{ fontSize: "0.78rem", color: "#444", marginBottom: "1.25rem", lineHeight: 1.6 }}>
-                Acceso completo a la plataforma de automatización durante 30 días para que implementes todo lo que aprendes en el programa.
+                Accede a las herramientas de creación y automatización que corresponden a tu plan, con créditos mensuales para producir tus Reels.
               </p>
               <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem", position: "relative", zIndex: 1 }}>
                 {toolsIncludes.map((item) => (
