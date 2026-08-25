@@ -1,6 +1,5 @@
 import { useGetHeyGenVoices, useGetAvatarConfig, useUpdateAvatarConfig, getGetAvatarConfigQueryKey, getGetHeyGenVoicesQueryKey, getGetHeyGenAllLooksQueryKey, AvatarConfigRotationStrategy } from "@workspace/api-client-react"
 import {
-  useMyHeyGenAvatarGroups,
   usePublicHeyGenAvatarGroups,
   useGetV3GroupLooks,
   useUploadHeyGenAsset,
@@ -3664,7 +3663,6 @@ export default function Avatars() {
     if (!pendingVideoJob || !pendingVideoStatus) return
     if (pendingVideoStatus.status === "completed") {
       toast({ title: "¡Avatar AI listo!", description: `"${pendingVideoJob.name}" ya está disponible en tu pestaña Mi Avatar.` })
-      void refetchMy()
       setPendingVideoJob(null)
     } else if (pendingVideoStatus.status === "failed") {
       toast({ title: "Error al crear el Avatar AI", description: `"${pendingVideoJob.name}" no pudo procesarse. Intenta subir un video diferente.`, variant: "destructive" })
