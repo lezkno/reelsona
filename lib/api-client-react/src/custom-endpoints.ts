@@ -649,51 +649,6 @@ export function useDeleteAdminUser() {
   });
 }
 
-// ── HeyGen account integration ────────────────────────────────────────────────
-
-export interface HeyGenQuotaDetails {
-  api: number | null;
-  generative_credit: number | null;
-  plan_credit: number | null;
-  instant_avatars: number | null;
-}
-
-export interface HeyGenAccountStatus {
-  connected: boolean;
-  remaining_quota: number | null;
-  total_quota: number | null;
-  details: HeyGenQuotaDetails | null;
-  /** Where the key came from: "user" = own stored key, "platform" = Reelsona's centralized key, "none" = not set */
-  key_source: "user" | "platform" | "none";
-  error?: string;
-}
-
-export const HEYGEN_ACCOUNT_QUERY_KEY = ["heygen", "account"] as const;
-
-/** Fetch HeyGen connection status and remaining API credits. */
-export function useHeyGenAccount() {
-  return useQuery<HeyGenAccountStatus>({
-    queryKey: HEYGEN_ACCOUNT_QUERY_KEY,
-    queryFn: () => customFetch<HeyGenAccountStatus>("/api/heygen/account"),
-    staleTime: 1000 * 60 * 2,   // 2 minutes — quota changes slowly
-    retry: false,
-  });
-}
-
-/** Save a HeyGen API key (validates before saving). */
-export function useConnectHeyGen() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ api_key }: { api_key: string }) =>
-      customFetch<HeyGenAccountStatus>("/api/heygen/account/connect", {
-        method: "POST",
-        body: JSON.stringify({ api_key }),
-        headers: { "Content-Type": "application/json" },
-      }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: HEYGEN_ACCOUNT_QUERY_KEY }),
-  });
-}
-
 // ── Caption rotation ──────────────────────────────────────────────────────────
 
 export interface CaptionBrowserTemplate {
@@ -1071,18 +1026,6 @@ export interface AvatarLookStatus {
   group_id: string | null;
   preview_image_url: string | null;
   preview_video_url: string | null;
-}
-
-/** User's own private avatar groups (v3). */
-export function useMyHeyGenAvatarGroups(token?: string) {
-  return useQuery<V3AvatarGroupsResponse>({
-    queryKey: ["heygen", "my-avatar-groups", token],
-    queryFn: () =>
-      customFetch<V3AvatarGroupsResponse>(
-        `/api/heygen/my-avatar-groups${token ? `?token=${encodeURIComponent(token)}` : ""}`,
-      ),
-    staleTime: 1000 * 60 * 2,
-  });
 }
 
 /** HeyGen public stock avatar groups (v3, infinite scroll). */
