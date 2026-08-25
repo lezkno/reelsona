@@ -489,7 +489,10 @@ function LooksDialogV3({
   )
   const verticalLooks = useMemo(
     () => verticalOnly
-      ? looks.filter(look => look.preview_image_url && lookOrientations[look.preview_image_url] === "vertical")
+      // Do not fail closed while a CDN preview is loading or cannot expose its
+      // dimensions. The preview itself is still a valid asset; only an
+      // explicitly measured horizontal image should be removed.
+      ? looks.filter(look => look.preview_image_url && lookOrientations[look.preview_image_url] !== "horizontal")
       : looks,
     [looks, lookOrientations, verticalOnly],
   )
@@ -3745,7 +3748,11 @@ export default function Avatars() {
   )
   const verticalPublicGroups = useMemo(
     () => publicGroups.filter(
-      group => group.preview_image_url && publicPreviewOrientations[group.preview_image_url] === "vertical",
+      // HeyGen previews are hosted on a separate CDN. If the browser cannot
+      // measure one (transient CDN error, privacy setting, or a new asset
+      // format), keep it visible rather than making the whole catalog appear
+      // empty. Only confirmed horizontal previews are excluded.
+      group => group.preview_image_url && publicPreviewOrientations[group.preview_image_url] !== "horizontal",
     ),
     [publicGroups, publicPreviewOrientations],
   )
@@ -4558,7 +4565,7 @@ export default function Avatars() {
             )}
           </div>
 
-          {isLoadingPublic || (hasPendingPublicPreviewCheck && filteredPublicGroups.length === 0) ? (
+          {isLoadingPublic ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-6">
               {Array.from({ length: 12 }).map((_, i) => <Skeleton key={i} className="aspect-square rounded-xl" />)}
             </div>
