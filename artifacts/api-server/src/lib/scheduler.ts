@@ -72,7 +72,13 @@ import { isWavespeedConfigured, submitSpeech, submitTalkingHead, getJobStatus as
 import { wavespeedPersonasTable, wavespeedLooksTable, wavespeedVoicesTable, wavespeedJobsTable } from "@workspace/db";
 import { getUserPlanSlug, getAvatarLimit, computePersonaPlanEnabled, PlanBlockedError } from "./planLimits";
 import { createReelContainer, checkContainerStatus, publishContainer, getPermalink, refreshInstagramToken } from "./instagram-api";
-import { getServerReadableMediaUrl, getSignedCaptionedVideoUrl, objectStorageClient } from "./objectStorage";
+import {
+  getCaptionedObjectNameFromUrl,
+  getServerReadableMediaUrl,
+  getSignedCaptionedVideoUrl,
+  getSignedObjectUrl,
+  objectStorageClient,
+} from "./objectStorage";
 import { getWaveSpeedProviderImageUrl } from "./wavespeed-avatar-storage";
 import { makeOpenAIClient } from "./openai-client";
 import { getWavDurationMs, transcriptionResponseToSrt } from "./wavespeed-transcription-srt";
@@ -4120,7 +4126,16 @@ async function _publishVideoToInstagramInner(videoId: number, videoUrl?: string)
   const rawUrl = videoUrl ?? video.videoUrl;
   if (!rawUrl) throw new Error("Video URL not available");
 
+  // Raw videos persisted in Object Storage also use the authenticated app
+  // proxy. Instagram cannot fetch that proxy, so sign the raw URL before
+  // entering either the captioned or raw publishing path.
   let url = rawUrl;
+  const rawObjectName = getCaptionedObjectNameFromUrl(rawUrl);
+  if (rawObjectName) {
+    url = await getSignedObjectUrl(rawObjectName, 6 * 3600);
+    logger.info({ videoId, objectName: rawObjectName }, "[Publish] Generated signed GCS URL for raw Instagram source");
+  }
+
   if (video.captionedVideoUrl) {
     const captionedUrl = video.captionedVideoUrl;
 
@@ -4130,9 +4145,8 @@ async function _publishVideoToInstagramInner(videoId: number, videoUrl?: string)
       // generate a short-lived signed GCS URL that Instagram can fetch directly.
       // Detection is path-based (not domain-based) so it works whether the stored URL
       // uses reelsona.com, the dev domain, or any other canonical origin.
-      const captionedObjectsPrefix = `/api/captioned-objects/`;
-      if (captionedUrl.includes(captionedObjectsPrefix)) {
-        const objectName = captionedUrl.split(captionedObjectsPrefix)[1];
+      const objectName = getCaptionedObjectNameFromUrl(captionedUrl);
+      if (objectName) {
         try {
           url = await getSignedCaptionedVideoUrl(objectName);
           logger.info({ videoId, objectName }, "[Publish] Generated signed GCS URL for Instagram");
@@ -4140,7 +4154,10 @@ async function _publishVideoToInstagramInner(videoId: number, videoUrl?: string)
           // Signing failed — fall back to the ORIGINAL public HeyGen/WaveSpeed URL, NOT captionedUrl.
           // captionedUrl goes through the Replit proxy which Instagram cannot reach from outside,
           // so using it as a fallback always causes "Container processing failed".
-          url = rawUrl;
+          // If the raw source is also an app-proxy URL, keep its signed URL;
+          // falling back to rawUrl would hand Instagram another inaccessible
+          // authenticated endpoint.
+          url = rawObjectName ? await getSignedObjectUrl(rawObjectName, 6 * 3600) : rawUrl;
           logger.warn({ videoId, signErr }, "[Publish] Could not sign GCS URL — falling back to original source URL (captions will be missing)");
         }
       } else {
