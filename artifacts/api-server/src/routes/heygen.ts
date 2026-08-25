@@ -879,9 +879,11 @@ router.get("/heygen/public-avatar-groups", async (req, res): Promise<void> => {
 /** GET /heygen/v3-groups/:groupId/looks — looks for any group via v3 API */
 router.get("/heygen/v3-groups/:groupId/looks", async (req, res): Promise<void> => {
   try {
-    // Looks opened from the public catalog must use the same centralized
-    // Reelsona catalog account as the group listing.
-    const apiKey  = process.env.HEYGEN_API_KEY;
+    // Private groups belong to the user's selected account. Public catalog
+    // groups must use the same centralized account as their group listing.
+    const apiKey = req.query.catalog === "public"
+      ? process.env.HEYGEN_API_KEY
+      : await getUserHeyGenKey(req.session.user!.userId);
     if (!apiKey) throw new Error("HEYGEN_API_KEY is not set");
     const groupId = req.params.groupId;
     const token   = typeof req.query.token === "string" ? req.query.token : undefined;

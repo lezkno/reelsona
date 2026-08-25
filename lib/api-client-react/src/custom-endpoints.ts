@@ -1100,11 +1100,13 @@ export function usePublicHeyGenAvatarGroups() {
 }
 
 /** Looks for a specific group via v3 API. */
-export function useGetV3GroupLooks(groupId: string | null) {
+export function useGetV3GroupLooks(groupId: string | null, isOwned = true) {
   return useQuery<V3GroupLooksResponse>({
-    queryKey: ["heygen", "v3-group-looks", groupId],
+    queryKey: ["heygen", "v3-group-looks", groupId, isOwned],
     queryFn: () =>
-      customFetch<V3GroupLooksResponse>(`/api/heygen/v3-groups/${encodeURIComponent(groupId!)}/looks`),
+      customFetch<V3GroupLooksResponse>(
+        `/api/heygen/v3-groups/${encodeURIComponent(groupId!)}/looks${isOwned ? "" : "?catalog=public"}`,
+      ),
     enabled: !!groupId,
     staleTime: 1000 * 60 * 5,
   });

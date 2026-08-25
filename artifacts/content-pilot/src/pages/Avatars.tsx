@@ -465,7 +465,7 @@ function LooksDialogV3({
   /** Called when a plan-gated action is attempted without an active plan. */
   onPlanRequired?: () => void
 }) {
-  const { data, isLoading, refetch } = useGetV3GroupLooks(group.id)
+  const { data, isLoading, refetch } = useGetV3GroupLooks(group.id, isOwned)
   const queryClient = useQueryClient()
   const { toast } = useToast()
   const lookDialogAccessState = useAccessState()
