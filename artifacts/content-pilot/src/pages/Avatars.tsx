@@ -3657,9 +3657,6 @@ export default function Avatars() {
   const [pendingElapsedSeconds, setPendingElapsedSeconds] = useState(0)
 
   // ── My Avatar tab ─────────────────────────────────────────────────────────
-  const { data: myData, refetch: refetchMy } = useMyHeyGenAvatarGroups()
-  const myGroups: V3Group[] = myData?.groups ?? []
-
   // ── Background Digital Twin poller ────────────────────────────────────────
   // Polls the status of a Digital Twin job after the user dismisses the creation dialog.
   const { data: pendingVideoStatus } = useHeyGenLookStatus(pendingVideoJob?.lookId ?? null)
@@ -3685,28 +3682,6 @@ export default function Avatars() {
     )
     return () => clearInterval(iv)
   }, [pendingVideoJob])
-
-  // Pre-fetch looks for all private groups so the "Solo en uso" filter works
-  // without requiring the user to open each dialog first.
-  const myGroupIds = myGroups.map(g => g.id).join(",")
-  useEffect(() => {
-    if (!myGroups.length) return
-    myGroups.forEach(group => {
-      queryClient
-        .fetchQuery({
-          queryKey: ["heygen", "v3-group-looks", group.id],
-          queryFn: () =>
-            fetch(`/api/heygen/v3-groups/${encodeURIComponent(group.id)}/looks`, {
-              credentials: "include",
-            }).then(r => r.json()),
-          staleTime: 5 * 60 * 1000,
-        })
-        .then((data: any) => {
-          if (data?.looks?.length) handleLooksLoaded(group.id, data.looks)
-        })
-        .catch(() => {})
-    })
-  }, [myGroupIds]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reverse-lookup: resolve selected look IDs that are not yet in lookGroupMap.
   // Handles public-group looks selected in a previous session before localStorage
@@ -3763,7 +3738,7 @@ export default function Avatars() {
   // voiceId → selected HeyGen groups that have that voice assigned
   const heygenVoiceAssignedGroups = useMemo(() => {
     const map = new Map<string, V3Group[]>()
-    const allGroupsById = new Map([...myGroups, ...publicGroups].map(g => [g.id, g]))
+    const allGroupsById = new Map(publicGroups.map(g => [g.id, g]))
     for (const [lookId, voiceId] of Object.entries(voiceOverrides)) {
       if (!selectedIds.has(lookId)) continue
       const groupId = lookGroupMap[lookId]
@@ -3775,7 +3750,7 @@ export default function Avatars() {
       map.set(voiceId, list)
     }
     return map
-  }, [voiceOverrides, lookGroupMap, selectedIds, myGroups, publicGroups])
+  }, [voiceOverrides, lookGroupMap, selectedIds, publicGroups])
 
   // ── Spanish voices (for look-level picker) ────────────────────────────────
   // Exclude pending/failed cloned voices — they can't be used for generation yet.
@@ -4123,24 +4098,6 @@ export default function Avatars() {
       setVoiceOverrides((config.voice_overrides as Record<string, string>) ?? {})
     }
   }, [config])
-
-  // Auto-deselect any looks that belong to HeyGen custom avatar groups.
-  // Those avatars are hidden from the UI so their look IDs must not stay in
-  // the selection — remove them whenever the mapping becomes known.
-  const myGroupIdSet = useMemo(() => new Set(myGroups.map(g => g.id)), [myGroups])
-  useEffect(() => {
-    if (!myGroupIdSet.size || !configInitialized.current) return
-    const toRemove = Array.from(selectedIds).filter(id => {
-      const gid = lookGroupMap[id]
-      return gid != null && myGroupIdSet.has(gid)
-    })
-    if (!toRemove.length) return
-    setSelectedIds(prev => {
-      const next = new Set(prev)
-      toRemove.forEach(id => next.delete(id))
-      return next
-    })
-  }, [myGroupIdSet, lookGroupMap]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Enable auto-save 400 ms after config first loads (avoids saving on init)
   useEffect(() => {
@@ -5162,8 +5119,7 @@ export default function Avatars() {
             Object.entries(lookGroupMap).filter(([lid]) => selectedIds.has(lid))
           )}
           allGroups={(() => {
-            const base = assignVoice.is_mine ? [...myGroups, ...publicGroups] : publicGroups
-            return base.filter(g =>
+            return publicGroups.filter(g =>
               Object.entries(lookGroupMap).some(([lid, gid]) => gid === g.id && selectedIds.has(lid))
             )
           })()}
@@ -5193,7 +5149,6 @@ export default function Avatars() {
           }}
           onCreated={(gId, lId, voiceId) => {
             setShowCreation(false)
-            void refetchMy()
             const newLookId = `tp:${lId}`
             setLookGroupMap(prev => ({ ...prev, [newLookId]: gId }))
             if (voiceId) {
