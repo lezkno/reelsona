@@ -1,19 +1,7 @@
-import { useGetHeyGenVoices, useGetAvatarConfig, useUpdateAvatarConfig, getGetAvatarConfigQueryKey, getGetHeyGenVoicesQueryKey, getGetHeyGenAllLooksQueryKey, AvatarConfigRotationStrategy } from "@workspace/api-client-react"
+import { useGetHeyGenVoices, useGetAvatarConfig, useUpdateAvatarConfig, getGetAvatarConfigQueryKey, getGetHeyGenVoicesQueryKey, AvatarConfigRotationStrategy } from "@workspace/api-client-react"
 import {
   usePublicHeyGenAvatarGroups,
   useGetV3GroupLooks,
-  useUploadHeyGenAsset,
-  useCreatePhotoAvatar,
-  useCreatePromptAvatar,
-  useCreateAvatarLook,
-  useCreateDigitalTwinAvatar,
-  useDeleteAvatarLook,
-  useDeleteAvatarGroup,
-  useHeyGenLookStatus,
-  useCloneVoice,
-  useDeleteVoice,
-  useRenameVoice,
-  useUpdateVoice,
   useWavespeedPersonas,
   useDeleteWavespeedPersona,
   usePatchWavespeedPersona,
