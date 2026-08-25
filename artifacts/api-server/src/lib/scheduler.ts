@@ -49,7 +49,7 @@ import { getStripe } from "./stripe";
 import { enrichProfileWithApify } from "./apify";
 import { sendEmail, videoFailedEmail } from "./email";
 import { applyCaptions, CAPTION_DIR, type CaptionStyle, CAPTION_PRESETS } from "./caption-engine";
-import { computeUpcomingSlots } from "./schedule";
+import { computeUpcomingSlots, getZonedDateParts, zonedTimeToUtc } from "./schedule";
 import { applyCaptionsBrowser } from "./browser-caption-engine";
 import { applyCaptionsFastV2, isRenderFastV2Enabled, isRenderFastV2Failure } from "./render-fast-v2";
 import { applyHybridRenderV2 } from "./hybrid-render-v2";
@@ -436,9 +436,6 @@ function pickFromUnifiedPool(
 /** Sentinel stored in preferred_voice_id meaning "use the avatar's own HeyGen default voice" (legacy, kept for backwards compat). */
 export const AVATAR_DEFAULT_VOICE = "avatar_default";
 
-/** How many calendar days ahead the scheduler looks when auto-filling empty slots. */
-const AUTO_FILL_CALENDAR_HORIZON = 14;
-
 /**
  * How many hours before a scheduled item's time the scheduler will proactively
  * generate its script and video.  Without this window, the cycle only triggers
@@ -450,7 +447,7 @@ const AUTO_FILL_CALENDAR_HORIZON = 14;
 const PROACTIVE_PREP_HORIZON_HOURS = 3;
 
 /**
- * Auto-fill any empty slots in the upcoming automation schedule.
+ * Auto-fill empty slots for the current calendar day only.
  * Called inside every runAutomationCycle tick so gaps are filled proactively.
  * Returns the number of draft items created (0 when all slots are occupied).
  */
@@ -462,7 +459,18 @@ async function fillEmptyScheduledSlots(
   if (!automation.autoGenerateScript) return 0;
 
   const now = new Date();
-  const horizon = new Date(now.getTime() + AUTO_FILL_CALENDAR_HORIZON * 24 * 60 * 60 * 1000);
+  const timezone = automation.timezone ?? "America/Buenos_Aires";
+  const today = getZonedDateParts(now, timezone);
+  // Use the next local midnight rather than now + 24h so a user's calendar
+  // date remains correct across DST transitions.
+  const horizon = zonedTimeToUtc(
+    today.year,
+    today.month,
+    today.day + 1,
+    0,
+    0,
+    timezone,
+  );
 
   // Load all future scheduled items to know which slots are already taken
   const futureScheduled = await db
@@ -473,13 +481,13 @@ async function fillEmptyScheduledSlots(
   const occupied = futureScheduled.map((r) => r.scheduledAt!).filter(Boolean);
   const occupiedKeys = new Set(occupied.map((d) => Math.floor(d.getTime() / 60000)));
 
-  // Generate the full set of expected slots within the horizon (no occupancy filter yet)
+  // Generate today's expected slots only (no occupancy filter yet).
   const postsPerDay = Math.max(1, (automation.postingTimes ?? ["09:00"]).length);
   const allExpected = computeUpcomingSlots({
     daysOfWeek:   automation.daysOfWeek   ?? [1, 2, 3, 4, 5],
     postingTimes: automation.postingTimes ?? ["09:00"],
-    timezone:     automation.timezone     ?? "America/Buenos_Aires",
-    scheduledDays: AUTO_FILL_CALENDAR_HORIZON * 2, // generous — bounded below by calendar horizon
+    timezone,
+    scheduledDays: 1,
     postsPerDay,
     occupied: [],
     from: now,
@@ -547,8 +555,8 @@ async function fillEmptyScheduledSlots(
 
 /**
  * Fire-and-forget: fill any empty scheduled slots for a user immediately.
- * Called after a manual reschedule so the vacated slot is filled right away
- * instead of waiting up to 5 minutes for the next cron cycle.
+ * Called after a manual reschedule so today's vacated slot is filled right
+ * away instead of waiting up to 5 minutes for the next cron cycle.
  */
 export async function triggerFillEmptySlots(userId: number): Promise<void> {
   try {
@@ -565,8 +573,8 @@ export async function triggerFillEmptySlots(userId: number): Promise<void> {
 
 /**
  * Create one draft for a publishing slot that has just arrived and is still
- * empty. This is deliberately separate from the 14-day AutoFill feature:
- * AutoFill is best-effort future planning, while this function is the
+ * empty. This is deliberately separate from the daily AutoFill feature:
+ * AutoFill is best-effort same-day planning, while this function is the
  * last-resort continuity path that must hand a real item to the normal
  * generation pipeline.
  */
