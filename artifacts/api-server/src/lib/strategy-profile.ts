@@ -6,6 +6,7 @@ import { db } from "@workspace/db";
 import { auditProfilesTable } from "@workspace/db";
 import { desc, eq } from "drizzle-orm";
 import type { AccountData, MarketInsights, ContentStrategy, StrategyContext } from "./ai-strategy";
+import { STRATEGIC_CONTEXT_VERSION } from "./semantic-context";
 
 export type { AccountData, MarketInsights, ContentStrategy, StrategyContext };
 
@@ -93,8 +94,10 @@ export async function upsertStrategyProfile(
 
 /** Build a StrategyContext for use in AI topic/script generation. */
 export function toStrategyContext(profile: StrategyProfileData): StrategyContext | null {
-  if (!profile.content_strategy || !profile.market_insights) return null;
+  if (!profile.account_data || !profile.content_strategy || !profile.market_insights) return null;
   return {
+    context_version: STRATEGIC_CONTEXT_VERSION,
+    account_data:      profile.account_data,
     content_strategy: profile.content_strategy,
     market_insights:  profile.market_insights,
   };

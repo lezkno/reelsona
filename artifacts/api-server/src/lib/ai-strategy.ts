@@ -10,6 +10,7 @@ import { buildSemanticContext, normalizeCreatorProfile } from "./semantic-contex
 // ── Shared types (exported so routes and ai-scripts can import them) ──────────
 
 export interface AccountData {
+  context_version?: string;
   analyzed_posts: number;
   avg_engagement: number;
   avg_reach: number;
@@ -23,6 +24,10 @@ export interface AccountData {
     plays: number | null;
     engagement_rate: number | null;
     permalink: string | null;
+    reach?: number | null;
+    saved?: number | null;
+    shares?: number | null;
+    profile_visits?: number | null;
   }[];
   top_captions: string[];      // best-performing captions for AI context
   follower_count: number;
@@ -80,6 +85,8 @@ export interface ContentStrategy {
 }
 
 export interface StrategyContext {
+  context_version: string;
+  account_data: AccountData;
   content_strategy: ContentStrategy;
   market_insights: MarketInsights;
 }

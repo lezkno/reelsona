@@ -1008,6 +1008,8 @@ export async function runAutomationCycle(
     );
     return { success: false, message: "Niche not configured" };
   }
+  const strategyProfile = await getStrategyProfile(userId).catch(() => null);
+  const strategyContext = strategyProfile ? toStrategyContext(strategyProfile) : undefined;
   // Private avatars and cloned voices belong to the user's selected account.
   // The platform key remains the explicit fallback for users without BYOK.
   const heygenApiKey = await resolveHeyGenApiKey(userId);
@@ -1279,6 +1281,7 @@ export async function runAutomationCycle(
           voiceStyle: settings.voiceStyle,
           commonObjections: settings.commonObjections,
           customCta: settings.customCta,
+          strategyContext: strategyContext ?? undefined,
         },
       );
       // Resolve voice only for HeyGen items — WaveSpeed voice is in its own ctx.

@@ -24,6 +24,8 @@ export interface CreatorSemanticContext {
   customCta: string;
 }
 
+export const STRATEGIC_CONTEXT_VERSION = "commercial-strategy-v1";
+
 const MECHANISM_WORDS = /avatar|clon|chatbot|inteligencia artificial|\bia\b|\bai\b|automatiza|software|herramienta|bot|reel|contenido/i;
 
 export function normalizeCreatorProfile(input: CreatorProfileInput): CreatorSemanticContext {

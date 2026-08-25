@@ -337,7 +337,7 @@ router.post("/content", async (req, res): Promise<void> => {
     const existingItems = await db.select({ topic: contentPlanItemsTable.topic }).from(contentPlanItemsTable)
       .where(eq(contentPlanItemsTable.userId, userId)).limit(20);
     const [auditInsights, strategyProfile] = await Promise.all([
-      getLatestAuditCache().catch(() => null),
+      getLatestAuditCache(userId).catch(() => null),
       getStrategyProfile(userId).catch(() => null),
     ]);
     const strategyCtx = strategyProfile ? toStrategyContext(strategyProfile) : undefined;
@@ -509,6 +509,8 @@ router.post("/content/express", (req, res, next) => {
     // 2 ── Transcribe (the WAV lives only in memory; nothing is persisted)
     const [settings] = await db.select().from(settingsTable).where(eq(settingsTable.userId, userId)).limit(1);
     const language = settings?.language ?? "es";
+    const strategyProfile = await getStrategyProfile(userId).catch(() => null);
+    const strategyContext = strategyProfile ? toStrategyContext(strategyProfile) : undefined;
     let transcript = "";
     try {
       const openai = makeOpenAIClient({ timeout: 120_000 });
@@ -568,6 +570,7 @@ router.post("/content/express", (req, res, next) => {
           uniqueValueProp: settings?.uniqueValueProp,
           voiceStyle: settings?.voiceStyle,
           commonObjections: settings?.commonObjections,
+          strategyContext: strategyContext ?? undefined,
         },
       );
     } catch (err) {
@@ -742,6 +745,8 @@ router.post("/content/script", async (req, res): Promise<void> => {
   const tone = settings?.tone ?? "casual";
   const language = settings?.language ?? "es";
   const duration = parsed.data.duration_seconds ?? 60;
+  const strategyProfile = await getStrategyProfile(req.session.user!.userId).catch(() => null);
+  const strategyContext = strategyProfile ? toStrategyContext(strategyProfile) : undefined;
 
   const result = await generateScript(parsed.data.topic, niche, tone, language, duration, {
     nicheDescription: settings?.nicheDescription,
@@ -752,6 +757,7 @@ router.post("/content/script", async (req, res): Promise<void> => {
     voiceStyle: settings?.voiceStyle,
     commonObjections: settings?.commonObjections,
     customCta: settings?.customCta,
+    strategyContext: strategyContext ?? undefined,
   });
 
   res.json(

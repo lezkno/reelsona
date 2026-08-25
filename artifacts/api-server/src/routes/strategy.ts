@@ -142,6 +142,9 @@ router.post("/strategy/account", requirePlanAccess(PRO_PLANS), async (req, res):
           reach:          reach || null,
           plays:          insights.views ?? null,
           engagement_rate: engagementRate || null,
+            saved:          insights.saved ?? null,
+            shares:         insights.shares ?? insights.share_count ?? null,
+            profile_visits: insights.profile_visits ?? insights.profile_activity ?? null,
           timestamp:      m.timestamp,
         };
       })
@@ -179,6 +182,7 @@ router.post("/strategy/account", requirePlanAccess(PRO_PLANS), async (req, res):
     }).catch(() => {});
 
     const accountData: AccountData = {
+       context_version:   "commercial-strategy-v1",
        analyzed_posts: postsWithInsights.length,
       avg_engagement:       avgEngagement,
       avg_reach:            avgReach,
