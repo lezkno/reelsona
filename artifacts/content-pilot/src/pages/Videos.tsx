@@ -423,6 +423,21 @@ export default function Videos() {
   // ── Retry ─────────────────────────────────────────────────────────────────
   const handleRetry = (video: Video) => {
     if (!hasActivePlan(accessState)) { setPremiumOpen(true); return }
+    const publishFailure = /instagram|publicaci[oó]n|contenedor/i.test(String((video as any).error_message ?? ""))
+    if (publishFailure && video.video_url) {
+      publishVideo.mutate({ id: video.id, data: {} }, {
+        onSuccess: () => {
+          toast({ title: "Reintentando publicación", description: "El video volverá a enviarse a Instagram." })
+          queryClient.invalidateQueries({ queryKey: getGetVideosQueryKey() })
+          queryClient.invalidateQueries({ queryKey: getGetContentPlanQueryKey() })
+        },
+        onError: (err: any) => {
+          const detail = err?.response?.data?.error || err?.message || "No se pudo reintentar la publicación."
+          toast({ title: "Error al publicar", description: detail, variant: "destructive" })
+        },
+      })
+      return
+    }
     retryVideo.mutate({ id: video.id }, {
       onSuccess: () => {
         toast({ title: "Reintentando", description: "El ítem volvió al estado 'Guión listo'. Puedes generarlo de nuevo." })
@@ -887,7 +902,7 @@ export default function Videos() {
                     </div>
                   )}
 
-                  {/* Retry button for failed videos */}
+                  {/* Retry publication or generation for failed videos */}
                   {!selectMode && (video.status === 'failed' || video.status === 'cancelled') && (
                     <div className="mt-3 pt-3 border-t border-border/70 mb-3">
                       <Button
@@ -898,7 +913,11 @@ export default function Videos() {
                         disabled={retryVideo.isPending}
                       >
                         <RotateCcw className="w-3.5 h-3.5" />
-                        {retryVideo.isPending ? "Reintentando…" : "Reintentar generación"}
+                        {retryVideo.isPending || publishVideo.isPending
+                          ? "Reintentando…"
+                          : /instagram|publicaci[oó]n|contenedor/i.test(String((video as any).error_message ?? "")) && video.video_url
+                            ? "Reintentar publicación"
+                            : "Reintentar generación"}
                       </Button>
                     </div>
                   )}

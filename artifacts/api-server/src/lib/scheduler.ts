@@ -4128,6 +4128,21 @@ async function _publishVideoToInstagramInner(videoId: number, videoUrl?: string)
   const [video] = await db.select().from(videosTable).where(eq(videosTable.id, videoId));
   if (!video) throw new Error("Video disappeared after claim");
 
+  // Keep the content-plan state terminal with the video state. Without this,
+  // an Instagram failure leaves the plan item as "ready", so PipelineTimeline
+  // incorrectly continues showing the captions/effects step.
+  const markPlanItemPublishFailed = async () => {
+    if (!video.contentPlanId) return;
+    await db
+      .update(contentPlanItemsTable)
+      .set({ status: "failed", updatedAt: new Date() })
+      .where(and(
+        eq(contentPlanItemsTable.id, video.contentPlanId),
+        eq(contentPlanItemsTable.userId, video.userId),
+        inArray(contentPlanItemsTable.status, ["ready", "generating", "scripted"]),
+      ));
+  };
+
   // Use captioned URL if available (Caption Studio layer), fallback to original.
   // Captioned files live in /tmp which is cleared on every server restart.
   // Before passing the URL to Instagram, verify the file still exists on disk.
@@ -4291,6 +4306,7 @@ async function _publishVideoToInstagramInner(videoId: number, videoUrl?: string)
           .update(videosTable)
           .set({ status: "failed", igContainerId: null, errorMessage: "Instagram rechazó el video — reintenta la publicación", updatedAt: new Date() })
           .where(eq(videosTable.id, videoId));
+        await markPlanItemPublishFailed();
         throw new Error("Container processing failed — Instagram could not process the video");
       }
     }
@@ -4308,6 +4324,7 @@ async function _publishVideoToInstagramInner(videoId: number, videoUrl?: string)
           updatedAt: new Date(),
         })
         .where(and(eq(videosTable.id, videoId), eq(videosTable.status, "publishing")));
+      await markPlanItemPublishFailed();
       throw new Error(timeoutMessage);
     }
 
@@ -4365,6 +4382,7 @@ async function _publishVideoToInstagramInner(videoId: number, videoUrl?: string)
         .set({ status: "failed", errorMessage: err instanceof Error ? err.message : String(err), updatedAt: new Date() })
         .where(eq(videosTable.id, videoId));
     }
+    await markPlanItemPublishFailed();
     throw err;
   }
 }

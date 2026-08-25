@@ -529,6 +529,17 @@ router.post("/videos/:id/publish", async (req, res): Promise<void> => {
     await db.update(videosTable)
       .set({ status: "ready", errorMessage: null, updatedAt: new Date() })
       .where(and(eq(videosTable.id, video.id), eq(videosTable.userId, userId)));
+    // A publish failure is terminal for the current plan attempt, but the
+    // existing rendered video can be retried without regenerating it.
+    if (video.contentPlanId) {
+      await db.update(contentPlanItemsTable)
+        .set({ status: "ready", updatedAt: new Date() })
+        .where(and(
+          eq(contentPlanItemsTable.id, video.contentPlanId),
+          eq(contentPlanItemsTable.userId, userId),
+          eq(contentPlanItemsTable.status, "failed"),
+        ));
+    }
   }
   if (video.captionStatus === null || video.captionStatus === "processing") {
     res.status(400).json({ error: "Los subtítulos todavía se están procesando — espera un momento antes de publicar" });

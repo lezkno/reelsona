@@ -30,7 +30,7 @@ const BASE_STEPS = [
 ] as const
 
 type StepKey = typeof BASE_STEPS[number]["key"]
-type PipelineMode = "generating" | "captioning" | "copy_generating" | "publishing" | "awaiting_publish" | "scripted_waiting" | "next" | "done"
+type PipelineMode = "generating" | "captioning" | "copy_generating" | "publishing" | "awaiting_publish" | "scripted_waiting" | "next" | "done" | "failed"
 
 // ── Progress mapping ─────────────────────────────────────────────────────────
 // Returns a 0-based semantic step index using the full 6-step scale and an
@@ -93,7 +93,13 @@ function pickActiveItem(items: ContentPlanItem[]): { item: ContentPlanItem; mode
   )
   if (publishing) return { item: publishing, mode: "publishing" }
 
-  // Priority 5 — ready with terminal caption + copy, waiting to publish
+  // Priority 5 — a terminal failure must be visible instead of being
+  // replaced by an older ready item. The video and plan item are failed
+  // together by the server when Instagram rejects publication.
+  const failed = mostRecent(items.filter((i) => i.status === "failed"))
+  if (failed) return { item: failed, mode: "failed" }
+
+  // Priority 6 — ready with terminal caption + copy, waiting to publish
   const awaitingPublish = mostRecent(
     items.filter(
       (i) => i.status === "ready" &&
@@ -103,21 +109,21 @@ function pickActiveItem(items: ContentPlanItem[]): { item: ContentPlanItem; mode
   )
   if (awaitingPublish) return { item: awaitingPublish, mode: "awaiting_publish" }
 
-  // Priority 5 — script actively being generated
+  // Priority 7 — script actively being generated
   const scripting = mostRecent(items.filter((i) => i.status === "scripting"))
   if (scripting) return { item: scripting, mode: "scripted_waiting" }
 
-  // Priority 6 — scripted (script done, video not yet started)
+  // Priority 8 — scripted (script done, video not yet started)
   const scripted = mostRecent(items.filter((i) => i.status === "scripted"))
   if (scripted) return { item: scripted, mode: "scripted_waiting" }
 
-  // Priority 7 — next upcoming draft
+  // Priority 9 — next upcoming draft
   const upcoming = items
     .filter((i) => (i.status === "draft" || i.status === "scripting") && i.scheduled_at)
     .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime())
   if (upcoming[0]) return { item: upcoming[0], mode: "next" }
 
-  // Priority 7 — last published
+  // Priority 10 — last published
   const lastPublished = mostRecent(items.filter((i) => i.status === "published"))
   if (lastPublished) return { item: lastPublished, mode: "done" }
 
@@ -138,6 +144,7 @@ function getHeaderLabel(mode: PipelineMode, willAutoPublish: boolean | undefined
       : "Guion listo — revisa y genera el video"
     case "next":             return "Próximo video en cola"
     case "done":             return "Último video producido"
+    case "failed":           return "Error en el pipeline"
   }
 }
 
@@ -148,7 +155,7 @@ function getStepElapsedPercent(
   mode: PipelineMode,
   nowMs: number,
 ): { pct: number; remainingSec: number } | null {
-  if (mode === "next" || mode === "done" || mode === "awaiting_publish" || mode === "scripted_waiting") return null
+  if (mode === "next" || mode === "done" || mode === "failed" || mode === "awaiting_publish" || mode === "scripted_waiting") return null
   const activeKey: StepKey | null =
     mode === "generating"      ? "video"   :
     mode === "captioning"      ? "caption" :

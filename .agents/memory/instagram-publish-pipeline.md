@@ -31,7 +31,8 @@ The publish route now fires `publishVideoToInstagram(videoId).catch(logger.error
 
 When Instagram returns `ERROR` for a container:
 1. The code clears `igContainerId` (sets to null) and sets `status: "failed"` in the DB.
-2. The publish route resets `failed` → `ready` when the user retries (provided `videoUrl` exists).
-3. A fresh container is created on retry with the now-public URL.
+2. The linked content-plan item must also become `failed`; otherwise the pipeline UI can keep showing captions/effects progress for a rejected publication.
+3. The publish route resets `failed` → `ready` when the user retries (provided `videoUrl` exists), and the same rendered video can be republished without regenerating it.
+4. A fresh container is created on retry with the now-public URL.
 
 If signing the GCS URL fails (sidecar unavailable), the fallback is the stored dev-domain URL — which now works because `/captioned-objects` is served before auth.
