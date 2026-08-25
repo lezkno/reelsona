@@ -15,7 +15,7 @@ import { randomBytes } from "crypto";
 import { db } from "@workspace/db";
 import { users, userEntitlements, videosTable, settingsTable, captionConfigTable, userCreditsTable, stripePriceConfigsTable } from "@workspace/db";
 import { subscriptionsTable, instagramAccountsTable, wavespeedPersonasTable } from "@workspace/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, gte, lte, sql } from "drizzle-orm";
 import { normalizeVideoEffects } from "../lib/video-pipeline-effects";
 import {
   adjustCredits,
@@ -294,6 +294,28 @@ router.get("/admin/entitlements", async (req: Request, res: Response): Promise<v
 
   try {
     const { userEntitlements } = await import("@workspace/db/schema");
+    const fromParam = typeof req.query.from === "string" ? req.query.from : undefined;
+    const toParam = typeof req.query.to === "string" ? req.query.to : undefined;
+    const fromDate = fromParam ? new Date(`${fromParam}T00:00:00.000Z`) : undefined;
+    const toDate = toParam ? new Date(`${toParam}T23:59:59.999Z`) : undefined;
+
+    if (
+      (fromParam && (!/^\d{4}-\d{2}-\d{2}$/.test(fromParam) || Number.isNaN(fromDate?.getTime()))) ||
+      (toParam && (!/^\d{4}-\d{2}-\d{2}$/.test(toParam) || Number.isNaN(toDate?.getTime())))
+    ) {
+      res.status(400).json({ error: "Las fechas deben tener el formato YYYY-MM-DD" });
+      return;
+    }
+    if (fromDate && toDate && fromDate > toDate) {
+      res.status(400).json({ error: "La fecha inicial no puede ser posterior a la fecha final" });
+      return;
+    }
+
+    const filters = [
+      eq(users.role, "student"),
+      ...(fromDate ? [gte(users.lastLoginAt, fromDate)] : []),
+      ...(toDate ? [lte(users.lastLoginAt, toDate)] : []),
+    ];
     const rows = await db
       .select({
         userId:                   userEntitlements.userId,
@@ -311,10 +333,17 @@ router.get("/admin/entitlements", async (req: Request, res: Response): Promise<v
         availableCredits:         userCreditsTable.availableCredits,
         reservedCredits:          userCreditsTable.reservedCredits,
         totalConsumed:            userCreditsTable.totalConsumed,
+        generatedVideos: sql<number>`(
+          SELECT COUNT(*)::int
+          FROM videos AS generated_video
+          WHERE generated_video.user_id = ${users.id}
+            AND generated_video.status IN ('ready', 'published')
+        )`,
       })
       .from(userEntitlements)
       .innerJoin(users, eq(users.id, userEntitlements.userId))
       .leftJoin(userCreditsTable, eq(userCreditsTable.userId, userEntitlements.userId))
+      .where(and(...filters))
       .orderBy(userEntitlements.createdAt);
 
     const entitlements = rows.map((r) => ({ ...r }));

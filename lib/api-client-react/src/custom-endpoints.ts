@@ -489,6 +489,7 @@ export interface AdminEntitlement {
   availableCredits:         number | null;
   reservedCredits:          number | null;
   totalConsumed:            number | null;
+  generatedVideos:          number;
 }
 
 export interface ProvisionStudentInput {
@@ -512,10 +513,16 @@ export interface ProvisionResult {
 export const ADMIN_ENTITLEMENTS_KEY = ["admin", "entitlements"] as const;
 
 /** List all student entitlements. */
-export function useAdminEntitlements() {
+export function useAdminEntitlements(filters?: { from?: string; to?: string }) {
+  const params = new URLSearchParams();
+  if (filters?.from) params.set("from", filters.from);
+  if (filters?.to) params.set("to", filters.to);
+  const query = params.toString();
   return useQuery<{ entitlements: AdminEntitlement[] }>({
-    queryKey: ADMIN_ENTITLEMENTS_KEY,
-    queryFn:  () => customFetch<{ entitlements: AdminEntitlement[] }>("/api/admin/entitlements"),
+    queryKey: [...ADMIN_ENTITLEMENTS_KEY, filters?.from ?? "", filters?.to ?? ""],
+    queryFn:  () => customFetch<{ entitlements: AdminEntitlement[] }>(
+      `/api/admin/entitlements${query ? `?${query}` : ""}`,
+    ),
     staleTime: 1000 * 30,
   });
 }

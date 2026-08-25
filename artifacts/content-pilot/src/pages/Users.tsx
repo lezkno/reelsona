@@ -1137,8 +1137,14 @@ function ProvisionStudentDialog() {
 // ── Entitlements section ──────────────────────────────────────────────────────
 
 function EntitlementsSection() {
-  const { data, isLoading, error } = useAdminEntitlements()
+  const [dateFrom, setDateFrom] = useState("")
+  const [dateTo, setDateTo] = useState("")
+  const { data, isLoading, error } = useAdminEntitlements({
+    from: dateFrom || undefined,
+    to: dateTo || undefined,
+  })
   const entitlements = data?.entitlements ?? []
+  const hasDateFilter = Boolean(dateFrom || dateTo)
 
   return (
     <div className="space-y-4">
@@ -1172,6 +1178,49 @@ function EntitlementsSection() {
             <TooltipContent className="text-xs">Descargar lista de usuarios como archivo CSV</TooltipContent>
           </Tooltip>
         )}
+      </div>
+
+      <div className="flex flex-wrap items-end gap-3 rounded-xl border border-border bg-muted/20 p-4">
+        <div className="space-y-1.5">
+          <Label htmlFor="users-login-from" className="text-xs text-muted-foreground">
+            Entraron desde
+          </Label>
+          <Input
+            id="users-login-from"
+            type="date"
+            value={dateFrom}
+            max={dateTo || undefined}
+            onChange={(e) => setDateFrom(e.target.value)}
+            className="h-9 w-[170px]"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="users-login-to" className="text-xs text-muted-foreground">
+            Entraron hasta
+          </Label>
+          <Input
+            id="users-login-to"
+            type="date"
+            value={dateTo}
+            min={dateFrom || undefined}
+            onChange={(e) => setDateTo(e.target.value)}
+            className="h-9 w-[170px]"
+          />
+        </div>
+        {hasDateFilter && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-9"
+            onClick={() => { setDateFrom(""); setDateTo("") }}
+          >
+            Limpiar filtro
+          </Button>
+        )}
+        <p className="text-xs text-muted-foreground sm:ml-auto">
+          Filtra por la fecha del último acceso. Las fechas incluidas son inclusivas.
+        </p>
       </div>
 
       <div className="rounded-xl border border-border overflow-hidden bg-card">
@@ -1212,6 +1261,9 @@ function EntitlementsSection() {
                   <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">
                     <span className="flex items-center justify-end gap-1"><Coins className="w-3.5 h-3.5" /> Créditos</span>
                   </th>
+                   <th className="text-right px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">
+                     <span className="flex items-center justify-end gap-1"><CalendarDays className="w-3.5 h-3.5" /> Vídeos generados</span>
+                   </th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Fuente</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">Alta</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">
@@ -1337,6 +1389,15 @@ function EntitlementsSection() {
                           </span>
                         )}
                       </td>
+                       {/* Vídeos generados */}
+                       <td className="px-4 py-3.5 text-right">
+                         <span className={cn(
+                           "text-base font-bold",
+                           ent.generatedVideos > 0 ? "text-primary" : "text-muted-foreground/60"
+                         )}>
+                           {ent.generatedVideos}
+                         </span>
+                       </td>
                       {/* Acciones */}
                       <td className="px-3 py-3.5">
                         <div className="flex items-center gap-0.5">
