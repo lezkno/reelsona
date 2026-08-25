@@ -70,6 +70,11 @@ import {
   getObjectAclPolicy,
   setObjectAclPolicy,
 } from "../lib/objectAcl";
+import {
+  getWaveSpeedBrowserImageUrl,
+  getWaveSpeedProviderImageUrl,
+  persistWaveSpeedAvatarImage,
+} from "../lib/wavespeed-avatar-storage";
 
 const storageService = new ObjectStorageService();
 
@@ -388,7 +393,27 @@ router.get("/wavespeed/personas", async (req, res) => {
               eq(wavespeedLooksTable.userId, userId),
             ),
           );
-        return { ...p, looks, planEnabled: planEnabledMap.get(p.id) ?? true };
+        const storedLooks = await Promise.all(looks.map(async (look) => {
+          if (!look.imageUrl || look.imageUrl.startsWith("/objects/")) return look;
+          // Migrate older rows that still contain a temporary provider URL.
+          const storedPath = await persistWaveSpeedAvatarImage(look.imageUrl, userId);
+          await db
+            .update(wavespeedLooksTable)
+            .set({ imageUrl: storedPath, updatedAt: new Date() })
+            .where(and(
+              eq(wavespeedLooksTable.id, look.id),
+              eq(wavespeedLooksTable.userId, userId),
+            ));
+          return { ...look, imageUrl: storedPath };
+        }));
+        return {
+          ...p,
+          looks: storedLooks.map((look) => ({
+            ...look,
+            imageUrl: getWaveSpeedBrowserImageUrl(look.imageUrl),
+          })),
+          planEnabled: planEnabledMap.get(p.id) ?? true,
+        };
       }),
     );
 
@@ -436,8 +461,24 @@ router.get("/wavespeed/personas/:id/looks/status", async (req, res) => {
         const needsPoll =
           (cfg.generationStatus === "pending" && !!cfg.requestId) ||
           (cfg.generationStatus === "ready" && !look.imageUrl && !!cfg.requestId);
+        if (look.imageUrl && !look.imageUrl.startsWith("/objects/")) {
+          try {
+            const storedPath = await persistWaveSpeedAvatarImage(look.imageUrl, userId);
+            await db
+              .update(wavespeedLooksTable)
+              .set({ imageUrl: storedPath, updatedAt: new Date() })
+              .where(and(
+                eq(wavespeedLooksTable.id, look.id),
+                eq(wavespeedLooksTable.userId, userId),
+              ));
+            return { ...look, imageUrl: getWaveSpeedBrowserImageUrl(storedPath) };
+          } catch (migrationErr) {
+            req.log.warn({ lookId: look.id, err: migrationErr }, "[WaveSpeed] Failed to migrate legacy image to App Storage");
+            return look;
+          }
+        }
         if (!needsPoll) {
-          return look;
+          return { ...look, imageUrl: getWaveSpeedBrowserImageUrl(look.imageUrl) };
         }
 
         try {
@@ -463,8 +504,13 @@ router.get("/wavespeed/personas/:id/looks/status", async (req, res) => {
                 (obj["image"] as string | undefined) ??
                 (obj["url"] as string | undefined);
             }
-            const imageUrl = rawUrl ?? null;
-            req.log.info({ lookId: look.id, imageUrl }, "[WaveSpeed] Look completed, imageUrl resolved");
+            const imageUrl = rawUrl
+              ? await persistWaveSpeedAvatarImage(rawUrl, userId)
+              : null;
+            req.log.info(
+              { lookId: look.id, storedImagePath: imageUrl },
+              "[WaveSpeed] Look completed and persisted in App Storage",
+            );
             cfg.generationStatus = "ready";
             cfg.outputUrl = imageUrl;
             const newConfig = JSON.stringify(cfg);
@@ -476,7 +522,7 @@ router.get("/wavespeed/personas/:id/looks/status", async (req, res) => {
             consumeLookCredits(look.id).catch((err) =>
               req.log.warn({ err, lookId: look.id }, "[WaveSpeed] consumeLookCredits failed"),
             );
-            return { ...look, imageUrl, config: newConfig };
+            return { ...look, imageUrl: getWaveSpeedBrowserImageUrl(imageUrl), config: newConfig };
           } else if (result.status === "failed") {
             req.log.error({ lookId: look.id, error: result.error }, "[WaveSpeed] Look job failed");
             cfg.generationStatus = "failed";
@@ -956,7 +1002,7 @@ router.post("/wavespeed/personas/:id/looks/generate", async (req, res) => {
         res.status(400).json({ error: "El look de referencia no tiene imagen. Elige otro look." });
         return;
       }
-      referenceImageUrl = baseLook.imageUrl;
+      referenceImageUrl = await getWaveSpeedProviderImageUrl(baseLook.imageUrl);
     } else {
       if (!persona.referenceObjectPath) {
         res.status(400).json({ error: "Esta persona no tiene una foto de referencia guardada. Crea un nuevo avatar AI para generar más looks." });

@@ -73,6 +73,7 @@ import { wavespeedPersonasTable, wavespeedLooksTable, wavespeedVoicesTable, wave
 import { getUserPlanSlug, getAvatarLimit, computePersonaPlanEnabled, PlanBlockedError } from "./planLimits";
 import { createReelContainer, checkContainerStatus, publishContainer, getPermalink, refreshInstagramToken } from "./instagram-api";
 import { getServerReadableMediaUrl, getSignedCaptionedVideoUrl, objectStorageClient } from "./objectStorage";
+import { getWaveSpeedProviderImageUrl } from "./wavespeed-avatar-storage";
 import { makeOpenAIClient } from "./openai-client";
 import { getWavDurationMs, transcriptionResponseToSrt } from "./wavespeed-transcription-srt";
 import {
@@ -270,7 +271,7 @@ async function getWavespeedContext(
     return {
       personaId: persona.id,
       lookId: targetLook.id,
-      imageUrl: targetLook.imageUrl!,
+      imageUrl: await getWaveSpeedProviderImageUrl(targetLook.imageUrl!),
       voiceId: voice.wavespeedVoiceId,
       speed: voice.speed ?? null,
       pitch: voice.pitch ?? null,
@@ -361,7 +362,14 @@ async function buildUnifiedPool(
       slots.push({
         type: "wavespeed",
         id: `ws:${look.id}`,
-        ctx: { personaId: persona.id, lookId: look.id, imageUrl: look.imageUrl!, voiceId: voice.wavespeedVoiceId, speed: null, pitch: null },
+        ctx: {
+          personaId: persona.id,
+          lookId: look.id,
+          imageUrl: await getWaveSpeedProviderImageUrl(look.imageUrl!),
+          voiceId: voice.wavespeedVoiceId,
+          speed: null,
+          pitch: null,
+        },
       });
     }
   }
