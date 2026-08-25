@@ -818,7 +818,7 @@ function LooksDialogV3({
                   </>
                 ) : (
                   <>
-                    {isOwned && deletableLooks.length > 0 && (
+                    {false && isOwned && deletableLooks.length > 0 && (
                       <Button
                         variant="outline"
                         onClick={() => setSelectMode(true)}
@@ -828,7 +828,7 @@ function LooksDialogV3({
                         Eliminar looks
                       </Button>
                     )}
-                    {isOwned && looks.length > 0 && (
+                    {false && isOwned && looks.length > 0 && (
                       <Button variant="outline" onClick={() => {
                         if (!canUseFeature(lookDialogAccessState, "create_look")) {
                           onPlanRequired?.()
@@ -864,7 +864,7 @@ function LooksDialogV3({
         </DialogContent>
       </Dialog>
 
-      {newLookOpen && (
+      {false && newLookOpen && (
         <NewLookDialog
           group={group}
           existingLooks={looks}
@@ -3650,36 +3650,7 @@ export default function Avatars() {
   // Armed by the auto-save effect; called by the flush-on-unmount effect so
   // navigating away before the 700 ms debounce fires never loses a change.
   const flushSaveRef = useRef<(() => void) | null>(null)
-  const [showCreation, setShowCreation] = useState(false)
-  // Tracks a Digital Twin job that was dismissed from the dialog while still processing
-  const [pendingVideoJob, setPendingVideoJob] = useState<{ lookId: string; groupId: string; name: string; startedAt: number } | null>(null)
-  const [pendingElapsedSeconds, setPendingElapsedSeconds] = useState(0)
-
   // ── My Avatar tab ─────────────────────────────────────────────────────────
-  // ── Background Digital Twin poller ────────────────────────────────────────
-  // Polls the status of a Digital Twin job after the user dismisses the creation dialog.
-  const { data: pendingVideoStatus } = useHeyGenLookStatus(pendingVideoJob?.lookId ?? null)
-  useEffect(() => {
-    if (!pendingVideoJob || !pendingVideoStatus) return
-    if (pendingVideoStatus.status === "completed") {
-      toast({ title: "¡Avatar AI listo!", description: `"${pendingVideoJob.name}" ya está disponible en tu pestaña Mi Avatar.` })
-      setPendingVideoJob(null)
-    } else if (pendingVideoStatus.status === "failed") {
-      toast({ title: "Error al crear el Avatar AI", description: `"${pendingVideoJob.name}" no pudo procesarse. Intenta subir un video diferente.`, variant: "destructive" })
-      setPendingVideoJob(null)
-    }
-  }, [pendingVideoStatus?.status]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Tick elapsed time while a Digital Twin job is in progress so the card stays live
-  useEffect(() => {
-    if (!pendingVideoJob) { setPendingElapsedSeconds(0); return }
-    setPendingElapsedSeconds(Math.floor((Date.now() - pendingVideoJob.startedAt) / 1000))
-    const iv = setInterval(
-      () => setPendingElapsedSeconds(Math.floor((Date.now() - pendingVideoJob.startedAt) / 1000)),
-      5_000 // update every 5 s — granularity is minutes anyway
-    )
-    return () => clearInterval(iv)
-  }, [pendingVideoJob])
 
   // Reverse-lookup: resolve selected look IDs that are not yet in lookGroupMap.
   // Handles public-group looks selected in a previous session before localStorage
@@ -5114,25 +5085,6 @@ export default function Avatars() {
       )}
 
       {/* Dialogs */}
-      {false && showCreation && (
-        <AvatarCreationDialog
-          onClose={() => setShowCreation(false)}
-          voiceOptions={allVoices}
-          onPendingVideoJob={(job) => {
-            setPendingVideoJob({ ...job, startedAt: Date.now() })
-            setShowCreation(false)
-          }}
-          onCreated={(gId, lId, voiceId) => {
-            setShowCreation(false)
-            const newLookId = `tp:${lId}`
-            setLookGroupMap(prev => ({ ...prev, [newLookId]: gId }))
-            if (voiceId) {
-              setVoiceOverrides(prev => ({ ...prev, [newLookId]: voiceId }))
-            }
-          }}
-        />
-      )}
-
       {/* WaveSpeed Avatar creation wizard */}
       {showWavespeedWizard && (
         <CreateWavespeedAvatarDialog

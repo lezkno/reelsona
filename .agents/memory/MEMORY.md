@@ -64,3 +64,4 @@
 - [Webhook unknown subscription no-op](webhook-unknown-sub.md) — invoice.payment_failed for a sub not in local DB now returns 200 (no-op) instead of throwing 500, stopping Stripe retries for zombie subs.
 - [Radar account links](radar-account-links.md) — saved competitor links must point to the Instagram profile page, never to the profile image URL.
 - [WaveSpeed avatar storage](wavespeed-avatar-storage.md) — generated looks belong in private App Storage with per-user ownership; provider URLs are only temporary inputs.
+- [Centralized avatar policy](centralized-avatar-policy.md) — HeyGen stays public/central; WaveSpeed stays private per user; test both client surfaces and internal owner-scoped mutations.

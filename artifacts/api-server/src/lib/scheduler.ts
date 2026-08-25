@@ -265,7 +265,10 @@ async function getWavespeedContext(
       await db
         .update(wavespeedPersonasTable)
         .set({ lastUsedLookId: targetLook.id, updatedAt: new Date() })
-        .where(eq(wavespeedPersonasTable.id, persona.id));
+        .where(and(
+          eq(wavespeedPersonasTable.id, persona.id),
+          eq(wavespeedPersonasTable.userId, userId),
+        ));
     }
 
     return {
@@ -4411,7 +4414,10 @@ async function pollPendingWavespeedVoices(): Promise<void> {
           if (!finalVoiceId) {
             await db.update(wavespeedVoicesTable)
               .set({ status: "failed", errorMessage: "WaveSpeed no devolvió un custom_voice_id válido", updatedAt: now })
-              .where(eq(wavespeedVoicesTable.id, voice.id));
+              .where(and(
+                eq(wavespeedVoicesTable.id, voice.id),
+                eq(wavespeedVoicesTable.userId, voice.userId),
+              ));
             await releaseVoiceCredits(voice.id, "wavespeed", "WaveSpeed voice clone returned no valid voice id").catch((err) =>
               logger.warn({ err, id: voice.id }, "[WSVoicePoller] releaseVoiceCredits failed"),
             );
@@ -4422,7 +4428,10 @@ async function pollPendingWavespeedVoices(): Promise<void> {
           await db
             .update(wavespeedVoicesTable)
             .set({ status: "ready", wavespeedVoiceId: finalVoiceId, updatedAt: now })
-            .where(eq(wavespeedVoicesTable.id, voice.id));
+            .where(and(
+              eq(wavespeedVoicesTable.id, voice.id),
+              eq(wavespeedVoicesTable.userId, voice.userId),
+            ));
           await consumeVoiceCredits(voice.id, "wavespeed").catch((err) =>
             logger.warn({ err, id: voice.id }, "[WSVoicePoller] consumeVoiceCredits failed"),
           );
@@ -4458,7 +4467,10 @@ async function pollPendingWavespeedVoices(): Promise<void> {
               errorMessage: "No se pudo procesar la voz. Intenta crearla de nuevo.",
               updatedAt: now,
             })
-            .where(eq(wavespeedVoicesTable.id, voice.id));
+            .where(and(
+              eq(wavespeedVoicesTable.id, voice.id),
+              eq(wavespeedVoicesTable.userId, voice.userId),
+            ));
           await releaseVoiceCredits(voice.id, "wavespeed", "WaveSpeed voice clone failed").catch((err) =>
             logger.warn({ err, id: voice.id }, "[WSVoicePoller] releaseVoiceCredits failed"),
           );
@@ -4491,7 +4503,10 @@ async function pollPendingWavespeedVoices(): Promise<void> {
           await db
             .update(wavespeedVoicesTable)
             .set({ status: "failed", errorMessage: "Timeout: voice clone took longer than 60 minutes", updatedAt: now })
-            .where(eq(wavespeedVoicesTable.id, voice.id));
+            .where(and(
+              eq(wavespeedVoicesTable.id, voice.id),
+              eq(wavespeedVoicesTable.userId, voice.userId),
+            ));
           await releaseVoiceCredits(voice.id, "wavespeed", "WaveSpeed voice clone timeout").catch((err) =>
             logger.warn({ err, id: voice.id }, "[WSVoicePoller] releaseVoiceCredits (timeout) failed"),
           );

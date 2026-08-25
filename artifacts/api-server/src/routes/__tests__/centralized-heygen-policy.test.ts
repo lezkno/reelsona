@@ -25,3 +25,26 @@ test("WaveSpeed look mutations remain user-scoped", () => {
   assert.match(source, /eq\(wavespeedLooksTable\.id, look\.id\),\s*eq\(wavespeedLooksTable\.userId, userId\)/);
   assert.match(source, /eq\(wavespeedLooksTable\.id, look\.id\),\s*eq\(wavespeedLooksTable\.userId, userId\)/);
 });
+
+test("scheduler WaveSpeed mutations carry the owning user id", () => {
+  const source = read("lib/scheduler.ts");
+  assert.match(
+    source,
+    /update\(wavespeedPersonasTable\)[\s\S]*?eq\(wavespeedPersonasTable\.id, persona\.id\),[\s\S]*?eq\(wavespeedPersonasTable\.userId, userId\)/,
+  );
+  assert.match(
+    source,
+    /update\(wavespeedVoicesTable\)[\s\S]*?eq\(wavespeedVoicesTable\.id, voice\.id\),[\s\S]*?eq\(wavespeedVoicesTable\.userId, voice\.userId\)/,
+  );
+});
+
+test("Avatars page does not render retired HeyGen private controls", () => {
+  const source = fs.readFileSync(
+    path.resolve(root, "../../content-pilot/src/pages/Avatars.tsx"),
+    "utf8",
+  );
+  assert.match(source, /\{false && isOwned && deletableLooks\.length > 0/);
+  assert.match(source, /\{false && isOwned && looks\.length > 0/);
+  assert.doesNotMatch(source, /pendingVideoJob\?\.lookId/);
+  assert.doesNotMatch(source, /\{false && showCreation/);
+});
