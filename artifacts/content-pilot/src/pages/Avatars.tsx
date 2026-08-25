@@ -3657,7 +3657,7 @@ export default function Avatars() {
   const [pendingElapsedSeconds, setPendingElapsedSeconds] = useState(0)
 
   // ── My Avatar tab ─────────────────────────────────────────────────────────
-  const { data: myData, isLoading: isLoadingMy, refetch: refetchMy } = useMyHeyGenAvatarGroups()
+  const { data: myData, refetch: refetchMy } = useMyHeyGenAvatarGroups()
   const myGroups: V3Group[] = myData?.groups ?? []
 
   // ── Background Digital Twin poller ────────────────────────────────────────
@@ -4284,9 +4284,6 @@ export default function Avatars() {
 
   // ── Filter: show only avatar groups that have selected looks ──────────────
   const [showOnlySelected, setShowOnlySelected] = useState(false)
-  const filteredMyGroups = showOnlySelected
-    ? myGroups.filter(g => (selectedByGroup.get(g.id) ?? 0) > 0)
-    : myGroups
   const filteredPublicGroups = showOnlySelected
     ? verticalPublicGroups.filter(g => (selectedByGroup.get(g.id) ?? 0) > 0)
     : verticalPublicGroups
