@@ -28,7 +28,7 @@ describe("commercial semantic context", () => {
     assert.match(context, /La OFERTA es el único producto/);
   });
 
-  it("rejects selling an avatar or chatbot when the offer sells software", () => {
+  it("rejects selling an avatar or chatbot when the configured offer is different", () => {
     const result = validateSemanticOutput({
       topic: "Más vistas no significan más ventas",
       script: "Un Reel puede conseguir miles de vistas y aun así no vender ni un avatar. Si vendes automatizaciones, puedes usar un avatar y un chatbot para vender.",
@@ -39,7 +39,7 @@ describe("commercial semantic context", () => {
     assert.ok(result.reasons.some((reason) => reason.includes("chatbot")));
   });
 
-  it("accepts a specific script that positions Reelsona as the software", () => {
+  it("accepts a specific script that positions the configured offer correctly", () => {
     const result = validateSemanticOutput({
       topic: "Tus reels pueden tener constancia aunque no tengas tiempo para grabar",
       script: "Si eres dueño de un negocio, el problema no es que te falten ideas, es que producir cada Reel te quita demasiado tiempo. Reelsona usa un avatar digital y automatizaciones para crear reels de Instagram sin una producción compleja. Así mantienes presencia y puedes concentrarte en atender a tus clientes. Sígueme para ver cómo crear contenido con Reelsona.",
@@ -61,5 +61,22 @@ describe("commercial semantic context", () => {
     }, profile);
     assert.equal(result.valid, false);
     assert.ok(result.reasons.some((reason) => reason.includes("chatbot")));
+  });
+
+  it("uses a service offer dynamically instead of assuming software", () => {
+    const profile = normalizeCreatorProfile({
+      niche: "nutrición para deportistas",
+      topicKeywords: ["proteína", "plan de comidas", "automatización"],
+      offer: "Servicio de asesoría nutricional personalizada para corredores.",
+      idealAudience: "Corredores amateurs que quieren mejorar su alimentación.",
+    });
+    const context = buildSemanticContext(profile);
+    assert.match(context, /OFERTA CONFIGURADA ES LA ÚNICA PROPUESTA/);
+    assert.match(context, /Servicio de asesoría nutricional personalizada/);
+    const result = validateSemanticOutput({
+      script: "Si corres y no sabes cómo organizar tus comidas, mi servicio de asesoría nutricional personalizada adapta tu plan a tus entrenamientos.",
+      cta: "Reserva tu asesoría nutricional personalizada.",
+    }, profile);
+    assert.equal(result.valid, true);
   });
 });

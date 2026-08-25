@@ -31,7 +31,7 @@ const MECHANISM_WORDS = /avatar|clon|chatbot|inteligencia artificial|\bia\b|\bai
 export function normalizeCreatorProfile(input: CreatorProfileInput): CreatorSemanticContext {
   const description = input.nicheDescription?.trim() ?? "";
   const audience = input.idealAudience?.trim() || "personas interesadas en el nicho configurado";
-  const offer = input.offer?.trim() || input.uniqueValueProp?.trim() || "No hay una oferta/producto explícitamente configurado";
+  const offer = input.offer?.trim() || input.uniqueValueProp?.trim() || "No hay un producto o servicio explícitamente configurado";
   const problemsAndDesires = [description, input.commonObjections?.trim()].filter(Boolean).join(" ");
   const mechanisms = (input.topicKeywords ?? []).filter((keyword) => MECHANISM_WORDS.test(keyword)).join(", ");
   const result = input.uniqueValueProp?.trim() || description || "resultado no configurado explícitamente";
@@ -62,7 +62,7 @@ JERARQUÍA SEMÁNTICA OBLIGATORIA DEL PERFIL:
 8. PALABRAS CLAVE SECUNDARIAS: ${profile.keywords.join(", ") || "ninguna"}
 
 REGLAS DE INTERPRETACIÓN:
-- La OFERTA es el único producto que puedes presentar como vendido. Nunca conviertas una keyword o un mecanismo en producto.
+- La OFERTA CONFIGURADA es la única propuesta que puedes presentar como producto o servicio ofrecido. Nunca conviertas una keyword o un mecanismo en una oferta.
 - Avatar, clon digital, chatbot, inteligencia artificial, automatización y cualquier herramienta son mecanismos o conceptos, salvo que la OFERTA diga explícitamente que se venden.
 - Habla a la AUDIENCIA configurada y conecta sus PROBLEMAS/DESEOS con el RESULTADO configurado.
 - Las keywords solo sirven para elegir subtemas y vocabulario relevante. No las enumeres ni las conviertas automáticamente en ofertas.

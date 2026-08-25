@@ -537,7 +537,7 @@ ${semanticContext}
 
 Reescribe UNA SOLA VEZ el siguiente guion para corregir exclusivamente los problemas semánticos detectados.
 Conserva el ángulo específico, el hook, la naturalidad, el tono y la duración. No vuelvas el guion genérico.
-La OFERTA es el único producto. Los mecanismos no son productos salvo que la oferta lo diga.
+La OFERTA CONFIGURADA puede ser cualquier producto o servicio del usuario. Es la única propuesta que puedes presentar como ofrecida; los mecanismos no son ofertas salvo que la oferta lo diga explícitamente.
 Problemas detectados:
 ${semanticCheck.reasons.map((reason) => `- ${reason}`).join("\n")}
 
