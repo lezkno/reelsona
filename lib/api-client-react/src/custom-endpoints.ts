@@ -670,17 +670,6 @@ export function useGetCaptionBrowserTemplates() {
   });
 }
 
-// ── HeyGen ───────────────────────────────────────────────────────────────────
-
-/** Remove the user-stored HeyGen API key (falls back to env var if set). */
-export function useDisconnectHeyGen() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: () => customFetch<{ ok: boolean }>("/api/heygen/account", { method: "DELETE" }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: HEYGEN_ACCOUNT_QUERY_KEY }),
-  });
-}
-
 // ── Viral Editorial Engine ────────────────────────────────────────────────────
 
 export type RegenerateCriterion = "educational" | "controversial" | "storytelling" | "sales" | "emotional";
