@@ -312,7 +312,6 @@ router.get("/admin/entitlements", async (req: Request, res: Response): Promise<v
     }
 
     const filters = [
-      eq(users.role, "student"),
       ...(fromDate ? [gte(users.lastLoginAt, fromDate)] : []),
       ...(toDate ? [lte(users.lastLoginAt, toDate)] : []),
     ];
@@ -343,7 +342,7 @@ router.get("/admin/entitlements", async (req: Request, res: Response): Promise<v
       .from(userEntitlements)
       .innerJoin(users, eq(users.id, userEntitlements.userId))
       .leftJoin(userCreditsTable, eq(userCreditsTable.userId, userEntitlements.userId))
-      .where(and(...filters))
+      .where(filters.length > 0 ? and(...filters) : undefined)
       .orderBy(userEntitlements.createdAt);
 
     const entitlements = rows.map((r) => ({ ...r }));
