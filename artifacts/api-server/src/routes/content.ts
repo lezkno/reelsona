@@ -65,6 +65,7 @@ const router = Router();
 interface VideoInfo {
   captionStatus: string | null;
   videoStatus: string | null;
+  videoCreatedAt: string | null;
   videoUrl: string | null;
   captionedVideoUrl: string | null;
   thumbnailUrl: string | null;
@@ -96,6 +97,7 @@ function mapItem(
     captioned_video_url: videoInfo?.captionedVideoUrl ?? null,
     thumbnail_url: videoInfo?.thumbnailUrl ?? null,
     video_status: videoInfo?.videoStatus ?? null,
+    video_created_at: videoInfo?.videoCreatedAt ?? null,
     // Effects actually applied when the video was processed (from the video record).
     // Distinct from video_effects_override which is the per-item config setting.
     video_effects: videoInfo?.videoEffects ?? null,
@@ -131,6 +133,7 @@ async function fetchVideoInfos(videoIds: number[]): Promise<Map<number, VideoInf
       id: videosTable.id,
       captionStatus: videosTable.captionStatus,
       videoStatus: videosTable.status,
+      videoCreatedAt: videosTable.createdAt,
       videoUrl: videosTable.videoUrl,
       captionedVideoUrl: videosTable.captionedVideoUrl,
       thumbnailUrl: videosTable.thumbnailUrl,
@@ -144,6 +147,7 @@ async function fetchVideoInfos(videoIds: number[]): Promise<Map<number, VideoInf
       {
         captionStatus: r.captionStatus,
         videoStatus: r.videoStatus,
+        videoCreatedAt: r.videoCreatedAt?.toISOString() ?? null,
         videoUrl: getBrowserMediaUrl(r.videoUrl),
         captionedVideoUrl: getBrowserMediaUrl(resolveCaptionedUrl(r.captionedVideoUrl)),
         thumbnailUrl: getBrowserMediaUrl(r.thumbnailUrl),

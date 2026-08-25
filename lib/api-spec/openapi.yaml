@@ -1155,6 +1155,9 @@ components:
           type: ["string", "null"]
           enum: [pending, generating, ready, published, publishing, failed, cancelled, null]
           description: Status of the associated video record
+        video_created_at:
+          type: ["string", "null"]
+          description: Generation timestamp of the associated video record
         video_url:
           type: ["string", "null"]
           description: HeyGen-rendered video URL from the associated video record

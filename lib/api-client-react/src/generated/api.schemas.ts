@@ -398,6 +398,11 @@ export interface ContentPlanItem {
      */
   video_status?: ContentPlanItemVideoStatus;
   /**
+     * Generation timestamp of the associated video record
+     * @nullable
+     */
+  video_created_at?: string | null;
+  /**
      * HeyGen-rendered video URL from the associated video record
      * @nullable
      */

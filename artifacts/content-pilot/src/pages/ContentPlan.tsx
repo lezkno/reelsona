@@ -995,6 +995,12 @@ export default function ContentPlan() {
                                 {format(new Date(item.scheduled_at), "MMM d, HH:mm", { locale: es })}
                               </div>
                             )}
+                            {item.video_id != null && item.video_created_at && (
+                              <div className="text-xs text-muted-foreground flex items-center gap-1">
+                                <Video className="w-3 h-3" />
+                                Generado {format(new Date(item.video_created_at), "d MMM yyyy, HH:mm", { locale: es })}
+                              </div>
+                            )}
                           </div>
 
                           <div className="flex-1">
