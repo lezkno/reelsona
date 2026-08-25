@@ -3716,22 +3716,6 @@ export default function Avatars() {
     isLoading: isLoadingPublic,
   } = usePublicHeyGenAvatarGroups()
   const publicGroups: V3Group[] = publicPages?.pages.flatMap(p => p.groups) ?? []
-  const publicPreviewOrientations = usePreviewOrientations(
-    publicGroups.map(group => group.preview_image_url),
-  )
-  const verticalPublicGroups = useMemo(
-    () => publicGroups.filter(
-      // HeyGen previews are hosted on a separate CDN. If the browser cannot
-      // measure one (transient CDN error, privacy setting, or a new asset
-      // format), keep it visible rather than making the whole catalog appear
-      // empty. Only confirmed horizontal previews are excluded.
-      group => group.preview_image_url && publicPreviewOrientations[group.preview_image_url] !== "horizontal",
-    ),
-    [publicGroups, publicPreviewOrientations],
-  )
-  const hasPendingPublicPreviewCheck = publicGroups.some(
-    group => group.preview_image_url && !publicPreviewOrientations[group.preview_image_url],
-  )
 
   // voiceId → selected HeyGen groups that have that voice assigned
   const heygenVoiceAssignedGroups = useMemo(() => {
@@ -4240,8 +4224,8 @@ export default function Avatars() {
   // ── Filter: show only avatar groups that have selected looks ──────────────
   const [showOnlySelected, setShowOnlySelected] = useState(false)
   const filteredPublicGroups = showOnlySelected
-    ? verticalPublicGroups.filter(g => (selectedByGroup.get(g.id) ?? 0) > 0)
-    : verticalPublicGroups
+    ? publicGroups.filter(g => (selectedByGroup.get(g.id) ?? 0) > 0)
+    : publicGroups
 
   // ── Handlers ──────────────────────────────────────────────────────────────
   const toggleLook = (id: string) => {
