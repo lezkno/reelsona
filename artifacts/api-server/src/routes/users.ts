@@ -156,6 +156,12 @@ router.patch("/users/:id", async (req: Request, res: Response): Promise<void> =>
     updates.role = allowedRoles.includes(role) ? role : "admin";
   }
   if (!isSelf && isActive !== undefined) updates.isActive = Boolean(isActive);
+  if (
+    !isSelf &&
+    (role !== undefined || isActive !== undefined || password !== undefined)
+  ) {
+    updates.sessionVersion = sql`${users.sessionVersion} + 1`;
+  }
   if (password) {
     if (password.length < 6) {
       res.status(400).json({ error: "La contraseña debe tener al menos 6 caracteres" });

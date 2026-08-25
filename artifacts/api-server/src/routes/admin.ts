@@ -26,6 +26,7 @@ import { getStripe, invalidatePriceCache } from "../lib/stripe";
 import { invalidateAccessCache } from "../middleware/requireToolAccess";
 import { invalidatePlanCache } from "../middleware/requirePlanAccess";
 import { upsertEntitlement } from "../lib/access";
+import { getCurrentSessionUser } from "../middleware/auth";
 
 const router = Router();
 
@@ -40,6 +41,39 @@ function isAdminRequest(req: Request): boolean {
     req.session?.user?.role === "admin";
   return bearerValid || sessionValid;
 }
+
+// This router is mounted before the global auth middleware, so it must perform
+// its own authoritative DB check. The session role alone is not sufficient:
+// another request may have suspended, deactivated, or demoted this account.
+router.use("/admin", async (req: Request, res: Response, next): Promise<void> => {
+  const adminPw = process.env.ADMIN_PASSWORD;
+  const authHeader = req.headers.authorization ?? "";
+  if (adminPw && authHeader === `Bearer ${adminPw}`) {
+    next();
+    return;
+  }
+
+  try {
+    const user = await getCurrentSessionUser(req);
+    const sessionUser = req.session?.user;
+    if (
+      !req.session?.authenticated ||
+      !sessionUser ||
+      !user ||
+      user.role !== "admin" ||
+      !user.isActive ||
+      user.isSuspended ||
+      user.sessionVersion !== sessionUser.sessionVersion
+    ) {
+      res.status(403).json({ error: "Acceso denegado" });
+      return;
+    }
+    next();
+  } catch (err) {
+    console.error("[admin/auth]", err);
+    res.status(503).json({ error: "No se pudo verificar la autorización" });
+  }
+});
 
 // ── POST /api/admin/provision ─────────────────────────────────────────────────
 /**
@@ -814,6 +848,7 @@ router.post("/admin/users/:userId/toggle-suspend", async (req: Request, res: Res
       .set({
         isSuspended: newSuspended,
         suspendedAt: newSuspended ? new Date() : null,
+        sessionVersion: sql`${users.sessionVersion} + 1`,
         updatedAt:   new Date(),
       })
       .where(eq(users.id, userId));
@@ -847,7 +882,11 @@ router.post("/admin/users/:userId/set-password", async (req: Request, res: Respo
   try {
     const result = await db
       .update(users)
-      .set({ passwordHash: hashPassword(password), updatedAt: new Date() })
+      .set({
+        passwordHash: hashPassword(password),
+        sessionVersion: sql`${users.sessionVersion} + 1`,
+        updatedAt: new Date(),
+      })
       .where(eq(users.id, userId))
       .returning({ id: users.id });
 

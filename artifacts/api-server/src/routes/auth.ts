@@ -3,12 +3,27 @@ import type { Request, Response } from "express";
 import { randomBytes } from "crypto";
 import { db } from "@workspace/db";
 import { users } from "@workspace/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { verifyPassword, hashPassword } from "../lib/password";
 import { sendEmail, passwordChangedEmail, passwordResetEmail, verificationEmail, activationEmail, getAppUrl } from "../lib/email";
 import { getUserAccess } from "../lib/access";
+import { getCurrentSessionUser, destroySession } from "../middleware/auth";
 
 const router = Router();
+
+function regenerateAuthenticatedSession(
+  req: Request,
+  user: { username: string; role: string; userId: number; sessionVersion: number },
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    req.session.regenerate((err) => {
+      if (err) { reject(err); return; }
+      req.session.authenticated = true;
+      req.session.user = user;
+      resolve();
+    });
+  });
+}
 
 /**
  * POST /api/auth/login
@@ -58,8 +73,12 @@ router.post("/auth/login", async (req: Request, res: Response): Promise<void> =>
       .set({ lastLoginAt: new Date(), updatedAt: new Date() })
       .where(eq(users.id, user.id));
 
-    req.session.authenticated = true;
-    req.session.user = { username: user.username, role: user.role, userId: user.id };
+    await regenerateAuthenticatedSession(req, {
+      username: user.username,
+      role: user.role,
+      userId: user.id,
+      sessionVersion: user.sessionVersion,
+    });
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: "Error interno del servidor" });
@@ -84,21 +103,34 @@ router.get("/auth/me", async (req: Request, res: Response): Promise<void> => {
     res.status(401).json({ authenticated: false });
     return;
   }
-  const sessionUser = req.session.user ?? { username: "admin", role: "admin", userId: 1 };
   try {
-    const [row] = await db.select().from(users).where(eq(users.id, sessionUser.userId)).limit(1);
+    const currentUser = await getCurrentSessionUser(req);
+    const sessionUser = req.session.user;
+    if (!currentUser || !sessionUser || !currentUser.isActive || currentUser.isSuspended) {
+      destroySession(req);
+      res.status(401).json({ authenticated: false, code: "SESSION_REVOKED" });
+      return;
+    }
+    if (currentUser.sessionVersion !== sessionUser.sessionVersion) {
+      destroySession(req);
+      res.status(401).json({ authenticated: false, code: "SESSION_REVOKED" });
+      return;
+    }
     res.json({
       authenticated: true,
       user: {
         ...sessionUser,
-        fullName: row?.fullName ?? null,
-        email: row?.email ?? null,
-        phone: row?.phone ?? null,
-        avatarUrl: row?.avatarUrl ?? null,
+        username: currentUser.username,
+        role: currentUser.role,
+        fullName: currentUser.fullName,
+        email: currentUser.email,
+        phone: currentUser.phone,
+        avatarUrl: currentUser.avatarUrl,
       },
     });
-  } catch {
-    res.json({ authenticated: true, user: sessionUser });
+  } catch (err) {
+    console.error("[auth/me]", err);
+    res.status(503).json({ error: "No se pudo verificar la sesión" });
   }
 });
 
@@ -190,6 +222,7 @@ router.post("/auth/reset-password", async (req: Request, res: Response): Promise
       passwordHash: hashPassword(password),
       passwordResetToken: null,
       passwordResetTokenExpiresAt: null,
+      sessionVersion: sql`${users.sessionVersion} + 1`,
       updatedAt: new Date(),
     }).where(eq(users.id, user.id));
     if (user.email) sendEmail({ to: user.email, ...passwordChangedEmail(user.fullName ?? user.username) }).catch(() => {});
@@ -227,7 +260,11 @@ router.post("/auth/change-password", async (req: Request, res: Response): Promis
       return;
     }
     await db.update(users)
-      .set({ passwordHash: hashPassword(newPassword), updatedAt: new Date() })
+      .set({
+        passwordHash: hashPassword(newPassword),
+        sessionVersion: sql`${users.sessionVersion} + 1`,
+        updatedAt: new Date(),
+      })
       .where(eq(users.id, userId));
 
     // Fire-and-forget: notify by email (don't block the response)
@@ -236,6 +273,12 @@ router.post("/auth/change-password", async (req: Request, res: Response): Promis
       sendEmail({ to: user.email, ...tpl }).catch(() => {})
     }
 
+    await regenerateAuthenticatedSession(req, {
+      username: user.username,
+      role: user.role,
+      userId: user.id,
+      sessionVersion: user.sessionVersion + 1,
+    });
     res.json({ ok: true });
   } catch {
     res.status(500).json({ error: "Error al cambiar contraseña" });
@@ -326,12 +369,17 @@ router.post("/auth/activate", async (req: Request, res: Response): Promise<void>
       verificationToken:           null,   // also counts as email-verified
       verificationTokenExpiresAt:  null,
       lastLoginAt:                 new Date(),
+      sessionVersion:               sql`${users.sessionVersion} + 1`,
       updatedAt:                   new Date(),
     }).where(eq(users.id, user.id));
 
     // Create session so user is logged in immediately
-    req.session.authenticated = true;
-    req.session.user = { username: user.username, role: user.role, userId: user.id };
+    await regenerateAuthenticatedSession(req, {
+      username: user.username,
+      role: user.role,
+      userId: user.id,
+      sessionVersion: user.sessionVersion + 1,
+    });
 
     res.json({ ok: true });
   } catch (err) {
@@ -348,7 +396,9 @@ router.post("/auth/activate", async (req: Request, res: Response): Promise<void>
 router.get("/auth/entitlement", async (req: Request, res: Response): Promise<void> => {
   if (!req.session?.authenticated) { res.status(401).json({ error: "No autenticado" }); return; }
 
-  const { userId, role } = req.session.user ?? { userId: 1, role: "admin" };
+  const sessionUser = req.session.user;
+  if (!sessionUser?.userId) { res.status(401).json({ error: "Sesión inválida" }); return; }
+  const { userId, role } = sessionUser;
   const isAdmin = role === "admin";
 
   try {

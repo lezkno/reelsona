@@ -1,4 +1,4 @@
-import { pgTable, serial, varchar, text, timestamp, boolean } from "drizzle-orm/pg-core";
+import { pgTable, serial, varchar, text, timestamp, boolean, integer } from "drizzle-orm/pg-core";
 
 export const users = pgTable("users", {
   id:           serial("id").primaryKey(),
@@ -18,6 +18,7 @@ export const users = pgTable("users", {
   activationTokenExpiresAt:    timestamp("activation_token_expires_at"),
   passwordResetToken:          text("password_reset_token"),
   passwordResetTokenExpiresAt: timestamp("password_reset_token_expires_at"),
+  sessionVersion:            integer("session_version").notNull().default(1),
   isSuspended:               boolean("is_suspended").notNull().default(false),
   suspendedAt:               timestamp("suspended_at"),
   createdAt:                 timestamp("created_at").notNull().defaultNow(),
