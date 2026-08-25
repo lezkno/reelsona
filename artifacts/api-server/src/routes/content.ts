@@ -176,8 +176,6 @@ router.get("/content/plan", async (req, res): Promise<void> => {
     db.select().from(automationConfigTable).where(eq(automationConfigTable.userId, userId)).limit(1),
   ]);
 
-  const captionsGloballyEnabled = automation?.captionsEnabled ?? false;
-
   // Fetch video info (caption status + URLs) for items that have an associated video
   const videoIds = items.map((i) => i.videoId).filter((v): v is number => v != null);
   const videoInfoMap = await fetchVideoInfos(videoIds);
@@ -188,18 +186,12 @@ router.get("/content/plan", async (req, res): Promise<void> => {
         if (i.videoId == null) return mapItem(i, null, null);
 
         const info = videoInfoMap.get(i.videoId) ?? null;
-        let cs = info?.captionStatus ?? null;
-
-        // Backfill: videos created before the captionStatus-aware fix have
-        // captionStatus = "disabled" by default. If captions are globally
-        // enabled and the item is still in-flight (generating/ready), treat
-        // it as null (pending) so the Caption Studio step appears in the UI.
-        const inFlight = i.status === "generating" || i.status === "ready";
-        if (captionsGloballyEnabled && cs === "disabled" && inFlight) {
-          cs = null;
-        }
-
-        return mapItem(i, cs, info);
+        // Preserve the durable status from the video record. In particular,
+        // an older ready video with captions disabled must not be rewritten to
+        // null just because the account has since enabled captions globally;
+        // null means genuinely pending and drives the loading state in the
+        // calendar.
+        return mapItem(i, info?.captionStatus ?? null, info);
       })
     )
   );

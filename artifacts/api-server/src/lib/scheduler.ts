@@ -1080,8 +1080,18 @@ export async function runAutomationCycle(
   // Items scheduled before this moment are considered "overdue" for auto-processing.
   // The auto cycle never processes them — the user must explicitly reschedule them via
   // the ContentPlan UI. Manual triggers (targetItemId set) bypass this guard.
-  const todayStart = new Date(now);
-  todayStart.setUTCHours(0, 0, 0, 0);
+  // The content plan is a user's local calendar, not the server's UTC
+  // calendar. Using UTC midnight here lets a cycle in a timezone east of UTC
+  // pick up an item from the previous local day as if it belonged to today.
+  const localToday = getZonedDateParts(now, automation.timezone ?? "America/Buenos_Aires");
+  const todayStart = zonedTimeToUtc(
+    localToday.year,
+    localToday.month,
+    localToday.day,
+    0,
+    0,
+    automation.timezone ?? "America/Buenos_Aires",
+  );
 
   const readyItems = await db
     .select()

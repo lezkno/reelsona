@@ -48,7 +48,6 @@
 - [WaveSpeed TTS handoff recovery](wavespeed-tts-handoff-recovery.md) — a completed TTS job must actively advance to talking-head even when global cron is intentionally disabled.
 - [Global router middleware trap](global-router-middleware-trap.md) — `router.use(fn)` without a path in a sub-router blocks ALL requests passing through, not just the router's own routes.
 - [Daily content auto-fill policy](daily-autofill-policy.md) — automatic generation fills only missing slots for the current local calendar day, never a future multi-day horizon.
-- [Publishing playback visibility](publishing-playback-visibility.md) — block video playback while Instagram is processing; expose it after `published` only.
 - [Founder swap billing pattern](founder-swap.md) — old sub cancel must be durable (superseded_* columns + sweep); late webhooks for superseded sub ids must no-op, never 500.
 - [Caption sync root causes](caption-sync-root-cause.md) — phrase-level SRT must NOT be split by char proportion; AAC batch re-encode accumulates delay; overlays must check !hasPlayable.
 - [B-roll credit billing](broll-credit-billing.md) — feature='broll' ledger rows, idempotent per-segment reserve ("already_paid" on engine fallback), sweep must skip active caption jobs.
