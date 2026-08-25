@@ -5,6 +5,7 @@
  */
 
 import { makeOpenAIClient } from "./openai-client";
+import { buildSemanticContext, normalizeCreatorProfile } from "./semantic-context";
 
 // ── Shared types (exported so routes and ai-scripts can import them) ──────────
 
@@ -103,14 +104,22 @@ export async function synthesizeMarketStudy(opts: {
   niche: string;
   nicheDescription?: string | null;
   topicKeywords: string[];
+  offer?: string | null;
+  idealAudience?: string | null;
+  uniqueValueProp?: string | null;
+  voiceStyle?: string | null;
+  commonObjections?: string | null;
   tone: string;
   language: string;
   accountData: AccountData;
   radarAccounts: RadarAccount[];
   openaiApiKey?: string | null;
 }): Promise<MarketInsights> {
-  const { niche, nicheDescription, topicKeywords, tone, language, accountData, radarAccounts } = opts;
+  const { niche, nicheDescription, topicKeywords, offer, idealAudience, uniqueValueProp, voiceStyle, commonObjections, tone, language, accountData, radarAccounts } = opts;
   const client = makeOpenAIClient();
+  const semanticContext = buildSemanticContext(normalizeCreatorProfile({
+    niche, nicheDescription, topicKeywords, offer, idealAudience, uniqueValueProp, voiceStyle, commonObjections, tone, language,
+  }));
 
   const topCaptionsBlock = accountData.top_captions.slice(0, 5).map((c, i) => `  ${i + 1}. "${c.substring(0, 120)}"`).join("\n");
 
@@ -139,6 +148,7 @@ export async function synthesizeMarketStudy(opts: {
     .join("\n") || "  (ninguno con datos suficientes)";
 
   const prompt = `${getLanguageInstruction(language)}
+${semanticContext}
 
 Eres un estratega senior de contenido para Instagram Reels. Analiza los datos de la cuenta y el nicho para producir un Estudio de Mercado estructurado.
 
@@ -207,6 +217,11 @@ export async function generateContentStrategy(opts: {
   niche: string;
   nicheDescription?: string | null;
   topicKeywords: string[];
+  offer?: string | null;
+  idealAudience?: string | null;
+  uniqueValueProp?: string | null;
+  voiceStyle?: string | null;
+  commonObjections?: string | null;
   tone: string;
   language: string;
   accountData: AccountData;
@@ -214,10 +229,14 @@ export async function generateContentStrategy(opts: {
   radarAccounts: RadarAccount[];
   openaiApiKey?: string | null;
 }): Promise<ContentStrategy> {
-  const { niche, nicheDescription, topicKeywords, tone, language, accountData, marketInsights } = opts;
+  const { niche, nicheDescription, topicKeywords, offer, idealAudience, uniqueValueProp, voiceStyle, commonObjections, tone, language, accountData, marketInsights } = opts;
   const client = makeOpenAIClient();
+  const semanticContext = buildSemanticContext(normalizeCreatorProfile({
+    niche, nicheDescription, topicKeywords, offer, idealAudience, uniqueValueProp, voiceStyle, commonObjections, tone, language,
+  }));
 
   const prompt = `${getLanguageInstruction(language)}
+${semanticContext}
 
 Eres un estratega de contenido para Instagram Reels. Crea una Estrategia de Contenido estructurada basada en el análisis de mercado.
 

@@ -534,6 +534,15 @@ async function fillEmptyScheduledSlots(
     existingTopics,
     auditInsights ?? undefined,
     strategyContext ?? undefined,
+    {
+      nicheDescription: settings.nicheDescription,
+      offer: settings.offer,
+      idealAudience: settings.idealAudience,
+      uniqueValueProp: settings.uniqueValueProp,
+      voiceStyle: settings.voiceStyle,
+      commonObjections: settings.commonObjections,
+      customCta: settings.customCta,
+    },
   );
 
   if (rawTopics.length === 0) return 0;
@@ -637,6 +646,15 @@ async function createContinuityItemForDueSlot(
       existingTopics,
       auditInsights ?? undefined,
       strategyContext ?? undefined,
+      {
+        nicheDescription: settings.nicheDescription,
+        offer: settings.offer,
+        idealAudience: settings.idealAudience,
+        uniqueValueProp: settings.uniqueValueProp,
+        voiceStyle: settings.voiceStyle,
+        commonObjections: settings.commonObjections,
+        customCta: settings.customCta,
+      },
     );
     const topic = generated[0];
     if (!topic?.topic) {
@@ -4244,14 +4262,23 @@ async function _publishVideoToInstagramInner(videoId: number, videoUrl?: string)
     // Safety net: if the item reached publishing without a caption, generate it now
     if (item && !item.caption) {
       try {
-        const [settings] = await db.select().from(settingsTable).limit(1);
+        const [settings] = await db.select().from(settingsTable).where(eq(settingsTable.userId, video.userId)).limit(1);
         const result = await generateScript(
           item.topic,
           settings?.niche ?? "marketing digital",
           settings?.tone ?? "casual",
           settings?.language ?? "es",
           settings?.videoDurationSeconds ?? 60,
-          {},
+          {
+            nicheDescription: settings?.nicheDescription,
+            topicKeywords: (settings?.topicKeywords as string[] | null) ?? undefined,
+            offer: settings?.offer,
+            idealAudience: settings?.idealAudience,
+            uniqueValueProp: settings?.uniqueValueProp,
+            voiceStyle: settings?.voiceStyle,
+            commonObjections: settings?.commonObjections,
+            customCta: settings?.customCta,
+          },
         );
         await db
           .update(contentPlanItemsTable)

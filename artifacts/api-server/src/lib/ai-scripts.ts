@@ -1,6 +1,13 @@
 import { makeOpenAIClient } from "./openai-client";
 import { logger } from "./logger";
 import type { StrategyContext } from "./ai-strategy";
+import {
+  buildSemanticContext,
+  normalizeCreatorProfile,
+  validateSemanticOutput,
+  type CreatorProfileInput,
+  type CreatorSemanticContext,
+} from "./semantic-context";
 
 // ── Editorial Base — injected into ALL prompts ────────────────────────────────
 
@@ -143,6 +150,20 @@ function getAvatarCTAs(language: string): string[] {
   ];
 }
 
+function semanticProfileFrom(
+  input: CreatorProfileInput,
+  fallback: { niche: string; tone: string; language: string; keywords?: string[] }
+): CreatorSemanticContext {
+  return normalizeCreatorProfile({
+    ...fallback,
+    ...input,
+    niche: input.niche ?? fallback.niche,
+    tone: input.tone ?? fallback.tone,
+    language: input.language ?? fallback.language,
+    topicKeywords: input.topicKeywords ?? fallback.keywords ?? [],
+  });
+}
+
 // ── Shared types ──────────────────────────────────────────────────────────────
 
 /** Audit insights fed into generation to improve relevance. */
@@ -221,30 +242,39 @@ async function generateHookCandidates(
   offer?: string | null,
   idealAudience?: string | null,
   voiceStyle?: string | null,
+  uniqueValueProp?: string | null,
+  commonObjections?: string | null,
+  customCta?: string | null,
 ): Promise<{ candidates: string[]; winner: string; selectionReason: string }> {
   const client = makeOpenAIClient();
+  const semanticContext = buildSemanticContext(semanticProfileFrom({
+    niche,
+    tone,
+    language,
+    topicKeywords,
+    nicheDescription,
+    offer,
+    idealAudience,
+    voiceStyle,
+    uniqueValueProp,
+    commonObjections,
+    customCta,
+  }, { niche, tone, language, keywords: topicKeywords }));
 
   const auditContext = auditInsights?.topCaptions.length
     ? `\nCaptions que funcionaron bien en esta cuenta (solo como referencia de estilo de apertura):\n${auditInsights.topCaptions.slice(0, 3).map((c, i) => `${i + 1}. ${c.substring(0, 120)}`).join("\n")}`
     : "";
 
-  const nicheContext = [
-    nicheDescription ? `Descripción del creador: ${nicheDescription}` : "",
-    offer ? `Oferta del creador: ${offer}` : "",
-    idealAudience ? `Audiencia ideal: ${idealAudience}` : "",
-    voiceStyle ? `Estilo de voz: ${voiceStyle}` : "",
-    topicKeywords?.length ? `Palabras clave del creador: ${topicKeywords.join(", ")}` : "",
-  ].filter(Boolean).join("\n");
-
   const prompt = `${EDITORIAL_BASE}
 
 ${getLanguageInstruction(language)}
+${semanticContext}
 
 Genera 3 hooks alternativos para el primer segundo de un Reel de Instagram.
 
 Nicho: ${niche}
 Tema: ${topic}
-Tono: ${tone}${nicheContext ? `\n${nicheContext}` : ""}${auditContext}
+ Tono: ${tone}${auditContext}
 
 CRITERIOS PARA UN HOOK GANADOR:
 • Claridad en el primer segundo: sin preámbulo, directamente al conflicto o revelación
@@ -333,6 +363,20 @@ export async function generateScript(
 ): Promise<ScriptOutput> {
   const client = makeOpenAIClient();
   const wordCount = Math.round((durationSeconds / 60) * 130);
+  const semanticProfile = semanticProfileFrom({
+    niche,
+    tone,
+    language,
+    topicKeywords: options?.topicKeywords,
+    nicheDescription: options?.nicheDescription,
+    offer: options?.offer,
+    idealAudience: options?.idealAudience,
+    uniqueValueProp: options?.uniqueValueProp,
+    voiceStyle: options?.voiceStyle,
+    commonObjections: options?.commonObjections,
+    customCta: options?.customCta,
+  }, { niche, tone, language, keywords: options?.topicKeywords });
+  const semanticContext = buildSemanticContext(semanticProfile);
 
   // Step 1: Generate hook candidates (with fallback)
   let hookWinner: string | null = null;
@@ -344,6 +388,7 @@ export async function generateScript(
       topic, niche, tone, language, options?.auditInsights, options?.openaiApiKey,
       options?.nicheDescription, options?.topicKeywords,
       options?.offer, options?.idealAudience, options?.voiceStyle,
+      options?.uniqueValueProp, options?.commonObjections, options?.customCta,
     );
     hookWinner = hookResult.winner;
     hookCandidatesList = hookResult.candidates;
@@ -386,13 +431,14 @@ export async function generateScript(
 
   const ctaInstruction = options?.customCta
     ? `2. La ÚLTIMA oración del guion DEBE ser EXACTAMENTE esta frase del creador (no la modifiques, no la parafrasees, úsala tal cual):\n   "${options.customCta}"`
-    : `2. La ÚLTIMA oración debe ser una llamada a la acción natural y relacionada directamente con el tema, el nicho y el valor explicado en este guion. Elige una acción concreta, como guardar, compartir, comentar o seguir para recibir contenido del mismo tema. NO menciones avatares, inteligencia artificial ni la producción del video salvo que el tema solicitado trate explícitamente de ello.`;
+    : `2. La ÚLTIMA oración debe ser una llamada a la acción natural conectada con la OFERTA configurada y el objetivo de este contenido. Si el objetivo es educativo, puede pedir guardar, compartir, comentar o seguir, pero debe dejar claro qué aprenderá o qué oferta conocerá la audiencia. NO conviertas una keyword o mecanismo en producto y NO menciones avatares, chatbots, inteligencia artificial ni la producción del video como algo que se vende salvo que la OFERTA lo diga explícitamente.`;
 
   const prompt = `${EDITORIAL_BASE}
 
 ${TALKING_HEAD_CONSTRAINT}
 
 ${getLanguageInstruction(language)}
+${semanticContext}
 ${criterionInstruction}${auditContext}${creatorBrainContext}${extraDirectivesContext}
 Crea un guion de video para un Reel de Instagram con estas especificaciones:
 - Nicho: ${niche}
@@ -433,7 +479,7 @@ Devuelve SOLO un JSON válido con esta estructura exacta:
   const content = res.choices[0]?.message?.content;
   if (!content) throw new Error("Empty response from AI");
 
-  const parsed = JSON.parse(content) as Omit<ScriptOutput, "topic" | "hook_candidates" | "hook_selection_reason">;
+  let parsed = JSON.parse(content) as Omit<ScriptOutput, "topic" | "hook_candidates" | "hook_selection_reason">;
 
   // If hook candidates were generated, override the AI's hook with the winner
   if (hookWinner) {
@@ -441,6 +487,47 @@ Devuelve SOLO un JSON válido con esta estructura exacta:
     // Ensure script starts with the winning hook
     if (!parsed.script.startsWith(hookWinner)) {
       parsed.script = hookWinner + " " + parsed.script.replace(/^[^.!?]+[.!?]\s*/, "");
+    }
+  }
+
+  const semanticCheck = validateSemanticOutput(parsed, semanticProfile);
+  if (!semanticCheck.valid) {
+    logger.warn(
+      { topic, reasons: semanticCheck.reasons },
+      "Semantic generation check failed — requesting one corrective rewrite",
+    );
+    const repairPrompt = `${EDITORIAL_BASE}
+${TALKING_HEAD_CONSTRAINT}
+${getLanguageInstruction(language)}
+${semanticContext}
+
+Reescribe UNA SOLA VEZ el siguiente guion para corregir exclusivamente los problemas semánticos detectados.
+Conserva el ángulo específico, el hook, la naturalidad, el tono y la duración. No vuelvas el guion genérico.
+La OFERTA es el único producto. Los mecanismos no son productos salvo que la oferta lo diga.
+Problemas detectados:
+${semanticCheck.reasons.map((reason) => `- ${reason}`).join("\n")}
+
+Guion actual:
+${JSON.stringify(parsed)}
+
+Devuelve SOLO el mismo JSON válido con hook, script, cta, caption, hashtags y estimated_duration_seconds.`;
+    const repairResponse = await client.chat.completions.create({
+      model: "gpt-5.6-luna",
+      messages: [{ role: "user", content: repairPrompt }],
+      response_format: { type: "json_object" },
+    });
+    const repairedContent = repairResponse.choices[0]?.message?.content;
+    if (repairedContent) {
+      const repaired = JSON.parse(repairedContent) as typeof parsed;
+      parsed = repaired;
+      const finalCheck = validateSemanticOutput(parsed, semanticProfile);
+      logger.info(
+        { topic, reasons: semanticCheck.reasons, resolved: finalCheck.valid, remainingReasons: finalCheck.reasons },
+        "Semantic corrective rewrite completed",
+      );
+      if (!finalCheck.valid) {
+        throw new Error(`Semantic validation failed after one corrective rewrite: ${finalCheck.reasons.join("; ")}`);
+      }
     }
   }
 
@@ -656,10 +743,19 @@ export async function generateContentTopics(
   topPerformingTopics: string[] = [],
   auditInsights?: AuditInsights,
   strategyContext?: StrategyContext,   // 9th param — takes priority over auditInsights when present
+  creatorProfile?: CreatorProfileInput,
   openaiApiKey?: string | null,
 ): Promise<ContentPlanTopicMeta[]> {
   const client = makeOpenAIClient();
   const total = days * postsPerDay;
+  const semanticProfile = semanticProfileFrom({
+    ...creatorProfile,
+    niche,
+    tone,
+    language,
+    topicKeywords: creatorProfile?.topicKeywords ?? keywords,
+  }, { niche, tone, language, keywords });
+  const semanticContext = buildSemanticContext(semanticProfile);
 
   const rawPillars = niche
     .split(/[,;|]/)
@@ -726,6 +822,7 @@ ${allPillars.map((p, i) => `  ${i + 1}. ${p}`).join("\n")}
 ${TALKING_HEAD_CONSTRAINT}
 
 ${getLanguageInstruction(language)}
+${semanticContext}
 
 Eres un estratega de contenido para Instagram Reels especializado en crecimiento orgánico.
 ${strategyBlock}${auditBlock}
@@ -1006,8 +1103,15 @@ export async function regenerateScriptWithCriterion(
   criterion: RegenerateCriterion,
   auditInsights?: AuditInsights,
   openaiApiKey?: string | null,
+  creatorProfile?: CreatorProfileInput,
 ): Promise<ScriptOutput> {
-  return generateScript(topic, niche, tone, language, durationSeconds, { criterion, auditInsights, openaiApiKey });
+  return generateScript(topic, niche, tone, language, durationSeconds, {
+    criterion,
+    auditInsights,
+    openaiApiKey,
+    ...creatorProfile,
+    topicKeywords: creatorProfile?.topicKeywords ?? undefined,
+  });
 }
 
 // ── Video Express: interpretación de órdenes habladas ────────────────────────

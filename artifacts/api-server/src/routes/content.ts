@@ -278,6 +278,15 @@ router.post("/content/plan/generate", async (req, res): Promise<void> => {
     existingTopics,
     auditInsights ?? undefined,
     strategyContext ?? undefined,
+    {
+      nicheDescription: settings?.nicheDescription,
+      offer: settings?.offer,
+      idealAudience: settings?.idealAudience,
+      uniqueValueProp: settings?.uniqueValueProp,
+      voiceStyle: settings?.voiceStyle,
+      commonObjections: settings?.commonObjections,
+      customCta: settings?.customCta,
+    },
   );
 
   // Server-side safety net: remove any topics the AI returned more than once
@@ -332,7 +341,19 @@ router.post("/content", async (req, res): Promise<void> => {
       getStrategyProfile(userId).catch(() => null),
     ]);
     const strategyCtx = strategyProfile ? toStrategyContext(strategyProfile) : undefined;
-    const generated = await generateContentTopics(niche, keywords, tone, language, 1, 1, existingItems.map((i) => i.topic), auditInsights ?? undefined, strategyCtx ?? undefined);
+    const generated = await generateContentTopics(
+      niche, keywords, tone, language, 1, 1, existingItems.map((i) => i.topic),
+      auditInsights ?? undefined, strategyCtx ?? undefined,
+      {
+        nicheDescription: settings?.nicheDescription,
+        offer: settings?.offer,
+        idealAudience: settings?.idealAudience,
+        uniqueValueProp: settings?.uniqueValueProp,
+        voiceStyle: settings?.voiceStyle,
+        commonObjections: settings?.commonObjections,
+        customCta: settings?.customCta,
+      },
+    );
     if (!generated[0]?.topic) {
       res.status(500).json({ error: "No se pudo generar el tema" });
       return;
@@ -691,7 +712,19 @@ router.post("/content/:id/suggest-topic", async (req, res): Promise<void> => {
     getStrategyProfile(userId).catch(() => null),
   ]);
   const strategyCtxSuggest = strategyProfile ? toStrategyContext(strategyProfile) : undefined;
-  const [generated] = await generateContentTopics(niche, keywords, tone, language, 1, 1, existingTopics, auditInsights ?? undefined, strategyCtxSuggest ?? undefined);
+   const [generated] = await generateContentTopics(
+     niche, keywords, tone, language, 1, 1, existingTopics,
+     auditInsights ?? undefined, strategyCtxSuggest ?? undefined,
+     {
+       nicheDescription: settings?.nicheDescription,
+       offer: settings?.offer,
+       idealAudience: settings?.idealAudience,
+       uniqueValueProp: settings?.uniqueValueProp,
+       voiceStyle: settings?.voiceStyle,
+       commonObjections: settings?.commonObjections,
+       customCta: settings?.customCta,
+     },
+   );
   if (!generated?.topic) { res.status(500).json({ error: "No se pudo generar el tema" }); return; }
 
   res.json({ topic: generated.topic });
@@ -874,6 +907,17 @@ router.post("/content/:id/regenerate", async (req, res): Promise<void> => {
   const scriptResult = await regenerateScriptWithCriterion(
     item.topic, niche, tone, language, duration, criterion,
     auditInsights ?? undefined,
+    undefined,
+    {
+      nicheDescription: settings?.nicheDescription,
+      topicKeywords: (settings?.topicKeywords as string[] | null) ?? undefined,
+      offer: settings?.offer,
+      idealAudience: settings?.idealAudience,
+      uniqueValueProp: settings?.uniqueValueProp,
+      voiceStyle: settings?.voiceStyle,
+      commonObjections: settings?.commonObjections,
+      customCta: settings?.customCta,
+    },
   );
 
   const [updated] = await db
