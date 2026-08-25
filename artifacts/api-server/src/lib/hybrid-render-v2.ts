@@ -180,6 +180,11 @@ export async function applyHybridRenderV2(
   const outputPath = path.join(tmpDir, "final.mp4");
   const startedAt = Date.now();
 
+  // Captures composition context from the caption stage so a failure in the
+  // outer catch block can log segmentCount and compositionMode even when
+  // renderHybridCanvasCaptions throws before returning its result object.
+  let captionContext: { segmentCount?: number; compositionMode?: string } = {};
+
   try {
     await fs.mkdir(tmpDir, { recursive: true });
     const downloadStartedAt = Date.now();
@@ -264,6 +269,21 @@ export async function applyHybridRenderV2(
       durationSeconds: pictureInfo.duration,
       timings,
       template,
+    }).then((result) => {
+      captionContext = { segmentCount: result.segmentCount, compositionMode: result.compositionMode };
+      return result;
+    }, (error: unknown) => {
+      // Preserve composition context extracted from structured FFmpeg errors.
+      if (error && typeof error === "object" && "ffmpeg" in error) {
+        const ffmpegError = (error as { ffmpeg?: { segmentCount?: number; stage?: string } }).ffmpeg;
+        if (ffmpegError) {
+          captionContext = {
+            segmentCount: ffmpegError.segmentCount,
+            compositionMode: ffmpegError.stage?.startsWith("caption_batch") ? "batch_fallback" : "single_pass",
+          };
+        }
+      }
+      throw error;
     });
 
     const uploadStartedAt = Date.now();
@@ -295,6 +315,7 @@ export async function applyHybridRenderV2(
     logger.error({
       error,
       ffmpeg: getFfmpegFailureDetails(error),
+      caption: Object.keys(captionContext).length ? captionContext : undefined,
       runId,
       totalMs: Date.now() - startedAt,
     }, "[HybridV2] Failed");

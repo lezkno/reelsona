@@ -431,14 +431,28 @@ export async function renderHybridCanvasCaptions(input: {
       batches.push(segments.slice(index, index + FALLBACK_BATCH_CAPTION_OVERLAYS));
     }
 
+    // Shared transparent PNG for gap-filling in each batch manifest.
+    const batchBlankPngPath = path.join(input.tmpDir, "hybrid_batch_transparent.png");
+    const batchTransparentCanvas = canvas.createCanvas(input.width, input.height);
+    await fs.writeFile(batchBlankPngPath, await batchTransparentCanvas.encode("png"));
+
     let videoPath = input.pictureLockPath;
     for (let index = 0; index < batches.length; index++) {
       const batchPath = path.join(input.tmpDir, `hybrid_caption_batch_${String(index).padStart(3, "0")}.mp4`);
+      // Each batch uses a concat manifest over the full video duration so that
+      // the batch overlay has exactly two FFmpeg inputs (manifest + video),
+      // matching the stable single-pass strategy and avoiding per-cue infinite
+      // PNG streams that exhaust FFmpeg resources at normal animated cue counts.
+      const batchManifestPath = path.join(input.tmpDir, `hybrid_caption_batch_${String(index).padStart(3, "0")}.ffconcat`);
+      await fs.writeFile(batchManifestPath, buildCaptionTrackManifest({
+        blankPngPath: batchBlankPngPath,
+        segments: batches[index],
+        durationSeconds: input.durationSeconds,
+      }));
       const batchPlan = buildHybridCaptionVideoOnlyPlan({
         videoPath,
         outputPath: batchPath,
-        width: input.width,
-        height: input.height,
+        captionTrackManifestPath: batchManifestPath,
         segments: batches[index],
       });
       await runCaptionFfmpeg({

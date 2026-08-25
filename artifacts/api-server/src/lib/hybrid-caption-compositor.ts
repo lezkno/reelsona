@@ -19,10 +19,6 @@ export type HybridCaptionCompositePlan = {
 export const MAX_SINGLE_PASS_CAPTION_OVERLAYS = 600;
 export const FALLBACK_BATCH_CAPTION_OVERLAYS = 15;
 
-function escapeEnableNumber(value: number): string {
-  return Math.max(0, value).toFixed(6);
-}
-
 /**
  * Build one FFmpeg composition for a Canvas caption track.
  *
@@ -77,12 +73,16 @@ export function buildHybridCaptionCompositePlan(input: {
  * Extreme-only fallback: burn one limited group of captions into video without
  * mapping audio. The caller chains these video-only outputs and muxes the
  * original picture-lock audio exactly once at the end.
+ *
+ * Uses the same concat-demuxer caption track as the single-pass path so that
+ * each batch also has exactly two FFmpeg inputs (manifest + video) regardless
+ * of how many cues the batch covers. This avoids the per-cue infinite PNG
+ * stream that exhausts FFmpeg resources with normal animated caption counts.
  */
 export function buildHybridCaptionVideoOnlyPlan(input: {
   videoPath: string;
   outputPath: string;
-  width: number;
-  height: number;
+  captionTrackManifestPath: string;
   segments: CaptionOverlaySegment[];
   crf?: number;
   preset?: string;
@@ -90,33 +90,15 @@ export function buildHybridCaptionVideoOnlyPlan(input: {
   const normalized = normalizeCaptionOverlayTimeline(input.segments);
   assertCaptionOverlayTimelineIsExclusive(normalized.segments);
 
-  const args: string[] = ["-i", input.videoPath];
-  const filterParts: string[] = [];
-  let previousLabel = "[0:v]";
-
-  normalized.segments.forEach((segment, index) => {
-    const inputIndex = index + 1;
-    const pngLabel = `[cap${index}]`;
-    const outputLabel = index === normalized.segments.length - 1
-      ? "[captionedv]"
-      : `[captioned${index}]`;
-
-    args.push("-loop", "1", "-i", segment.pngPath);
-    filterParts.push(
-      `[${inputIndex}:v]scale=${input.width}:${input.height}:flags=lanczos,format=rgba${pngLabel}`,
-    );
-    filterParts.push(
-      `${previousLabel}${pngLabel}overlay=0:0:eof_action=pass:` +
-      `enable='between(t,${escapeEnableNumber(segment.startSec)},${escapeEnableNumber(segment.endSec)})'${outputLabel}`,
-    );
-    previousLabel = outputLabel;
-  });
-
-  if (normalized.segments.length === 0) {
-    filterParts.push("[0:v]null[captionedv]");
-  }
-
-  const filterComplex = filterParts.join(";");
+  const args: string[] = [
+    "-f", "concat",
+    "-safe", "0",
+    "-i", input.captionTrackManifestPath,
+    "-i", input.videoPath,
+  ];
+  const filterComplex =
+    "[0:v]format=rgba[captions];" +
+    "[1:v][captions]overlay=0:0:eof_action=pass:repeatlast=0[captionedv]";
   args.push(
     "-filter_complex", filterComplex,
     "-map", "[captionedv]",

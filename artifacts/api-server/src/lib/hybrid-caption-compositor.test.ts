@@ -86,16 +86,42 @@ test("uses one caption stream for 61 Canvas frames", () => {
   assert.equal(plan.filterComplex.match(/overlay=/g)?.length, 1);
 });
 
-test("extreme batch fallback renders video-only before a single final audio mux", () => {
+test("extreme batch fallback uses concat track (2 inputs) and emits no audio stream", () => {
   const plan = buildHybridCaptionVideoOnlyPlan({
     videoPath: "picture-lock.mp4",
     outputPath: "caption-batch.mp4",
-    width: 1080,
-    height: 1920,
+    captionTrackManifestPath: "batch-captions.ffconcat",
     segments: [{ pngPath: "a.png", startSec: 0.5, endSec: 1.5 }],
   });
 
+  // Must use the concat demuxer so the batch has exactly two FFmpeg inputs
+  // (manifest + video) regardless of how many cues the batch covers.
+  assert.deepEqual(plan.args.slice(0, 8), [
+    "-f", "concat",
+    "-safe", "0",
+    "-i", "batch-captions.ffconcat",
+    "-i", "picture-lock.mp4",
+  ]);
+  assert.equal(plan.args.filter((arg) => arg === "-i").length, 2);
   assert.ok(plan.args.includes("-an"));
   assert.equal(plan.args.includes("-c:a"), false);
   assert.equal(plan.args.includes("0:a?"), false);
+  assert.equal(plan.args.includes("-loop"), false);
+  assert.equal(plan.args.includes("-shortest"), false);
+  assert.equal(plan.filterComplex.match(/overlay=/g)?.length, 1);
+});
+
+test("batch fallback repairs overlapping segments before compositing", () => {
+  const plan = buildHybridCaptionVideoOnlyPlan({
+    videoPath: "picture-lock.mp4",
+    outputPath: "caption-batch.mp4",
+    captionTrackManifestPath: "batch-captions.ffconcat",
+    segments: [
+      { pngPath: "old.png", startSec: 1, endSec: 4 },
+      { pngPath: "new.png", startSec: 2, endSec: 3 },
+    ],
+  });
+
+  assert.equal(plan.overlapFixes, 1);
+  assert.ok(plan.segments[0].endSec < plan.segments[1].startSec);
 });
