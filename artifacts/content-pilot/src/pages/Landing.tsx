@@ -141,11 +141,10 @@ const globalStyles = `
 // ─── Data ───────────────────────────────────────────────────────────────────
 
 const autopilotSteps = [
-  { n: "01", title: "Configura tu estrategia", desc: "Defines tu nicho, audiencia y tono una sola vez. El sistema genera el plan de temas del mes." },
-  { n: "02", title: "Conecta tus herramientas", desc: "Enlazas tu IA e Instagram. Un solo paso de configuración." },
-  { n: "03", title: "El sistema genera los guiones", desc: "IA produce scripts optimizados para avatar y Reels, listos para revisar o aprobar automáticamente." },
-  { n: "04", title: "Tu avatar graba y se edita", desc: "La IA produce el video con tu clon digital. Reelsona aplica captions y edición visual." },
-  { n: "05", title: "Se publica sin que hagas nada", desc: "Los Reels se programan y publican en Instagram en los horarios que configuraste." },
+  { n: "01", title: "Define tu estrategia", desc: "Cuéntale al sistema sobre tu negocio, audiencia y objetivos para crear una base de contenido." },
+  { n: "02", title: "Configura avatar y voz", desc: "Elige o conecta tu avatar, voz y herramientas de IA con la guía de Academia." },
+  { n: "03", title: "Crea y revisa tus Reels", desc: "Genera ideas, guiones y videos con captions; decide qué publicar y cuándo." },
+  { n: "04", title: "Programa cuando estés listo", desc: "Con Pro o Founder puedes activar Autopilot y la publicación programada en Instagram." },
 ];
 
 const forWhom = [
@@ -187,12 +186,14 @@ const notJustAiToolItems = [
 const faqs = [
   { q: "¿Reelsona es una herramienta para crear avatares?", a: "No. Reelsona no crea avatares digitales por sí sola. Es el sistema que usa tu avatar para automatizar todo el proceso: estrategia, guiones, producción del video, captions y publicación." },
   { q: "¿Qué herramientas externas necesito?", a: "Para generar los videos necesitarás una cuenta de IA. Sus costos no están incluidos en Reelsona — te guiamos a configurarlas desde cero." },
-  { q: "¿Necesito tener un avatar antes de empezar?", a: "No. Puedes entrar sin avatar. La ruta guiada dentro de Reelsona te explica exactamente cómo crear tu avatar de forma efectiva — desde la grabación hasta tenerlo listo para producir contenido." },
-  { q: "¿Cómo funciona el modo Autopilot?", a: "Cuando tienes tu estrategia, herramientas y preferencias configuradas, Autopilot ejecuta el pipeline completo: genera guiones, produce los videos con tu avatar, aplica captions y los publica en Instagram según el calendario que definiste." },
+  { q: "¿Necesito tener un avatar antes de empezar?", a: "No. Puedes empezar por Academia y seguir la ruta guiada para preparar tu avatar y voz. Para crearlo o conectarlo necesitarás aportar el material de referencia que pida el proveedor de IA." },
+  { q: "¿Cómo funcionan los créditos?", a: "Los créditos se consumen según la duración de cada video. Como referencia, 50 créditos cubren aproximadamente 30 segundos de generación; los videos más largos consumen más." },
+  { q: "¿Basic incluye Autopilot y publicación automática?", a: "No. Basic está pensado para crear Reels manualmente. Autopilot, programación y publicación automática están disponibles en los planes Pro y Founder." },
+  { q: "¿Cómo funciona el modo Autopilot?", a: "Con un plan Pro o Founder, y una vez que tu estrategia, herramientas, avatar e Instagram Business estén configurados, Autopilot puede generar el flujo de contenido y programar las publicaciones según el calendario que definas." },
   { q: "¿Necesito saber editar videos?", a: "No. El sistema genera los videos completos con tu avatar y captions incluidos. No necesitas abrir ningún editor de video." },
-  { q: "¿Tengo que grabarme frente a una cámara?", a: "No. Tu avatar IA habla por ti en cada Reel. Tú defines la estrategia y el guión — el sistema produce el video." },
+  { q: "¿Tengo que grabarme frente a una cámara?", a: "No para cada Reel. Necesitarás preparar el material inicial de referencia si vas a crear tu propio avatar; después, el avatar puede aparecer en los videos que produzcas." },
   { q: "¿Qué pasa después de comprar?", a: "Recibirás un email de activación. Con ese link creas tu contraseña y accedes a Academia, con sus 5 módulos y 21 clases, además de las herramientas y créditos incluidos en el plan que hayas elegido." },
-  { q: "¿Puedo publicar directamente en Instagram?", a: "Sí. Conectas tu cuenta de Instagram Business desde la plataforma y programas la publicación de tus Reels desde ahí." },
+  { q: "¿Puedo publicar directamente en Instagram?", a: "Con Pro o Founder puedes conectar una cuenta de Instagram Business y programar publicaciones desde la plataforma. Necesitarás mantener los permisos de la cuenta activos." },
 ];
 
 // ─── Shared components ───────────────────────────────────────────────────────
@@ -280,7 +281,7 @@ export default function Landing() {
               boxShadow: "0 0 20px rgba(79,110,247,0.3)",
             }}
           >
-            Crear mi clon digital
+            Ver planes
           </button>
         </div>
       </nav>
@@ -308,14 +309,14 @@ export default function Landing() {
                 className="font-bold tracking-tight"
                 style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "clamp(2.3rem,5.5vw,4rem)", lineHeight: 1.06, letterSpacing: "-0.04em", marginBottom: "1.4rem" }}
               >
-                Monta tu sistema automático de Reels{" "}
+                Convierte tu conocimiento en Reels{" "}
                 <span style={{ background: "linear-gradient(135deg,#4F6EF7 10%,#9B5CF6 90%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>
-                  sin grabarte todos los días
+                  sin grabarte para cada video
                 </span>
               </h1>
 
               <p style={{ fontSize: "clamp(0.95rem,1.8vw,1.1rem)", color: "#888", lineHeight: 1.75, maxWidth: 510, marginBottom: "2.25rem" }}>
-                La capa estratégica y operativa que convierte tu conocimiento en ideas, guiones, videos con avatar, captions, edición y publicación en Instagram — completamente en automático.
+                Una plataforma para planear, guionizar y producir Reels con avatar y captions. Configura tu estrategia una vez y luego crea o automatiza tu flujo según tu plan.
               </p>
 
               <div className="flex flex-wrap gap-3" style={{ marginBottom: "1.5rem" }}>
@@ -324,19 +325,19 @@ export default function Landing() {
                   className="inline-flex items-center gap-2"
                   style={{ background: "linear-gradient(135deg,#4F6EF7,#7B5CF6)", color: "#fff", border: "none", borderRadius: 12, padding: "1rem 2.1rem", fontSize: "1rem", fontWeight: 700, cursor: "pointer", boxShadow: "0 0 28px rgba(79,110,247,0.35)" }}
                 >
-                  Crear mi clon digital <ArrowRight size={16} />
+                  Ver planes y créditos <ArrowRight size={16} />
                 </button>
               </div>
 
               <div className="flex flex-wrap gap-5" style={{ color: "#555", fontSize: "0.82rem" }}>
-                {["Guión listo en minutos", "Video con tu avatar sin grabarte", "Autopilot publica por ti"].map((t) => (
+                {["Ideas y guiones con IA", "Reels con avatar y captions", "Autopilot en Pro y Founder"].map((t) => (
                   <span key={t} className="flex items-center gap-1.5">
                     <Check size={11} color="#4F6EF7" strokeWidth={3} /> {t}
                   </span>
                 ))}
               </div>
               <p style={{ fontSize: "0.72rem", color: "#363636", marginTop: "0.9rem" }}>
-                Funciona con IA · Costos independientes · Te guiamos paso a paso
+                Desde USD 29/mes · Costos de IA externos no incluidos · Configuración guiada
               </p>
             </div>
 
@@ -355,12 +356,10 @@ export default function Landing() {
                     <div style={{ width: 28, height: 28, borderRadius: "9999px", background: "linear-gradient(135deg,#4F6EF7,#9B5CF6)", padding: 2 }}><div style={{ width: "100%", height: "100%", borderRadius: "9999px", backgroundColor: "#000" }} /></div>
                     <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "#fff" }}>@tu_marca</span>
                   </div>
-                  <p style={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.85)", marginBottom: "0.75rem", lineHeight: 1.5 }}>El secreto para publicar todos los días sin volverte loco... 🚀</p>
+                  <p style={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.85)", marginBottom: "0.75rem", lineHeight: 1.5 }}>Un flujo claro para publicar contenido sin empezar de cero.</p>
                   <div className="flex items-center justify-between">
                     <span style={{ fontSize: "0.65rem", fontWeight: 700, backgroundColor: "rgba(255,255,255,0.15)", backdropFilter: "blur(8px)", borderRadius: 6, padding: "0.2rem 0.55rem", color: "#fff" }}>Edición IA</span>
-                    <div className="flex gap-1.5">
-                      {["❤️", "💬"].map((e) => <div key={e} style={{ width: 22, height: 22, borderRadius: "9999px", backgroundColor: "rgba(255,255,255,0.18)", backdropFilter: "blur(8px)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10 }}>{e}</div>)}
-                    </div>
+                    <span style={{ fontSize: "0.62rem", color: "rgba(255,255,255,0.68)" }}>Vista ilustrativa</span>
                   </div>
                 </div>
                 {/* progress bar */}
@@ -371,63 +370,53 @@ export default function Landing() {
 
               {/* floating pills */}
                <FloatingPill icon={<Calendar size={14} />} text="✦ Créditos mensuales" style={{ left: -90, top: 80,  zIndex: 10, transform: "rotate(-3deg)" }} />
-              <FloatingPill icon={<Bot size={14} />}      text="100% automático"       style={{ right: -95, top: 170, zIndex: 10, transform: "rotate(4deg)" }} />
+              <FloatingPill icon={<Bot size={14} />}      text="Flujo configurable"   style={{ right: -95, top: 170, zIndex: 10, transform: "rotate(4deg)" }} />
               <FloatingPill icon={<Video size={14} />}    text="Avatar activo"          style={{ left: -70, bottom: 150, zIndex: 10, transform: "rotate(2deg)" }} />
-              <FloatingPill icon={<Instagram size={14} />} text="Publicado en Instagram" style={{ right: -105, bottom: 80, zIndex: 10, transform: "rotate(-3deg)" }} />
+              <FloatingPill icon={<Instagram size={14} />} text="Programación en Pro"    style={{ right: -105, bottom: 80, zIndex: 10, transform: "rotate(-3deg)" }} />
             </div>
           </div>
         </div>
       </section>
 
       {/* ══════════════════════════════════════
-          VIDEO DEMO
+          CÓMO FUNCIONA
       ══════════════════════════════════════ */}
-      {/* REEMPLAZA el ID de YouTube aquí cuando tengas el video listo ↓ */}
-      {(() => {
-        const YT_ID = ""; // ← pega aquí el ID de YouTube (ej: "dQw4w9WgXcQ")
-        return (
-          <section style={{ padding: "5rem 1.5rem", backgroundColor: "#050505", borderTop: "1px solid rgba(255,255,255,0.04)" }}>
-            <div className="mx-auto" style={{ maxWidth: 900 }}>
-              <div className="text-center reveal-up" style={{ marginBottom: "2.5rem" }}>
-                <h2 style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "clamp(1.6rem,4vw,2.4rem)", fontWeight: 800, letterSpacing: "-0.025em", lineHeight: 1.15 }}>
-                  Mira el sistema en acción
-                </h2>
-                <p style={{ color: "#555", fontSize: "0.9rem", marginTop: "0.6rem" }}>
-                  Del guión al Reel publicado, sin tocar ningún editor.
-                </p>
-              </div>
+      <section style={{ padding: "5rem 1.5rem", backgroundColor: "#050505", borderTop: "1px solid rgba(255,255,255,0.04)" }}>
+        <div className="mx-auto" style={{ maxWidth: 1040 }}>
+          <div className="text-center reveal-up" style={{ marginBottom: "2.5rem" }}>
+            <SectionLabel>Un proceso claro</SectionLabel>
+            <h2 style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "clamp(1.75rem,4vw,2.45rem)", fontWeight: 800, letterSpacing: "-0.03em", lineHeight: 1.12 }}>
+              De tu experiencia a una rutina de contenido
+            </h2>
+            <p style={{ color: "#666", fontSize: "0.95rem", lineHeight: 1.7, maxWidth: 560, margin: "0.8rem auto 0" }}>
+              Reelsona organiza el trabajo repetitivo para que puedas dedicar más tiempo a revisar, decidir y hacer crecer tu marca.
+            </p>
+          </div>
 
-              <div className="reveal-up stagger-1" style={{ position: "relative", borderRadius: 20, overflow: "hidden", border: "1px solid rgba(255,255,255,0.07)", boxShadow: "0 0 80px rgba(79,110,247,0.1), 0 40px 100px rgba(0,0,0,0.6)", aspectRatio: "16/9", backgroundColor: "#0f0f0f" }}>
-                {/* gradient top border */}
-                <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: "linear-gradient(90deg,#4F6EF7,#9B5CF6,transparent)", zIndex: 2 }} />
-
-                {YT_ID ? (
-                  <iframe
-                    src={`https://www.youtube.com/embed/${YT_ID}?rel=0&modestbranding=1&color=white`}
-                    title="Reelsona demo"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                    allowFullScreen
-                    style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none" }}
-                  />
-                ) : (
-                  /* Placeholder hasta tener el video */
-                  <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "1.25rem" }}>
-                    <div style={{ width: 72, height: 72, borderRadius: "9999px", background: "linear-gradient(135deg,#4F6EF7,#9B5CF6)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 0 40px rgba(79,110,247,0.4)", cursor: "default" }}>
-                      <Play size={30} fill="#fff" color="#fff" style={{ marginLeft: 4 }} />
-                    </div>
-                    <p style={{ color: "#333", fontSize: "0.82rem", fontWeight: 600 }}>Video próximamente</p>
-                  </div>
-                )}
+          <div className="grid gap-4 reveal-up stagger-1" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(210px,1fr))" }}>
+            {[
+              { n: "01", Icon: Target, title: "Define el rumbo", text: "Configura tu negocio, audiencia y enfoque de contenido." },
+              { n: "02", Icon: Bot, title: "Prepara tu presencia", text: "Conecta tu avatar, voz y las herramientas que vas a usar." },
+              { n: "03", Icon: Video, title: "Produce con control", text: "Genera ideas, guiones, videos y captions para revisar." },
+              { n: "04", Icon: Instagram, title: "Publica a tu ritmo", text: "Programa desde Pro o Founder cuando tu cuenta esté lista." },
+            ].map(({ n, Icon, title, text }) => (
+              <div key={n} style={{ position: "relative", borderRadius: 18, backgroundColor: "#0f0f0f", border: "1px solid rgba(255,255,255,0.08)", padding: "1.5rem", overflow: "hidden" }}>
+                <span style={{ position: "absolute", top: 16, right: 18, fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "0.72rem", fontWeight: 800, color: "#2d2d2d" }}>{n}</span>
+                <div style={{ width: 40, height: 40, borderRadius: 12, background: "linear-gradient(135deg,rgba(79,110,247,0.16),rgba(155,92,246,0.15))", border: "1px solid rgba(79,110,247,0.22)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "1.1rem" }}>
+                  <Icon size={18} color="#7B7FF7" />
+                </div>
+                <h3 style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontWeight: 800, fontSize: "0.98rem", color: "#e8e8e8", marginBottom: "0.45rem" }}>{title}</h3>
+                <p style={{ color: "#666", fontSize: "0.83rem", lineHeight: 1.65, margin: 0 }}>{text}</p>
               </div>
-            </div>
-          </section>
-        );
-      })()}
+            ))}
+          </div>
+        </div>
+      </section>
 
       {/* ══════════════════════════════════════
           PLANES DE HERRAMIENTAS
       ══════════════════════════════════════ */}
-      <section ref={pricingRef} style={{ padding: "6rem 1.5rem", backgroundColor: "#080808", borderTop: "1px solid rgba(255,255,255,0.04)" }}>
+      <section id="pricing" ref={pricingRef} style={{ padding: "6rem 1.5rem", backgroundColor: "#080808", borderTop: "1px solid rgba(255,255,255,0.04)" }}>
         <div className="mx-auto" style={{ maxWidth: 1080 }}>
           {/* Section header */}
           <div className="text-center reveal-up" style={{ marginBottom: "3rem" }}>
@@ -435,10 +424,10 @@ export default function Landing() {
               Planes de herramientas
             </div>
             <h2 style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "clamp(1.8rem,4vw,2.5rem)", fontWeight: 900, letterSpacing: "-0.03em", marginBottom: "0.75rem" }}>
-              Elige tu plan y empieza hoy
+              Elige cómo quieres crear
             </h2>
             <p style={{ color: "#555", fontSize: "0.95rem", maxWidth: 480, margin: "0 auto" }}>
-              Escoge el plan que mejor se adapte a tu ritmo de producción y activa tu acceso de inmediato.
+              Empieza creando Reels de forma manual o elige un plan con Autopilot para convertirlo en un flujo recurrente.
             </p>
           </div>
 
@@ -459,19 +448,21 @@ export default function Landing() {
                 <span style={{ color: "#444", fontSize: "0.82rem" }}> USD/mes</span>
               </div>
               <p style={{ fontSize: "0.78rem", color: "#4F6EF7", fontWeight: 700, marginBottom: "1rem" }}>400 créditos / mes</p>
+              <p style={{ fontSize: "0.84rem", color: "#aaa", lineHeight: 1.55, minHeight: "2.6em", marginBottom: "1.15rem" }}>Para empezar a producir Reels y aprender el sistema a tu ritmo.</p>
               <div style={{ display: "flex", flexDirection: "column", gap: "0.55rem" }}>
-                {["1 Avatar AI propio","3 looks iniciales incluidos","Avatares públicos","Primera voz clonada incluida","Caption Studio","B-roll AI","Plan de contenido con IA","Creación manual de Reels"].map((f) => (
+                {["1 Avatar AI propio y avatares públicos","3 looks iniciales y 1 voz clonada","Plan de contenido, guiones y Caption Studio","B-roll AI y creación manual de Reels"].map((f) => (
                   <div key={f} style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem" }}>
                     <CheckCircle2 size={13} color="#4F6EF7" style={{ marginTop: 2, flexShrink: 0 }} />
                     <span style={{ color: "#777", fontSize: "0.82rem" }}>{f}</span>
                   </div>
                 ))}
               </div>
+              <p style={{ color: "#8b7395", fontSize: "0.75rem", lineHeight: 1.55, margin: "1.15rem 0 0", paddingTop: "0.85rem", borderTop: "1px solid rgba(255,255,255,0.06)" }}>No incluye Autopilot ni publicación automática.</p>
               <button
                 onClick={() => setPlanCheckout({ planSlug: "basic", planName: "Basic", amountCents: 2900, currency: "usd", credits: 400, interval: "month", requireEmail: true })}
                 style={{ marginTop: "1.5rem", width: "100%", background: "rgba(79,110,247,0.12)", color: "#4F6EF7", border: "1px solid rgba(79,110,247,0.3)", borderRadius: 10, padding: "0.75rem", fontSize: "0.85rem", fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
               >
-                Empezar con Basic <ArrowRight size={14} />
+                Empezar a crear <ArrowRight size={14} />
               </button>
             </div>
 
@@ -490,8 +481,9 @@ export default function Landing() {
                 <span style={{ color: "#444", fontSize: "0.82rem" }}> USD/mes</span>
               </div>
               <p style={{ fontSize: "0.78rem", color: "#9B5CF6", fontWeight: 700, marginBottom: "1rem" }}>1,500 créditos / mes</p>
+              <p style={{ fontSize: "0.84rem", color: "#aaa", lineHeight: 1.55, minHeight: "2.6em", marginBottom: "1.15rem" }}>Para operar un flujo recurrente de contenido con automatización.</p>
               <div style={{ display: "flex", flexDirection: "column", gap: "0.55rem" }}>
-                {["Todo lo de Basic","Hasta 3 Avatares AI propios","3 looks iniciales por avatar","AutoPilot","Programación y publicación automática","Funciones avanzadas de automatización"].map((f) => (
+                {["Todo lo de Basic","Hasta 3 Avatares AI propios","Autopilot para el flujo de contenido","Programación y publicación automática","Funciones avanzadas de automatización"].map((f) => (
                   <div key={f} style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem" }}>
                     <CheckCircle2 size={13} color="#9B5CF6" style={{ marginTop: 2, flexShrink: 0 }} />
                     <span style={{ color: "#777", fontSize: "0.82rem" }}>{f}</span>
@@ -502,7 +494,7 @@ export default function Landing() {
                 onClick={() => setPlanCheckout({ planSlug: "pro", planName: "Pro", amountCents: 9700, currency: "usd", credits: 1500, interval: "month", requireEmail: true })}
                 style={{ marginTop: "1.5rem", width: "100%", background: "linear-gradient(135deg,#9B5CF6,#7C3AED)", color: "#fff", border: "none", borderRadius: 10, padding: "0.75rem", fontSize: "0.85rem", fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, boxShadow: "0 0 24px rgba(155,92,246,0.3)" }}
               >
-                Empezar con Pro <ArrowRight size={14} />
+                Activar Autopilot <ArrowRight size={14} />
               </button>
             </div>
 
@@ -520,7 +512,8 @@ export default function Landing() {
                 <span style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "2.2rem", fontWeight: 900, background: "linear-gradient(135deg,#F59E0B,#FBBF24)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>$697</span>
                 <span style={{ color: "#444", fontSize: "0.82rem" }}> USD/año</span>
               </div>
-              <p style={{ fontSize: "0.78rem", color: "#F59E0B", fontWeight: 700, marginBottom: "1rem" }}>1,500 créditos/mes · 12 meses</p>
+              <p style={{ fontSize: "0.78rem", color: "#F59E0B", fontWeight: 700, marginBottom: "1rem" }}>12 entregas mensuales de 1,500 créditos</p>
+              <p style={{ fontSize: "0.84rem", color: "#aaa", lineHeight: 1.55, minHeight: "2.6em", marginBottom: "1.15rem" }}>Para quien busca acompañamiento y acceso anual desde el inicio.</p>
               <div style={{ display: "flex", flexDirection: "column", gap: "0.55rem" }}>
                 {["Todo lo incluido en Pro","Mentoría estratégica 1 a 1 de bienvenida","Acceso al grupo privado de Founders","Soporte prioritario por WhatsApp","Acceso anticipado a nuevas funciones","Precio Founder protegido mientras mantenga su membresía","Máximo 10 plazas"].map((f) => (
                   <div key={f} style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem" }}>
@@ -533,16 +526,19 @@ export default function Landing() {
                 onClick={() => setPlanCheckout({ planSlug: "founder", planName: "Founder", amountCents: 69700, currency: "usd", credits: 1500, interval: "year", requireEmail: true })}
                 style={{ marginTop: "1.5rem", width: "100%", background: "linear-gradient(135deg,#F59E0B,#D97706)", color: "#fff", border: "none", borderRadius: 10, padding: "0.75rem", fontSize: "0.85rem", fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, boxShadow: "0 0 24px rgba(245,158,11,0.25)" }}
               >
-                Quiero ser Founder <ArrowRight size={14} />
+                Reservar plaza Founder <ArrowRight size={14} />
               </button>
             </div>
 
           </div>
 
-          {/* Topup note */}
-          <p className="text-center reveal-up stagger-2" style={{ color: "#333", fontSize: "0.78rem", marginTop: "1.5rem" }}>
-            ¿Necesitas más créditos? También puedes comprar packs adicionales desde tu panel de facturación en cualquier momento.
-          </p>
+          <div className="reveal-up stagger-2" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(230px,1fr))", gap: "0.75rem", marginTop: "1.5rem" }}>
+            {[
+              "Los créditos se consumen por duración: 50 créditos equivalen aproximadamente a 30 segundos.",
+              "Los costos de los proveedores de IA se gestionan por separado.",
+              "Puedes comprar packs adicionales de créditos desde facturación.",
+            ].map((text) => <p key={text} style={{ color: "#555", fontSize: "0.76rem", lineHeight: 1.6, textAlign: "center", margin: 0, padding: "0.85rem 1rem", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 12 }}>{text}</p>)}
+          </div>
         </div>
       </section>
 
@@ -554,10 +550,10 @@ export default function Landing() {
           <div className="text-center reveal-up" style={{ marginBottom: "3.5rem" }}>
             <SectionLabel purple>El problema</SectionLabel>
             <h2 style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "clamp(1.75rem,4vw,2.6rem)", fontWeight: 800, letterSpacing: "-0.025em", lineHeight: 1.12, marginBottom: "1rem" }}>
-              Tienes el avatar. Te falta el sistema.
+              El contenido no debería depender del día que tengas.
             </h2>
             <p style={{ color: "#666", maxWidth: 540, margin: "0 auto", fontSize: "0.95rem", lineHeight: 1.75 }}>
-              El avatar es solo una herramienta. Sin un sistema detrás, sigue dependiendo de tu tiempo, tu energía y tu disciplina para publicar con consistencia.
+              Tener un avatar no resuelve la parte difícil: decidir qué decir, preparar cada pieza y convertirlo en una rutina que puedas sostener.
             </p>
           </div>
 
@@ -606,15 +602,15 @@ export default function Landing() {
                   <div style={{ display: "inline-flex", alignItems: "center", gap: 6, backgroundColor: "rgba(79,110,247,0.12)", border: "1px solid rgba(79,110,247,0.25)", color: "#4F6EF7", fontWeight: 700, fontSize: "0.68rem", letterSpacing: "0.1em", textTransform: "uppercase", borderRadius: 999, padding: "0.25rem 0.75rem", marginBottom: "1.5rem" }}>
                     <Check size={10} strokeWidth={3} /> Con Reelsona
                   </div>
-                  <h3 style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "1.1rem", fontWeight: 800, color: "#e8e8e8", marginBottom: "1.5rem", letterSpacing: "-0.02em" }}>Máquina en Autopilot</h3>
+                  <h3 style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "1.1rem", fontWeight: 800, color: "#e8e8e8", marginBottom: "1.5rem", letterSpacing: "-0.02em" }}>Un flujo con control</h3>
                   <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", position: "relative" }}>
                     {/* vertical connector */}
                     <div style={{ position: "absolute", left: 19, top: 20, bottom: 20, width: 2, background: "linear-gradient(to bottom,#4F6EF7,#9B5CF6,transparent)", zIndex: 0 }} />
                     {[
-                      { Icon: Brain,     t: "Estrategia de 30 días generada automáticamente" },
-                      { Icon: Bot,       t: "IA escribe guiones optimizados para Reels" },
-                      { Icon: Play,      t: "Avatar graba el video con IA" },
-                      { Icon: Instagram, t: "Publicado con captions en Instagram" },
+                      { Icon: Brain,     t: "Estrategia y temas alineados con tu negocio" },
+                      { Icon: Bot,       t: "Guiones asistidos por IA listos para revisar" },
+                      { Icon: Play,      t: "Video con avatar, voz y captions en un mismo flujo" },
+                      { Icon: Instagram, t: "Programación disponible con Pro y Founder" },
                     ].map(({ Icon, t }) => (
                       <div key={t} style={{ position: "relative", zIndex: 1, display: "flex", gap: "0.85rem", alignItems: "center", padding: "0.85rem 1rem", borderRadius: 12, background: "linear-gradient(90deg,rgba(79,110,247,0.08),rgba(79,110,247,0.02))", border: "1px solid rgba(79,110,247,0.15)" }}>
                         <div style={{ width: 38, height: 38, borderRadius: "9999px", backgroundColor: "#4F6EF7", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, boxShadow: "0 0 16px rgba(79,110,247,0.45)" }}>
@@ -638,23 +634,23 @@ export default function Landing() {
       </section>
 
       {/* ══════════════════════════════════════
-          QUÉ ES REELSONA — Fake product UI
+          QUÉ ES REELSONA
       ══════════════════════════════════════ */}
       <section style={{ backgroundColor: "#000", borderTop: "1px solid transparent", backgroundImage: "linear-gradient(#000,#000), linear-gradient(to right,transparent,rgba(79,110,247,0.4),transparent)", backgroundOrigin: "border-box", backgroundClip: "padding-box, border-box", padding: "6rem 1.5rem" }}>
         <div className="mx-auto" style={{ maxWidth: 1040 }}>
           <div className="text-center reveal-up" style={{ marginBottom: "3rem" }}>
             <h2 style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "clamp(1.75rem,4vw,2.6rem)", fontWeight: 800, letterSpacing: "-0.025em", lineHeight: 1.15, marginBottom: "1.25rem" }}>
-              "La IA crea el video.{" "}
+              "La IA produce las piezas.{" "}
               <span style={{ background: "linear-gradient(135deg,#4F6EF7,#9B5CF6)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>
-                Reelsona crea el sistema."
+                Reelsona organiza el flujo."
               </span>
             </h2>
             <p style={{ color: "#666", maxWidth: 560, margin: "0 auto", fontSize: "0.95rem", lineHeight: 1.75 }}>
-              No es un editor de video más. Es tu sala de control. Tú defines la estrategia; el sistema produce, edita y publica por ti.
+              No es otro editor. Es un espacio para definir tu estrategia, crear cada Reel y, si eliges Pro o Founder, automatizar la programación cuando todo esté configurado.
             </p>
           </div>
 
-          {/* Fake platform UI */}
+          {/* Vista ilustrativa del flujo */}
           <div className="reveal-up stagger-1 mx-auto" style={{ maxWidth: 960 }}>
             <div style={{ borderRadius: 20, border: "1px solid rgba(255,255,255,0.08)", backgroundColor: "#0f0f0f", overflow: "hidden", boxShadow: "0 40px 100px rgba(0,0,0,0.6)" }}>
               {/* Window chrome */}
@@ -667,6 +663,7 @@ export default function Landing() {
                     <div key={tab} style={{ padding: "0.3rem 0.9rem", borderRadius: 8, fontSize: "0.78rem", fontWeight: 600, backgroundColor: i === 0 ? "rgba(255,255,255,0.07)" : "transparent", color: i === 0 ? "#e0e0e0" : "#555", whiteSpace: "nowrap" }}>{tab}</div>
                   ))}
                 </div>
+                <span style={{ marginLeft: "auto", color: "#555", fontSize: "0.68rem", fontWeight: 700, whiteSpace: "nowrap" }}>VISTA ILUSTRATIVA</span>
               </div>
 
               {/* Dashboard content */}
@@ -731,11 +728,11 @@ export default function Landing() {
               <Rocket size={12} /> Modo Autopilot
             </div>
             <h2 style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "clamp(1.75rem,4vw,2.6rem)", fontWeight: 800, letterSpacing: "-0.025em", lineHeight: 1.12, marginBottom: "1rem" }}>
-              Conecta los cables.{" "}
-              <span style={{ background: "linear-gradient(135deg,#4F6EF7,#9B5CF6)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>Déjalo correr.</span>
+              Configura una vez.{" "}
+              <span style={{ background: "linear-gradient(135deg,#4F6EF7,#9B5CF6)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>Automatiza cuando estés listo.</span>
             </h2>
             <p style={{ color: "#666", maxWidth: 560, margin: "0 auto", fontSize: "0.95rem", lineHeight: 1.8 }}>
-              Configura tu estrategia, conecta tus herramientas y deja que tu clon digital trabaje por ti. El sistema ejecuta el pipeline completo sin intervención manual.
+              Pro y Founder incorporan Autopilot para ayudarte a sostener el flujo después de configurar tu estrategia, avatar, herramientas e Instagram Business.
             </p>
           </div>
 
@@ -774,8 +771,8 @@ export default function Landing() {
               <Repeat size={22} color="#9B5CF6" />
             </div>
             <div style={{ flex: 1, minWidth: 240 }}>
-              <p style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontWeight: 700, fontSize: "1rem", color: "#e0e0e0", marginBottom: "0.3rem" }}>No pagas por producir un video. Montas una máquina.</p>
-              <p style={{ color: "#666", fontSize: "0.875rem", lineHeight: 1.7, margin: 0 }}>Una vez que Autopilot está activo, tu clon digital puede publicar Reels esta semana, la siguiente y el mes que viene.</p>
+              <p style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontWeight: 700, fontSize: "1rem", color: "#e0e0e0", marginBottom: "0.3rem" }}>Mantén el control sin repetir el trabajo.</p>
+              <p style={{ color: "#666", fontSize: "0.875rem", lineHeight: 1.7, margin: 0 }}>Revisas lo importante al inicio; después, Autopilot puede encargarse de las tareas repetitivas que hayas configurado.</p>
             </div>
           </div>
         </div>
@@ -814,16 +811,16 @@ export default function Landing() {
             <div style={{ position: "absolute", inset: 0, background: "linear-gradient(90deg,#090909 0%,rgba(9,9,9,0.82) 36%,rgba(9,9,9,0.12) 60%,transparent 100%)" }} />
             <div style={{ position: "relative", zIndex: 1, padding: "clamp(2.5rem,6vw,5rem)", maxWidth: 540 }}>
               <h2 style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "clamp(1.75rem,4vw,2.8rem)", fontWeight: 800, letterSpacing: "-0.03em", lineHeight: 1.1, marginBottom: "1.25rem" }}>
-                Mientras tú vives,<br />tu avatar publica.
+                Tu marca no debería detenerse<br />cuando tú tienes una semana ocupada.
               </h2>
               <p style={{ color: "#888", fontSize: "1rem", lineHeight: 1.8, marginBottom: "2rem" }}>
-                No pagas por producir un video. Pagas por montar una máquina que te devuelve el tiempo mientras tu marca personal sigue creciendo.
+                Reelsona te ayuda a convertir lo que ya sabes en una rutina de contenido: ideas, guiones, videos con avatar y captions, sin empezar desde una página en blanco.
               </p>
               <button
                 onClick={() => pricingRef.current?.scrollIntoView({ behavior: "smooth" })}
                 style={{ background: "linear-gradient(135deg,#4F6EF7,#7B5CF6)", color: "#fff", border: "none", borderRadius: 12, padding: "1rem 2rem", fontSize: "1rem", fontWeight: 700, cursor: "pointer", boxShadow: "0 0 28px rgba(79,110,247,0.35)", display: "inline-flex", alignItems: "center", gap: 8 }}
               >
-                Crear mi clon digital <ArrowRight size={16} />
+                Ver planes y créditos <ArrowRight size={16} />
               </button>
             </div>
           </div>
@@ -831,54 +828,30 @@ export default function Landing() {
       </section>
 
       {/* ══════════════════════════════════════
-          COMPARATIVA DE COSTOS — visual bars
+          QUÉ ORGANIZA REELSONA
       ══════════════════════════════════════ */}
       <section style={{ backgroundColor: "#0b0b0b", borderTop: "1px solid rgba(255,255,255,0.04)", padding: "6rem 1.5rem" }}>
         <div className="mx-auto" style={{ maxWidth: 820 }}>
-          <div className="text-center reveal-up" style={{ marginBottom: "1.5rem" }}>
-            <SectionLabel>Comparativa de costos</SectionLabel>
+          <div className="text-center reveal-up" style={{ marginBottom: "2.5rem" }}>
+            <SectionLabel>Una sola sala de control</SectionLabel>
             <h2 style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "clamp(1.6rem,4vw,2.4rem)", fontWeight: 800, letterSpacing: "-0.025em", lineHeight: 1.15, marginBottom: "0.75rem" }}>
-              Cuánto cuesta la consistencia<br />sin Reelsona
+              Menos herramientas sueltas.<br />Más claridad para publicar.
             </h2>
-            <p style={{ color: "#444", fontSize: "0.8rem", maxWidth: 480, margin: "0 auto" }}>
-              Rangos de referencia aproximados del mercado — no una promesa de ahorro exacto. Cada caso varía.
+            <p style={{ color: "#666", fontSize: "0.9rem", lineHeight: 1.7, maxWidth: 560, margin: "0 auto" }}>
+              Reelsona no sustituye tus decisiones ni los proveedores de IA. Ordena el proceso que convierte una idea en un Reel listo para revisar o programar.
             </p>
           </div>
 
-          <div className="rounded-3xl reveal-up stagger-1" style={{ backgroundColor: "#111", border: "1px solid rgba(255,255,255,0.07)", padding: "2rem 2.5rem" }}>
-            <div className="flex flex-col gap-6">
-              {[
-                { label: "Agencia de producción con video/Reels", cost: "$5,000 – $10,000+ / mes", w: "100%" },
-                { label: "Agencia boutique de contenido",          cost: "$2,000 – $5,000 / mes",   w: "55%"  },
-                { label: "Especialista de contenido",              cost: "$1,000 – $3,500 / mes",   w: "40%"  },
-                { label: "Videógrafo para contenido social",       cost: "$500 – $3,000 / día",     w: "32%"  },
-                { label: "Edición de Reels por unidad",            cost: "$50 – $500+ por Reel",    w: "22%"  },
-              ].map(({ label, cost, w }) => (
-                <div key={label}>
-                  <div className="flex justify-between" style={{ fontSize: "0.855rem", marginBottom: "0.5rem", flexWrap: "wrap", gap: "0.25rem" }}>
-                    <span style={{ color: "#777" }}>{label}</span>
-                    <span style={{ color: "#aaa", fontWeight: 600 }}>{cost}</span>
-                  </div>
-                  <div style={{ height: 10, backgroundColor: "#0a0a0a", borderRadius: 999, overflow: "hidden" }}>
-                    <div style={{ height: "100%", width: w, backgroundColor: "#2a2a2a", borderRadius: 999 }} />
-                  </div>
+          <div className="grid gap-3 reveal-up stagger-1" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(330px,1fr))" }}>
+            {notJustAiToolItems.map(({ wrong, right }, index) => (
+              <div key={wrong} style={{ display: "grid", gridTemplateColumns: "36px 1fr", gap: "0.85rem", borderRadius: 16, backgroundColor: "#111", border: "1px solid rgba(255,255,255,0.07)", padding: "1.25rem" }}>
+                <span style={{ width: 30, height: 30, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: "rgba(79,110,247,0.12)", color: "#6e82ff", fontFamily: "var(--font-display,'Outfit',sans-serif)", fontWeight: 800, fontSize: "0.72rem" }}>0{index + 1}</span>
+                <div>
+                  <p style={{ color: "#777", fontSize: "0.78rem", lineHeight: 1.55, marginBottom: "0.35rem", textDecoration: "line-through", textDecorationColor: "rgba(255,255,255,0.15)" }}>{wrong}</p>
+                  <p style={{ color: "#ddd", fontSize: "0.86rem", lineHeight: 1.55, margin: 0 }}>{right}</p>
                 </div>
-              ))}
-
-              <div style={{ height: 1, backgroundColor: "rgba(255,255,255,0.07)", margin: "0.5rem 0" }} />
-
-              {/* Reelsona bar */}
-              <div style={{ position: "relative", backgroundColor: "rgba(79,110,247,0.06)", border: "1px solid rgba(79,110,247,0.25)", borderRadius: 16, padding: "1.25rem 1.5rem", boxShadow: "0 0 30px rgba(79,110,247,0.1)" }}>
-                <div className="flex justify-between" style={{ fontSize: "1rem", fontWeight: 800, fontFamily: "var(--font-display,'Outfit',sans-serif)", marginBottom: "0.6rem", flexWrap: "wrap", gap: "0.25rem" }}>
-                  <span style={{ color: "#e0e0e0", display: "flex", alignItems: "center", gap: 8 }}><Sparkles size={16} color="#4F6EF7" /> Reelsona — Plan Pro</span>
-                  <button onClick={() => setPlanCheckout({ planSlug: "pro", planName: "Pro", amountCents: 9700, currency: "usd", credits: 1500, interval: "month", requireEmail: true })} style={{ color: "#fff", backgroundColor: "#4F6EF7", border: "none", borderRadius: 8, padding: "0.25rem 0.9rem", fontSize: "0.82rem", fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>Activar plan →</button>
-                </div>
-                <div style={{ height: 10, backgroundColor: "#0a0a0a", borderRadius: 999, overflow: "hidden" }}>
-                  <div style={{ height: "100%", width: "4%", background: "linear-gradient(90deg,#4F6EF7,#9B5CF6)", borderRadius: 999, boxShadow: "0 0 8px #4F6EF7" }} />
-                </div>
-                <p style={{ fontSize: "0.75rem", color: "#444", marginTop: "0.75rem" }}>*Requiere cuentas de IA con costos independientes.</p>
               </div>
-            </div>
+            ))}
           </div>
         </div>
       </section>
@@ -991,26 +964,26 @@ export default function Landing() {
             <div style={{ position: "absolute", inset: -28, background: "radial-gradient(ellipse,rgba(155,92,246,0.22) 0%,transparent 68%)", borderRadius: "9999px", zIndex: 0, pointerEvents: "none" }} />
             <div style={{ position: "relative", zIndex: 1, width: "clamp(160px,15vw,215px)", aspectRatio: "9/16", borderRadius: "2rem", border: "1px solid rgba(155,92,246,0.35)", boxShadow: "0 0 50px rgba(155,92,246,0.22),0 24px 60px rgba(0,0,0,0.7)", overflow: "hidden", backgroundColor: "#111", transform: "rotate(-3deg)" }}>
               <img src={`${BASE}/hero-avatar.jpg`} alt="Avatar IA" style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "top", display: "block" }} />
-              <div style={{ position: "absolute", bottom: "1rem", left: "50%", transform: "translateX(-50%)", backgroundColor: "rgba(9,9,9,0.82)", backdropFilter: "blur(10px)", border: "1px solid rgba(155,92,246,0.4)", borderRadius: 999, padding: "0.25rem 0.7rem", fontSize: "0.6rem", fontWeight: 700, letterSpacing: "0.07em", color: "#9B5CF6", whiteSpace: "nowrap" }}>✦ EN AUTOPILOT</div>
+               <div style={{ position: "absolute", bottom: "1rem", left: "50%", transform: "translateX(-50%)", backgroundColor: "rgba(9,9,9,0.82)", backdropFilter: "blur(10px)", border: "1px solid rgba(155,92,246,0.4)", borderRadius: 999, padding: "0.25rem 0.7rem", fontSize: "0.6rem", fontWeight: 700, letterSpacing: "0.07em", color: "#9B5CF6", whiteSpace: "nowrap" }}>FLUJO CONFIGURADO</div>
             </div>
           </div>
 
           {/* Copy */}
           <div>
             <h2 style={{ fontFamily: "var(--font-display,'Outfit',sans-serif)", fontSize: "clamp(2rem,5vw,3.2rem)", fontWeight: 900, letterSpacing: "-0.04em", lineHeight: 1.07, marginBottom: "1.25rem" }}>
-              Tu clon digital te está esperando.{" "}
+              Elige un plan que encaje con{" "}
               <span style={{ background: "linear-gradient(135deg,#4F6EF7 10%,#9B5CF6 90%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>
-                Ponlo a trabajar.
+                tu forma de crear.
               </span>
             </h2>
             <p style={{ color: "#666", fontSize: "1rem", lineHeight: 1.8, marginBottom: "2.25rem", maxWidth: 460 }}>
-              Te enseñamos a crear tu avatar de forma efectiva, paso a paso. Después configuras el sistema y lo dejas publicando Reels en automático.
+              Empieza con creación manual o activa Autopilot cuando quieras un flujo recurrente. En ambos casos tendrás Academia para configurar todo paso a paso.
             </p>
             <button
               onClick={() => pricingRef.current?.scrollIntoView({ behavior: "smooth" })}
               style={{ background: "linear-gradient(135deg,#4F6EF7,#7B5CF6)", color: "#fff", border: "none", borderRadius: 12, padding: "1.1rem 2.5rem", fontSize: "1.05rem", fontWeight: 700, cursor: "pointer", boxShadow: "0 0 32px rgba(79,110,247,0.32)", display: "inline-flex", alignItems: "center", gap: 8 }}
             >
-              Crear mi clon digital <ArrowRight size={17} />
+              Elegir mi plan <ArrowRight size={17} />
             </button>
           </div>
         </div>
