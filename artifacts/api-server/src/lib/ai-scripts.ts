@@ -245,6 +245,7 @@ async function generateHookCandidates(
   uniqueValueProp?: string | null,
   commonObjections?: string | null,
   customCta?: string | null,
+  strategyContext?: StrategyContext,
 ): Promise<{ candidates: string[]; winner: string; selectionReason: string }> {
   const client = makeOpenAIClient();
   const semanticContext = buildSemanticContext(semanticProfileFrom({
@@ -260,6 +261,15 @@ async function generateHookCandidates(
     commonObjections,
     customCta,
   }, { niche, tone, language, keywords: topicKeywords }));
+  const strategyBlock = strategyContext ? `
+ESTUDIO DE MERCADO Y PILARES APROBADOS:
+- Propuesta de valor: ${strategyContext.content_strategy.unique_value_prop}
+- Pilares: ${strategyContext.content_strategy.pillars.map((p) => `${p.name}: ${p.objective}`).join("; ")}
+- Ángulos aprobados: ${strategyContext.content_strategy.editorial_angles.join("; ")}
+- Dolores y deseos: ${strategyContext.market_insights.audience_pains.join("; ")}
+- Oportunidades: ${strategyContext.market_insights.opportunities.join("; ")}
+Usa este estudio para elegir un ángulo específico, sin cambiar la oferta ni la audiencia configuradas.
+` : "";
 
   const auditContext = auditInsights?.topCaptions.length
     ? `\nCaptions que funcionaron bien en esta cuenta (solo como referencia de estilo de apertura):\n${auditInsights.topCaptions.slice(0, 3).map((c, i) => `${i + 1}. ${c.substring(0, 120)}`).join("\n")}`
@@ -269,6 +279,7 @@ async function generateHookCandidates(
 
 ${getLanguageInstruction(language)}
 ${semanticContext}
+${strategyBlock}
 
 Genera 3 hooks alternativos para el primer segundo de un Reel de Instagram.
 
@@ -357,6 +368,7 @@ export async function generateScript(
     voiceStyle?: string | null;
     commonObjections?: string | null;
     customCta?: string | null;
+    strategyContext?: StrategyContext;
     /** Extra editorial directives dictated by the user (Video Express). Take priority over defaults. */
     extraDirectives?: string[];
   }
@@ -389,6 +401,7 @@ export async function generateScript(
       options?.nicheDescription, options?.topicKeywords,
       options?.offer, options?.idealAudience, options?.voiceStyle,
       options?.uniqueValueProp, options?.commonObjections, options?.customCta,
+      options?.strategyContext,
     );
     hookWinner = hookResult.winner;
     hookCandidatesList = hookResult.candidates;
@@ -439,6 +452,15 @@ ${TALKING_HEAD_CONSTRAINT}
 
 ${getLanguageInstruction(language)}
 ${semanticContext}
+${options?.strategyContext ? `
+ESTUDIO DE MERCADO Y PILARES APROBADOS:
+- Propuesta de valor: ${options.strategyContext.content_strategy.unique_value_prop}
+- Pilares: ${options.strategyContext.content_strategy.pillars.map((p) => `${p.name}: ${p.objective}`).join("; ")}
+- Ángulos editoriales: ${options.strategyContext.content_strategy.editorial_angles.join("; ")}
+- Dolores y deseos: ${options.strategyContext.market_insights.audience_pains.join("; ")}
+- Oportunidades: ${options.strategyContext.market_insights.opportunities.join("; ")}
+Estos datos guían el ángulo y la especificidad, pero nunca sustituyen la oferta o audiencia configuradas.
+` : ""}
 ${criterionInstruction}${auditContext}${creatorBrainContext}${extraDirectivesContext}
 Crea un guion de video para un Reel de Instagram con estas especificaciones:
 - Nicho: ${niche}
