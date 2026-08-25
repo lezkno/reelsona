@@ -109,6 +109,14 @@ const LOW_CREDIT_ALERT_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24 h
 // running for the same user. Cleared in .finally() — resets on process restart.
 const autoFillInFlight = new Set<number>(); // userId
 
+// ── Empty-slot continuity guard ───────────────────────────────────────────────
+// A scheduler tick can arrive at a configured publishing time with no plan item
+// at all (for example after a user deleted a draft). Keep topic generation
+// single-flight in this process; the transaction-level advisory lock below also
+// protects multiple API instances.
+const continuityInFlight = new Set<number>(); // userId
+const CONTINUITY_LOOKBACK_MS = 6 * 60 * 1000;
+
 // ── Video failure alert rate-limiter ─────────────────────────────────────────
 // Sends at most one "Reel failed" email per user per hour to avoid spam when
 // multiple items fail in the same automation cycle. Resets on process restart.
@@ -552,6 +560,124 @@ export async function triggerFillEmptySlots(userId: number): Promise<void> {
     await fillEmptyScheduledSlots(userId, automation, settings);
   } catch (err) {
     logger.warn({ userId, err }, "[AutoFill] triggerFillEmptySlots failed — non-fatal");
+  }
+}
+
+/**
+ * Create one draft for a publishing slot that has just arrived and is still
+ * empty. This is deliberately separate from the 14-day AutoFill feature:
+ * AutoFill is best-effort future planning, while this function is the
+ * last-resort continuity path that must hand a real item to the normal
+ * generation pipeline.
+ */
+async function createContinuityItemForDueSlot(
+  userId: number,
+  automation: typeof automationConfigTable.$inferSelect,
+  settings: typeof settingsTable.$inferSelect,
+  now: Date,
+): Promise<number | null> {
+  if (continuityInFlight.has(userId)) return null;
+
+  const postingTimes = automation.postingTimes ?? ["09:00"];
+  const from = new Date(now.getTime() - CONTINUITY_LOOKBACK_MS);
+  const candidateSlots = computeUpcomingSlots({
+    daysOfWeek: automation.daysOfWeek ?? [1, 2, 3, 4, 5],
+    postingTimes,
+    timezone: automation.timezone ?? "America/Buenos_Aires",
+    scheduledDays: 1,
+    postsPerDay: Math.max(1, postingTimes.length),
+    occupied: [],
+    from,
+  })
+    .filter((slot) => slot.getTime() <= now.getTime())
+    .sort((a, b) => a.getTime() - b.getTime());
+
+  const slot = candidateSlots[0];
+  if (!slot) return null;
+
+  continuityInFlight.add(userId);
+  try {
+    // Load recent topics before the lock/insert transaction. The transaction
+    // rechecks the exact slot after acquiring the lock, so AI latency cannot
+    // create duplicate items when two scheduler processes race.
+    const recentRows = await db
+      .select({ topic: contentPlanItemsTable.topic })
+      .from(contentPlanItemsTable)
+      .where(eq(contentPlanItemsTable.userId, userId))
+      .orderBy(desc(contentPlanItemsTable.createdAt))
+      .limit(20);
+    const existingTopics = recentRows.map((row) => row.topic).filter(Boolean);
+
+    const [auditInsights, strategyProfile] = await Promise.all([
+      getLatestAuditCache(userId).catch(() => null),
+      getStrategyProfile(userId).catch(() => null),
+    ]);
+    const strategyContext = strategyProfile ? toStrategyContext(strategyProfile) : undefined;
+    const generated = await generateContentTopics(
+      settings.niche!,
+      (settings.topicKeywords as string[] | null) ?? [],
+      settings.tone ?? "casual",
+      settings.language ?? "es",
+      1,
+      1,
+      existingTopics,
+      auditInsights ?? undefined,
+      strategyContext ?? undefined,
+    );
+    const topic = generated[0];
+    if (!topic?.topic) {
+      logger.warn({ userId, slot }, "[Continuity] Topic generation returned no usable topic");
+      return null;
+    }
+
+    const slotStart = new Date(Math.floor(slot.getTime() / 60000) * 60000);
+    const slotEnd = new Date(slotStart.getTime() + 60 * 1000);
+    return await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${"continuity:" + userId + ":" + slotStart.toISOString()}))`);
+
+      const existing = await tx
+        .select({ id: contentPlanItemsTable.id })
+        .from(contentPlanItemsTable)
+        .where(and(
+          eq(contentPlanItemsTable.userId, userId),
+          gte(contentPlanItemsTable.scheduledAt, slotStart),
+          lt(contentPlanItemsTable.scheduledAt, slotEnd),
+        ))
+        .limit(1);
+      if (existing[0]) {
+        logger.info({ userId, slot, itemId: existing[0].id }, "[Continuity] Slot already covered");
+        return null;
+      }
+
+      const [inserted] = await tx
+        .insert(contentPlanItemsTable)
+        .values({
+          userId,
+          topic: topic.topic,
+          scheduledAt: slot,
+          status: "draft",
+          viralScore: topic.viral_score ?? null,
+          editorialAngle: topic.editorial_angle ?? null,
+          shareReason: topic.share_reason ?? null,
+          audiencePain: topic.audience_pain ?? null,
+          noveltyLevel: topic.novelty_level ?? null,
+          visualDependency: topic.visual_dependency ?? null,
+          formatFitScore: topic.format_fit_score ?? null,
+          suggestedVisualSupport: topic.suggested_visual_support?.length
+            ? JSON.stringify(topic.suggested_visual_support)
+            : null,
+          avatarFitReason: topic.avatar_talking_head_fit_reason ?? null,
+        })
+        .returning({ id: contentPlanItemsTable.id });
+
+      logger.info({ userId, slot, itemId: inserted.id }, "[Continuity] Empty publishing slot filled");
+      return inserted.id;
+    });
+  } catch (err) {
+    logger.warn({ userId, slot, err }, "[Continuity] Failed to fill empty publishing slot");
+    return null;
+  } finally {
+    continuityInFlight.delete(userId);
   }
 }
 
@@ -4651,10 +4777,30 @@ export function startScheduler(): void {
           )
           .limit(1);
 
-        if (dueItems.length === 0) continue;
+        let cycleItemId: number | undefined = dueItems[0]?.id;
+        if (cycleItemId === undefined) {
+          const [automation] = await db
+            .select()
+            .from(automationConfigTable)
+            .where(eq(automationConfigTable.id, config.id))
+            .limit(1);
+          const [settings] = await db
+            .select()
+            .from(settingsTable)
+            .where(eq(settingsTable.userId, config.userId))
+            .limit(1);
+          if (!automation || !settings?.niche) continue;
+          cycleItemId = await createContinuityItemForDueSlot(
+            config.userId,
+            automation,
+            settings,
+            now,
+          ) ?? undefined;
+        }
+        if (cycleItemId === undefined) continue;
 
-        logger.info({ userId: config.userId, itemId: dueItems[0].id }, "Scheduled automation cycle triggered");
-        const result = await runAutomationCycle(config.userId);
+        logger.info({ userId: config.userId, itemId: cycleItemId }, "Scheduled automation cycle triggered");
+        const result = await runAutomationCycle(config.userId, cycleItemId);
 
         // Transient / self-healing results (concurrent cycle, no items ready, etc.)
         // should not overwrite a meaningful last_run_status — they are expected and
