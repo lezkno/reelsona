@@ -593,6 +593,19 @@ function expandAbbreviations(script: string, language?: string): string {
 
   const replacements: [RegExp, string][] = isEs
     ? [
+        // English marketing terms that Spanish voices often pronounce
+        // literally or with the wrong stress. Keep the user's visible script
+        // unchanged; these replacements apply only to the provider payload.
+        [/\bleads\b/gi,     "clientes potenciales"],
+        [/\blead\b/gi,      "cliente potencial"],
+        [/\blanding pages\b/gi, "páginas de aterrizaje"],
+        [/\blanding page\b/gi,  "página de aterrizaje"],
+        [/\bengagement\b/gi, "interacción"],
+        [/\bfeedback\b/gi,   "comentarios"],
+        [/\binsights?\b/gi,  "ideas clave"],
+        [/\bfunnel\b/gi,     "embudo"],
+        [/\btarget\b/gi,     "público objetivo"],
+        [/\bbranding\b/gi,   "construcción de marca"],
         // Tech / marketing — read as individual letters in Spanish TTS
         [/\bIA\b/g,        "inteligencia artificial"],
         [/\bAI\b/g,        "inteligencia artificial"],
