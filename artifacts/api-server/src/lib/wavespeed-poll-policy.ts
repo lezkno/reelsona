@@ -2,6 +2,23 @@ export type WaveSpeedPollingDecision =
   | { action: "continue" }
   | { action: "timeout"; reason: string };
 
+export const WAVESPEED_POLL_MAX_ATTEMPTS = 40;
+export const WAVESPEED_POLL_INITIAL_DELAY_MS = 3_000;
+export const WAVESPEED_POLL_MAX_DELAY_MS = 30_000;
+
+/** Exponential backoff used by long-lived monitors (without unbounded retries). */
+export function getWaveSpeedPollDelayMs(attempt: number): number {
+  const safeAttempt = Math.max(1, Math.floor(attempt));
+  return Math.min(
+    WAVESPEED_POLL_INITIAL_DELAY_MS * 2 ** (safeAttempt - 1),
+    WAVESPEED_POLL_MAX_DELAY_MS,
+  );
+}
+
+export function hasExceededWaveSpeedPollAttempts(attempt: number): boolean {
+  return attempt >= WAVESPEED_POLL_MAX_ATTEMPTS;
+}
+
 export function evaluateWaveSpeedPollingAge(input: {
   startedAt: Date;
   now?: Date;
@@ -12,7 +29,7 @@ export function evaluateWaveSpeedPollingAge(input: {
   const ageMs = Math.max(0, now.getTime() - input.startedAt.getTime());
   const timeoutMs = timeoutMinutes * 60_000;
 
-  if (ageMs > timeoutMs) {
+  if (ageMs >= timeoutMs) {
     return {
       action: "timeout",
       reason: `WaveSpeed no completó la generación en ${timeoutMinutes} minutos`,

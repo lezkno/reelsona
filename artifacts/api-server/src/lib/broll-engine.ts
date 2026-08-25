@@ -30,6 +30,10 @@ import {
 } from "./credits";
 import { logger } from "./logger";
 import type { PunchWordTiming } from "./caption-engine";
+import {
+  getWaveSpeedPollDelayMs,
+  hasExceededWaveSpeedPollAttempts,
+} from "./wavespeed-poll-policy";
 
 const execFileAsync = promisify(execFile);
 
@@ -379,7 +383,9 @@ export async function analyzeBRollSegments(
 async function pollBRollJob(requestId: string, maxMs = 120_000): Promise<string | null> {
   const start = Date.now();
   const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-  while (Date.now() - start < maxMs) {
+  let attempts = 0;
+  while (Date.now() - start < maxMs && !hasExceededWaveSpeedPollAttempts(attempts)) {
+    attempts++;
     const result = await getJobStatus(requestId);
     if (result.status === "completed") {
       const outputs = Array.isArray(result.outputs) ? (result.outputs as string[]) : [];
@@ -389,9 +395,10 @@ async function pollBRollJob(requestId: string, maxMs = 120_000): Promise<string 
       logger.warn({ requestId, error: result.error }, "[BRoll] WaveSpeed job failed");
       return null;
     }
-    await delay(3_000);
+    const remainingMs = maxMs - (Date.now() - start);
+    await delay(Math.min(getWaveSpeedPollDelayMs(attempts), Math.max(0, remainingMs)));
   }
-  logger.warn({ requestId }, "[BRoll] WaveSpeed job timed out after 120 s");
+  logger.warn({ requestId, attempts }, "[BRoll] WaveSpeed job timed out or exceeded retry limit");
   return null;
 }
 
@@ -460,7 +467,7 @@ export async function generateBRollImages(
           }
           return;
         }
-        const res = await fetch(imageUrl);
+        const res = await fetch(imageUrl, { signal: AbortSignal.timeout(30_000) });
         if (!res.ok) throw new Error(`HTTP ${res.status} downloading B-roll image`);
         const buf = Buffer.from(await res.arrayBuffer());
         const tmpPath = path.join(tmpDir, `broll_${i}.png`);

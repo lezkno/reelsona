@@ -87,6 +87,11 @@ import {
   shouldMonitorWavespeedVideo,
 } from "./wavespeed-video-pipeline-policy";
 import {
+  evaluateWaveSpeedPollingAge,
+  getWaveSpeedPollDelayMs,
+  hasExceededWaveSpeedPollAttempts,
+} from "./wavespeed-poll-policy";
+import {
   buildGenerationStartClaim,
   buildGenerationStartRollback,
   isManualTargetedGenerationStart,
@@ -3131,7 +3136,6 @@ export async function advanceWavespeedVideo(videoId: number): Promise<WavespeedA
 }
 
 const activeWavespeedVideoMonitors = new Set<number>();
-const WAVESPEED_VIDEO_RETRY_MS = 10_000;
 
 async function expireWavespeedVideoIfNeeded(videoId: number): Promise<boolean> {
   const [video] = await db.select().from(videosTable).where(eq(videosTable.id, videoId)).limit(1);
@@ -3140,14 +3144,14 @@ async function expireWavespeedVideoIfNeeded(videoId: number): Promise<boolean> {
   // advanceWavespeedVideo will stop it normally once the ledger call succeeds.
   if (!video || video.status !== "generating") return false;
 
-  const timeoutMs = Number(process.env.HEYGEN_POLL_TIMEOUT_MINUTES ?? 60) * 60 * 1000;
   const startedAt = video.generatingStartedAt ?? video.createdAt;
-  if (Date.now() - startedAt.getTime() <= timeoutMs) return false;
+  const decision = evaluateWaveSpeedPollingAge({
+    startedAt,
+    timeoutMinutes: Number(process.env.WAVESPEED_POLL_TIMEOUT_MINUTES ?? process.env.HEYGEN_POLL_TIMEOUT_MINUTES ?? 60),
+  });
+  if (decision.action !== "timeout") return false;
 
-  await failWavespeedVideo(
-    video,
-    `WaveSpeed no completó la generación en ${Math.round(timeoutMs / 60_000)} minutos`,
-  );
+  await failWavespeedVideo(video, decision.reason);
   return true;
 }
 
@@ -3160,25 +3164,44 @@ export function startWavespeedVideoMonitor(input: { videoId: number }): void {
   activeWavespeedVideoMonitors.add(input.videoId);
 
   const stop = () => activeWavespeedVideoMonitors.delete(input.videoId);
+  let attempts = 0;
   const poll = async (): Promise<void> => {
+    attempts++;
     try {
       const result = await advanceWavespeedVideo(input.videoId);
       if (result === "complete" || result === "failed" || result === "inactive") {
         stop();
         return;
       }
-      if (await expireWavespeedVideoIfNeeded(input.videoId)) {
+      if (await expireWavespeedVideoIfNeeded(input.videoId) || hasExceededWaveSpeedPollAttempts(attempts)) {
+        if (hasExceededWaveSpeedPollAttempts(attempts)) {
+          const [video] = await db.select().from(videosTable).where(eq(videosTable.id, input.videoId)).limit(1);
+          if (video?.status === "generating") {
+            await failWavespeedVideo(video, "WaveSpeed superó el número máximo de intentos de consulta");
+          }
+        }
         stop();
         return;
       }
     } catch (err) {
       logger.warn({ err, videoId: input.videoId }, "[WaveSpeed] Polling temporalmente no disponible — se reintentará");
-      if (await expireWavespeedVideoIfNeeded(input.videoId).catch(() => false)) {
+      const expired = await expireWavespeedVideoIfNeeded(input.videoId).catch(() => false);
+      if (expired) {
+        stop();
+        return;
+      }
+      if (hasExceededWaveSpeedPollAttempts(attempts)) {
+        const [video] = await db.select().from(videosTable).where(eq(videosTable.id, input.videoId)).limit(1);
+        if (video?.status === "generating") {
+          await failWavespeedVideo(video, "WaveSpeed superó el número máximo de intentos de consulta").catch((failErr) =>
+            logger.error({ videoId: input.videoId, failErr }, "[WaveSpeed] Failed to settle max-attempt timeout"),
+          );
+        }
         stop();
         return;
       }
     }
-    const timer = setTimeout(() => void poll(), WAVESPEED_VIDEO_RETRY_MS);
+    const timer = setTimeout(() => void poll(), getWaveSpeedPollDelayMs(attempts));
     timer.unref();
   };
 
@@ -4085,13 +4108,21 @@ async function _publishVideoToInstagramInner(videoId: number, videoUrl?: string)
     logger.info({ videoId, containerId }, "[Publish] Created Instagram container");
   }
 
-  // Poll container status
+  // Poll container status with a bounded, backoff-based retry loop. Never call
+  // media_publish unless Meta explicitly reports FINISHED.
   try {
+    const maxAttempts = 30;
     let attempts = 0;
-    while (attempts < 30) {
-      await new Promise((r) => setTimeout(r, 10000));
+    let containerFinished = false;
+    while (attempts < maxAttempts) {
+      const delayMs = Math.min(5_000 * 2 ** attempts, 30_000);
+      await new Promise((r) => setTimeout(r, delayMs));
+      attempts++;
       const statusCode = await checkContainerStatus(igAccount.accessToken, containerId);
-      if (statusCode === "FINISHED") break;
+      if (statusCode === "FINISHED") {
+        containerFinished = true;
+        break;
+      }
       if (statusCode === "ERROR") {
         // Container is permanently bad (typically because Instagram couldn't download
         // the video URL). Clear it so the next attempt creates a fresh container.
@@ -4101,7 +4132,22 @@ async function _publishVideoToInstagramInner(videoId: number, videoUrl?: string)
           .where(eq(videosTable.id, videoId));
         throw new Error("Container processing failed — Instagram could not process the video");
       }
-      attempts++;
+    }
+
+    if (!containerFinished) {
+      const timeoutMessage =
+        `Instagram no confirmó el contenedor como FINISHED tras ${maxAttempts} intentos; ` +
+        "la publicación se marcó como fallida para evitar dejarla atascada.";
+      await db
+        .update(videosTable)
+        .set({
+          status: "failed",
+          igContainerId: null,
+          errorMessage: timeoutMessage,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(videosTable.id, videoId), eq(videosTable.status, "publishing")));
+      throw new Error(timeoutMessage);
     }
 
     // Re-read the video fresh before calling Instagram — a previous run may have

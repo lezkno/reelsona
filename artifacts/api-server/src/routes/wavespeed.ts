@@ -77,11 +77,13 @@ import {
   getWaveSpeedProviderImageUrl,
   persistWaveSpeedAvatarImage,
 } from "../lib/wavespeed-avatar-storage";
+import { evaluateWaveSpeedPollingAge } from "../lib/wavespeed-poll-policy";
 
 const storageService = new ObjectStorageService();
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
+const WAVESPEED_LOOK_TIMEOUT_MINUTES = 60;
 
 // ── Auth helper ───────────────────────────────────────────────────────────────
 // Mirrors the pattern in routes/course.ts — session identity lives at
@@ -481,6 +483,27 @@ router.get("/wavespeed/personas/:id/looks/status", async (req, res) => {
         }
         if (!needsPoll) {
           return { ...look, imageUrl: getWaveSpeedBrowserImageUrl(look.imageUrl) };
+        }
+
+        const ageDecision = evaluateWaveSpeedPollingAge({
+          startedAt: look.createdAt,
+          timeoutMinutes: WAVESPEED_LOOK_TIMEOUT_MINUTES,
+        });
+        if (ageDecision.action === "timeout") {
+          cfg.generationStatus = "failed";
+          cfg.errorMessage = "La generación del look superó el tiempo máximo. Intenta crear otro.";
+          const newConfig = JSON.stringify(cfg);
+          await db
+            .update(wavespeedLooksTable)
+            .set({ config: newConfig, updatedAt: new Date() })
+            .where(and(
+              eq(wavespeedLooksTable.id, look.id),
+              eq(wavespeedLooksTable.userId, userId),
+            ));
+          releaseLookCredits(look.id, "Look agotó el tiempo máximo").catch((err) =>
+            req.log.warn({ err, lookId: look.id }, "[WaveSpeed] releaseLookCredits failed after timeout"),
+          );
+          return { ...look, config: newConfig };
         }
 
         try {
