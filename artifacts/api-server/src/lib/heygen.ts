@@ -600,6 +600,7 @@ function expandAbbreviations(script: string, language?: string): string {
         [/\blead\b/gi,      "cliente potencial"],
         [/\blanding pages\b/gi, "páginas de aterrizaje"],
         [/\blanding page\b/gi,  "página de aterrizaje"],
+        [/\bel engagement\b/gi, "la interacción"],
         [/\bengagement\b/gi, "interacción"],
         [/\bfeedback\b/gi,   "comentarios"],
         [/\binsights?\b/gi,  "ideas clave"],

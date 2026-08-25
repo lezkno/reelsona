@@ -67,7 +67,7 @@ import { logger } from "./logger";
 import { generateScript, regenerateCaption, generateContentTopics } from "./ai-scripts";
 import { getLatestAuditCache } from "./audit-cache";
 import { getStrategyProfile, toStrategyContext } from "./strategy-profile";
-import { generateVideo, getVideoStatus, listVoices, getAvatarDefaultVoiceId, getAllAvailableAvatarIds, invalidateAvatarIdsCache, getVoiceCloneStatus, ensureSelectedLooksHaveMetadata } from "./heygen";
+import { generateVideo, getVideoStatus, listVoices, getAvatarDefaultVoiceId, getAllAvailableAvatarIds, invalidateAvatarIdsCache, getVoiceCloneStatus, ensureSelectedLooksHaveMetadata, normalizeScriptForTTS } from "./heygen";
 import { isWavespeedConfigured, submitSpeech, submitTalkingHead, getJobStatus as getWavespeedJobStatus, WAVESPEED_MODELS, isValidWavespeedVoiceId } from "./wavespeed";
 import { wavespeedPersonasTable, wavespeedLooksTable, wavespeedVoicesTable, wavespeedJobsTable } from "@workspace/db";
 import { getUserPlanSlug, getAvatarLimit, computePersonaPlanEnabled, PlanBlockedError } from "./planLimits";
@@ -1476,7 +1476,7 @@ export async function runAutomationCycle(
         "[WaveSpeed] Submitting TTS job",
       );
       const { requestId: ttsRequestId } = await submitSpeech(
-        contentItem.script!,
+        normalizeScriptForTTS(contentItem.script!, settings.language ?? "es"),
         wavespeedCtx.voiceId,
         undefined,
         { speed: wavespeedCtx.speed ?? undefined, pitch: wavespeedCtx.pitch ?? undefined },

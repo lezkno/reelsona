@@ -61,6 +61,7 @@ import {
   getJobStatus,
   isValidWavespeedVoiceId,
 } from "../lib/wavespeed";
+import { normalizeScriptForTTS } from "../lib/heygen";
 import {
   getSignedObjectUrl,
   objectStorageClient,
@@ -1164,7 +1165,7 @@ router.get("/wavespeed/voices/:id/preview", async (req, res) => {
 
     req.log.info({ voiceId, speed: effectiveSpeed, pitch: effectivePitch, hasOverride }, "[WaveSpeed] Generating TTS preview for voice");
     const { requestId } = await submitSpeech(
-      VOICE_PREVIEW_TEXT,
+      normalizeScriptForTTS(VOICE_PREVIEW_TEXT, "es"),
       voice.wavespeedVoiceId,
       undefined,
       { speed: effectiveSpeed, pitch: effectivePitch },
