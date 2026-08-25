@@ -60,10 +60,26 @@ export async function provisionPurchase(
   const { email, fullName, purchaseType, planSlug, creditsPurchased, providerCustomerId, providerSessionId } = purchase;
 
   try {
+    // Stripe metadata normally carries the stable account ID. Resolve it here
+    // as a defense against old/unprovisioned rows and malformed IDs: an ID
+    // match wins, but a missing ID must not prevent the email fallback.
+    const attributedUserId = await resolvePurchaseUserId({
+      userId: purchase.userId,
+      email,
+    });
+
     if (purchaseType === "topup") {
-      await provisionTopup({ purchase, creditsPurchased, email, userId: purchase.userId });
+      await provisionTopup({ purchase, creditsPurchased, email, userId: attributedUserId });
     } else if (purchaseType === "subscription" && planSlug) {
-      await provisionSubscription({ purchase, email, fullName, planSlug, providerCustomerId, providerSessionId, stripe });
+      await provisionSubscription({
+        purchase: attributedUserId === purchase.userId ? purchase : { ...purchase, userId: attributedUserId },
+        email,
+        fullName,
+        planSlug,
+        providerCustomerId,
+        providerSessionId,
+        stripe,
+      });
     } else {
       // Legacy program purchase
       await provisionLegacyProgram({ purchase, email, fullName });
@@ -87,6 +103,36 @@ export async function provisionPurchase(
     );
     return false;
   }
+}
+
+/**
+ * Attribute a purchase to an existing account without trusting the email as
+ * the primary identifier. Stripe may contain an old email after the account
+ * owner changes it, while older purchase rows may not have userId populated.
+ */
+export async function resolvePurchaseUserId({
+  userId,
+  email,
+}: {
+  userId: number | null | undefined;
+  email: string;
+}): Promise<number | null> {
+  if (userId) {
+    const [byId] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    if (byId) return byId.id;
+    logger.warn({ userId, email }, "[provision-purchase] Metadata userId not found — falling back to purchase email");
+  }
+
+  const [byEmail] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.username, email.toLowerCase().trim()))
+    .limit(1);
+  return byEmail?.id ?? null;
 }
 
 // ── Topup ──────────────────────────────────────────────────────────────────────
@@ -113,11 +159,8 @@ async function provisionTopup({
   userId: number | null | undefined;
 }): Promise<void> {
   // Topups require an existing account (they're purchased from within the app)
-  const [existingUser] = await db
-    .select({ id: users.id })
-    .from(users)
-    .where(userId ? eq(users.id, userId) : eq(users.username, email.toLowerCase()))
-    .limit(1);
+  const existingUserId = await resolvePurchaseUserId({ userId, email });
+  const existingUser = existingUserId ? { id: existingUserId } : null;
 
   if (!existingUser) {
     logger.error(
@@ -804,6 +847,8 @@ export async function provisionPaymentElementSubscription({
   periodEnd:          Date;
   stripe:             Stripe;
 }): Promise<void> {
+  const attributedUserId = await resolvePurchaseUserId({ userId, email });
+
   // ── Idempotency: look for an existing synthetic purchases row ───────────────
   // providerSessionId = stripeSubId for Payment Element subscriptions.
   const [existingPurchase] = await db
@@ -837,7 +882,7 @@ export async function provisionPaymentElementSubscription({
         toolAccessDays:     0,
         purchaseType:       "subscription",
         planSlug,
-        userId,
+        userId:             attributedUserId,
         creditsPurchased:   PLAN_CREDITS[planSlug] ?? 0,
       })
       .onConflictDoNothing()
@@ -859,6 +904,17 @@ export async function provisionPaymentElementSubscription({
       }
       purchase = raceRow;
     }
+  }
+
+  // A previous webhook attempt may have created the synthetic row before the
+  // current event included a usable user_id. Persist the current stable
+  // attribution and use it for the shared provisioning path.
+  if (attributedUserId !== null && purchase.userId !== attributedUserId) {
+    await db
+      .update(purchases)
+      .set({ userId: attributedUserId, updatedAt: new Date() })
+      .where(eq(purchases.id, purchase.id));
+    purchase = { ...purchase, userId: attributedUserId };
   }
 
   // ── Delegate to provisionSubscription — shares ALL Founder/non-Founder logic ─

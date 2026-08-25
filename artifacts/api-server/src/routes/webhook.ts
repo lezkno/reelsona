@@ -136,6 +136,13 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, stripe:
       logger.info({ sessionId }, "[webhook/stripe] Already processed — skipping");
       return;
     }
+    if (userId !== null && existing.userId !== userId) {
+      await db
+        .update(purchases)
+        .set({ userId, updatedAt: new Date() })
+        .where(eq(purchases.id, existing.id));
+      existing.userId = userId;
+    }
     logger.info({ sessionId }, "[webhook/stripe] Purchase exists but unprovisioned — retrying");
     await requireProvisioned(existing, stripe);
     return;

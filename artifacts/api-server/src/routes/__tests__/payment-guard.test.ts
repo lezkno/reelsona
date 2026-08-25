@@ -7,6 +7,7 @@ import {
   resolveVerifiedCreditAmount,
   resolveVerifiedPlanSlug,
 } from "../../lib/payment-validation.js";
+import { resolvePurchaseUserId } from "../../lib/provision-purchase.js";
 
 const routesRoot = path.resolve(import.meta.dirname, "..");
 const webhookSource = fs.readFileSync(path.join(routesRoot, "webhook.ts"), "utf8");
@@ -77,5 +78,24 @@ test("Payment Element topup uses configured credits when metadata credits are st
   assert.match(
     webhookSource,
     /handlePaymentIntentSucceeded[\s\S]*resolveVerifiedCreditAmount\(creditsAmount, priceRow\.creditAmount\)/,
+  );
+});
+
+test("purchase attribution prefers the stable user ID before email fallback", () => {
+  assert.equal(typeof resolvePurchaseUserId, "function");
+  assert.match(
+    webhookSource,
+    /const userId = parseMetadataUserId\(session\.metadata\?\.user_id\)/,
+    "Checkout must read user_id metadata",
+  );
+  assert.match(
+    webhookSource,
+    /const userId = parseMetadataUserId\(metadata\.user_id\)/,
+    "Payment Element subscription must read user_id metadata",
+  );
+  assert.match(
+    webhookSource,
+    /const userId\s+=\s+parseMetadataUserId\(metadata\.user_id\)/,
+    "Payment Element topups must read user_id metadata",
   );
 });
