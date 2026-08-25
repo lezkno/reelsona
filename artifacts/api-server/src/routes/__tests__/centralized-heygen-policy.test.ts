@@ -47,4 +47,40 @@ test("Avatars page does not render retired HeyGen private controls", () => {
   assert.match(source, /\{false && isOwned && looks\.length > 0/);
   assert.doesNotMatch(source, /pendingVideoJob\?\.lookId/);
   assert.doesNotMatch(source, /\{false && showCreation/);
+  assert.doesNotMatch(source, /function (NewLookDialog|CloneVoiceDialog|AvatarCreationDialog)\b/);
+  assert.doesNotMatch(source, /handle(Delete|Rename|SaveVoiceSpeed|PreviewTuning)Voice/);
+});
+
+test("generated client does not export private HeyGen mutations", () => {
+  const source = fs.readFileSync(
+    path.resolve(root, "../../../lib/api-client-react/src/custom-endpoints.ts"),
+    "utf8",
+  );
+  assert.doesNotMatch(
+    source,
+    /export function use(?:UploadHeyGenAsset|CreatePhotoAvatar|CreateDigitalTwinAvatar|DeleteAvatarLook|DeleteAvatarGroup|CreateAvatarLook|CreatePromptAvatar|HeyGenLookStatus|CloneVoice|DeleteVoice|RenameVoice|UpdateVoice)\b/,
+  );
+});
+
+test("all historical private HeyGen routes are hard 403 defenses", () => {
+  const source = read("routes/heygen.ts");
+  const routes = [
+    "/heygen/assets",
+    "/heygen/avatars/create",
+    "/heygen/avatars/create-digital-twin",
+    "/heygen/avatars/create-prompt",
+    "/heygen/avatars/looks/:lookId/new-look",
+    "/heygen/avatars/looks/:lookId",
+    "/heygen/avatars/groups/:groupId",
+    "/heygen/voices/clone",
+    "/heygen/voices/:voiceId",
+  ];
+  for (const route of routes) {
+    const escaped = route.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    assert.match(
+      source,
+      new RegExp(`router\\.(?:post|patch|delete)\\("${escaped}"[\\s\\S]*?rejectPrivateHeyGenAction\\(res\\)`),
+      `missing 403 defense for ${route}`,
+    );
+  }
 });
