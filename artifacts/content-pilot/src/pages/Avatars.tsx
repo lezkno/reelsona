@@ -4528,6 +4528,14 @@ export default function Avatars() {
             <p className="text-sm text-muted-foreground">
               Elige una voz pública central para asociarla a tus avatares.
             </p>
+            <Button
+              type="button"
+              onClick={() => setShowCloneDialog(true)}
+              className="gap-2 bg-violet-600 hover:bg-violet-700 text-white"
+            >
+              <Mic className="w-4 h-4" />
+              Clonar mi voz
+            </Button>
           </div>
 
           {/* Search */}
