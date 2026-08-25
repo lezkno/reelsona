@@ -379,12 +379,15 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
     const [clonedVoiceRow] = await db
       .select({ speed: heygenClonedVoicesTable.speed, pitch: heygenClonedVoicesTable.pitch })
       .from(heygenClonedVoicesTable)
-      .where(eq(heygenClonedVoicesTable.voiceId, item.voiceId));
+      .where(and(
+        eq(heygenClonedVoicesTable.voiceId, item.voiceId),
+        eq(heygenClonedVoicesTable.userId, userId),
+      ));
     manualVoiceSpeed = clonedVoiceRow?.speed ?? undefined;
     manualVoicePitch = clonedVoiceRow?.pitch ?? undefined;
   }
 
-  // Fire and forget video generation — pass the user's own HeyGen key
+  // Fire and forget video generation — use Reelsona's central HeyGen account
   generateVideo({
     script:          item.script,
     avatar_id:       item.avatarId!,

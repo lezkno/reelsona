@@ -72,18 +72,15 @@ async function uploadAudioForCloning(audioBuffer: Buffer, userId: number): Promi
   return getSignedObjectUrl(objectName, 24 * 3600);
 }
 
-/**
- * Resolve the HeyGen API key for a user.
- * Prefers the user's own stored key; falls back to the platform env-var key.
- * Consistent with how scheduler.ts and routes/videos.ts resolve the key.
- */
-async function getUserHeyGenKey(userId: number): Promise<string | undefined> {
-  const [settings] = await db
-    .select({ heygenApiKey: settingsTable.heygenApiKey })
-    .from(settingsTable)
-    .where(eq(settingsTable.userId, userId))
-    .limit(1);
-  return settings?.heygenApiKey ?? process.env.HEYGEN_API_KEY ?? undefined;
+/** HeyGen is a central Reelsona account, never a user-owned integration. */
+function getCentralHeyGenKey(): string | undefined {
+  return process.env.HEYGEN_API_KEY ?? undefined;
+}
+
+function rejectPrivateHeyGenAction(res: any): void {
+  res.status(403).json({
+    error: "Esta operación de HeyGen está desactivada. Reelsona solo ofrece el catálogo público central.",
+  });
 }
 
 import {
@@ -183,7 +180,7 @@ const voiceUpload = multer({
 const router = Router();
 
 router.get("/heygen/avatars", async (req, res): Promise<void> => {
-  const apiKey = await getUserHeyGenKey(req.session.user!.userId);
+  const apiKey = getCentralHeyGenKey();
   const avatars = await listAvatars(apiKey);
   const mapped = avatars.map((a) => ({
     avatar_id: a.avatar_id,
@@ -198,20 +195,9 @@ router.get("/heygen/avatars", async (req, res): Promise<void> => {
 
 router.get("/heygen/voices", async (req, res): Promise<void> => {
   try {
-    const userId = req.session.user!.userId;
-    // A cloned voice is owned by the account used to create it. List voices
-    // from that same account so ready clones remain visible and usable.
-    const apiKey = await getUserHeyGenKey(userId);
+    const apiKey = getCentralHeyGenKey();
     if (!apiKey) throw new Error("HEYGEN_API_KEY is not set");
-    const [voices, myClones] = await Promise.all([
-      listVoices(apiKey),
-      db.select().from(heygenClonedVoicesTable).where(eq(heygenClonedVoicesTable.userId, userId)),
-    ]);
-    const myCloneIds       = new Set(myClones.map(c => c.voiceId));
-    const myCloneSpeedMap  = new Map(myClones.map(c => [c.voiceId, c.speed ?? null]));
-    const myClonePitchMap  = new Map(myClones.map(c => [c.voiceId, (c as any).pitch ?? null]));
-    const myCloneStatusMap = new Map(myClones.map(c => [c.voiceId, c.status]));
-    const myCloneIdMap     = new Map(myClones.map(c => [c.voiceId, c.id]));
+    const voices = (await listVoices(apiKey)).filter((v) => !v.is_clone);
     const mapped = voices.map((v) => ({
       voice_id: v.voice_id,
       name: v.name,
@@ -219,31 +205,11 @@ router.get("/heygen/voices", async (req, res): Promise<void> => {
       gender: v.gender ?? null,
       preview_audio_url: (v as any).preview_audio ?? v.preview_audio_url ?? null,
       is_cloned: v.is_clone ?? false,
-      is_mine: myCloneIds.has(v.voice_id),
-      speed: myCloneIds.has(v.voice_id) ? (myCloneSpeedMap.get(v.voice_id) ?? null) : null,
-      pitch: myCloneIds.has(v.voice_id) ? (myClonePitchMap.get(v.voice_id) ?? null) : null,
-      status: myCloneIds.has(v.voice_id) ? (myCloneStatusMap.get(v.voice_id) ?? null) : null,
-      clone_id: myCloneIds.has(v.voice_id) ? (myCloneIdMap.get(v.voice_id) ?? undefined) : undefined,
+      is_mine: false,
+      speed: null,
+      pitch: null,
+      status: null,
     }));
-
-    const listedVoiceIds = new Set(voices.map(v => v.voice_id));
-    for (const clone of myClones) {
-      if (!listedVoiceIds.has(clone.voiceId) && (clone.status === "pending" || clone.status === "failed")) {
-        mapped.push({
-          voice_id: clone.voiceId,
-          name: clone.displayName,
-          language: "es",
-          gender: null,
-          preview_audio_url: null,
-          is_cloned: true,
-          is_mine: true,
-          speed: clone.speed ?? null,
-          pitch: (clone as any).pitch ?? null,
-          status: clone.status,
-          clone_id: clone.id,
-        });
-      }
-    }
     res.json(GetHeyGenVoicesResponse.parse(mapped));
   } catch (err: any) {
     res.status(500).json({ error: err?.message ?? "Error fetching voices" });
@@ -256,6 +222,9 @@ router.get("/heygen/voices", async (req, res): Promise<void> => {
  * Creates a cloned voice in HeyGen and records ownership in heygen_cloned_voices.
  */
 router.post("/heygen/voices/clone", voiceUpload.single("audio"), async (req, res): Promise<void> => {
+  rejectPrivateHeyGenAction(res);
+  return;
+  /*
   try {
     const userId = req.session.user!.userId;
     const { name } = req.body ?? {};
@@ -289,7 +258,7 @@ router.post("/heygen/voices/clone", voiceUpload.single("audio"), async (req, res
       }
     }
 
-    const apiKey = await getUserHeyGenKey(userId);
+    const apiKey = getCentralHeyGenKey();
     const rawSpeed = req.body?.speed;
     const speed = rawSpeed != null ? parseFloat(rawSpeed) : null;
 
@@ -327,6 +296,7 @@ router.post("/heygen/voices/clone", voiceUpload.single("audio"), async (req, res
     console.error("[VoiceClone] Error:", msg, "| HeyGen body:", JSON.stringify(err?.response?.data ?? null));
     res.status(500).json({ error: msg });
   }
+  */
 });
 
 /**
@@ -334,6 +304,9 @@ router.post("/heygen/voices/clone", voiceUpload.single("audio"), async (req, res
  * Deletes a cloned voice. Only succeeds if the current user owns it.
  */
 router.delete("/heygen/voices/:voiceId", async (req, res): Promise<void> => {
+  rejectPrivateHeyGenAction(res);
+  return;
+  /*
   try {
     const userId = req.session.user!.userId;
     const { voiceId } = req.params;
@@ -342,7 +315,7 @@ router.delete("/heygen/voices/:voiceId", async (req, res): Promise<void> => {
       .from(heygenClonedVoicesTable)
       .where(and(eq(heygenClonedVoicesTable.voiceId, voiceId), eq(heygenClonedVoicesTable.userId, userId)));
     if (!row) { res.status(403).json({ error: "No tienes permiso para eliminar esta voz" }); return; }
-    const apiKey = await getUserHeyGenKey(userId);
+    const apiKey = getCentralHeyGenKey();
     // Best-effort: if HeyGen returns an error (voice not found, already deleted,
     // failed clone, etc.) we still remove it from our DB so the user can clean up.
     await deleteVoice(voiceId, apiKey).catch(() => {});
@@ -352,6 +325,7 @@ router.delete("/heygen/voices/:voiceId", async (req, res): Promise<void> => {
   } catch (err: any) {
     res.status(500).json({ error: err?.message ?? "Error al eliminar la voz" });
   }
+  */
 });
 
 /**
@@ -360,6 +334,9 @@ router.delete("/heygen/voices/:voiceId", async (req, res): Promise<void> => {
  * Body: { name?: string, speed?: number | null }
  */
 router.patch("/heygen/voices/:voiceId", async (req, res): Promise<void> => {
+  rejectPrivateHeyGenAction(res);
+  return;
+  /*
   try {
     const userId = req.session.user!.userId;
     const { voiceId } = req.params;
@@ -381,7 +358,7 @@ router.patch("/heygen/voices/:voiceId", async (req, res): Promise<void> => {
       .from(heygenClonedVoicesTable)
       .where(and(eq(heygenClonedVoicesTable.voiceId, voiceId), eq(heygenClonedVoicesTable.userId, userId)));
     if (!row) { res.status(403).json({ error: "No tienes permiso para editar esta voz" }); return; }
-    const apiKey = await getUserHeyGenKey(userId);
+    const apiKey = getCentralHeyGenKey();
     // Only call HeyGen rename API if name is changing
     if (name && name.trim() !== row.displayName) {
       await renameVoice(voiceId, name.trim(), apiKey);
@@ -397,10 +374,11 @@ router.patch("/heygen/voices/:voiceId", async (req, res): Promise<void> => {
   } catch (err: any) {
     res.status(500).json({ error: err?.message ?? "Error al actualizar la voz" });
   }
+  */
 });
 
 router.get("/heygen/avatar-groups", async (req, res): Promise<void> => {
-  const apiKey = await getUserHeyGenKey(req.session.user!.userId);
+  const apiKey = getCentralHeyGenKey();
   const groups = await listAvatarGroups(apiKey);
   const mapped = groups.map((g) => ({
     id: g.id,
@@ -413,7 +391,7 @@ router.get("/heygen/avatar-groups", async (req, res): Promise<void> => {
 });
 
 router.get("/heygen/avatar-groups/:id/looks", async (req, res): Promise<void> => {
-  const apiKey = await getUserHeyGenKey(req.session.user!.userId);
+  const apiKey = getCentralHeyGenKey();
   const groupId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const groups = await listAvatarGroups(apiKey);
   const group = groups.find((g) => g.id === groupId);
@@ -483,11 +461,11 @@ async function fetchAllLooks(apiKey?: string): Promise<FlatLook[]> {
 
 router.get("/heygen/looks", async (req, res): Promise<void> => {
   const userId = req.session.user!.userId;
-  const apiKey = await getUserHeyGenKey(userId);
+  const apiKey = getCentralHeyGenKey();
   const prefix = looksKeyPrefix(apiKey);
   const cached = looksCacheByKey.get(prefix);
 
-  // Step 1 — private group looks (cached per API key)
+  // Step 1 — central public catalog looks (cached per API key)
   let privateLooks: FlatLook[];
   if (cached && Date.now() - cached.at < LOOKS_CACHE_TTL) {
     privateLooks = cached.data;
@@ -564,7 +542,7 @@ router.get("/heygen/looks/reverse-lookup", async (req, res): Promise<void> => {
     const ids = ((req.query.ids as string) ?? "").split(",").map(s => s.trim()).filter(Boolean);
     if (!ids.length) { res.json({}); return; }
 
-    const apiKey = await getUserHeyGenKey(req.session.user!.userId);
+      const apiKey = getCentralHeyGenKey();
     const prefix = looksKeyPrefix(apiKey);
     let looks: FlatLook[];
     const cached = looksCacheByKey.get(prefix);
@@ -704,7 +682,7 @@ router.put("/heygen/avatar-config", async (req, res): Promise<void> => {
 
   Promise.resolve()
     .then(async () => {
-      const apiKey = await getUserHeyGenKey(bgUserId);
+      const apiKey = getCentralHeyGenKey();
       if (rawSelectedIds.length === 0 || !apiKey) return;
 
       const existingRows = await db
@@ -774,17 +752,9 @@ router.put("/heygen/avatar-config", async (req, res): Promise<void> => {
  *    "none"     — no key available anywhere (misconfiguration)
  */
 router.get("/heygen/account", async (req, res): Promise<void> => {
-  const userId = req.session.user!.userId;
-  const [settings] = await db
-    .select({ heygenApiKey: settingsTable.heygenApiKey })
-    .from(settingsTable)
-    .where(eq(settingsTable.userId, userId))
-    .limit(1);
-
-  const userKey     = settings?.heygenApiKey ?? null;
   const platformKey = process.env.HEYGEN_API_KEY ?? null;
-  const apiKey      = userKey ?? platformKey;
-  const keySource   = userKey ? "user" : platformKey ? "platform" : "none";
+  const apiKey      = platformKey;
+  const keySource   = platformKey ? "platform" : "none";
 
   if (!apiKey) {
     res.json({ connected: false, remaining_quota: null, total_quota: null, details: null, key_source: "none" });
@@ -809,56 +779,19 @@ router.get("/heygen/account", async (req, res): Promise<void> => {
 
 /** POST /heygen/account/connect — validate + persist a new API key for the logged-in user */
 router.post("/heygen/account/connect", async (req, res): Promise<void> => {
-  const { api_key } = req.body ?? {};
-  if (!api_key || typeof api_key !== "string" || !api_key.trim()) {
-    res.status(400).json({ error: "api_key es requerida" });
-    return;
-  }
-
-  const trimmedKey = api_key.trim();
-
-  // Validate before saving
-  const valid = await validateHeyGenKey(trimmedKey);
-  if (!valid) {
-    res.status(400).json({ error: "API Key inválida. Verifica que sea correcta en tu cuenta de HeyGen." });
-    return;
-  }
-
-  // Persist to the logged-in user's settings row
-  const userId = req.session.user!.userId;
-  const [existing] = await db.select().from(settingsTable).where(eq(settingsTable.userId, userId)).limit(1);
-  if (existing) {
-    await db.update(settingsTable).set({ heygenApiKey: trimmedKey }).where(eq(settingsTable.id, existing.id));
-  } else {
-    await db.insert(settingsTable).values({ niche: "", userId, heygenApiKey: trimmedKey });
-  }
-
-  const quota = await getHeyGenQuota(trimmedKey);
-  res.json({ connected: true, remaining_quota: quota.remaining, total_quota: null, details: quota.details, key_source: "db" });
+  rejectPrivateHeyGenAction(res);
 });
 
 /** DELETE /heygen/account — remove the current user's stored key */
 router.delete("/heygen/account", async (req, res): Promise<void> => {
-  const userId = req.session.user!.userId;
-  const [existing] = await db.select().from(settingsTable).where(eq(settingsTable.userId, userId)).limit(1);
-  if (existing) {
-    await db.update(settingsTable).set({ heygenApiKey: null }).where(eq(settingsTable.id, existing.id));
-  }
-  res.json({ ok: true });
+  rejectPrivateHeyGenAction(res);
 });
 
 // ── v3 Avatar listing ─────────────────────────────────────────────────────────
 
 /** GET /heygen/my-avatar-groups — user's own private avatar groups (v3) */
 router.get("/heygen/my-avatar-groups", async (req, res): Promise<void> => {
-  try {
-    const apiKey = await getUserHeyGenKey(req.session.user!.userId);
-    const token  = typeof req.query.token === "string" ? req.query.token : undefined;
-    const result = await listV3AvatarGroups("private", token, 50, apiKey);
-    res.json(result);
-  } catch (err: any) {
-    res.status(500).json({ error: err?.message ?? "Error fetching avatar groups" });
-  }
+  rejectPrivateHeyGenAction(res);
 });
 
 /** GET /heygen/public-avatar-groups — HeyGen stock public avatars (v3, paginated) */
@@ -881,9 +814,7 @@ router.get("/heygen/v3-groups/:groupId/looks", async (req, res): Promise<void> =
   try {
     // Private groups belong to the user's selected account. Public catalog
     // groups must use the same centralized account as their group listing.
-    const apiKey = req.query.catalog === "public"
-      ? process.env.HEYGEN_API_KEY
-      : await getUserHeyGenKey(req.session.user!.userId);
+    const apiKey = getCentralHeyGenKey();
     if (!apiKey) throw new Error("HEYGEN_API_KEY is not set");
     const groupId = req.params.groupId;
     const token   = typeof req.query.token === "string" ? req.query.token : undefined;
@@ -901,6 +832,9 @@ router.get("/heygen/v3-groups/:groupId/looks", async (req, res): Promise<void> =
  * Expects multipart/form-data with a "file" field (PNG or JPEG, max 32 MB).
  */
 router.post("/heygen/assets", upload.single("file"), async (req, res): Promise<void> => {
+  rejectPrivateHeyGenAction(res);
+  return;
+  /*
   if (!req.file) {
     res.status(400).json({ error: "Se requiere un archivo de imagen (campo: file)" });
     return;
@@ -911,6 +845,7 @@ router.post("/heygen/assets", upload.single("file"), async (req, res): Promise<v
   } catch (err: any) {
     res.status(500).json({ error: err?.message ?? "Error al subir la imagen" });
   }
+  */
 });
 
 /**
@@ -918,10 +853,13 @@ router.post("/heygen/assets", upload.single("file"), async (req, res): Promise<v
  * Only photo_avatar and digital_twin types are supported by HeyGen.
  */
 router.delete("/heygen/avatars/looks/:lookId", async (req, res): Promise<void> => {
+  rejectPrivateHeyGenAction(res);
+  return;
+  /*
   const { lookId } = req.params;
   if (!lookId) { res.status(400).json({ error: "lookId es requerido" }); return; }
   try {
-    const apiKey = await getUserHeyGenKey(req.session.user!.userId);
+    const apiKey = getCentralHeyGenKey();
     await deleteAvatarLook(lookId, apiKey);
     // Invalidate all relevant in-memory caches so stale metadata is never served
     looksCacheByKey.clear();
@@ -931,16 +869,20 @@ router.delete("/heygen/avatars/looks/:lookId", async (req, res): Promise<void> =
   } catch (err: any) {
     res.status(500).json({ error: err?.message ?? "Error al eliminar el look" });
   }
+  */
 });
 
 /**
  * DELETE /heygen/avatars/groups/:groupId — permanently delete an avatar group and all its looks.
  */
 router.delete("/heygen/avatars/groups/:groupId", async (req, res): Promise<void> => {
+  rejectPrivateHeyGenAction(res);
+  return;
+  /*
   const { groupId } = req.params;
   if (!groupId) { res.status(400).json({ error: "groupId es requerido" }); return; }
   try {
-    const apiKey = await getUserHeyGenKey(req.session.user!.userId);
+    const apiKey = getCentralHeyGenKey();
     await deleteAvatarGroup(groupId, apiKey);
     // Invalidate all in-memory caches for this API key (group deletion removes all its looks)
     looksCacheByKey.clear();
@@ -950,6 +892,7 @@ router.delete("/heygen/avatars/groups/:groupId", async (req, res): Promise<void>
   } catch (err: any) {
     res.status(500).json({ error: err?.message ?? "Error al eliminar el avatar" });
   }
+  */
 });
 
 /**
@@ -958,6 +901,9 @@ router.delete("/heygen/avatars/groups/:groupId", async (req, res): Promise<void>
  * Body: { name, prompt, group_id, pose? }
  */
 router.post("/heygen/avatars/looks/:lookId/new-look", async (req, res): Promise<void> => {
+  rejectPrivateHeyGenAction(res);
+  return;
+  /*
   const { lookId } = req.params;
   const { name, prompt, group_id, pose } = req.body ?? {};
   if (!lookId) { res.status(400).json({ error: "lookId es requerido" }); return; }
@@ -973,6 +919,7 @@ router.post("/heygen/avatars/looks/:lookId/new-look", async (req, res): Promise<
     if (heygenStatus === 402) notifyHeyGenError("crear look", heygenStatus, heygenDetail);
     res.status(status).json({ error: message });
   }
+  */
 });
 
 /**
@@ -980,6 +927,9 @@ router.post("/heygen/avatars/looks/:lookId/new-look", async (req, res): Promise<
  * Body: { name: string, prompt: string, orientation?: string, pose?: string }
  */
 router.post("/heygen/avatars/create-prompt", async (req, res): Promise<void> => {
+  rejectPrivateHeyGenAction(res);
+  return;
+  /*
   const { name, prompt, orientation, pose } = req.body ?? {};
   if (!name || typeof name !== "string" || !name.trim()) {
     res.status(400).json({ error: "name es requerido" });
@@ -1001,6 +951,7 @@ router.post("/heygen/avatars/create-prompt", async (req, res): Promise<void> => 
     if (heygenStatus === 402) notifyHeyGenError("crear avatar (prompt)", heygenStatus, heygenDetail);
     res.status(status).json({ error: message });
   }
+  */
 });
 
 /**
@@ -1009,6 +960,9 @@ router.post("/heygen/avatars/create-prompt", async (req, res): Promise<void> => 
  * Returns: { look_id: string, group_id: string }
  */
 router.post("/heygen/avatars/create", async (req, res): Promise<void> => {
+  rejectPrivateHeyGenAction(res);
+  return;
+  /*
   const { name, asset_id } = req.body ?? {};
   if (!name || typeof name !== "string" || !name.trim()) {
     res.status(400).json({ error: "name es requerido" });
@@ -1027,6 +981,7 @@ router.post("/heygen/avatars/create", async (req, res): Promise<void> => {
     if (heygenStatus === 402) notifyHeyGenError("crear avatar (foto)", heygenStatus, heygenDetail);
     res.status(status).json({ error: message });
   }
+  */
 });
 
 /**
@@ -1036,6 +991,9 @@ router.post("/heygen/avatars/create", async (req, res): Promise<void> => {
  * Returns { look_id, group_id } immediately — poll look status until "completed".
  */
 router.post("/heygen/avatars/create-digital-twin", videoUpload.single("file"), async (req, res): Promise<void> => {
+  rejectPrivateHeyGenAction(res);
+  return;
+  /*
   if (!req.file) {
     res.status(400).json({ error: "Se requiere un archivo de video (campo: file)" });
     return;
@@ -1092,7 +1050,7 @@ router.post("/heygen/avatars/create-digital-twin", videoUpload.single("file"), a
       }
     }
 
-    const apiKey = await getUserHeyGenKey(req.session.user!.userId);
+    const apiKey = getCentralHeyGenKey();
     const { asset_id } = await uploadAsset(uploadBuffer, uploadMime, uploadName, apiKey);
     const result = await createDigitalTwinFromVideo(name.trim(), asset_id, apiKey);
     // Invalidate caches so the new avatar appears in the next listing
@@ -1104,6 +1062,7 @@ router.post("/heygen/avatars/create-digital-twin", videoUpload.single("file"), a
     if (heygenStatus === 402) notifyHeyGenError("crear Digital Twin (video)", heygenStatus, heygenDetail);
     res.status(status).json({ error: message });
   }
+  */
 });
 
 /**

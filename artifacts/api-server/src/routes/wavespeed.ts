@@ -519,7 +519,10 @@ router.get("/wavespeed/personas/:id/looks/status", async (req, res) => {
             await db
               .update(wavespeedLooksTable)
               .set({ imageUrl, config: newConfig, updatedAt: new Date() })
-              .where(eq(wavespeedLooksTable.id, look.id));
+                .where(and(
+                  eq(wavespeedLooksTable.id, look.id),
+                  eq(wavespeedLooksTable.userId, userId),
+                ));
             // Settle paid-look credit reservation — no-op if the look was free
             consumeLookCredits(look.id).catch((err) =>
               req.log.warn({ err, lookId: look.id }, "[WaveSpeed] consumeLookCredits failed"),
@@ -533,7 +536,10 @@ router.get("/wavespeed/personas/:id/looks/status", async (req, res) => {
             await db
               .update(wavespeedLooksTable)
               .set({ config: newConfig, updatedAt: new Date() })
-              .where(eq(wavespeedLooksTable.id, look.id));
+                .where(and(
+                  eq(wavespeedLooksTable.id, look.id),
+                  eq(wavespeedLooksTable.userId, userId),
+                ));
             // Release paid-look credit reservation so the user can retry — no-op if free
             releaseLookCredits(look.id, "Look fallido").catch((err) =>
               req.log.warn({ err, lookId: look.id }, "[WaveSpeed] releaseLookCredits failed"),
@@ -1062,7 +1068,10 @@ router.post("/wavespeed/personas/:id/looks/generate", async (req, res) => {
       try {
         await reserveLookCredits(userId, LOOK_CREDIT_COST, look.id, "Look adicional");
       } catch (creditErr: any) {
-        await db.delete(wavespeedLooksTable).where(eq(wavespeedLooksTable.id, look.id)).catch(() => {});
+        await db.delete(wavespeedLooksTable).where(and(
+          eq(wavespeedLooksTable.id, look.id),
+          eq(wavespeedLooksTable.userId, userId),
+        )).catch(() => {});
         res.status(402).json({ error: "insufficient_credits", message: creditErr.message ?? "Créditos insuficientes" });
         return;
       }

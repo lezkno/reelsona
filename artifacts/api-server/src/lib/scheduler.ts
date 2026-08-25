@@ -553,12 +553,8 @@ export async function triggerFillEmptySlots(userId: number): Promise<void> {
  */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export async function resolveHeyGenApiKey(userId: number): Promise<string | undefined> {
-  const [settings] = await db
-    .select({ heygenApiKey: settingsTable.heygenApiKey })
-    .from(settingsTable)
-    .where(eq(settingsTable.userId, userId))
-    .limit(1);
-  return settings?.heygenApiKey ?? process.env.HEYGEN_API_KEY ?? undefined;
+  void userId;
+  return process.env.HEYGEN_API_KEY ?? undefined;
 }
 
 /**
@@ -592,10 +588,13 @@ export async function resolveVoiceId(avatarId: string | null, apiKey?: string, u
       const [clonedVoice] = await db
         .select({ status: heygenClonedVoicesTable.status })
         .from(heygenClonedVoicesTable)
-        .where(eq(heygenClonedVoicesTable.voiceId, override))
+        .where(and(
+          eq(heygenClonedVoicesTable.voiceId, override),
+          eq(heygenClonedVoicesTable.userId, userId),
+        ))
         .limit(1);
-      if (clonedVoice?.status === "failed") {
-        logger.warn({ avatarId, voiceId: override }, "[resolveVoiceId] Override voice is a failed clone — falling through to HeyGen default");
+      if (clonedVoice) {
+        logger.warn({ avatarId, voiceId: override }, "[resolveVoiceId] Historical HeyGen clone override is disabled");
       } else {
         logger.debug({ avatarId, voiceId: override }, "Using per-avatar voice override");
         return override;
@@ -1459,7 +1458,10 @@ export async function runAutomationCycle(
     const [clonedVoiceRow] = await db
       .select({ speed: heygenClonedVoicesTable.speed, pitch: heygenClonedVoicesTable.pitch })
       .from(heygenClonedVoicesTable)
-      .where(eq(heygenClonedVoicesTable.voiceId, contentItem.voiceId));
+      .where(and(
+        eq(heygenClonedVoicesTable.voiceId, contentItem.voiceId),
+        eq(heygenClonedVoicesTable.userId, userId),
+      ));
     resolvedVoiceSpeed = clonedVoiceRow?.speed ?? undefined;
     resolvedVoicePitch = clonedVoiceRow?.pitch ?? undefined;
   }
@@ -4274,6 +4276,10 @@ export async function runVoicePollerCycle(deps: VoicePollerDeps): Promise<void> 
  * Production wrapper — wires real DB + HeyGen into `runVoicePollerCycle`.
  */
 async function pollPendingClonedVoices(): Promise<void> {
+  // HeyGen clones are historical data only. Never poll, revive, or mutate them
+  // now that HeyGen is restricted to Reelsona's shared public catalog.
+  return;
+
   const now = new Date();
 
   // Fetch ALL pending voices upfront

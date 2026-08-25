@@ -109,7 +109,9 @@ export interface HeyGenVoice {
 export async function listAvatars(apiKey?: string): Promise<HeyGenAvatar[]> {
   try {
     const client = getClient(apiKey);
-    const groupsRes = await client.get("/v3/avatars", { params: { limit: 50 } });
+    // The central account may contain private operational assets; never expose
+    // those through the shared catalog or use them for user generation.
+    const groupsRes = await client.get("/v3/avatars", { params: { limit: 50, ownership: "public" } });
     const groups: any[] = Array.isArray(groupsRes.data?.data) ? groupsRes.data.data : [];
     const results = await Promise.allSettled(
       groups.map(async (g: any) => {
@@ -152,7 +154,7 @@ export interface HeyGenGroupLook {
 
 /** @deprecated Use listV3AvatarGroups() directly for new code. Kept for backward compat. */
 export async function listAvatarGroups(apiKey?: string): Promise<HeyGenAvatarGroup[]> {
-  const { groups } = await listV3AvatarGroups("private", undefined, 50, apiKey);
+  const { groups } = await listV3AvatarGroups("public", undefined, 50, apiKey);
   return groups.map((g) => ({
     id: g.id,
     name: g.name,

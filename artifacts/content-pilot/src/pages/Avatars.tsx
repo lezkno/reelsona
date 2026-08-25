@@ -4555,15 +4555,8 @@ export default function Avatars() {
           {/* Header */}
           <div className="flex items-center justify-between flex-wrap gap-3">
             <p className="text-sm text-muted-foreground">
-              Clona tu voz o elige una voz pública para asociarla a tus avatares.
+              Elige una voz pública central para asociarla a tus avatares.
             </p>
-            <Button size="sm" className="gap-1.5" onClick={() => {
-              if (!canUseFeature(accessState, "clone_voice")) { setPremiumOpen(true); return }
-              setShowCloneDialog(true)
-            }}>
-              <Mic className="w-4 h-4" />
-              Clonar mi voz
-            </Button>
           </div>
 
           {/* Search */}
@@ -4723,8 +4716,8 @@ export default function Avatars() {
             />
           )}
 
-          {/* My cloned voices */}
-          {allVoices.filter(v => v.is_mine).length > 0 && (
+          {/* Historical HeyGen clones are intentionally never rendered. */}
+          {false && allVoices.filter(v => v.is_mine).length > 0 && (
             <div className="space-y-3">
               <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
                 <Mic className="w-4 h-4 text-primary" /> Mis voces clonadas
@@ -5121,7 +5114,7 @@ export default function Avatars() {
       )}
 
       {/* Dialogs */}
-      {showCreation && (
+      {false && showCreation && (
         <AvatarCreationDialog
           onClose={() => setShowCreation(false)}
           voiceOptions={allVoices}
