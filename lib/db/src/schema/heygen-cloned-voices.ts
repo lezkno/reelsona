@@ -3,8 +3,9 @@ import { users } from "./users";
 
 /**
  * Tracks HeyGen cloned voices created by each user.
- * The app uses a shared platform HeyGen API key, so ownership must be enforced
- * here — without this table any user could delete another user's cloned voice.
+ * Clones are owned by the HeyGen account selected at creation time (the user's
+ * key when configured, otherwise the platform key), so ownership must be
+ * enforced here — without this table users could delete another user's clone.
  */
 export const heygenClonedVoicesTable = pgTable("heygen_cloned_voices", {
   id: serial("id").primaryKey(),

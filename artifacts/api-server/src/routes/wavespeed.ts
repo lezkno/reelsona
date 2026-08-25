@@ -59,6 +59,7 @@ import {
   submitVoiceClone,
   submitSpeech,
   getJobStatus,
+  isValidWavespeedVoiceId,
 } from "../lib/wavespeed";
 import {
   getSignedObjectUrl,
@@ -763,6 +764,23 @@ router.get("/wavespeed/voices/:id/status", async (req, res) => {
     if (result.status === "completed") {
       // wavespeedVoiceId (= custom_voice_id) was stored at submission time —
       // no need to parse it from outputs. Just flip status to "ready".
+      if (!isValidWavespeedVoiceId(voice.wavespeedVoiceId)) {
+        const [u] = await db
+          .update(wavespeedVoicesTable)
+          .set({
+            status: "failed",
+            errorMessage: "WaveSpeed no devolvió un custom_voice_id válido.",
+            updatedAt: new Date(),
+          })
+          .where(and(eq(wavespeedVoicesTable.id, voiceId), eq(wavespeedVoicesTable.userId, userId)))
+          .returning();
+        updated = u;
+        releaseVoiceCredits(voiceId, "wavespeed", "WaveSpeed voice clone returned no valid voice id").catch((err) =>
+          req.log.warn({ err, voiceId }, "[WaveSpeed] releaseVoiceCredits failed"),
+        );
+        res.json(updated);
+        return;
+      }
       const [u] = await db
         .update(wavespeedVoicesTable)
         .set({ status: "ready", updatedAt: new Date() })

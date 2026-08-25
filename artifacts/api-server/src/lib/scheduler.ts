@@ -68,7 +68,7 @@ import { generateScript, regenerateCaption, generateContentTopics } from "./ai-s
 import { getLatestAuditCache } from "./audit-cache";
 import { getStrategyProfile, toStrategyContext } from "./strategy-profile";
 import { generateVideo, getVideoStatus, listVoices, getAvatarDefaultVoiceId, getAllAvailableAvatarIds, invalidateAvatarIdsCache, getVoiceCloneStatus, ensureSelectedLooksHaveMetadata } from "./heygen";
-import { isWavespeedConfigured, submitSpeech, submitTalkingHead, getJobStatus as getWavespeedJobStatus, WAVESPEED_MODELS } from "./wavespeed";
+import { isWavespeedConfigured, submitSpeech, submitTalkingHead, getJobStatus as getWavespeedJobStatus, WAVESPEED_MODELS, isValidWavespeedVoiceId } from "./wavespeed";
 import { wavespeedPersonasTable, wavespeedLooksTable, wavespeedVoicesTable, wavespeedJobsTable } from "@workspace/db";
 import { getUserPlanSlug, getAvatarLimit, computePersonaPlanEnabled, PlanBlockedError } from "./planLimits";
 import { createReelContainer, checkContainerStatus, publishContainer, getPermalink, refreshInstagramToken } from "./instagram-api";
@@ -552,8 +552,13 @@ export async function triggerFillEmptySlots(userId: number): Promise<void> {
  * All users share the same platform key — no per-user lookup needed.
  */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-function resolveHeyGenApiKey(_userId: number): Promise<string | undefined> {
-  return Promise.resolve(process.env.HEYGEN_API_KEY ?? undefined);
+export async function resolveHeyGenApiKey(userId: number): Promise<string | undefined> {
+  const [settings] = await db
+    .select({ heygenApiKey: settingsTable.heygenApiKey })
+    .from(settingsTable)
+    .where(eq(settingsTable.userId, userId))
+    .limit(1);
+  return settings?.heygenApiKey ?? process.env.HEYGEN_API_KEY ?? undefined;
 }
 
 /**
@@ -838,8 +843,9 @@ export async function runAutomationCycle(
     );
     return { success: false, message: "Niche not configured" };
   }
-  // All generation flows use the platform-level key exclusively.
-  const heygenApiKey = process.env.HEYGEN_API_KEY ?? undefined;
+  // Private avatars and cloned voices belong to the user's selected account.
+  // The platform key remains the explicit fallback for users without BYOK.
+  const heygenApiKey = await resolveHeyGenApiKey(userId);
 
   // Load avatar config scoped to this user
   let [avatarCfg] = await db.select().from(avatarConfigTable)
@@ -4210,7 +4216,18 @@ export async function runVoicePollerCycle(deps: VoicePollerDeps): Promise<void> 
       if (cloneStatus.status === "complete") {
         // The final voice_id may differ from the voice_clone_id stored in the DB.
         // Update it so generation/deletion routes use the correct identifier.
-        const finalVoiceId = cloneStatus.voice_id ?? voice.voiceId;
+        if (!cloneStatus.voice_id || typeof cloneStatus.voice_id !== "string") {
+          await updateVoice(voice.id, { status: "failed" });
+          logger.error(
+            { cloneId: voice.voiceId, userId: voice.userId },
+            "[VoicePoller] HeyGen completed without a usable voice_id — marking failed",
+          );
+          await deps.onVoiceFailed?.({ id: voice.id, userId: voice.userId }).catch((err) =>
+            logger.warn({ err, voiceId: voice.voiceId }, "[VoicePoller] onVoiceFailed callback failed"),
+          );
+          continue;
+        }
+        const finalVoiceId = cloneStatus.voice_id;
         await updateVoice(voice.id, { status: "ready", voiceId: finalVoiceId });
         await deps.onVoiceReady?.({ id: voice.id, userId: voice.userId, finalVoiceId }).catch((err) =>
           logger.warn({ err, voiceId: voice.voiceId }, "[VoicePoller] onVoiceReady callback failed"),
@@ -4275,10 +4292,10 @@ async function pollPendingClonedVoices(): Promise<void> {
     byUser.set(voice.userId, list);
   }
 
-  // All voice polling uses the platform key exclusively — no per-user BYOK.
+  // Poll each user's clones with the same account policy used at creation.
   await Promise.allSettled(
     [...byUser.entries()].map(async ([voiceUserId, voices]) => {
-      const apiKey = process.env.HEYGEN_API_KEY ?? undefined;
+      const apiKey = await resolveHeyGenApiKey(voiceUserId);
 
       await runVoicePollerCycle({
         fetchPending: async () => voices,
@@ -4376,9 +4393,25 @@ async function pollPendingWavespeedVoices(): Promise<void> {
         const result = await getWavespeedJobStatus(voice.wavespeedRequestId!);
 
         if (result.status === "completed") {
-          // minimax/voice-clone returns the voice id as outputs[0]
+          // The custom_voice_id submitted at creation is authoritative. Never
+          // promote a request id or an empty/malformed provider output to ready.
           const outputArr = Array.isArray(result.outputs) ? result.outputs : [];
-          const finalVoiceId = outputArr.length > 0 ? String(outputArr[0]) : voice.wavespeedRequestId!;
+          const providerVoiceId = outputArr.length > 0 && typeof outputArr[0] === "string"
+            ? outputArr[0]
+            : null;
+          const finalVoiceId = isValidWavespeedVoiceId(voice.wavespeedVoiceId)
+            ? voice.wavespeedVoiceId
+            : (isValidWavespeedVoiceId(providerVoiceId) ? providerVoiceId : null);
+          if (!finalVoiceId) {
+            await db.update(wavespeedVoicesTable)
+              .set({ status: "failed", errorMessage: "WaveSpeed no devolvió un custom_voice_id válido", updatedAt: now })
+              .where(eq(wavespeedVoicesTable.id, voice.id));
+            await releaseVoiceCredits(voice.id, "wavespeed", "WaveSpeed voice clone returned no valid voice id").catch((err) =>
+              logger.warn({ err, id: voice.id }, "[WSVoicePoller] releaseVoiceCredits failed"),
+            );
+            logger.error({ requestId: voice.wavespeedRequestId, userId: voice.userId, outputs: result.outputs }, "[WSVoicePoller] Completed clone had no valid custom_voice_id");
+            return;
+          }
 
           await db
             .update(wavespeedVoicesTable)

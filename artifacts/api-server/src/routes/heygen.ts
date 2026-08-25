@@ -199,9 +199,9 @@ router.get("/heygen/avatars", async (req, res): Promise<void> => {
 router.get("/heygen/voices", async (req, res): Promise<void> => {
   try {
     const userId = req.session.user!.userId;
-    // Public voices are a shared Reelsona catalog. Do not use a user's
-    // optional HeyGen key here; only clone metadata remains user-scoped below.
-    const apiKey = process.env.HEYGEN_API_KEY;
+    // A cloned voice is owned by the account used to create it. List voices
+    // from that same account so ready clones remain visible and usable.
+    const apiKey = await getUserHeyGenKey(userId);
     if (!apiKey) throw new Error("HEYGEN_API_KEY is not set");
     const [voices, myClones] = await Promise.all([
       listVoices(apiKey),

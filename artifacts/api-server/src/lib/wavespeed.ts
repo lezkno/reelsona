@@ -41,6 +41,15 @@ export function isWavespeedConfigured(): boolean {
   return !!process.env.WAVESPEED_API_KEY;
 }
 
+/** WaveSpeed custom voice IDs must be provider-valid before a clone is usable. */
+export function isValidWavespeedVoiceId(value: unknown): value is string {
+  return typeof value === "string" &&
+    value.length >= 8 &&
+    /^[A-Za-z][A-Za-z0-9_-]*$/.test(value) &&
+    /[A-Za-z]/.test(value) &&
+    /\d/.test(value);
+}
+
 function getApiKey(): string {
   const key = process.env.WAVESPEED_API_KEY;
   if (!key) throw new Error("WAVESPEED_API_KEY is not configured");

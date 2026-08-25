@@ -20,7 +20,7 @@ import {
 } from "@workspace/api-zod";
 import { generateVideo } from "../lib/heygen";
 import { reserveCredits, releaseVideoCredits, estimateDurationFromScript, computeReelCreditCost, hasEnoughCredits } from "../lib/credits";
-import { publishVideoToInstagram, pickNextAvatar, resolveVoiceId, runCaptionProcessing, runAutomationCycle, insertVideoClaimingUserSlot, resetCaptionProcessingForReapply, hasUsableWavespeedLook } from "../lib/scheduler";
+import { publishVideoToInstagram, pickNextAvatar, resolveVoiceId, runCaptionProcessing, runAutomationCycle, insertVideoClaimingUserSlot, resetCaptionProcessingForReapply, hasUsableWavespeedLook, resolveHeyGenApiKey } from "../lib/scheduler";
 import { isRenderFastV2Failure } from "../lib/render-fast-v2";
 import {
   captionsAreEnabled,
@@ -214,7 +214,7 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
     .from(settingsTable)
     .where(eq(settingsTable.userId, userId))
     .limit(1);
-  const heygenApiKey = process.env.HEYGEN_API_KEY;
+  const heygenApiKey = await resolveHeyGenApiKey(userId);
   if (!heygenApiKey) {
     res.status(503).json({ error: "El servicio de generación no está disponible temporalmente." });
     return;

@@ -110,6 +110,15 @@ test("marks failed on HeyGen terminal failure status", async () => {
   );
 });
 
+test("marks a HeyGen completion without a final voice_id as failed", async () => {
+  const row = makeRow();
+  const { deps, updates } = makeDeps([row], async () => ({ status: "complete" }));
+
+  await runVoicePollerCycle(deps);
+
+  assert.deepEqual(updates, [{ id: row.id, patch: { status: "failed" } }]);
+});
+
 test("produces no DB update while still processing (within timeout)", async () => {
   const row = makeRow({ createdAt: new Date(Date.now() - 10 * 60 * 1000) }); // 10 min ago
   const { deps, updates } = makeDeps([row], async () => ({ status: "processing" }));
