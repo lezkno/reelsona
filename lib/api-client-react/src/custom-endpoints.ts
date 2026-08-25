@@ -1076,6 +1076,17 @@ export interface WavespeedPersonaWithLooks {
   planEnabled?: boolean;
 }
 
+/**
+ * API mutations return the canonical private object path, while browser
+ * consumers must go through the authenticated storage proxy. Keep this
+ * normalization at the cache boundary so a PATCH of an unrelated look field
+ * (voice/selection/name) can never replace a usable image with a dead URL.
+ */
+export function normalizeWavespeedBrowserImageUrl(imageUrl: string | null): string | null {
+  if (!imageUrl || !imageUrl.startsWith("/objects/")) return imageUrl;
+  return `/api/storage/objects/${imageUrl.slice("/objects/".length)}`;
+}
+
 export interface WavespeedVoiceRow {
   id: number;
   userId: number;
@@ -1284,6 +1295,10 @@ export function usePatchWavespeedLook() {
         body: JSON.stringify({ name, config }),
       }),
     onSuccess: (updatedLook) => {
+      const browserLook = {
+        ...updatedLook,
+        imageUrl: normalizeWavespeedBrowserImageUrl(updatedLook.imageUrl),
+      };
       // Update the look in-place in the React Query cache so the UI reflects the
       // change immediately — without relying on a network round-trip that may
       // return a 304 (browser-cached response) and leave stale data on screen.
@@ -1294,7 +1309,7 @@ export function usePatchWavespeedLook() {
           return {
             personas: old.personas.map((p) => ({
               ...p,
-              looks: p.looks.map((l) => (l.id === updatedLook.id ? updatedLook : l)),
+              looks: p.looks.map((l) => (l.id === browserLook.id ? browserLook : l)),
             })),
           };
         },

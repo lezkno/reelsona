@@ -53,6 +53,7 @@
 - [Voice overrides clean bug](voice-overrides-clean-bug.md) — debounce doSave must NOT filter cleanedOverrides by selectedIds; public look voice assignments are silently deleted otherwise.
 - [Video effects resolution](video-effects-resolution.md) — current settings are authoritative; normalize missing/partial values to false so old snapshots cannot revive effects.
 - [Object Storage worker URLs](object-storage-worker-urls.md) — caption workers must resolve private app-proxy media URLs to signed object URLs before downloading.
+- [WaveSpeed look cache images](wavespeed-look-cache-images.md) — normalize `/objects/...` paths before a look PATCH response replaces the browser cache.
 - [Video Express audio compatibility](video-express-audio-compatibility.md) — normalize browser MIME and validate duration after FFmpeg WAV conversion, not raw container metadata.
 - [Single-pass FFmpeg branching](single-pass-ffmpeg-branching.md) — normalized video must split before zoom trims; each concat segment must explicitly reset SAR.
 - [Render failure publishing safety](render-failure-publishing-safety.md) — a renderer failure must be terminal and block copy, scheduled, and manual raw-source publishing.
