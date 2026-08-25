@@ -1096,13 +1096,8 @@ router.get("/heygen/audio-proxy", async (req, res): Promise<void> => {
  * GET /heygen/avatars/looks/:lookId/status — poll look training status.
  * Returns: { id, name, status, avatar_type, group_id, preview_image_url, preview_video_url }
  */
-router.get("/heygen/avatars/looks/:lookId/status", async (req, res): Promise<void> => {
-  try {
-    const result = await getAvatarLookStatus(req.params.lookId);
-    res.json(result);
-  } catch (err: any) {
-    res.status(500).json({ error: err?.message ?? "Error al consultar el estado del avatar" });
-  }
+router.get("/heygen/avatars/looks/:lookId/status", async (_req, res): Promise<void> => {
+  rejectPrivateHeyGenAction(res);
 });
 
 export default router;

@@ -71,6 +71,7 @@ test("all historical private HeyGen routes are hard 403 defenses", () => {
     "/heygen/avatars/create-prompt",
     "/heygen/avatars/looks/:lookId/new-look",
     "/heygen/avatars/looks/:lookId",
+    "/heygen/avatars/looks/:lookId/status",
     "/heygen/avatars/groups/:groupId",
     "/heygen/voices/clone",
     "/heygen/voices/:voiceId",
