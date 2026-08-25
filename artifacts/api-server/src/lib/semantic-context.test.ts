@@ -25,7 +25,7 @@ describe("commercial semantic context", () => {
     assert.match(context, /AUDIENCIA A LA QUE SE HABLA: Personas y dueños de negocios/);
     assert.match(context, /MECANISMO \/ HERRAMIENTAS UTILIZADAS: clon digital, avatar, chatbot, inteligencia artificial/);
     assert.match(context, /PALABRAS CLAVE SECUNDARIAS:/);
-    assert.match(context, /La OFERTA es el único producto/);
+    assert.match(context, /oferta configurada es la única propuesta/i);
   });
 
   it("rejects selling an avatar or chatbot when the configured offer is different", () => {
@@ -71,7 +71,7 @@ describe("commercial semantic context", () => {
       idealAudience: "Corredores amateurs que quieren mejorar su alimentación.",
     });
     const context = buildSemanticContext(profile);
-    assert.match(context, /OFERTA CONFIGURADA ES LA ÚNICA PROPUESTA/);
+    assert.match(context, /oferta configurada es la única propuesta/i);
     assert.match(context, /Servicio de asesoría nutricional personalizada/);
     const result = validateSemanticOutput({
       script: "Si corres y no sabes cómo organizar tus comidas, mi servicio de asesoría nutricional personalizada adapta tu plan a tus entrenamientos.",
