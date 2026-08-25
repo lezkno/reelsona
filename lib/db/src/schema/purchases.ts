@@ -6,6 +6,7 @@ export const purchases = pgTable("purchases", {
   provider:            varchar("provider", { length: 32 }).notNull().default("stripe"),
   providerSessionId:   varchar("provider_session_id", { length: 256 }).notNull().unique(),
   providerCustomerId:  varchar("provider_customer_id", { length: 256 }),
+  providerPaymentIntentId: varchar("provider_payment_intent_id", { length: 256 }).unique(),
   email:               varchar("email", { length: 256 }).notNull(),
   fullName:            varchar("full_name", { length: 256 }),
   amountTotal:         integer("amount_total"),   // cents
@@ -24,6 +25,8 @@ export const purchases = pgTable("purchases", {
   planSlug:            varchar("plan_slug", { length: 32 }),
   /** Credits granted by this purchase (used for topups). */
   creditsPurchased:    integer("credits_purchased"),
+  refundedAmountCents:  integer("refunded_amount_cents").notNull().default(0),
+  refundedCredits:     integer("refunded_credits").notNull().default(0),
   /**
    * Set to NOW() when provisionUser() completes successfully.
    * NULL means provision is pending or failed — the scheduler recovery sweep

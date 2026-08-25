@@ -17,7 +17,14 @@ import { users, userEntitlements, videosTable, settingsTable, captionConfigTable
 import { subscriptionsTable, instagramAccountsTable, wavespeedPersonasTable } from "@workspace/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { normalizeVideoEffects } from "../lib/video-pipeline-effects";
-import { adjustCredits, provisionSubscriptionCredits, VIDEO_CREDIT_COST, PLAN_CREDITS, FOUNDER_MAX_SEATS } from "../lib/credits";
+import {
+  adjustCredits,
+  provisionSubscriptionCredits,
+  findCreditReconciliationIssues,
+  VIDEO_CREDIT_COST,
+  PLAN_CREDITS,
+  FOUNDER_MAX_SEATS,
+} from "../lib/credits";
 import { sendEmail, activationEmail, passwordResetEmail, getAppUrl } from "../lib/email";
 import { hashPassword } from "../lib/password";
 import { provisionUser } from "../lib/provision";
@@ -72,6 +79,16 @@ router.use("/admin", async (req: Request, res: Response, next): Promise<void> =>
   } catch (err) {
     console.error("[admin/auth]", err);
     res.status(503).json({ error: "No se pudo verificar la autorización" });
+  }
+});
+
+router.get("/admin/credits/reconciliation", async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const issues = await findCreditReconciliationIssues();
+    res.json({ ok: true, issueCount: issues.length, issues });
+  } catch (err) {
+    console.error("[admin/credits/reconciliation]", err);
+    res.status(503).json({ error: "No se pudo reconciliar el ledger de créditos" });
   }
 });
 

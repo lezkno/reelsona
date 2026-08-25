@@ -71,6 +71,7 @@ export const subscriptionsTable = pgTable("subscriptions", {
    * currentPeriodEnd cannot race-condition the credit-grant guard.
    */
   lastGrantedInvoiceId:  varchar("last_granted_invoice_id", { length: 256 }),
+  lastStripeEventCreatedAt: timestamp("last_stripe_event_created_at"),
   createdAt:             timestamp("created_at").notNull().defaultNow(),
   updatedAt:             timestamp("updated_at").notNull().defaultNow(),
 });

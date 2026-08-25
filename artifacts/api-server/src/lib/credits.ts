@@ -18,7 +18,7 @@
  */
 
 import { db } from "@workspace/db";
-import { userCreditsTable, creditLedgerTable, videosTable } from "@workspace/db";
+import { userCreditsTable, creditLedgerTable, videosTable, purchases } from "@workspace/db";
 import { eq, and, inArray, isNull, sql } from "drizzle-orm";
 import { logger } from "./logger";
 import { computeRenewalBalances, computeReleaseRestore } from "./credit-cycle-policy";
@@ -312,6 +312,148 @@ export async function revertPurchasedCreditsForRefund(
     });
 
     return { reversed, alreadyProcessed: false };
+  });
+}
+
+/**
+ * Apply a Stripe refund to the exact purchase that produced the credits.
+ * Refund progress is stored on the purchase so repeated/out-of-order
+ * charge.refunded events only apply the newly refundable portion.
+ */
+export async function reconcilePurchasedCreditsRefund({
+  purchaseId,
+  userId,
+  refundAmountCents,
+  refundKey,
+}: {
+  purchaseId: number;
+  userId: number;
+  refundAmountCents: number;
+  refundKey: string;
+}): Promise<{ reversed: number; alreadyProcessed: boolean; shortfall: number }> {
+  return db.transaction(async (tx) => {
+    const [purchase] = await tx
+      .select()
+      .from(purchases)
+      .where(eq(purchases.id, purchaseId))
+      .for("update")
+      .limit(1);
+    if (!purchase || purchase.userId !== userId || purchase.purchaseType !== "topup") {
+      throw new Error(`Refund ${refundKey}: purchase ${purchaseId} is not a matching topup`);
+    }
+
+    const packageCredits = purchase.creditsPurchased ?? 0;
+    const paidCents = purchase.amountTotal ?? 0;
+    if (packageCredits <= 0 || paidCents <= 0 || refundAmountCents <= 0) {
+      return { reversed: 0, alreadyProcessed: false, shortfall: 0 };
+    }
+
+    const cappedRefundCents = Math.min(refundAmountCents, paidCents);
+    const targetRefundedCredits = computeRefundedCredits(
+      packageCredits,
+      paidCents,
+      cappedRefundCents,
+    );
+    const delta = Math.max(0, targetRefundedCredits - purchase.refundedCredits);
+    if (delta === 0) {
+      return { reversed: 0, alreadyProcessed: true, shortfall: 0 };
+    }
+
+    const [wallet] = await tx
+      .select()
+      .from(userCreditsTable)
+      .where(eq(userCreditsTable.userId, userId))
+      .for("update")
+      .limit(1);
+    if (!wallet) throw new Error(`Refund ${refundKey}: wallet not found for user ${userId}`);
+
+    const reversed = Math.min(delta, wallet.purchasedCredits);
+    const balanceAfter = wallet.availableCredits - reversed;
+    await tx.update(userCreditsTable)
+      .set({
+        purchasedCredits: wallet.purchasedCredits - reversed,
+        availableCredits: balanceAfter,
+        updatedAt: new Date(),
+      })
+      .where(eq(userCreditsTable.userId, userId));
+
+    await tx.update(purchases)
+      .set({
+        refundedAmountCents: Math.max(purchase.refundedAmountCents, cappedRefundCents),
+        refundedCredits: targetRefundedCredits,
+        updatedAt: new Date(),
+      })
+      .where(eq(purchases.id, purchaseId));
+
+    await tx.insert(creditLedgerTable).values({
+      userId,
+      type: "adjustment",
+      amount: -reversed,
+      balanceBefore: wallet.availableCredits,
+      balanceAfter,
+      pool: "purchased",
+      purchasedAmount: -reversed,
+      description: `Stripe refund ${refundKey} · purchase ${purchaseId}${reversed < delta ? ` · shortfall ${delta - reversed}` : ""}`,
+    });
+
+    return { reversed, alreadyProcessed: false, shortfall: delta - reversed };
+  });
+}
+
+/** Convert a partial Stripe refund into the package's refundable credit count. */
+export function computeRefundedCredits(
+  packageCredits: number,
+  paidAmountCents: number,
+  refundAmountCents: number,
+): number {
+  if (packageCredits <= 0 || paidAmountCents <= 0 || refundAmountCents <= 0) return 0;
+  return Math.min(
+    packageCredits,
+    Math.floor((packageCredits * Math.min(refundAmountCents, paidAmountCents)) / paidAmountCents),
+  );
+}
+
+export type CreditReconciliationIssue = {
+  userId: number;
+  walletAvailable: number;
+  ledgerAvailable: number;
+  difference: number;
+};
+
+/**
+ * Reconcile the wallet's spendable balance against the append-only ledger.
+ * Consumption does not change available credits, so consume rows are excluded.
+ * This is intentionally read-only: historical discrepancies need an explicit
+ * operator decision rather than an automatic destructive correction.
+ */
+export async function findCreditReconciliationIssues(): Promise<CreditReconciliationIssue[]> {
+  const result = await db.execute(sql`
+    SELECT
+      w.user_id AS "userId",
+      w.available_credits AS "walletAvailable",
+      COALESCE(SUM(
+        CASE WHEN l.type IN ('provision', 'reserve', 'release', 'adjustment')
+             THEN l.amount ELSE 0 END
+      ), 0) AS "ledgerAvailable"
+    FROM user_credits w
+    LEFT JOIN credit_ledger l ON l.user_id = w.user_id
+    GROUP BY w.user_id, w.available_credits
+    HAVING w.available_credits <> COALESCE(SUM(
+      CASE WHEN l.type IN ('provision', 'reserve', 'release', 'adjustment')
+           THEN l.amount ELSE 0 END
+    ), 0)
+    ORDER BY w.user_id
+  `);
+
+  return (result.rows as Array<Record<string, unknown>>).map((row) => {
+    const walletAvailable = Number(row.walletAvailable ?? 0);
+    const ledgerAvailable = Number(row.ledgerAvailable ?? 0);
+    return {
+      userId: Number(row.userId),
+      walletAvailable,
+      ledgerAvailable,
+      difference: walletAvailable - ledgerAvailable,
+    };
   });
 }
 

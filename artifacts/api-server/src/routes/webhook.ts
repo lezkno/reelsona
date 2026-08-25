@@ -11,12 +11,11 @@ import express, { Router } from "express";
 import type { Request, Response } from "express";
 import type Stripe from "stripe";
 import { getStripe, getWebhookSecret } from "../lib/stripe";
-import { PLAN_CREDITS } from "../lib/credits";
+import { PLAN_CREDITS, reconcilePurchasedCreditsRefund } from "../lib/credits";
 import { upsertEntitlement } from "../lib/access";
 import { invalidateAccessCache } from "../middleware/requireToolAccess";
 import { invalidatePlanCache } from "../middleware/requirePlanAccess";
 import { provisionPurchase, provisionPaymentElementSubscription } from "../lib/provision-purchase";
-import { revertPurchasedCreditsForRefund } from "../lib/credits";
 import { db } from "@workspace/db";
 import { stripePriceConfigsTable } from "@workspace/db/schema";
 import {
@@ -26,7 +25,7 @@ import {
   creditLedgerTable,
   invoiceCreditGrantsTable,
 } from "@workspace/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, or } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import {
   isTopupAmountValid,
@@ -35,6 +34,16 @@ import {
 } from "../lib/payment-validation";
 
 const router = Router();
+
+async function requireProvisioned(
+  purchase: typeof purchases.$inferSelect,
+  stripe: Stripe,
+): Promise<void> {
+  const ok = await provisionPurchase(purchase, stripe);
+  if (!ok) {
+    throw new Error(`Purchase ${purchase.id} provisioning failed; Stripe retry required`);
+  }
+}
 
 router.post(
   "/webhooks/stripe",
@@ -75,7 +84,7 @@ router.post(
     }
 
     try {
-      await handler(event.data.object as any, stripe);
+      await handler(event.data.object as any, stripe, event.created);
       res.json({ received: true });
     } catch (err: any) {
       logger.error(
@@ -87,7 +96,7 @@ router.post(
   }
 );
 
-const EVENT_HANDLERS: Record<string, (obj: any, stripe: Stripe) => Promise<void>> = {
+const EVENT_HANDLERS: Record<string, (obj: any, stripe: Stripe, eventCreated?: number) => Promise<void>> = {
   "checkout.session.completed":          handleCheckoutCompleted,
   "checkout.session.async_payment_succeeded": handleCheckoutCompleted,
   "customer.subscription.updated":       handleSubscriptionUpdated,
@@ -128,7 +137,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, stripe:
       return;
     }
     logger.info({ sessionId }, "[webhook/stripe] Purchase exists but unprovisioned — retrying");
-    await provisionPurchase(existing, stripe);
+    await requireProvisioned(existing, stripe);
     return;
   }
 
@@ -137,6 +146,10 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, stripe:
   const amountTotal = session.amount_total ?? 0;
   const currency = session.currency ?? "usd";
   const customerId = typeof session.customer === "string" ? session.customer : null;
+  const paymentIntentId =
+    typeof session.payment_intent === "string"
+      ? session.payment_intent
+      : session.payment_intent?.id ?? null;
 
   if (!email) {
     throw new Error(`Checkout ${sessionId} has no customer email; cannot provision safely`);
@@ -199,6 +212,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, stripe:
       provider: "stripe",
       providerSessionId: sessionId,
       providerCustomerId: customerId,
+      providerPaymentIntentId: paymentIntentId,
       email,
       fullName,
       amountTotal,
@@ -212,7 +226,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, stripe:
     })
     .returning();
 
-  await provisionPurchase(insertedRows[0], stripe);
+  await requireProvisioned(insertedRows[0], stripe);
 }
 
 /**
@@ -231,7 +245,7 @@ async function isSupersededSubscription(stripeSubId: string): Promise<boolean> {
   return !!row;
 }
 
-async function handleSubscriptionUpdated(sub: Stripe.Subscription, _stripe: Stripe): Promise<void> {
+async function handleSubscriptionUpdated(sub: Stripe.Subscription, _stripe: Stripe, eventCreated = 0): Promise<void> {
   const stripeSubId = sub.id;
   const status = mapStripeStatus(sub.status);
   const cancelAtPeriodEnd = sub.cancel_at_period_end;
@@ -244,6 +258,7 @@ async function handleSubscriptionUpdated(sub: Stripe.Subscription, _stripe: Stri
     .select()
     .from(subscriptionsTable)
     .where(eq(subscriptionsTable.stripeSubscriptionId, stripeSubId))
+    .for("update")
     .limit(1);
 
   if (!existing) {
@@ -256,6 +271,11 @@ async function handleSubscriptionUpdated(sub: Stripe.Subscription, _stripe: Stri
     // Stripe does not retry — the subscription state will be synced when the next
     // event arrives or on the next invoice cycle.
     logger.warn({ stripeSubId }, "[webhook/stripe] subscription.updated arrived before local subscription exists — acknowledged no-op (will be provisioned by invoice.paid)");
+    return;
+  }
+  if (eventCreated > 0 && existing.lastStripeEventCreatedAt &&
+      existing.lastStripeEventCreatedAt.getTime() >= eventCreated * 1000) {
+    logger.info({ stripeSubId, eventCreated }, "[webhook/stripe] Ignoring stale subscription.updated event");
     return;
   }
 
@@ -292,6 +312,7 @@ async function handleSubscriptionUpdated(sub: Stripe.Subscription, _stripe: Stri
       currentPeriodEnd: periodEnd ? new Date(periodEnd * 1000) : undefined,
       ...(scheduleApplied ? { pendingPlanSlug: null } : {}),
       updatedAt: new Date(),
+      lastStripeEventCreatedAt: eventCreated > 0 ? new Date(eventCreated * 1000) : undefined,
     })
     .where(eq(subscriptionsTable.id, existing.id));
 
@@ -315,7 +336,7 @@ async function handleSubscriptionUpdated(sub: Stripe.Subscription, _stripe: Stri
   );
 }
 
-async function handleSubscriptionDeleted(sub: Stripe.Subscription, _stripe: Stripe): Promise<void> {
+async function handleSubscriptionDeleted(sub: Stripe.Subscription, _stripe: Stripe, eventCreated = 0): Promise<void> {
   const stripeSubId = sub.id;
   const firstItemDel = sub.items?.data?.[0] as any;
   const periodEnd: number | null = firstItemDel?.current_period_end ?? null;
@@ -325,13 +346,23 @@ async function handleSubscriptionDeleted(sub: Stripe.Subscription, _stripe: Stri
     .select()
     .from(subscriptionsTable)
     .where(eq(subscriptionsTable.stripeSubscriptionId, stripeSubId))
+    .for("update")
     .limit(1);
 
   if (!existing) return;
+  if (eventCreated > 0 && existing.lastStripeEventCreatedAt &&
+      existing.lastStripeEventCreatedAt.getTime() >= eventCreated * 1000) {
+    logger.info({ stripeSubId, eventCreated }, "[webhook/stripe] Ignoring stale subscription.deleted event");
+    return;
+  }
 
   await db
     .update(subscriptionsTable)
-    .set({ status: "canceled", updatedAt: new Date() })
+    .set({
+      status: "canceled",
+      updatedAt: new Date(),
+      lastStripeEventCreatedAt: eventCreated > 0 ? new Date(eventCreated * 1000) : undefined,
+    })
     .where(eq(subscriptionsTable.id, existing.id));
 
   await upsertEntitlement({
@@ -348,7 +379,7 @@ async function handleSubscriptionDeleted(sub: Stripe.Subscription, _stripe: Stri
   logger.info({ userId: existing.userId }, "[webhook/stripe] Subscription canceled — entitlement expired");
 }
 
-async function handleInvoicePaid(invoice: Stripe.Invoice, stripe: Stripe): Promise<void> {
+async function handleInvoicePaid(invoice: Stripe.Invoice, stripe: Stripe, eventCreated = 0): Promise<void> {
   const subRef = invoice.parent?.subscription_details?.subscription;
   const stripeSubId = typeof subRef === "string" ? subRef : (subRef as Stripe.Subscription | undefined)?.id ?? null;
 
@@ -383,7 +414,12 @@ async function handleInvoicePaid(invoice: Stripe.Invoice, stripe: Stripe): Promi
         const periodEndTs = invoice.period_end;
         await db
           .update(subscriptionsTable)
-          .set({ status: "active", currentPeriodEnd: periodEndTs ? new Date(periodEndTs * 1000) : undefined, updatedAt: new Date() })
+          .set({
+            status: "active",
+            currentPeriodEnd: periodEndTs ? new Date(periodEndTs * 1000) : undefined,
+            updatedAt: new Date(),
+            lastStripeEventCreatedAt: eventCreated > 0 ? new Date(eventCreated * 1000) : undefined,
+          })
           .where(eq(subscriptionsTable.stripeSubscriptionId, stripeSubId));
         logger.info({ stripeSubId }, "[webhook/stripe] invoice.paid subscription_create: existing row updated (Checkout Session path)");
       } else {
@@ -394,7 +430,12 @@ async function handleInvoicePaid(invoice: Stripe.Invoice, stripe: Stripe): Promi
       const periodEndTs = invoice.period_end;
       await db
         .update(subscriptionsTable)
-        .set({ status: "active", currentPeriodEnd: periodEndTs ? new Date(periodEndTs * 1000) : undefined, updatedAt: new Date() })
+          .set({
+            status: "active",
+            currentPeriodEnd: periodEndTs ? new Date(periodEndTs * 1000) : undefined,
+            updatedAt: new Date(),
+            lastStripeEventCreatedAt: eventCreated > 0 ? new Date(eventCreated * 1000) : undefined,
+          })
         .where(eq(subscriptionsTable.stripeSubscriptionId, stripeSubId));
     }
 
@@ -409,6 +450,7 @@ async function handleInvoicePaid(invoice: Stripe.Invoice, stripe: Stripe): Promi
     .select()
     .from(subscriptionsTable)
     .where(eq(subscriptionsTable.stripeSubscriptionId, stripeSubId))
+    .for("update")
     .limit(1);
 
   if (!sub) {
@@ -418,11 +460,21 @@ async function handleInvoicePaid(invoice: Stripe.Invoice, stripe: Stripe): Promi
     }
     throw new Error(`invoice.paid arrived before local subscription ${stripeSubId} exists`);
   }
+  if (eventCreated > 0 && sub.lastStripeEventCreatedAt &&
+      sub.lastStripeEventCreatedAt.getTime() >= eventCreated * 1000) {
+    logger.info({ stripeSubId, invoiceId, eventCreated }, "[webhook/stripe] Ignoring stale invoice.paid event");
+    return;
+  }
 
   if (sub.planSlug === "founder") {
     await db
       .update(subscriptionsTable)
-      .set({ status: "active", currentPeriodEnd: newPeriodEnd ?? undefined, updatedAt: new Date() })
+      .set({
+        status: "active",
+        currentPeriodEnd: newPeriodEnd ?? undefined,
+        updatedAt: new Date(),
+        lastStripeEventCreatedAt: eventCreated > 0 ? new Date(eventCreated * 1000) : undefined,
+      })
       .where(eq(subscriptionsTable.id, sub.id));
     logger.info({ stripeSubId, invoiceId }, "[webhook/stripe] invoice.paid: Founder — updated period end only (cron is grant authority)");
     return;
@@ -465,6 +517,7 @@ async function handleInvoicePaid(invoice: Stripe.Invoice, stripe: Stripe): Promi
       status: "active",
       currentPeriodEnd: newPeriodEnd ?? undefined,
       updatedAt: new Date(),
+      lastStripeEventCreatedAt: eventCreated > 0 ? new Date(eventCreated * 1000) : undefined,
     };
     if (planChanged) {
       subUpdate.planSlug = effectivePlanSlug;
@@ -562,7 +615,7 @@ async function handleInvoicePaid(invoice: Stripe.Invoice, stripe: Stripe): Promi
   }
 }
 
-async function handleInvoicePaymentFailed(invoice: Stripe.Invoice, _stripe: Stripe): Promise<void> {
+async function handleInvoicePaymentFailed(invoice: Stripe.Invoice, _stripe: Stripe, eventCreated = 0): Promise<void> {
   const failSubRef = invoice.parent?.subscription_details?.subscription;
   const stripeSubId = typeof failSubRef === "string" ? failSubRef : (failSubRef as Stripe.Subscription | undefined)?.id ?? null;
 
@@ -574,6 +627,7 @@ async function handleInvoicePaymentFailed(invoice: Stripe.Invoice, _stripe: Stri
     .select()
     .from(subscriptionsTable)
     .where(eq(subscriptionsTable.stripeSubscriptionId, stripeSubId))
+    .for("update")
     .limit(1);
 
   if (!sub) {
@@ -586,10 +640,19 @@ async function handleInvoicePaymentFailed(invoice: Stripe.Invoice, _stripe: Stri
     logger.warn({ stripeSubId }, "[webhook/stripe] invoice.payment_failed for unknown subscription — acknowledged no-op");
     return;
   }
+  if (eventCreated > 0 && sub.lastStripeEventCreatedAt &&
+      sub.lastStripeEventCreatedAt.getTime() >= eventCreated * 1000) {
+    logger.info({ stripeSubId, eventCreated }, "[webhook/stripe] Ignoring stale invoice.payment_failed event");
+    return;
+  }
 
   await db
     .update(subscriptionsTable)
-    .set({ status: "past_due", updatedAt: new Date() })
+    .set({
+      status: "past_due",
+      updatedAt: new Date(),
+      lastStripeEventCreatedAt: eventCreated > 0 ? new Date(eventCreated * 1000) : undefined,
+    })
     .where(eq(subscriptionsTable.id, sub.id));
 
   await upsertEntitlement({
@@ -731,8 +794,7 @@ async function handlePaymentIntentSucceeded(pi: Stripe.PaymentIntent, stripe: St
   logger.info({ piId, planSlug, email, creditsAmount }, "[webhook/stripe] payment_intent.succeeded (topup)");
 
   if (!email || creditsAmount <= 0) {
-    logger.warn({ piId }, "[webhook/stripe] payment_intent.succeeded: missing email or credits — cannot provision");
-    return;
+    throw new Error(`PaymentIntent ${piId} is missing email or credits metadata; cannot provision safely`);
   }
 
   // ── Amount + credit verification ───────────────────────────────────────────
@@ -751,7 +813,7 @@ async function handlePaymentIntentSucceeded(pi: Stripe.PaymentIntent, stripe: St
           { piId, planSlug, paidAmount, expectedAmount: priceRow.amountCents },
           "[webhook/stripe] AMOUNT MISMATCH for topup — refusing to provision",
         );
-        return; // Return 200 to stop Stripe retries; the ops team must investigate
+        throw new Error(`PaymentIntent ${piId} amount does not match configured topup price`);
       }
       if (creditsAmount !== priceRow.creditAmount) {
         logger.warn(
@@ -781,7 +843,7 @@ async function handlePaymentIntentSucceeded(pi: Stripe.PaymentIntent, stripe: St
 
   if (existing) {
     logger.info({ piId }, "[webhook/stripe] payment_intent.succeeded: unprovisioned row found — retrying");
-    await provisionPurchase(existing, stripe);
+    await requireProvisioned(existing, stripe);
     return;
   }
 
@@ -791,6 +853,7 @@ async function handlePaymentIntentSucceeded(pi: Stripe.PaymentIntent, stripe: St
       provider:          "stripe",
       providerSessionId: piId,
       providerCustomerId: customerId,
+      providerPaymentIntentId: piId,
       email,
       fullName,
       amountTotal:       pi.amount_received ?? 0,
@@ -812,11 +875,11 @@ async function handlePaymentIntentSucceeded(pi: Stripe.PaymentIntent, stripe: St
       .from(purchases)
       .where(eq(purchases.providerSessionId, piId))
       .limit(1);
-    if (race && !race.provisionedAt) await provisionPurchase(race, stripe);
+    if (race && !race.provisionedAt) await requireProvisioned(race, stripe);
     return;
   }
 
-  await provisionPurchase(inserted, stripe);
+  await requireProvisioned(inserted, stripe);
 }
 
 /**
@@ -824,8 +887,7 @@ async function handlePaymentIntentSucceeded(pi: Stripe.PaymentIntent, stripe: St
  * intentionally not converted into credit deductions here: subscription
  * credits are cycle-scoped and have no single refundable package to reverse.
  */
-async function handleChargeRefunded(charge: Stripe.Charge, stripe: Stripe): Promise<void> {
-  if (!charge.refunded) return;
+async function handleChargeRefunded(charge: Stripe.Charge, _stripe: Stripe): Promise<void> {
 
   const paymentIntentId =
     typeof charge.payment_intent === "string"
@@ -839,7 +901,10 @@ async function handleChargeRefunded(charge: Stripe.Charge, stripe: Stripe): Prom
   const [purchase] = await db
     .select()
     .from(purchases)
-    .where(eq(purchases.providerSessionId, paymentIntentId))
+    .where(or(
+      eq(purchases.providerPaymentIntentId, paymentIntentId),
+      eq(purchases.providerSessionId, paymentIntentId),
+    ))
     .limit(1);
 
   if (!purchase || purchase.purchaseType !== "topup") {
@@ -858,11 +923,12 @@ async function handleChargeRefunded(charge: Stripe.Charge, stripe: Stripe): Prom
     return;
   }
 
-  const result = await revertPurchasedCreditsForRefund(
-    purchase.userId,
-    purchase.creditsPurchased ?? 0,
-    `charge:${charge.id}`,
-  );
+  const result = await reconcilePurchasedCreditsRefund({
+    purchaseId: purchase.id,
+    userId: purchase.userId,
+    refundAmountCents: charge.amount_refunded ?? 0,
+    refundKey: `charge:${charge.id}:${charge.amount_refunded ?? 0}`,
+  });
 
   logger.info(
     {
@@ -872,6 +938,7 @@ async function handleChargeRefunded(charge: Stripe.Charge, stripe: Stripe): Prom
       userId: purchase.userId,
       reversed: result.reversed,
       alreadyProcessed: result.alreadyProcessed,
+      shortfall: result.shortfall,
     },
     "[webhook/stripe] Refunded topup credits reconciled",
   );

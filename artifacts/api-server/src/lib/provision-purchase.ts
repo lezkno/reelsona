@@ -8,8 +8,8 @@
  *
  * Contract:
  *   - Sets purchases.provisionedAt when it succeeds (caller must not do so again).
- *   - Never throws — logs and returns without setting provisionedAt on failure so
- *     the scheduler sweep will retry on the next cycle.
+ *   - Returns false on failure without setting provisionedAt so the scheduler
+ *     sweep can retry, while webhook callers must turn false into a retryable error.
  *   - Topups NEVER create users or touch tool-access entitlements (security invariant).
  *   - Subscriptions always call provisionUser BEFORE creating the subscription row.
  *   - All subscription credit grants use the real Stripe period end to prevent
