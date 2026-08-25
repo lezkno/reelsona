@@ -552,7 +552,12 @@ export default function Videos() {
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
           {videos.map((video) => {
             const isSelected = selected.has(video.id)
-            const hasPlayable = !!(video.captioned_video_url || video.video_url)
+            // A video may already have a source URL while Instagram is still
+            // processing it. Do not expose the player until publication is
+            // terminal; cancelled videos are the intentional exception because
+            // their original source is explicitly kept for review.
+            const canPreview = video.status === 'published' || video.status === 'cancelled'
+            const hasPlayable = canPreview && !!(video.captioned_video_url || video.video_url)
             const captionStatus = (video as any).caption_status as string | null
             // 'generating' excluded — GeneratingCardOverlay handles clicks for that state
             const captionsProcessing =
@@ -587,6 +592,18 @@ export default function Videos() {
                     label="Aplicando efectos…"
                     sublabel="Captions y efectos…"
                     onClick={() => toast({ title: 'Aplicando efectos', description: 'Se están aplicando captions y efectos al video. Estará listo en unos minutos.' })}
+                  />
+                )}
+                {video.status === 'publishing' && !selectMode && (
+                  <GeneratingCardOverlay
+                    createdAt={(video as any).created_at ?? (video as any).updated_at}
+                    avatarBgUrl={avatarBgUrl}
+                    label="Publicando…"
+                    sublabel="Instagram está procesando el video…"
+                    onClick={() => toast({
+                      title: 'Video en proceso',
+                      description: 'Instagram todavía está procesando este video. Podrás verlo cuando la publicación termine.',
+                    })}
                   />
                 )}
                 {!selectMode && canCancel && (
