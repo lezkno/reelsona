@@ -600,22 +600,27 @@ router.post("/content/express", (req, res, next) => {
     } else if (!enoughCredits) {
       warning = "El guion quedó guardado en tu plan, pero no tienes créditos suficientes para generar el video ahora. Recarga tu saldo y genéralo desde el plan.";
     } else {
-      // Await the cycle (same contract as /content/:id/process): only report
-      // "generating" when a video was actually claimed and launched.
+      // Do not await the complete generation cycle here. It can include
+      // provider calls and exceed the proxy timeout, producing a misleading
+      // 502 after the order and script were already saved successfully.
+      // The normal scheduler/poller owns the background work from this point.
       expressLaunching.add(userId);
-      try {
-        const result = await runAutomationCycle(userId, inserted.id);
-        if (result.success) {
-          launch = "generating";
-        } else {
-          warning = `No se pudo iniciar la generación automáticamente: ${result.message}. El guion quedó en tu plan — revisa tu configuración y genéralo desde ahí.`;
-        }
-      } catch (err) {
-        logger.error({ err, itemId: inserted.id, userId }, "[VideoExpress] runAutomationCycle failed");
-        warning = "No se pudo iniciar la generación automáticamente. El guion quedó en tu plan, listo para generar desde ahí.";
-      } finally {
-        expressLaunching.delete(userId);
-      }
+      launch = "generating";
+      void runAutomationCycle(userId, inserted.id)
+        .then((result) => {
+          if (!result.success) {
+            logger.warn(
+              { itemId: inserted.id, userId, message: result.message },
+              "[VideoExpress] Background generation did not start",
+            );
+          }
+        })
+        .catch((err) => {
+          logger.error({ err, itemId: inserted.id, userId }, "[VideoExpress] Background generation failed");
+        })
+        .finally(() => {
+          expressLaunching.delete(userId);
+        });
     }
 
     res.status(201).json({
