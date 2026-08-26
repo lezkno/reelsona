@@ -55,6 +55,41 @@ async function withInstagramNetworkRetry<T>(
   throw new Error(`Instagram ${stage} request failed after retries`);
 }
 
+async function runInstagramStage<T>(
+  stage: string,
+  request: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await withInstagramNetworkRetry(stage, request);
+  } catch (err) {
+    if (err && typeof err === "object") {
+      (err as { instagramStage?: string }).instagramStage = stage;
+    }
+    throw err;
+  }
+}
+
+function responseRecord(data: unknown): Record<string, unknown> {
+  if (!data || typeof data !== "object") return {};
+  const record = data as Record<string, unknown>;
+  const nested = record.data;
+  if (Array.isArray(nested) && nested[0] && typeof nested[0] === "object") {
+    return nested[0] as Record<string, unknown>;
+  }
+  return record;
+}
+
+function responseString(data: unknown, key: string): string | undefined {
+  const value = responseRecord(data)[key];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function responseNumber(data: unknown, key: string): number | undefined {
+  const value = responseRecord(data)[key];
+  const numberValue = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(numberValue) ? numberValue : undefined;
+}
+
 igHttp.interceptors.request.use((config) => {
   const params = config.params as Record<string, unknown> | undefined;
   const storedToken = params?.access_token;
@@ -98,18 +133,18 @@ export async function exchangeCodeForToken(
     code,
   });
 
-  const res = await withInstagramNetworkRetry("authorization code exchange", () =>
+  const res = await runInstagramStage("authorization code exchange", () =>
     igHttp.post(`${IG_API_BASE}/oauth/access_token`, form.toString(), {
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       timeout: IG_AUTH_HTTP_TIMEOUT_MS,
     }),
   );
 
-  const shortToken: string = res.data?.access_token;
+  const shortToken = responseString(res.data, "access_token");
   if (!shortToken) throw new Error("Failed to get access token from Instagram");
 
-  const longRes = await withInstagramNetworkRetry("long-lived token exchange", () =>
-    igHttp.post(`${IG_GRAPH_BASE}/access_token`, null, {
+  const longRes = await runInstagramStage("long-lived token exchange", () =>
+    igHttp.get(`${IG_GRAPH_BASE}/access_token`, {
       params: {
         grant_type: "ig_exchange_token",
         client_secret: appSecret,
@@ -119,10 +154,10 @@ export async function exchangeCodeForToken(
     }),
   );
 
-  const longToken: string = longRes.data?.access_token;
+  const longToken = responseString(longRes.data, "access_token");
   if (!longToken) throw new Error("Failed to get long-lived token");
 
-  const expiresInSec: number | undefined = longRes.data?.expires_in;
+  const expiresInSec = responseNumber(longRes.data, "expires_in");
   const expiresAt = expiresInSec
     ? new Date(Date.now() + expiresInSec * 1000)
     : new Date(Date.now() + 60 * 24 * 60 * 60 * 1000);
@@ -133,8 +168,8 @@ export async function exchangeCodeForToken(
 export async function refreshInstagramToken(
   accessToken: string
 ): Promise<{ accessToken: string; expiresAt: Date }> {
-  const res = await withInstagramNetworkRetry("Instagram token refresh", () =>
-    igHttp.post(`${IG_GRAPH_BASE}/refresh_access_token`, null, {
+  const res = await runInstagramStage("Instagram token refresh", () =>
+    igHttp.get(`${IG_GRAPH_BASE}/refresh_access_token`, {
       params: {
         grant_type: "ig_refresh_token",
         access_token: accessToken,
@@ -142,10 +177,10 @@ export async function refreshInstagramToken(
     }),
   );
 
-  const newToken: string = res.data?.access_token;
+  const newToken = responseString(res.data, "access_token");
   if (!newToken) throw new Error("Instagram refresh_access_token returned no token");
 
-  const expiresInSec: number | undefined = res.data?.expires_in;
+  const expiresInSec = responseNumber(res.data, "expires_in");
   const expiresAt = expiresInSec
     ? new Date(Date.now() + expiresInSec * 1000)
     : new Date(Date.now() + 60 * 24 * 60 * 60 * 1000);
@@ -153,8 +188,19 @@ export async function refreshInstagramToken(
   return { accessToken: encryptInstagramToken(newToken), expiresAt };
 }
 
-export async function getAccountInfo(accessToken: string) {
-  const res = await withInstagramNetworkRetry("account profile lookup", () =>
+export type InstagramAccountInfo = {
+  id: string;
+  username: string;
+  user_id?: string;
+  name?: string | null;
+  profile_picture_url?: string | null;
+  followers_count?: number;
+  media_count?: number;
+  account_type?: string;
+};
+
+export async function getAccountInfo(accessToken: string): Promise<InstagramAccountInfo> {
+  const res = await runInstagramStage("account profile lookup", () =>
     igHttp.get(`${IG_GRAPH_BASE}/me`, {
       params: {
         fields: "id,username,name,profile_picture_url,followers_count,media_count,account_type",
@@ -163,7 +209,30 @@ export async function getAccountInfo(accessToken: string) {
       timeout: IG_AUTH_HTTP_TIMEOUT_MS,
     }),
   );
-  return res.data;
+  const account = responseRecord(res.data);
+  // Business Login responses identify the professional account as user_id;
+  // older responses used id for the same value.
+  const id = typeof account.user_id === "string"
+    ? account.user_id
+    : typeof account.id === "string"
+      ? account.id
+      : undefined;
+  const username = typeof account.username === "string" ? account.username : undefined;
+  if (!id || !username) {
+    throw new Error("Instagram profile response did not include an account id and username");
+  }
+  return {
+    id,
+    username,
+    user_id: typeof account.user_id === "string" ? account.user_id : undefined,
+    name: typeof account.name === "string" ? account.name : null,
+    profile_picture_url:
+      typeof account.profile_picture_url === "string" ? account.profile_picture_url : null,
+    followers_count:
+      typeof account.followers_count === "number" ? account.followers_count : 0,
+    media_count: typeof account.media_count === "number" ? account.media_count : 0,
+    account_type: typeof account.account_type === "string" ? account.account_type : undefined,
+  };
 }
 
 export async function getMediaList(accessToken: string, userId: string, limit = 20) {

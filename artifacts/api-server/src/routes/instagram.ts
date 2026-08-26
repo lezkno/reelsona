@@ -109,7 +109,15 @@ router.post("/instagram/callback", async (req, res): Promise<void> => {
           err?.message ??
           "Error desconocido";
     logger.warn(
-      { userId: req.session.user?.userId, isNetworkFailure, code: err?.code ?? causeCode },
+      {
+        userId: req.session.user?.userId,
+        stage: err?.instagramStage,
+        isNetworkFailure,
+        status: err?.response?.status,
+        metaCode: err?.response?.data?.code ?? err?.response?.data?.error?.code,
+        metaType: err?.response?.data?.error_type ?? err?.response?.data?.error?.type,
+        code: err?.code ?? causeCode,
+      },
       "[IG/Callback] Instagram authorization exchange failed",
     );
     res.status(400).json({ error: `Instagram: ${igMessage}` });
