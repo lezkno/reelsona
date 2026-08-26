@@ -2035,6 +2035,28 @@ export type CaptionProcessingRunner = (
   skipBroll?: boolean,
 ) => Promise<void>;
 
+// Caption rendering is CPU/IO intensive (FFmpeg, Canvas and optional B-roll).
+// Running several renders in the same VM starves Express and makes ordinary
+// requests such as /api/videos time out. Keep one render in flight per process;
+// queued jobs retain their durable video state and start after the previous
+// render releases the slot.
+let captionRenderQueue: Promise<void> = Promise.resolve();
+
+async function withCaptionRenderSlot<T>(job: () => Promise<T>): Promise<T> {
+  let release!: () => void;
+  const next = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const previous = captionRenderQueue;
+  captionRenderQueue = previous.then(() => next);
+  await previous;
+  try {
+    return await job();
+  } finally {
+    release();
+  }
+}
+
 /**
  * Restarts a stale renderer without starting a second B-roll pass. Generated
  * B-roll files only live in the previous worker's temporary directory, and a
@@ -2087,6 +2109,20 @@ export async function runCaptionProcessing(
   subtitleUrl?: string | null,
   durationSeconds?: number | null,
   /** When true, forces ai_broll=false so B-roll is NOT regenerated on reapply paths. */
+  skipBroll = false,
+): Promise<void> {
+  await withCaptionRenderSlot(() =>
+    runCaptionProcessingExclusive(videoId, videoUrl, contentPlanId, subtitleUrl, durationSeconds, skipBroll),
+  );
+}
+
+/** The single-render body, called through withCaptionRenderSlot above. */
+async function runCaptionProcessingExclusive(
+  videoId: number,
+  videoUrl: string,
+  contentPlanId: number | null,
+  subtitleUrl?: string | null,
+  durationSeconds?: number | null,
   skipBroll = false,
 ): Promise<void> {
   // Claim before querying config or starting any rendering. This is a
