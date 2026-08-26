@@ -108,19 +108,26 @@ router.post("/instagram/callback", async (req, res): Promise<void> => {
           err?.response?.data?.error?.message ??
           err?.message ??
           "Error desconocido";
+    const metaCode = err?.response?.data?.code ?? err?.response?.data?.error?.code;
+    const isLongLivedTokenAccessError =
+      err?.instagramStage === "long-lived token exchange" && metaCode === 100;
+    const userMessage = isLongLivedTokenAccessError
+      ? "Meta rechazó el acceso de larga duración para esta cuenta. Verifica en Meta que la app esté en modo Live, que instagram_business_basic tenga acceso aprobado y que esta cuenta esté agregada como tester o que la app tenga Advanced Access para cuentas externas."
+      : igMessage;
     logger.warn(
       {
         userId: req.session.user?.userId,
         stage: err?.instagramStage,
         isNetworkFailure,
         status: err?.response?.status,
-        metaCode: err?.response?.data?.code ?? err?.response?.data?.error?.code,
+        metaCode,
         metaType: err?.response?.data?.error_type ?? err?.response?.data?.error?.type,
+        metaMessage: typeof igMessage === "string" ? igMessage.slice(0, 300) : undefined,
         code: err?.code ?? causeCode,
       },
       "[IG/Callback] Instagram authorization exchange failed",
     );
-    res.status(400).json({ error: `Instagram: ${igMessage}` });
+    res.status(400).json({ error: `Instagram: ${userMessage}` });
     return;
   }
 
