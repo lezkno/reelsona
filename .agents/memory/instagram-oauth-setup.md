@@ -10,3 +10,4 @@ description: Lessons from debugging "Invalid redirect_uri" in the Instagram Logi
 - Replit dev domain is temporary — the dev `/connect` URI must be re-registered in Meta if the domain changes; the published `.replit.app` URI is stable.
 - OAuth must open via `window.open(url, '_blank')`; the Replit preview iframe blocks external navigation via `window.location.href`.
 - A callback HTTP 400 containing `ETIMEDOUT`/`ECONNRESET` is an upstream network failure, not a Meta permission rejection. Retry only network errors with a short bounded budget; never retry deterministic 4xx responses.
+- Meta's Instagram token exchange and refresh endpoints require POST; a GET can return `Unsupported request - method type: get` even with valid OAuth authorization.

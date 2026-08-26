@@ -109,7 +109,7 @@ export async function exchangeCodeForToken(
   if (!shortToken) throw new Error("Failed to get access token from Instagram");
 
   const longRes = await withInstagramNetworkRetry("long-lived token exchange", () =>
-    igHttp.get(`${IG_GRAPH_BASE}/access_token`, {
+    igHttp.post(`${IG_GRAPH_BASE}/access_token`, null, {
       params: {
         grant_type: "ig_exchange_token",
         client_secret: appSecret,
@@ -133,12 +133,14 @@ export async function exchangeCodeForToken(
 export async function refreshInstagramToken(
   accessToken: string
 ): Promise<{ accessToken: string; expiresAt: Date }> {
-  const res = await igHttp.get(`${IG_GRAPH_BASE}/refresh_access_token`, {
-    params: {
-      grant_type: "ig_refresh_token",
-      access_token: accessToken,
-    },
-  });
+  const res = await withInstagramNetworkRetry("Instagram token refresh", () =>
+    igHttp.post(`${IG_GRAPH_BASE}/refresh_access_token`, null, {
+      params: {
+        grant_type: "ig_refresh_token",
+        access_token: accessToken,
+      },
+    }),
+  );
 
   const newToken: string = res.data?.access_token;
   if (!newToken) throw new Error("Instagram refresh_access_token returned no token");
