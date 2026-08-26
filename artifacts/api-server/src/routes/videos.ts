@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { videosTable, contentPlanItemsTable, avatarConfigTable, automationConfigTable, captionConfigTable, settingsTable, heygenClonedVoicesTable } from "@workspace/db";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, or, isNull } from "drizzle-orm";
 import {
   GetVideosQueryParams,
   GetVideosResponse,
@@ -148,7 +148,20 @@ router.post("/videos/generate", async (req, res): Promise<void> => {
   const [alreadyGenerating] = await db
     .select({ id: videosTable.id, topic: videosTable.topic })
     .from(videosTable)
-    .where(and(eq(videosTable.status, "generating"), eq(videosTable.userId, userId)))
+    .where(and(
+      eq(videosTable.userId, userId),
+      or(
+        eq(videosTable.status, "generating"),
+        and(
+          eq(videosTable.status, "ready"),
+          or(
+            isNull(videosTable.captionStatus),
+            eq(videosTable.captionStatus, "processing"),
+          ),
+        ),
+        eq(videosTable.status, "publishing"),
+      ),
+    ))
     .limit(1);
   if (alreadyGenerating) {
     res.status(409).json({

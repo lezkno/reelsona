@@ -939,7 +939,20 @@ export async function insertVideoClaimingUserSlot(
     const [existing] = await tx
       .select({ id: videosTable.id })
       .from(videosTable)
-      .where(and(eq(videosTable.status, "generating"), eq(videosTable.userId, userId)))
+      .where(and(
+        eq(videosTable.userId, userId),
+        or(
+          eq(videosTable.status, "generating"),
+          and(
+            eq(videosTable.status, "ready"),
+            or(
+              isNull(videosTable.captionStatus),
+              eq(videosTable.captionStatus, "processing"),
+            ),
+          ),
+          eq(videosTable.status, "publishing"),
+        ),
+      ))
       .limit(1);
     if (existing) return null;
     const [row] = await tx.insert(videosTable).values(values).returning();
