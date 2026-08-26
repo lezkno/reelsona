@@ -3,7 +3,7 @@ import type { Request, Response } from "express";
 import { randomBytes } from "crypto";
 import { db } from "@workspace/db";
 import { users } from "@workspace/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { eq, or, sql } from "drizzle-orm";
 import { verifyPassword, hashPassword } from "../lib/password";
 import { sendEmail, passwordChangedEmail, passwordResetEmail, verificationEmail, activationEmail, getAppUrl } from "../lib/email";
 import { getUserAccess } from "../lib/access";
@@ -30,10 +30,11 @@ function regenerateAuthenticatedSession(
  * Body: { username: string; password: string }
  */
 router.post("/auth/login", async (req: Request, res: Response): Promise<void> => {
-  const { username, password } = (req.body ?? {}) as {
+  const { username: rawUsername, password } = (req.body ?? {}) as {
     username?: string;
     password?: string;
   };
+  const username = rawUsername?.trim();
 
   if (!username || !password) {
     res.status(400).json({ error: "Se requieren usuario y contraseña" });
@@ -44,7 +45,13 @@ router.post("/auth/login", async (req: Request, res: Response): Promise<void> =>
     const [user] = await db
       .select()
       .from(users)
-      .where(eq(users.username, username))
+      // Accounts created from email use the normalized email as username, but
+      // admin-created accounts may keep a separate email. Accept either
+      // identifier and make the comparison case-insensitive.
+      .where(or(
+        sql`lower(${users.username}) = lower(${username})`,
+        sql`lower(${users.email}) = lower(${username})`,
+      ))
       .limit(1);
 
     if (!user || !verifyPassword(password, user.passwordHash)) {

@@ -110,10 +110,10 @@ export default function Login({ onSuccess }: LoginProps) {
             <form onSubmit={handleSubmit} className="flex flex-col gap-5">
               <div className="flex flex-col gap-1.5">
                 <label htmlFor="username" style={{ color: "#aaa", fontSize: "0.8rem", fontWeight: 500 }}>
-                  Usuario
+                  Correo o usuario
                 </label>
                 <input
-                  id="username" type="text" placeholder="tu_usuario"
+                  id="username" type="text" placeholder="tu@correo.com o tu_usuario"
                   value={username} onChange={(e) => setUsername(e.target.value)}
                   autoFocus autoComplete="username"
                   style={{ background:"#161616", border:"1px solid #2a2a2a", borderRadius:10, padding:"0.65rem 0.9rem", color:"#f0f0f0", fontSize:"0.9rem", outline:"none", transition:"border-color 0.15s", width:"100%", boxSizing:"border-box" }}
