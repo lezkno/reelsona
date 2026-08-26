@@ -6,8 +6,54 @@ import { decryptInstagramToken, encryptInstagramToken } from "./instagram-token-
 const IG_GRAPH_BASE = "https://graph.instagram.com";
 const IG_API_BASE = "https://api.instagram.com";
 const IG_HTTP_TIMEOUT_MS = 30_000;
+const IG_AUTH_HTTP_TIMEOUT_MS = 10_000;
+const IG_NETWORK_RETRIES = 3;
 
 const igHttp = axios.create({ timeout: IG_HTTP_TIMEOUT_MS });
+
+const TRANSIENT_NETWORK_CODES = new Set([
+  "ECONNABORTED",
+  "ECONNRESET",
+  "ETIMEDOUT",
+  "EAI_AGAIN",
+  "ENETUNREACH",
+  "EHOSTUNREACH",
+]);
+
+function isTransientNetworkError(err: unknown): boolean {
+  if (!axios.isAxiosError(err)) return false;
+  const causeCode = (err as { cause?: { code?: unknown } }).cause?.code;
+  const code = typeof causeCode === "string" ? causeCode : err.code;
+  return !err.response && typeof code === "string" && TRANSIENT_NETWORK_CODES.has(code);
+}
+
+async function withInstagramNetworkRetry<T>(
+  stage: string,
+  request: () => Promise<T>,
+): Promise<T> {
+  for (let attempt = 1; attempt <= IG_NETWORK_RETRIES; attempt += 1) {
+    try {
+      return await request();
+    } catch (err) {
+      if (!isTransientNetworkError(err) || attempt >= IG_NETWORK_RETRIES) {
+        throw err;
+      }
+
+      const causeCode = (err as { cause?: { code?: unknown } }).cause?.code;
+      logger.warn(
+        {
+          stage,
+          attempt,
+          code: typeof causeCode === "string" ? causeCode : (axios.isAxiosError(err) ? err.code : undefined),
+        },
+        "[IG] Transient network failure; retrying Instagram request",
+      );
+      await new Promise((resolve) => setTimeout(resolve, attempt * 400));
+    }
+  }
+
+  throw new Error(`Instagram ${stage} request failed after retries`);
+}
 
 igHttp.interceptors.request.use((config) => {
   const params = config.params as Record<string, unknown> | undefined;
@@ -52,20 +98,26 @@ export async function exchangeCodeForToken(
     code,
   });
 
-  const res = await igHttp.post(`${IG_API_BASE}/oauth/access_token`, form.toString(), {
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-  });
+  const res = await withInstagramNetworkRetry("authorization code exchange", () =>
+    igHttp.post(`${IG_API_BASE}/oauth/access_token`, form.toString(), {
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      timeout: IG_AUTH_HTTP_TIMEOUT_MS,
+    }),
+  );
 
   const shortToken: string = res.data?.access_token;
   if (!shortToken) throw new Error("Failed to get access token from Instagram");
 
-  const longRes = await igHttp.get(`${IG_GRAPH_BASE}/access_token`, {
-    params: {
-      grant_type: "ig_exchange_token",
-      client_secret: appSecret,
-      access_token: shortToken,
-    },
-  });
+  const longRes = await withInstagramNetworkRetry("long-lived token exchange", () =>
+    igHttp.get(`${IG_GRAPH_BASE}/access_token`, {
+      params: {
+        grant_type: "ig_exchange_token",
+        client_secret: appSecret,
+        access_token: shortToken,
+      },
+      timeout: IG_AUTH_HTTP_TIMEOUT_MS,
+    }),
+  );
 
   const longToken: string = longRes.data?.access_token;
   if (!longToken) throw new Error("Failed to get long-lived token");
@@ -100,12 +152,15 @@ export async function refreshInstagramToken(
 }
 
 export async function getAccountInfo(accessToken: string) {
-  const res = await igHttp.get(`${IG_GRAPH_BASE}/me`, {
-    params: {
-      fields: "id,username,name,profile_picture_url,followers_count,media_count,account_type",
-      access_token: accessToken,
-    },
-  });
+  const res = await withInstagramNetworkRetry("account profile lookup", () =>
+    igHttp.get(`${IG_GRAPH_BASE}/me`, {
+      params: {
+        fields: "id,username,name,profile_picture_url,followers_count,media_count,account_type",
+        access_token: accessToken,
+      },
+      timeout: IG_AUTH_HTTP_TIMEOUT_MS,
+    }),
+  );
   return res.data;
 }
 

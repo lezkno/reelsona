@@ -95,11 +95,23 @@ router.post("/instagram/callback", async (req, res): Promise<void> => {
     ({ accessToken, expiresAt } = await exchangeCodeForToken(code, redirect_uri));
     accountInfo = await getAccountInfo(accessToken);
   } catch (err: any) {
+    const causeCode = err?.cause?.code;
+    const isNetworkFailure =
+      ["ECONNABORTED", "ECONNRESET", "ETIMEDOUT", "EAI_AGAIN", "ENETUNREACH", "EHOSTUNREACH"].includes(
+        err?.code ?? causeCode,
+      ) ||
+      (!err?.response && /(?:ETIMEDOUT|ECONNRESET|EAI_AGAIN|ENETUNREACH|EHOSTUNREACH)/i.test(err?.message ?? ""));
     const igMessage =
-      err?.response?.data?.error_message ??
-      err?.response?.data?.error?.message ??
-      err?.message ??
-      "Error desconocido";
+      isNetworkFailure
+        ? "Instagram no respondió temporalmente. Intenta conectar de nuevo en unos segundos."
+        : err?.response?.data?.error_message ??
+          err?.response?.data?.error?.message ??
+          err?.message ??
+          "Error desconocido";
+    logger.warn(
+      { userId: req.session.user?.userId, isNetworkFailure, code: err?.code ?? causeCode },
+      "[IG/Callback] Instagram authorization exchange failed",
+    );
     res.status(400).json({ error: `Instagram: ${igMessage}` });
     return;
   }
