@@ -88,16 +88,27 @@ export type UpgradeResult =
   | { ok: true; type: "upgrade"; plan: "pro" }
   | { ok: false; status: number; code: string; message: string };
 
+function isStripePaymentFailure(err: any): boolean {
+  const status = err?.statusCode ?? err?.status ?? err?.raw?.statusCode;
+  const type = err?.type ?? err?.rawType;
+  const code = err?.code ?? err?.raw?.code;
+  return status === 402
+    || type === "StripeCardError"
+    || ["card_declined", "invoice_payment_failed", "payment_intent_payment_failed", "payment_required"].includes(code);
+}
+
 /**
  * Upgrade Basic → Pro.
  *
- * - Updates the Stripe subscription item price to Pro (with proration so the
- *   user is charged/credited for the remainder of the billing period).
+ * - Updates the Stripe subscription item price to Pro and immediately invoices
+ *   the proration. `pending_if_incomplete` makes Stripe keep the old Basic
+ *   price until that invoice is paid.
  * - Sets metadata.plan_slug = 'pro' on the Stripe subscription so future
  *   handleSubscriptionUpdated events resolve to Pro from metadata (belt-and-
  *   suspenders alongside the price-based lookup).
  * - If there is a pending downgrade schedule, releases it first.
- * - Replaces the subscription credit pool with the Pro capacity immediately.
+ * - Replaces the subscription credit pool with the Pro capacity only after the
+ *   returned invoice is confirmed paid.
  * - Clears pendingPlanSlug and stripeScheduleId in DB.
  */
 export async function executeUpgrade(p: UpgradeParams): Promise<UpgradeResult> {
@@ -110,15 +121,61 @@ export async function executeUpgrade(p: UpgradeParams): Promise<UpgradeResult> {
     }
   }
 
+  let updatedSubscription: Stripe.Subscription;
   try {
-    await p.stripe.subscriptions.update(p.sub.stripeSubscriptionId!, {
+    updatedSubscription = await p.stripe.subscriptions.update(p.sub.stripeSubscriptionId!, {
       items: [{ id: p.stripeFirstItemId, price: p.proConfig.stripePriceId }],
-      proration_behavior: "create_prorations",
+      proration_behavior: "always_invoice",
+      payment_behavior: "pending_if_incomplete",
+      expand: ["latest_invoice"],
       metadata: { plan_slug: "pro" },
     });
   } catch (err: any) {
+    if (isStripePaymentFailure(err)) {
+      logger.warn({ err: err?.message, userId: p.userId }, "[billing] Pro upgrade payment was rejected");
+      return {
+        ok: false,
+        status: 402,
+        code: "payment_required",
+        message: "No se pudo cobrar el upgrade a Pro. Actualizá tu método de pago en Stripe e intentá de nuevo.",
+      };
+    }
     logger.error({ err: err?.message, userId: p.userId }, "[billing] Stripe upgrade failed");
     return { ok: false, status: 502, code: "stripe_error", message: "El upgrade en Stripe falló." };
+  }
+
+  // `always_invoice` must produce an invoice. Never activate local Pro or
+  // grant credits without an explicit paid status from Stripe. With
+  // `pending_if_incomplete`, an unpaid invoice leaves the subscription on its
+  // previous Basic price until the customer completes payment.
+  let latestInvoice: Stripe.Invoice | null = null;
+  const invoiceRef = updatedSubscription.latest_invoice;
+  try {
+    if (typeof invoiceRef === "string") {
+      latestInvoice = await p.stripe.invoices.retrieve(invoiceRef);
+    } else if (invoiceRef && typeof invoiceRef === "object") {
+      latestInvoice = invoiceRef as Stripe.Invoice;
+    }
+  } catch (err: any) {
+    logger.error({ err: err?.message, userId: p.userId }, "[billing] Could not verify Pro upgrade invoice");
+    return { ok: false, status: 502, code: "stripe_error", message: "No se pudo verificar el pago del upgrade en Stripe." };
+  }
+
+  if (latestInvoice?.status !== "paid") {
+    logger.warn(
+      { userId: p.userId, invoiceId: latestInvoice?.id ?? null, invoiceStatus: latestInvoice?.status ?? null },
+      "[billing] Pro upgrade invoice is not paid — keeping local plan Basic",
+    );
+    return {
+      ok: false,
+      status: 402,
+      code: latestInvoice?.status === "void" || latestInvoice?.status === "uncollectible"
+        ? "payment_required"
+        : "payment_pending",
+      message: latestInvoice?.status === "void" || latestInvoice?.status === "uncollectible"
+        ? "El pago del upgrade a Pro no fue aprobado. Actualizá tu método de pago en Stripe e intentá de nuevo."
+        : "El pago del upgrade a Pro está pendiente en Stripe. Pro y sus créditos no se activarán hasta confirmar el pago.",
+    };
   }
 
   await p.updateSub({ planSlug: "pro", pendingPlanSlug: null, stripeScheduleId: null });

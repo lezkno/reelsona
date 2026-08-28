@@ -61,6 +61,9 @@ function makeStripe(overrides: Record<string, unknown> = {}) {
     subscriptions: {
       update:   async (..._a: unknown[]) => ({}),
     },
+    invoices: {
+      retrieve: async (_id: unknown) => ({ id: "in_paid", status: "paid", paid: true }),
+    },
     subscriptionSchedules: {
       create:   async (_args: unknown) => scheduleCreated,
       update:   async (..._a: unknown[]) => ({}),
@@ -149,7 +152,10 @@ describe("executeUpgrade", () => {
   function makeUpgradeDeps(sub: SubRow) {
     const stripe = makeStripe({
       subscriptions: {
-        update: async (...args: unknown[]) => { stripeUpdateArgs.push(args); return {}; },
+        update: async (...args: unknown[]) => {
+          stripeUpdateArgs.push(args);
+          return { latest_invoice: { id: "in_paid", status: "paid", paid: true } };
+        },
       },
       subscriptionSchedules: {
         release: async (...args: unknown[]) => { stripeReleaseArgs.push(args); return {}; },
@@ -186,6 +192,9 @@ describe("executeUpgrade", () => {
     assert.equal(subId, "sub_abc");
     const items = (params.items as Array<Record<string, unknown>>);
     assert.ok(items.some((i) => i.price === PRICE_PRO), "Pro price must be in update items");
+    assert.equal(params.proration_behavior, "always_invoice");
+    assert.equal(params.payment_behavior, "pending_if_incomplete");
+    assert.deepEqual(params.expand, ["latest_invoice"]);
   });
 
   test("10 — wallet: provisionSubscriptionCredits replaces subscription pool only", async () => {
@@ -229,6 +238,64 @@ describe("executeUpgrade", () => {
     assert.ok(!result.ok);
     assert.equal(result.status, 502);
     assert.equal(result.code, "stripe_error");
+  });
+
+  test("14 — pending invoice blocks Pro activation and credits", async () => {
+    const sub = makeSub({ planSlug: "basic" });
+    const deps = makeUpgradeDeps(sub);
+    (deps.stripe as any).subscriptions.update = async (...args: unknown[]) => {
+      stripeUpdateArgs.push(args);
+      return { latest_invoice: { id: "in_open", status: "open", paid: false } };
+    };
+
+    const result = await executeUpgrade(deps);
+
+    assert.ok(!result.ok);
+    assert.equal(result.status, 402);
+    assert.equal(result.code, "payment_pending");
+    assert.equal(dbUpdates.length, 0, "Pending payment must not update the local plan");
+    assert.equal(creditsCalled.length, 0, "Pending payment must not grant Pro credits");
+    assert.equal(invalidateAccessCalled.length, 0);
+    assert.equal(invalidatePlanCalled.length, 0);
+  });
+
+  test("15 — rejected payment blocks Pro activation and credits", async () => {
+    const sub = makeSub({ planSlug: "basic" });
+    const deps = makeUpgradeDeps(sub);
+    (deps.stripe as any).subscriptions.update = async () => {
+      const error: any = new Error("card declined");
+      error.statusCode = 402;
+      error.code = "card_declined";
+      throw error;
+    };
+
+    const result = await executeUpgrade(deps);
+
+    assert.ok(!result.ok);
+    assert.equal(result.status, 402);
+    assert.equal(result.code, "payment_required");
+    assert.equal(dbUpdates.length, 0, "Rejected payment must not update the local plan");
+    assert.equal(creditsCalled.length, 0, "Rejected payment must not grant Pro credits");
+    assert.equal(invalidateAccessCalled.length, 0);
+    assert.equal(invalidatePlanCalled.length, 0);
+  });
+
+  test("16 — retrieves invoice when Stripe returns only its ID", async () => {
+    const sub = makeSub({ planSlug: "basic" });
+    const deps = makeUpgradeDeps(sub);
+    let retrievedInvoiceId: string | null = null;
+    (deps.stripe as any).subscriptions.update = async () => ({ latest_invoice: "in_paid" });
+    (deps.stripe as any).invoices.retrieve = async (id: string) => {
+      retrievedInvoiceId = id;
+      return { id, status: "paid", paid: true };
+    };
+
+    const result = await executeUpgrade(deps);
+
+    assert.ok(result.ok);
+    assert.equal(retrievedInvoiceId, "in_paid");
+    assert.equal(dbUpdates.length, 1);
+    assert.equal(creditsCalled.length, 1);
   });
 });
 
