@@ -6,12 +6,15 @@ import {
 } from "@workspace/api-client-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { Card, CardContent } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { VideoModal } from "@/components/VideoModal"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
+import { Link } from "wouter"
+import { useAccessState } from "@/hooks/useAccessState"
 import {
-  FileText, UserSquare2, Captions, Send, CheckCircle2,
+  FileText, UserSquare2, Captions, Send, CheckCircle2, ArrowRight,
   Clock, AlertTriangle, Loader2, Play, Eye, Sparkles,
 } from "lucide-react"
 import {
@@ -278,6 +281,7 @@ export default function PipelineTimeline() {
   const { data: items } = useGetContentPlan({ limit: 100 }, { query: { refetchInterval: 15000 } as any })
   const { data: automation }  = useGetAutomation({ query: { refetchInterval: 10000 } as any })
   const { data: settings } = useGetSettings()
+  const accessState = useAccessState()
   const [reviewOpen, setReviewOpen] = useState(false)
   const reduceMotion = useReducedMotion()
 
@@ -450,6 +454,7 @@ export default function PipelineTimeline() {
                 item.status !== "draft" && item.status !== "failed"
               const isReview     = s.key === "review"
               const isCopy       = s.key === "copy"
+              const isBasicPlan  = accessState === "active_basic"
               const reviewActive = isReview && current && isAwaitingReview
               const copyActive   = isCopy && mode === "copy_generating"
 
@@ -577,6 +582,20 @@ export default function PipelineTimeline() {
                         captionStatus={item.caption_status}
                         compact
                       />
+                    </div>
+                  )}
+
+                  {s.key === "publish" && isBasicPlan && (
+                    <div className="mt-3 rounded-xl border border-violet-200 bg-violet-50/80 p-2.5">
+                      <p className="text-[10px] font-semibold leading-relaxed text-violet-800">
+                        Solo las cuentas Pro pueden publicar automáticamente en IG.
+                      </p>
+                      <Button asChild size="sm" className="mt-2 h-7 w-full gap-1 bg-gradient-to-r from-[#6d5dfc] to-[#3827c8] px-2 text-[10px] text-white shadow-sm hover:opacity-90">
+                        <Link href="/billing">
+                          Actualizar a Pro
+                          <ArrowRight className="h-3 w-3" />
+                        </Link>
+                      </Button>
                     </div>
                   )}
 
