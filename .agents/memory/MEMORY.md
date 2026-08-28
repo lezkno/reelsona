@@ -68,3 +68,4 @@
 - [WaveSpeed avatar storage](wavespeed-avatar-storage.md) — generated looks belong in private App Storage with per-user ownership; provider URLs are only temporary inputs.
 - [Centralized avatar policy](centralized-avatar-policy.md) — HeyGen stays public/central; WaveSpeed stays private per user; test both client surfaces and internal owner-scoped mutations.
 - [Central strategic generation context](central-strategic-generation-context.md) — offer/objective hierarchy keeps market, Radar and performance evidence subordinate and traceable.
+- [Pro upgrade payment gate](pro-upgrade-payment-gate.md) — local Pro activation and credits do not prove Stripe collected the prorated upgrade.
