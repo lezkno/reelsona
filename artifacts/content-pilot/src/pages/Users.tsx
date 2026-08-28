@@ -1352,29 +1352,6 @@ function EntitlementsSection() {
                           </span>
                         )}
                       </td>
-                      {/* Fuente */}
-                      <td className="px-4 py-3.5 text-xs text-muted-foreground capitalize">
-                        {ent.source ?? "—"}
-                      </td>
-                      {/* Alta */}
-                      <td className="px-4 py-3.5 text-xs text-muted-foreground whitespace-nowrap">
-                        {fmtDate(ent.createdAt)}
-                      </td>
-                      {/* Último enlace enviado (#101) */}
-                      <td className="px-4 py-3.5 text-xs text-muted-foreground whitespace-nowrap">
-                        {!ent.isActive && ent.activationTokenExpiresAt
-                          ? (() => {
-                              const sentMs = new Date(ent.activationTokenExpiresAt).getTime() - 7 * 86_400_000;
-                              const expired = new Date(ent.activationTokenExpiresAt) < new Date();
-                              return (
-                                <span className={expired ? "text-destructive" : ""}>
-                                  {new Date(sentMs).toLocaleDateString("es-ES", { day: "2-digit", month: "short" })}
-                                  {expired && <span className="ml-1">(vencido)</span>}
-                                </span>
-                              );
-                            })()
-                          : <span className="text-muted-foreground/40">—</span>}
-                      </td>
                       {/* Créditos disponibles */}
                       <td className="px-4 py-3.5 text-right">
                         {ent.availableCredits == null ? (
@@ -1398,6 +1375,29 @@ function EntitlementsSection() {
                            {ent.generatedVideos}
                          </span>
                        </td>
+                      {/* Fuente */}
+                      <td className="px-4 py-3.5 text-xs text-muted-foreground capitalize">
+                        {ent.source ?? "—"}
+                      </td>
+                      {/* Alta */}
+                      <td className="px-4 py-3.5 text-xs text-muted-foreground whitespace-nowrap">
+                        {fmtDate(ent.createdAt)}
+                      </td>
+                      {/* Último enlace enviado (#101) */}
+                      <td className="px-4 py-3.5 text-xs text-muted-foreground whitespace-nowrap">
+                        {!ent.isActive && ent.activationTokenExpiresAt
+                          ? (() => {
+                              const sentMs = new Date(ent.activationTokenExpiresAt).getTime() - 7 * 86_400_000;
+                              const expired = new Date(ent.activationTokenExpiresAt) < new Date();
+                              return (
+                                <span className={expired ? "text-destructive" : ""}>
+                                  {new Date(sentMs).toLocaleDateString("es-ES", { day: "2-digit", month: "short" })}
+                                  {expired && <span className="ml-1">(vencido)</span>}
+                                </span>
+                              );
+                            })()
+                          : <span className="text-muted-foreground/40">—</span>}
+                      </td>
                       {/* Acciones */}
                       <td className="px-3 py-3.5">
                         <div className="flex items-center gap-0.5">
