@@ -480,6 +480,7 @@ export interface AdminEntitlement {
   isSuspended:              boolean;
   courseAccess:             boolean;
   toolAccessStatus:         string;
+  planSlug:                 string | null;
   toolAccessEndsAt:         string | null;
   source:                   string | null;
   createdAt:                string;
