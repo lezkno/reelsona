@@ -9,6 +9,8 @@ import { useQueryClient } from "@tanstack/react-query"
 import { useToast } from "@/hooks/use-toast"
 import { useEffect, useRef, useState } from "react"
 import { useLocation } from "wouter"
+import { Link } from "wouter"
+import { useAccessState } from "@/hooks/useAccessState"
 
 // The redirect_uri must be exactly the same in both:
 // 1. The OAuth URL sent to Meta  2. The code exchange call
@@ -62,11 +64,13 @@ function CapabilityCard({
   title,
   description,
   tone,
+  proOnly = false,
 }: {
   icon: typeof Send
   title: string
   description: string
   tone: "violet" | "blue" | "green" | "amber"
+  proOnly?: boolean
 }) {
   const toneClasses = {
     violet: "from-[#8b5cf6] to-[#6d28d9] shadow-violet-200/60",
@@ -82,6 +86,19 @@ function CapabilityCard({
       </div>
       <h3 className="text-sm font-bold leading-tight text-slate-900">{title}</h3>
       <p className="mt-2 text-xs leading-relaxed text-slate-500">{description}</p>
+      {proOnly && (
+        <div className="mt-4 rounded-xl border border-violet-200 bg-violet-50/80 p-3">
+          <p className="text-xs font-semibold leading-relaxed text-violet-800">
+            Esta función es exclusiva para cuentas Pro.
+          </p>
+          <Button asChild size="sm" className="mt-3 h-8 w-full gap-1.5 bg-gradient-to-r from-[#6d5dfc] to-[#3827c8] px-3 text-xs text-white shadow-sm hover:opacity-90">
+            <Link href="/billing">
+              Actualizar a Pro
+              <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </Button>
+        </div>
+      )}
     </div>
   )
 }
@@ -97,6 +114,7 @@ export default function Connect() {
   const queryClient = useQueryClient()
   const { toast } = useToast()
   const [, setLocation] = useLocation()
+  const accessState = useAccessState()
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [picBroken, setPicBroken] = useState(false)
 
@@ -365,7 +383,13 @@ export default function Connect() {
             </Card>
 
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              <CapabilityCard icon={Send} title="Publicar automáticamente" description="Publica Reels, carruseles e historias sin esfuerzo." tone="violet" />
+              <CapabilityCard
+                icon={Send}
+                title="Publicar automáticamente"
+                description="Publica Reels, carruseles e historias sin esfuerzo."
+                tone="violet"
+                proOnly={accessState === "active_basic"}
+              />
               <CapabilityCard icon={BarChart3} title="Analíticas avanzadas" description="Monitorea tu rendimiento con métricas detalladas." tone="blue" />
               <CapabilityCard icon={CalendarDays} title="Plan de contenido inteligente" description="Organiza y programa tu contenido fácilmente." tone="green" />
               <CapabilityCard icon={Sparkles} title="IA para creación" description="Crea contenido viral con nuestra IA avanzada." tone="amber" />
