@@ -76,7 +76,7 @@ export function Sidebar({ onClose }: SidebarProps) {
         className={cn(
           "flex items-center gap-3 px-3 py-2.5 rounded-md font-medium text-sm transition-all duration-200 group relative",
           isActive
-            ? "bg-sidebar-accent text-sidebar-accent-foreground"
+            ? "bg-gradient-to-r from-[#7560ff] via-[#5544e8] to-[#3828bc] text-white shadow-lg shadow-indigo-950/20"
             : isLocked
               ? "text-sidebar-foreground/40 hover:bg-sidebar-accent/40 hover:text-sidebar-foreground/70"
               : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
@@ -87,7 +87,7 @@ export function Sidebar({ onClose }: SidebarProps) {
         )}
         <item.icon className={cn(
           "w-5 h-5",
-          isActive ? "text-primary" : isLocked ? "text-sidebar-foreground/30" : "text-sidebar-foreground/50 group-hover:text-sidebar-foreground/80"
+          isActive ? "text-white" : isLocked ? "text-sidebar-foreground/30" : "text-sidebar-foreground/50 group-hover:text-sidebar-foreground/80"
         )} />
         <span className="flex-1 truncate">{item.label}</span>
         {isLocked && (
