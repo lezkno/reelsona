@@ -9,7 +9,7 @@ import { toFile } from "openai";
 import { CAPTION_DIR } from "../lib/caption-engine";
 import { getBrowserMediaUrl } from "../lib/objectStorage";
 import { db } from "@workspace/db";
-import { contentPlanItemsTable, settingsTable, automationConfigTable, videosTable } from "@workspace/db";
+import { contentPlanItemsTable, settingsTable, automationConfigTable, videosTable, wavespeedLooksTable } from "@workspace/db";
 import { eq, and, sql, isNotNull, gte, lte, inArray, lt } from "drizzle-orm";
 import { computeUpcomingSlots } from "../lib/schedule";
 import {
@@ -38,6 +38,7 @@ import { runAutomationCycle, triggerFillEmptySlots } from "../lib/scheduler";
 import { getLatestAuditCache } from "../lib/audit-cache";
 import { getStrategyProfile, toStrategyContext } from "../lib/strategy-profile";
 import { logger } from "../lib/logger";
+import { isPersonaPlanEnabled } from "../lib/planLimits";
 
 /** Normalise a title for duplicate detection: lowercase, strip accents + punctuation */
 function normTopic(t: string): string {
@@ -811,8 +812,31 @@ router.patch("/content/:id", async (req, res): Promise<void> => {
     return;
   }
 
-  const updates: Partial<typeof contentPlanItemsTable.$inferInsert> = { updatedAt: new Date() };
   const b = bodyParsed.data;
+  if (b.wavespeed_look_id !== undefined && b.wavespeed_look_id !== null) {
+    const [look] = await db
+      .select({ id: wavespeedLooksTable.id, personaId: wavespeedLooksTable.personaId })
+      .from(wavespeedLooksTable)
+      .where(and(
+        eq(wavespeedLooksTable.id, b.wavespeed_look_id),
+        eq(wavespeedLooksTable.userId, userId),
+      ))
+      .limit(1);
+
+    if (!look) {
+      res.status(400).json({ error: "El look seleccionado no pertenece a tu cuenta" });
+      return;
+    }
+    if (look.personaId === null || !(await isPersonaPlanEnabled(userId, look.personaId))) {
+      res.status(403).json({
+        error: "persona_plan_blocked",
+        message: "Este look pertenece a un Avatar AI bloqueado con tu plan actual. Actualiza a Pro para seleccionarlo.",
+      });
+      return;
+    }
+  }
+
+  const updates: Partial<typeof contentPlanItemsTable.$inferInsert> = { updatedAt: new Date() };
   if (b.topic !== undefined) updates.topic = b.topic;
   if (b.hook !== undefined) updates.hook = b.hook ?? null;
   if (b.script !== undefined) updates.script = b.script ?? null;

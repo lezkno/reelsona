@@ -70,3 +70,4 @@
 - [Central strategic generation context](central-strategic-generation-context.md) — offer/objective hierarchy keeps market, Radar and performance evidence subordinate and traceable.
 - [Pro upgrade payment gate](pro-upgrade-payment-gate.md) — local Pro activation and credits do not prove Stripe collected the prorated upgrade.
 - [Stripe subscription reconciliation](stripe-subscription-reconciliation.md) — reconcile historical Stripe customers before activation or credit grants; preserve duplicate payment references without regranting.
+- [Plan-limit integration testing](plan-limit-integration-testing.md) — plan cache is process-local; direct DB subscription changes do not refresh a running API.

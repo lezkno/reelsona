@@ -958,7 +958,7 @@ function WsAssignVoiceDialog({
   onClose,
 }: {
   voice: WavespeedVoiceRow
-  personas: Array<{ id: number; name: string; looks: WavespeedLookRow[] }>
+  personas: Array<{ id: number; name: string; looks: WavespeedLookRow[]; planEnabled?: boolean }>
   onApply: (updates: Array<{ lookId: number; voiceId: number | null }>) => Promise<void>
   onClose: () => void
 }) {
@@ -970,6 +970,7 @@ function WsAssignVoiceDialog({
   const activePersonas = useMemo(
     () =>
       personas
+        .filter(p => p.planEnabled !== false)
         .map(p => ({ ...p, activeLooks: p.looks.filter(l => parseCfg(l).selected === true) }))
         .filter(p => p.activeLooks.length > 0),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1313,6 +1314,7 @@ function WavespeedPersonaCard({
   })
 
   const isPlanBlocked = persona.planEnabled === false
+  const usableActiveLooks = isPlanBlocked ? 0 : activeLooks.length
 
   return (
     <Card
@@ -1337,10 +1339,10 @@ function WavespeedPersonaCard({
             Pro
           </Badge>
         )}
-        {activeLooks.length > 0 && (
+        {usableActiveLooks > 0 && (
           <Badge className="absolute bottom-2 left-2 gap-1 bg-primary text-primary-foreground shadow">
             <CheckCircle2 className="w-3 h-3" />
-            {activeLooks.length} activo{activeLooks.length !== 1 ? "s" : ""}
+            {usableActiveLooks} activo{usableActiveLooks !== 1 ? "s" : ""}
           </Badge>
         )}
       </div>
@@ -1349,8 +1351,8 @@ function WavespeedPersonaCard({
           <h4 className="font-bold font-display truncate">{persona.name}</h4>
           <p className="text-xs text-muted-foreground">
             {readyLooks.length} look{readyLooks.length !== 1 ? "s" : ""} generado{readyLooks.length !== 1 ? "s" : ""}
-            {activeLooks.length > 0 && (
-              <span className="text-primary font-medium"> · {activeLooks.length} en uso</span>
+            {usableActiveLooks > 0 && (
+              <span className="text-primary font-medium"> · {usableActiveLooks} en uso</span>
             )}
           </p>
         </div>
@@ -1484,7 +1486,7 @@ function CreateNewLookDialog({
           </Button>
           <Button
             onClick={handleGenerate}
-            disabled={generateLooks.isPending || (!persona.referenceObjectPath && !baseLookId)}
+            disabled={persona.planEnabled === false || generateLooks.isPending || (!persona.referenceObjectPath && !baseLookId)}
             className="gap-1.5 bg-violet-600 hover:bg-violet-700 text-white"
           >
             {generateLooks.isPending
@@ -1504,11 +1506,13 @@ function WavespeedPersonaDialog({
   onClose,
   onDeleted,
   onNewLook,
+  onPlanRequired,
 }: {
   persona: WavespeedPersonaWithLooks
   onClose: () => void
   onDeleted: () => void
   onNewLook: () => void
+  onPlanRequired: () => void
 }) {
   const { toast } = useToast()
   const queryClient = useQueryClient()
@@ -1520,6 +1524,10 @@ function WavespeedPersonaDialog({
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [showOnlySelected, setShowOnlySelected] = useState(false)
+  const isPlanBlocked = persona.planEnabled === false
+  useEffect(() => {
+    if (isPlanBlocked) setShowOnlySelected(false)
+  }, [isPlanBlocked])
 
   // ── Optimistic display names (updated immediately on save, synced from prop) ─
   const [displayPersonaName, setDisplayPersonaName] = useState(persona.name)
@@ -1655,10 +1663,14 @@ function WavespeedPersonaDialog({
     const cfg = getCfg(l)
     return cfg.generationStatus === "pending" && !l.imageUrl
   })
-  const selectedCount = readyLooks.filter(getSelected).length
+  const selectedCount = isPlanBlocked ? 0 : readyLooks.filter(getSelected).length
   const visibleLooks = showOnlySelected ? readyLooks.filter(getSelected) : readyLooks
 
   const handleToggle = async (look: WavespeedLookRow) => {
+    if (isPlanBlocked) {
+      onPlanRequired()
+      return
+    }
     const wasSelected = localSelectedIds.has(look.id)
     // Optimistic toggle
     setLocalSelectedIds((prev) => {
@@ -1680,6 +1692,10 @@ function WavespeedPersonaDialog({
   }
 
   const handleVoiceChange = async (look: WavespeedLookRow, value: string) => {
+    if (isPlanBlocked) {
+      onPlanRequired()
+      return
+    }
     const voiceId = value === "__none__" ? null : parseInt(value, 10)
     const prev = localVoiceIds[look.id] ?? null
     setLocalVoiceIds((s) => ({ ...s, [look.id]: voiceId }))  // optimistic
@@ -1738,6 +1754,11 @@ function WavespeedPersonaDialog({
                   <Badge className="bg-violet-600 text-white text-[10px] px-1.5 shrink-0">
                     <Sparkles className="w-2.5 h-2.5 mr-1" /> AI
                   </Badge>
+                  {isPlanBlocked && (
+                    <Badge variant="outline" className="text-[10px] px-1.5 border-amber-500/50 text-amber-700 dark:text-amber-300">
+                      <Lock className="w-2.5 h-2.5 mr-1" /> Pro
+                    </Badge>
+                  )}
                   {editingPersonaName ? (
                     <div className="flex items-center gap-1 flex-1 min-w-0">
                       <input
@@ -1771,7 +1792,9 @@ function WavespeedPersonaDialog({
                   )}
                 </div>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Elige los looks que quieres usar. Al seleccionar un look puedes asignarle una voz.
+                  {isPlanBlocked
+                    ? "Este Avatar AI está conservado, pero bloqueado con tu plan Basic. Actualiza a Pro para volver a usar sus looks."
+                    : "Elige los looks que quieres usar. Al seleccionar un look puedes asignarle una voz."}
                 </p>
               </div>
               <button
@@ -1817,8 +1840,11 @@ function WavespeedPersonaDialog({
                           <button
                             type="button"
                             onClick={() => handleToggle(look)}
+                            disabled={isPlanBlocked}
                             className={`w-full h-full rounded-lg overflow-hidden border-2 transition-all text-left
-                              ${isSelected ? "border-primary ring-2 ring-primary/30" : "border-border hover:border-primary/40"}`}
+                              ${isPlanBlocked
+                                ? "border-border opacity-55 cursor-not-allowed"
+                                : isSelected ? "border-primary ring-2 ring-primary/30" : "border-border hover:border-primary/40"}`}
                           >
                             {look.imageUrl ? (
                               <LazyLookImage src={look.imageUrl} alt={look.name} />
@@ -1830,6 +1856,13 @@ function WavespeedPersonaDialog({
                             {isSelected && (
                               <div className="absolute top-2 right-2 w-6 h-6 rounded-full bg-primary flex items-center justify-center shadow">
                                 <CheckCircle2 className="w-4 h-4 text-primary-foreground" />
+                              </div>
+                            )}
+                            {isPlanBlocked && (
+                              <div className="absolute inset-0 bg-black/35 flex items-center justify-center">
+                                <span className="inline-flex items-center gap-1 rounded-full bg-black/70 px-2 py-1 text-[10px] font-medium text-white">
+                                  <Lock className="w-3 h-3" /> Bloqueado
+                                </span>
                               </div>
                             )}
                             <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/70 to-transparent px-2 py-1.5">
@@ -1890,6 +1923,7 @@ function WavespeedPersonaDialog({
                         <Select
                           value={voiceId !== null ? String(voiceId) : "__none__"}
                           onValueChange={(v) => handleVoiceChange(look, v)}
+                          disabled={isPlanBlocked}
                         >
                           <SelectTrigger className="h-7 text-xs">
                             <SelectValue placeholder="Sin voz" />
@@ -1922,14 +1956,25 @@ function WavespeedPersonaDialog({
 
             {/* Footer */}
             <div className="flex items-center justify-between gap-3 px-6 py-4 border-t flex-shrink-0">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={onNewLook}
-                className="gap-1.5"
-              >
-                <Plus className="w-4 h-4" /> Nuevo look
-              </Button>
+              {isPlanBlocked ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={onPlanRequired}
+                  className="gap-1.5 bg-violet-600 hover:bg-violet-700 text-white"
+                >
+                  Actualizar a Pro
+                </Button>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onNewLook}
+                  className="gap-1.5"
+                >
+                  <Plus className="w-4 h-4" /> Nuevo look
+                </Button>
+              )}
               <Button variant="outline" size="sm" onClick={onClose}>Cerrar</Button>
             </div>
           </>
@@ -2128,6 +2173,7 @@ export default function Avatars() {
   // Count of WaveSpeed looks currently selected for rotation across ALL personas.
   const wavespeedSelectedCount = useMemo(() => {
     return wavespeedPersonas.reduce((total, persona) => {
+      if (persona.planEnabled === false) return total
       return total + persona.looks.filter(look => {
         try { return !!(JSON.parse(look.config ?? "{}") as { selected?: boolean }).selected }
         catch { return false }
@@ -2139,6 +2185,7 @@ export default function Avatars() {
   const wsVoiceAssignedLooks = useMemo(() => {
     const map = new Map<number, WavespeedLookRow[]>()
     for (const persona of wavespeedPersonas) {
+      if (persona.planEnabled === false) continue
       for (const look of persona.looks) {
         try {
           const cfg = JSON.parse(look.config ?? "{}") as { selected?: boolean; voiceId?: number | null }
@@ -3341,6 +3388,7 @@ export default function Avatars() {
             if (!canUseFeature(accessState, "create_look")) { setPremiumOpen(true); return }
             setShowCreateLookForPersona(true)
           }}
+          onPlanRequired={() => setPremiumOpen(true)}
         />
       )}
 

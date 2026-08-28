@@ -20,7 +20,7 @@ import {
   heygenClonedVoicesTable,
   users,
 } from "@workspace/db";
-import { and, eq, inArray, ne, count as drizzleCount } from "drizzle-orm";
+import { and, asc, eq, inArray, ne, count as drizzleCount } from "drizzle-orm";
 
 // ── Limit constants ───────────────────────────────────────────────────────────
 
@@ -135,6 +135,36 @@ export function computePersonaPlanEnabled(
     map.set(p.id, idx < planLimit);
   });
   return map;
+}
+
+/**
+ * Resolve whether one persona is usable under the user's effective plan.
+ * The oldest personas are retained when a user downgrades; pending plan
+ * changes are intentionally ignored because getUserPlanSlug only returns an
+ * active subscription.
+ */
+export async function isPersonaPlanEnabled(
+  userId: number,
+  personaId: number,
+): Promise<boolean> {
+  const personas = await db
+    .select({ id: wavespeedPersonasTable.id })
+    .from(wavespeedPersonasTable)
+    .where(eq(wavespeedPersonasTable.userId, userId))
+    .orderBy(asc(wavespeedPersonasTable.createdAt), asc(wavespeedPersonasTable.id));
+
+  const planLimit = getAvatarLimit(await getUserPlanSlug(userId));
+  return computePersonaPlanEnabled(personas, planLimit).get(personaId) === true;
+}
+
+/** Functional look changes are not allowed while their persona is blocked. */
+export function isBlockedPersonaConfigUpdate(
+  planEnabled: boolean,
+  config: Record<string, unknown> | undefined,
+): boolean {
+  if (planEnabled || !config) return false;
+  return Object.prototype.hasOwnProperty.call(config, "selected")
+    || Object.prototype.hasOwnProperty.call(config, "voiceId");
 }
 
 /**

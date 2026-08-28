@@ -435,7 +435,7 @@ export default function ContentPlan() {
     try { return JSON.parse(l.config ?? "{}") as { selected?: boolean; generationStatus?: string } } catch { return {} }
   }
   const wavespeedPickerLooks: Array<{ look: WavespeedLookRow; personaName: string }> = wavespeedPersonas.flatMap((p) =>
-    p.looks
+    (p.planEnabled === false ? [] : p.looks)
       .filter((l) => !!l.imageUrl && parseLookCfg(l).selected === true)
       .map((l) => ({ look: l, personaName: p.name }))
   )

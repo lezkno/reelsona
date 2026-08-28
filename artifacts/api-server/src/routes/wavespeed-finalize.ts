@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import { and, eq } from "drizzle-orm";
 import { db, wavespeedLooksTable, wavespeedPersonasTable, wavespeedVoicesTable } from "@workspace/db";
+import { isPersonaPlanEnabled } from "../lib/planLimits";
 
 const router = Router();
 
@@ -52,6 +53,27 @@ router.post("/wavespeed/personas/:id/finalize", async (req: Request, res: Respon
   const selected = new Set<number>((lookIds as number[]).map(Number));
 
   try {
+    const [ownedPersona] = await db
+      .select({ id: wavespeedPersonasTable.id })
+      .from(wavespeedPersonasTable)
+      .where(and(
+        eq(wavespeedPersonasTable.id, personaId),
+        eq(wavespeedPersonasTable.userId, userId),
+      ))
+      .limit(1);
+    if (!ownedPersona) {
+      res.status(404).json({ error: "Avatar no encontrado" });
+      return;
+    }
+
+    if (!(await isPersonaPlanEnabled(userId, personaId))) {
+      res.status(403).json({
+        error: "persona_plan_blocked",
+        message: "Este Avatar AI está bloqueado con tu plan actual. Actualiza a Pro para volver a usarlo.",
+      });
+      return;
+    }
+
     const result = await db.transaction(async (tx) => {
       const [persona] = await tx
         .select({ id: wavespeedPersonasTable.id })

@@ -37,6 +37,8 @@ import {
   countUserPersonas,
   countNonFailedVoiceClones,
   computePersonaPlanEnabled,
+  isPersonaPlanEnabled,
+  isBlockedPersonaConfigUpdate,
   FREE_LOOKS_PER_PERSONA,
   FREE_VOICE_CLONES,
 } from "../lib/planLimits";
@@ -898,6 +900,20 @@ router.patch("/wavespeed/looks/:id", async (req, res) => {
       return;
     }
 
+    // A downgrade must not allow an old UI, API client, or manually crafted
+    // request to reactivate/use looks belonging to a blocked persona. Names
+    // remain editable and deletion remains available so the resource is not
+    // destroyed and can be restored if the user upgrades again.
+    const personaPlanEnabled = existing.personaId !== null
+      && await isPersonaPlanEnabled(userId, existing.personaId);
+    if (isBlockedPersonaConfigUpdate(personaPlanEnabled, config)) {
+      res.status(403).json({
+        error: "persona_plan_blocked",
+        message: "Este Avatar AI está bloqueado con tu plan actual. Actualiza a Pro para volver a usar sus looks.",
+      });
+      return;
+    }
+
     const updates: Partial<typeof existing> = { updatedAt: new Date() };
     if (name !== undefined) updates.name = name;
     if (config !== undefined) {
@@ -1003,6 +1019,14 @@ router.post("/wavespeed/personas/:id/looks/generate", async (req, res) => {
       .limit(1);
 
     if (!persona) { res.status(404).json({ error: "Persona not found" }); return; }
+
+    if (!(await isPersonaPlanEnabled(userId, personaId))) {
+      res.status(403).json({
+        error: "persona_plan_blocked",
+        message: "Este Avatar AI está bloqueado con tu plan actual. Actualiza a Pro para generar o usar sus looks.",
+      });
+      return;
+    }
 
     // ── Credit gate for paid looks (4th+ look per persona) ────────────────────
     // The first FREE_LOOKS_PER_PERSONA (3) looks generated on persona creation are always free.
