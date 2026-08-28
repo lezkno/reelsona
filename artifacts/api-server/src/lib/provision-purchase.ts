@@ -33,6 +33,7 @@ import { PLAN_CREDITS, FOUNDER_MAX_SEATS } from "./credits";
 import { logger } from "./logger";
 import { invalidateAccessCache } from "../middleware/requireToolAccess";
 import { invalidatePlanCache } from "../middleware/requirePlanAccess";
+import { reconcileStripeSubscriptionsForUser } from "./subscription-reconciliation";
 
 /**
  * PostgreSQL advisory lock key for Founder seat allocation.
@@ -508,10 +509,18 @@ async function provisionSubscription({
       if (planCredits > 0) {
         // Pre-claim initial Stripe invoice (billing_reason gate is primary; this is defense-in-depth)
         if (initialInvoiceId) {
-          await tx
+          const [invoiceClaim] = await tx
             .insert(invoiceCreditGrantsTable)
             .values({ stripeInvoiceId: initialInvoiceId, userId: result.userId, planSlug: "founder", creditsGranted: planCredits })
-            .onConflictDoNothing();
+            .onConflictDoNothing()
+            .returning({ id: invoiceCreditGrantsTable.id });
+          if (!invoiceClaim) {
+            logger.info(
+              { purchaseId: purchase.id, initialInvoiceId },
+              "[provision-purchase] Founder initial invoice already claimed — skipping duplicate credit grant",
+            );
+            return;
+          }
         }
 
         // Lock wallet row before computing new balances
@@ -583,6 +592,35 @@ async function provisionSubscription({
     // No seat cap → entitlement granted as part of provisionUser (outside tx).
     // Atomic tail: claim purchase + invoice pre-claim + credits in one tx.
 
+    if (purchase.userId) {
+      const reconciliation = await reconcileStripeSubscriptionsForUser({
+        stripe,
+        userId: purchase.userId,
+        email,
+        preferredSubscriptionId: stripeSubId,
+        cancelDuplicates: true,
+      });
+      if (reconciliation.activeSubscriptionId && reconciliation.activeSubscriptionId !== stripeSubId) {
+        await db
+          .update(purchases)
+          .set({
+            status: "duplicate_subscription",
+            provisionedAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .where(eq(purchases.id, purchase.id));
+        logger.warn(
+          {
+            userId: purchase.userId,
+            duplicateSubscriptionId: stripeSubId,
+            canonicalSubscriptionId: reconciliation.activeSubscriptionId,
+          },
+          "[provision-purchase] Duplicate subscription retained for audit; access and credits not granted",
+        );
+        return;
+      }
+    }
+
     // 1. Provision/find user account (entitlement set here)
     const result = await provisionUser({
       email,
@@ -634,9 +672,17 @@ async function provisionSubscription({
       if (planCredits <= 0) return;
 
       if (initialInvoiceId) {
-        await tx.insert(invoiceCreditGrantsTable)
+        const [invoiceClaim] = await tx.insert(invoiceCreditGrantsTable)
           .values({ stripeInvoiceId: initialInvoiceId, userId: result.userId, planSlug, creditsGranted: planCredits })
-          .onConflictDoNothing();
+          .onConflictDoNothing()
+          .returning({ id: invoiceCreditGrantsTable.id });
+        if (!invoiceClaim) {
+          logger.info(
+            { purchaseId: purchase.id, initialInvoiceId },
+            "[provision-purchase] Initial invoice already claimed — skipping duplicate credit grant",
+          );
+          return;
+        }
         logger.info({ initialInvoiceId, userId: result.userId, planCredits }, "[provision-purchase] Initial invoice pre-claimed");
       } else {
         logger.warn({ planSlug, userId: result.userId }, "[provision-purchase] No initial invoice ID — invoice.paid may double-grant");
@@ -860,6 +906,57 @@ export async function provisionPaymentElementSubscription({
   if (existingPurchase?.provisionedAt) {
     logger.info({ stripeSubId, planSlug }, "[provision-payment-element] Already provisioned — skipping");
     return;
+  }
+
+  // Reconcile every Stripe customer historically linked to this user before
+  // granting the initial subscription credits. If another subscription is
+  // canonical, this paid subscription is retained as an audit purchase but is
+  // not allowed to overwrite the user's access or receive a second grant.
+  if (attributedUserId !== null) {
+    const reconciliation = await reconcileStripeSubscriptionsForUser({
+      stripe,
+      userId: attributedUserId,
+      email,
+      preferredSubscriptionId: stripeSubId,
+      cancelDuplicates: true,
+    });
+    if (reconciliation.activeSubscriptionId && reconciliation.activeSubscriptionId !== stripeSubId) {
+      if (!existingPurchase) {
+        await db
+          .insert(purchases)
+          .values({
+            provider:           "stripe",
+            providerSessionId:  stripeSubId,
+            providerCustomerId: stripeCustomerId,
+            email,
+            fullName,
+            amountTotal:        0,
+            currency:           "usd",
+            status:             "duplicate_subscription",
+            toolAccessDays:     0,
+            purchaseType:       "subscription",
+            planSlug,
+            userId:             attributedUserId,
+            creditsPurchased:  PLAN_CREDITS[planSlug] ?? 0,
+            provisionedAt:      new Date(),
+          })
+          .onConflictDoNothing();
+      } else {
+        await db
+          .update(purchases)
+          .set({ status: "duplicate_subscription", provisionedAt: new Date(), updatedAt: new Date() })
+          .where(eq(purchases.id, existingPurchase.id));
+      }
+      logger.warn(
+        {
+          userId: attributedUserId,
+          duplicateSubscriptionId: stripeSubId,
+          canonicalSubscriptionId: reconciliation.activeSubscriptionId,
+        },
+        "[provision-payment-element] Duplicate paid subscription retained for audit; credits not granted",
+      );
+      return;
+    }
   }
 
   // ── Upsert synthetic purchase row ──────────────────────────────────────────

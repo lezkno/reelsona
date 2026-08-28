@@ -21,6 +21,12 @@ import { FOUNDER_MAX_SEATS } from "../lib/credits";
 import { db } from "@workspace/db";
 import { subscriptionsTable, users as usersTable } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
+import {
+  claimSubscriptionCheckout,
+  reconcileStripeSubscriptionsForUser,
+  releaseSubscriptionCheckoutClaim,
+  updateSubscriptionCheckoutClaim,
+} from "../lib/subscription-reconciliation";
 
 const router = Router();
 
@@ -175,6 +181,43 @@ router.post("/checkout/create-payment-intent", async (req: Request, res: Respons
     return;
   }
 
+  let subscriptionClaimed = false;
+  let subscriptionCreated = false;
+  if (userId && planConfig.isRecurring && planSlug !== "founder") {
+    const reconciliation = await reconcileStripeSubscriptionsForUser({
+      stripe,
+      userId,
+      email,
+      cancelDuplicates: true,
+    });
+    if (reconciliation.activeSubscriptionId) {
+      res.status(409).json({
+        error: "existing_subscription",
+        message: "Ya tienes una suscripción activa. Usa el cambio de plan desde Facturación.",
+      });
+      return;
+    }
+
+    const claim = await claimSubscriptionCheckout(userId, planSlug);
+    if (claim.kind === "blocked") {
+      res.status(409).json({ error: "existing_subscription", message: claim.message });
+      return;
+    }
+    if (claim.kind === "in_progress") {
+      stripeCustomerId = claim.stripeCustomerId ?? reconciliation.reusableIncompleteCustomerId;
+      if (!stripeCustomerId) {
+        res.status(409).json({
+          error: "checkout_in_progress",
+          message: claim.message,
+        });
+        return;
+      }
+    } else {
+      subscriptionClaimed = true;
+      stripeCustomerId = claim.stripeCustomerId ?? reconciliation.reusableIncompleteCustomerId;
+    }
+  }
+
   const normalizedEmail = email.trim().toLowerCase();
   const metadata: Record<string, string> = {
     plan_slug:      planSlug,
@@ -227,6 +270,10 @@ router.post("/checkout/create-payment-intent", async (req: Request, res: Respons
     }
 
     if (planConfig.isRecurring) {
+      if (userId && subscriptionClaimed) {
+        await updateSubscriptionCheckoutClaim(userId, { stripeCustomerId: customerId });
+      }
+
       // ── Subscription via Payment Element ────────────────────────────────
       //
       // For users with a known Stripe customer (returning / authenticated), try
@@ -284,6 +331,13 @@ router.post("/checkout/create-payment-intent", async (req: Request, res: Respons
         },
         { idempotencyKey: subIdempotencyKey },
       );
+      subscriptionCreated = true;
+      if (userId && subscriptionClaimed) {
+        await updateSubscriptionCheckoutClaim(userId, {
+          stripeCustomerId: customerId,
+          stripeSubscriptionId: subscription.id,
+        });
+      }
 
       // ── Step 3: resolve the confirmation secret ──────────────────────────
       const secret = await resolveInvoiceConfirmationSecret(stripe, subscription.latest_invoice);
@@ -336,6 +390,11 @@ router.post("/checkout/create-payment-intent", async (req: Request, res: Respons
       res.json({ clientSecret: paymentIntent.client_secret, type: "payment", customerId });
     }
   } catch (err: any) {
+    if (userId && subscriptionClaimed && !subscriptionCreated) {
+      await releaseSubscriptionCheckoutClaim(userId).catch((releaseErr: any) => {
+        console.error("[checkout/create-payment-intent] Could not release checkout claim:", releaseErr?.message);
+      });
+    }
     console.error("[checkout/create-payment-intent]", err?.message);
     res.status(502).json({
       error:   "No se pudo iniciar el pago con Stripe.",
@@ -511,8 +570,47 @@ router.post("/checkout/create-session", async (req: Request, res: Response): Pro
     }
   }
 
+  let sessionClaimed = false;
+  if (isSubscription && userId && planSlug !== "founder") {
+    const reconciliation = await reconcileStripeSubscriptionsForUser({
+      stripe,
+      userId,
+      email,
+      cancelDuplicates: true,
+    });
+    if (reconciliation.activeSubscriptionId) {
+      res.status(409).json({
+        error: "existing_subscription",
+        code: "existing_subscription",
+        message: "Ya tienes una suscripción activa. Usa el cambio de plan de Facturación.",
+      });
+      return;
+    }
+
+    const claim = await claimSubscriptionCheckout(userId, planSlug);
+    if (claim.kind === "blocked") {
+      res.status(409).json({
+        error: "existing_subscription",
+        code: "existing_subscription",
+        message: claim.message,
+      });
+      return;
+    }
+    if (claim.kind === "in_progress") {
+      res.status(409).json({
+        error: "checkout_in_progress",
+        code: "checkout_in_progress",
+        message: claim.message,
+      });
+      return;
+    }
+    sessionClaimed = true;
+    stripeCustomerId = claim.stripeCustomerId ?? reconciliation.reusableIncompleteCustomerId;
+  }
+
   const appUrl = getAppUrl();
   const useEmbedded = embedded !== false;
+  let sessionCreated = false;
 
   try {
     const idempotencyScope = userId
@@ -534,6 +632,13 @@ router.post("/checkout/create-session", async (req: Request, res: Response): Pro
     });
 
     const session = await stripe.checkout.sessions.create(params, { idempotencyKey });
+    sessionCreated = true;
+
+    if (sessionClaimed && userId) {
+      await updateSubscriptionCheckoutClaim(userId, {
+        stripeCustomerId: typeof session.customer === "string" ? session.customer : stripeCustomerId,
+      });
+    }
 
     if (useEmbedded) {
       if (!session.client_secret) {
@@ -546,6 +651,11 @@ router.post("/checkout/create-session", async (req: Request, res: Response): Pro
     if (!session.url) throw new Error("Stripe did not return a hosted checkout URL");
     res.json({ url: session.url, sessionId: session.id, embedded: false });
   } catch (err: any) {
+    if (userId && sessionClaimed && !sessionCreated) {
+      await releaseSubscriptionCheckoutClaim(userId).catch((releaseErr: any) => {
+        console.error("[checkout/create-session] Could not release checkout claim:", releaseErr?.message);
+      });
+    }
     console.error("[checkout/create-session]", err?.message);
     res.status(502).json({
       error: "No se pudo iniciar el pago con Stripe.",

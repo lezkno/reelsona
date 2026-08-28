@@ -5,7 +5,7 @@
  * billing cycle, and Founder-specific monthly grant counter.
  *
  * planSlug values: 'basic' | 'pro' | 'founder'
- * status values:   'active' | 'trialing' | 'past_due' | 'canceled'
+ * status values:   'active' | 'trialing' | 'past_due' | 'incomplete' | 'canceled'
  */
 
 import { pgTable, serial, integer, varchar, boolean, timestamp } from "drizzle-orm/pg-core";
@@ -18,7 +18,7 @@ export const subscriptionsTable = pgTable("subscriptions", {
   stripeCustomerId:      varchar("stripe_customer_id", { length: 256 }),
   /** basic / pro / founder */
   planSlug:              varchar("plan_slug", { length: 32 }).notNull(),
-  /** active / trialing / past_due / canceled */
+  /** active / trialing / past_due / incomplete / canceled */
   status:                varchar("status", { length: 32 }).notNull().default("active"),
   currentPeriodStart:    timestamp("current_period_start"),
   currentPeriodEnd:      timestamp("current_period_end"),

@@ -25,7 +25,7 @@ import {
   creditLedgerTable,
   invoiceCreditGrantsTable,
 } from "@workspace/db/schema";
-import { eq, sql, or } from "drizzle-orm";
+import { and, eq, sql, or } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import {
   isTopupAmountValid,
@@ -411,13 +411,48 @@ async function handleInvoicePaid(invoice: Stripe.Invoice, stripe: Stripe, eventC
       // Check if this subscription was already provisioned via the Checkout Session path.
       // If so, the local subscription row already exists — just update its period.
       // If not, this is a Payment Element subscription that needs provisioning here.
-      const [existingSub] = await db
-        .select({ id: subscriptionsTable.id })
+      let [existingSub] = await db
+        .select({
+          id: subscriptionsTable.id,
+          stripeSubscriptionId: subscriptionsTable.stripeSubscriptionId,
+          status: subscriptionsTable.status,
+        })
         .from(subscriptionsTable)
         .where(eq(subscriptionsTable.stripeSubscriptionId, stripeSubId))
         .limit(1);
 
-      if (existingSub) {
+      // A pending Payment Element claim has the customer ID but not always the
+      // subscription ID yet. Never search for any incomplete row globally:
+      // that could attach one user's invoice to another user's checkout claim.
+      if (!existingSub) {
+        const invoiceCustomerId = typeof invoice.customer === "string"
+          ? invoice.customer
+          : (invoice.customer as any)?.id ?? null;
+        if (invoiceCustomerId) {
+          [existingSub] = await db
+            .select({
+              id: subscriptionsTable.id,
+              stripeSubscriptionId: subscriptionsTable.stripeSubscriptionId,
+              status: subscriptionsTable.status,
+            })
+            .from(subscriptionsTable)
+            .where(and(
+              eq(subscriptionsTable.status, "incomplete"),
+              eq(subscriptionsTable.stripeCustomerId, invoiceCustomerId),
+            ))
+            .limit(1);
+        }
+      }
+
+      const isPendingPaymentElementClaim = existingSub?.status === "incomplete";
+
+      if (isPendingPaymentElementClaim) {
+        logger.info(
+          { stripeSubId, invoiceId },
+          "[webhook/stripe] invoice.paid subscription_create: completing pending Payment Element claim",
+        );
+        await handlePaymentElementSubscriptionCreate(invoice, stripe);
+      } else if (existingSub) {
         const periodEndTs = invoice.period_end;
         await db
           .update(subscriptionsTable)
