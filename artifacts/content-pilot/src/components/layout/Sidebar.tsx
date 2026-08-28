@@ -18,6 +18,7 @@ import {
   Lock,
   ArrowUpRight,
   Crown,
+  ShieldCheck,
 } from "lucide-react"
 import { useAuthStatus } from "@workspace/api-client-react"
 import { useAccessState } from "@/hooks/useAccessState"
@@ -156,6 +157,49 @@ export function Sidebar({ onClose }: SidebarProps) {
             <X className="w-4 h-4" />
           </button>
         )}
+      </div>
+
+      {/* Plan summary — visible without opening Facturación */}
+      <div className="px-3 pt-4 pb-1">
+        <div className="rounded-lg border border-sidebar-border/70 bg-sidebar-accent/30 px-3 py-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-sidebar-foreground/45">
+              Tu acceso
+            </span>
+            <span className={cn(
+              "rounded-full border px-2 py-0.5 text-[10px] font-bold",
+              isAdmin
+                ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-300"
+                : accessState === "active_basic"
+                  ? "border-blue-400/25 bg-blue-400/10 text-blue-300"
+                  : accessState === "active_pro"
+                    ? "border-violet-400/25 bg-violet-400/10 text-violet-300"
+                    : accessState === "active_founder"
+                      ? "border-amber-400/25 bg-amber-400/10 text-amber-300"
+                      : "border-sidebar-border bg-sidebar/40 text-sidebar-foreground/50",
+            )}>
+              {isAdmin
+                ? "Admin"
+                : accessState === "active_basic"
+                  ? "Basic"
+                  : accessState === "active_pro"
+                    ? "Pro"
+                    : accessState === "active_founder"
+                      ? "Founder"
+                      : "Sin plan"}
+            </span>
+          </div>
+          <div className="mt-1.5 flex items-center gap-1.5 text-[10px] text-sidebar-foreground/50">
+            <ShieldCheck className="h-3 w-3 shrink-0" />
+            {isAdmin
+              ? "Acceso total"
+              : accessState === "active_basic"
+                ? "Automatización requiere Pro"
+                : accessState === "active_pro" || accessState === "active_founder"
+                  ? "Todas las herramientas activas"
+                  : "Activa un plan para continuar"}
+          </div>
+        </div>
       </div>
       
       <nav className="flex-1 overflow-y-auto py-6 px-3 flex flex-col gap-1">
