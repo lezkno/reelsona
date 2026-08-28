@@ -8,9 +8,14 @@ import {
   resolveVerifiedPlanSlug,
 } from "../../lib/payment-validation.js";
 import { resolvePurchaseUserId } from "../../lib/provision-purchase.js";
+import {
+  selectCanonicalSubscription,
+  shouldProvisionCanonicalSubscription,
+} from "../../lib/subscription-reconciliation.js";
 
 const routesRoot = path.resolve(import.meta.dirname, "..");
 const webhookSource = fs.readFileSync(path.join(routesRoot, "webhook.ts"), "utf8");
+const provisionSource = fs.readFileSync(path.join(routesRoot, "../lib/provision-purchase.ts"), "utf8");
 
 type PriceStub = {
   planSlug: string;
@@ -34,6 +39,15 @@ function fakeStripePriceLookup(price: PriceStub | null) {
       }),
     },
   };
+}
+
+function subscriptionStub(
+  id: string,
+  customer: string,
+  created: number,
+  status: "active" | "incomplete" = "active",
+) {
+  return { id, customer, created, status } as any;
 }
 
 test("checkout.session.completed overrides a mismatched metadata plan with the paid price plan", async () => {
@@ -97,5 +111,54 @@ test("purchase attribution prefers the stable user ID before email fallback", ()
     webhookSource,
     /const userId\s+=\s+parseMetadataUserId\(metadata\.user_id\)/,
     "Payment Element topups must read user_id metadata",
+  );
+});
+
+test("Payment Element duplicate keeps the historical canonical subscription and skips provisioning", () => {
+  const historical = subscriptionStub("sub_historical", "cus_old", 100);
+  const duplicate = subscriptionStub("sub_payment_element_duplicate", "cus_new", 200);
+  const selection = selectCanonicalSubscription(
+    [historical, duplicate],
+    historical.id,
+    duplicate.id,
+  );
+
+  assert.equal(selection.canonical?.id, "sub_historical");
+  assert.deepEqual(selection.duplicates.map((sub) => sub.id), ["sub_payment_element_duplicate"]);
+  assert.equal(shouldProvisionCanonicalSubscription(selection.canonical?.id ?? null, duplicate.id), false);
+  assert.equal(historical.customer, "cus_old", "canonical customer reference must remain intact");
+  assert.equal(duplicate.customer, "cus_new", "duplicate customer reference must remain auditable");
+});
+
+test("Checkout and Payment Element share the duplicate-safe invoice credit guard", () => {
+  const historical = subscriptionStub("sub_checkout_canonical", "cus_old", 100);
+  const duplicate = subscriptionStub("sub_checkout_duplicate", "cus_new", 200);
+  const selection = selectCanonicalSubscription(
+    [historical, duplicate],
+    historical.id,
+    duplicate.id,
+  );
+
+  assert.equal(shouldProvisionCanonicalSubscription(selection.canonical?.id ?? null, historical.id), true);
+  assert.equal(shouldProvisionCanonicalSubscription(selection.canonical?.id ?? null, duplicate.id), false);
+  assert.match(
+    webhookSource,
+    /handleCheckoutCompleted[\s\S]*requireProvisioned/,
+    "Checkout must use the shared provisioning path",
+  );
+  assert.match(
+    webhookSource,
+    /handlePaymentElementSubscriptionCreate[\s\S]*provisionPaymentElementSubscription/,
+    "Payment Element must use the shared provisioning path",
+  );
+  assert.match(
+    provisionSource,
+    /status:\s*"duplicate_subscription"[\s\S]*provisionedAt/,
+    "duplicate payments must remain in the purchase history",
+  );
+  assert.match(
+    provisionSource,
+    /Initial invoice already claimed[\s\S]*skipping duplicate credit grant/,
+    "the same initial invoice cannot grant credits twice",
   );
 });

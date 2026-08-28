@@ -33,7 +33,10 @@ import { PLAN_CREDITS, FOUNDER_MAX_SEATS } from "./credits";
 import { logger } from "./logger";
 import { invalidateAccessCache } from "../middleware/requireToolAccess";
 import { invalidatePlanCache } from "../middleware/requirePlanAccess";
-import { reconcileStripeSubscriptionsForUser } from "./subscription-reconciliation";
+import {
+  reconcileStripeSubscriptionsForUser,
+  shouldProvisionCanonicalSubscription,
+} from "./subscription-reconciliation";
 
 /**
  * PostgreSQL advisory lock key for Founder seat allocation.
@@ -600,7 +603,9 @@ async function provisionSubscription({
         preferredSubscriptionId: stripeSubId,
         cancelDuplicates: true,
       });
-      if (reconciliation.activeSubscriptionId && reconciliation.activeSubscriptionId !== stripeSubId) {
+      if (
+        !shouldProvisionCanonicalSubscription(reconciliation.activeSubscriptionId, stripeSubId)
+      ) {
         await db
           .update(purchases)
           .set({
@@ -920,7 +925,9 @@ export async function provisionPaymentElementSubscription({
       preferredSubscriptionId: stripeSubId,
       cancelDuplicates: true,
     });
-    if (reconciliation.activeSubscriptionId && reconciliation.activeSubscriptionId !== stripeSubId) {
+    if (
+      !shouldProvisionCanonicalSubscription(reconciliation.activeSubscriptionId, stripeSubId)
+    ) {
       if (!existingPurchase) {
         await db
           .insert(purchases)

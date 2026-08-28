@@ -147,6 +147,52 @@ export interface ReconcileStripeSubscriptionsResult {
   duplicateSubscriptionIds: string[];
 }
 
+export interface CanonicalSubscriptionSelection {
+  canonical: Stripe.Subscription | undefined;
+  duplicates: Stripe.Subscription[];
+  reusableIncomplete: Stripe.Subscription | undefined;
+}
+
+/**
+ * Pure selection rule used by both Checkout and Payment Element provisioning.
+ * A locally persisted billable subscription wins over the event's subscription;
+ * otherwise the preferred event subscription wins, then the oldest billable
+ * subscription. This makes late duplicate webhooks harmless.
+ */
+export function selectCanonicalSubscription(
+  subscriptions: Stripe.Subscription[],
+  localSubscriptionId?: string | null,
+  preferredSubscriptionId?: string | null,
+): CanonicalSubscriptionSelection {
+  const uniqueSubscriptions = [...new Map(subscriptions.map((sub) => [sub.id, sub])).values()];
+  const billable = uniqueSubscriptions.filter((sub) => BILLING_STATUSES.has(sub.status));
+  const localCanonical = localSubscriptionId
+    ? billable.find((sub) => sub.id === localSubscriptionId)
+    : undefined;
+  const preferred = preferredSubscriptionId
+    ? billable.find((sub) => sub.id === preferredSubscriptionId)
+    : undefined;
+  const canonical = localCanonical
+    ?? preferred
+    ?? [...billable].sort((a, b) => (a.created ?? 0) - (b.created ?? 0))[0];
+  const duplicates = billable.filter((sub) => sub.id !== canonical?.id);
+  const reusableIncomplete = canonical
+    ? undefined
+    : uniqueSubscriptions
+      .filter((sub) => sub.status === "incomplete")
+      .sort((a, b) => (b.created ?? 0) - (a.created ?? 0))[0];
+
+  return { canonical, duplicates, reusableIncomplete };
+}
+
+/** A duplicate webhook can be audited, but must never provision access/credits. */
+export function shouldProvisionCanonicalSubscription(
+  canonicalSubscriptionId: string | null,
+  candidateSubscriptionId: string,
+): boolean {
+  return canonicalSubscriptionId === null || canonicalSubscriptionId === candidateSubscriptionId;
+}
+
 /**
  * Finds subscriptions across every Stripe customer known for the user, then
  * keeps one canonical billing subscription. Duplicate active subscriptions are
@@ -201,21 +247,13 @@ export async function reconcileStripeSubscriptionsForUser(
     }
   }
 
-  const uniqueSubscriptions = [...new Map(remoteSubscriptions.map((sub) => [sub.id, sub])).values()];
-  const billable = uniqueSubscriptions.filter((sub) => BILLING_STATUSES.has(sub.status));
-  const localCanonical = localSub?.stripeSubscriptionId
-    ? billable.find((sub) => sub.id === localSub.stripeSubscriptionId)
-    : undefined;
-  const preferred = preferredSubscriptionId
-    ? billable.find((sub) => sub.id === preferredSubscriptionId)
-    : undefined;
-  const canonical = localCanonical
-    ?? preferred
-    ?? [...billable].sort((a, b) => (a.created ?? 0) - (b.created ?? 0))[0];
-
-  const duplicateSubscriptionIds = billable
-    .filter((sub) => sub.id !== canonical?.id)
-    .map((sub) => sub.id);
+  const selection = selectCanonicalSubscription(
+    remoteSubscriptions,
+    localSub?.stripeSubscriptionId,
+    preferredSubscriptionId,
+  );
+  const { canonical, duplicates, reusableIncomplete } = selection;
+  const duplicateSubscriptionIds = duplicates.map((sub) => sub.id);
 
   if (cancelDuplicates) {
     for (const duplicateId of duplicateSubscriptionIds) {
@@ -230,11 +268,12 @@ export async function reconcileStripeSubscriptionsForUser(
     // Incomplete subscriptions cannot bill yet and are safe to cancel once one
     // reusable candidate is retained. This prevents stale Payment Element
     // attempts from accumulating across customers.
-    const incomplete = uniqueSubscriptions
+    const incomplete = remoteSubscriptions
       .filter((sub) => sub.status === "incomplete")
       .sort((a, b) => (b.created ?? 0) - (a.created ?? 0));
-    const reusable = canonical ? undefined : incomplete[0];
-    const incompleteDuplicates = canonical ? incomplete : incomplete.slice(1);
+    const incompleteDuplicates = canonical
+      ? incomplete
+      : incomplete.filter((sub) => sub.id !== reusableIncomplete?.id);
     for (const duplicate of incompleteDuplicates) {
       try {
         await stripe.subscriptions.cancel(duplicate.id);
@@ -245,20 +284,17 @@ export async function reconcileStripeSubscriptionsForUser(
     return {
       activeSubscriptionId: canonical?.id ?? null,
       activeCustomerId: canonical ? getStripeCustomerId(canonical) : null,
-      reusableIncompleteSubscriptionId: reusable?.id ?? null,
-      reusableIncompleteCustomerId: reusable ? getStripeCustomerId(reusable) : null,
+      reusableIncompleteSubscriptionId: reusableIncomplete?.id ?? null,
+      reusableIncompleteCustomerId: reusableIncomplete ? getStripeCustomerId(reusableIncomplete) : null,
       duplicateSubscriptionIds,
     };
   }
 
-  const reusable = uniqueSubscriptions
-    .filter((sub) => sub.status === "incomplete")
-    .sort((a, b) => (b.created ?? 0) - (a.created ?? 0))[0];
   return {
     activeSubscriptionId: canonical?.id ?? null,
     activeCustomerId: canonical ? getStripeCustomerId(canonical) : null,
-    reusableIncompleteSubscriptionId: reusable?.id ?? null,
-    reusableIncompleteCustomerId: reusable ? getStripeCustomerId(reusable) : null,
+    reusableIncompleteSubscriptionId: reusableIncomplete?.id ?? null,
+    reusableIncompleteCustomerId: reusableIncomplete ? getStripeCustomerId(reusableIncomplete) : null,
     duplicateSubscriptionIds,
   };
 }
