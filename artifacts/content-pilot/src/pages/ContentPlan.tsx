@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from "@/components/ui/label"
 import { format, isSameDay } from "date-fns"
 import { es } from "date-fns/locale"
-import { useGetContentPlan, useGenerateContentPlan, useDeleteContentItem, useGenerateVideo, useUpdateContentItem, useCreateContentItem, useGetHeyGenAllLooks, useGetAvatarConfig, useGenerateScript, usePublishVideo, useGetAutomation, getGetContentPlanQueryKey, getGetVideosQueryKey, type ContentPlanItem, useGetSettings } from "@workspace/api-client-react"
+import { useGetContentPlan, useGenerateContentPlan, useDeleteContentItem, useGenerateVideo, useUpdateContentItem, useCreateContentItem, useGetHeyGenAllLooks, useGetAvatarConfig, useGenerateScript, usePublishVideo, useGetAutomation, getGetContentPlanQueryKey, getGetVideosQueryKey, type ContentPlanItem, useGetSettings, useGetInstagramAccount } from "@workspace/api-client-react"
 import { useWavespeedPersonas, type WavespeedLookRow } from "@workspace/api-client-react"
 import { useRegenerateScript, useReanalyzeContentPlan, useRescheduleOverdue, type RegenerateCriterion, DEFAULT_VIDEO_EFFECTS } from "@workspace/api-client-react"
 import type { VideoEffects } from "@workspace/api-client-react"
@@ -24,6 +24,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { useState, useRef, useEffect } from "react"
 import { useLocation } from "wouter"
 import { VideoToolsSummary, resolveVideoToolsEffects } from "@/components/VideoToolsSummary"
+import { InstagramConnectCard } from "@/components/InstagramConnectCard"
 
 const statusConfig: Record<string, { label: string, variant: string, icon: any }> = {
   draft: { label: "Borrador", variant: "outline", icon: Edit3 },
@@ -75,6 +76,8 @@ export default function ContentPlan() {
   const [viewMode, setViewMode] = useState<"list" | "calendar">("list")
   const [filter, setFilter] = useState<string>("all")
   const { data: settings } = useGetSettings()
+  const { data: igStatus, isLoading: igStatusLoading } = useGetInstagramAccount()
+  const igConnected = !!(igStatus?.connected && igStatus.account)
   const [localEffects, setLocalEffects] = useState<VideoEffects>(DEFAULT_VIDEO_EFFECTS)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [expressOpen, setExpressOpen] = useState(false)
@@ -551,6 +554,33 @@ export default function ContentPlan() {
         toast({ title: "Error al reagendar", description: err?.data?.error ?? "Intenta de nuevo.", variant: "destructive" })
       },
     })
+  }
+
+  if (igStatusLoading) {
+    return (
+      <div className="space-y-6 animate-in fade-in duration-300">
+        <div>
+          <Skeleton className="h-10 w-72" />
+          <Skeleton className="mt-3 h-5 w-[28rem] max-w-full" />
+        </div>
+        <Skeleton className="h-48 w-full rounded-xl" />
+      </div>
+    )
+  }
+
+  if (!igConnected) {
+    return (
+      <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <div>
+          <p className="mb-2 text-xs font-bold uppercase tracking-[0.2em] text-primary">Planificación</p>
+          <h1 className="text-3xl font-display font-bold tracking-tight md:text-4xl">Plan de Contenido</h1>
+          <p className="mt-1 text-muted-foreground">
+            Conecta Instagram para crear y programar tu contenido.
+          </p>
+        </div>
+        <InstagramConnectCard />
+      </div>
+    )
   }
 
   return (
