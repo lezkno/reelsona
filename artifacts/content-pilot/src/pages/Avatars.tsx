@@ -1,4 +1,4 @@
-import { useGetHeyGenVoices, useGetAvatarConfig, useUpdateAvatarConfig, getGetAvatarConfigQueryKey, getGetHeyGenVoicesQueryKey, AvatarConfigRotationStrategy } from "@workspace/api-client-react"
+import { useGetHeyGenVoices, useGetAvatarConfig, useUpdateAvatarConfig, getGetAvatarConfigQueryKey, getGetHeyGenVoicesQueryKey, AvatarConfigRotationStrategy, useGetInstagramAccount } from "@workspace/api-client-react"
 import {
   usePublicHeyGenAvatarGroups,
   useGetV3GroupLooks,
@@ -38,6 +38,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from "react"
 import { canUseFeature } from "@/lib/access"
 import { useAccessState } from "@/hooks/useAccessState"
 import { PremiumModal } from "@/components/PremiumModal"
+import { InstagramConnectCard } from "@/components/InstagramConnectCard"
 import {
   Users, Save, CheckCircle2, Image as ImageIcon, Play, Square,
   Plus, Camera, CameraOff, Mic, RefreshCw, Upload, Loader2, AlertCircle, ChevronDown, Sparkles, Video,
@@ -1988,6 +1989,8 @@ function WavespeedPersonaDialog({
 
 export default function Avatars() {
   const { data: config, isLoading: isLoadingConfig } = useGetAvatarConfig()
+  const { data: igStatus, isLoading: igStatusLoading } = useGetInstagramAccount()
+  const igConnected = !!(igStatus?.connected && igStatus.account)
   const updateConfig = useUpdateAvatarConfig()
   const queryClient = useQueryClient()
   const { toast } = useToast()
@@ -2718,8 +2721,29 @@ export default function Avatars() {
     })
   }
 
-  if (isLoadingConfig) {
-    return <div className="p-8"><Skeleton className="h-96 w-full rounded-xl" /></div>
+  if (isLoadingConfig || igStatusLoading) {
+    return (
+      <div className="space-y-6 p-4 md:p-8">
+        <Skeleton className="h-10 w-64" />
+        <Skeleton className="h-5 w-96 max-w-full" />
+        <Skeleton className="h-64 w-full rounded-xl" />
+      </div>
+    )
+  }
+
+  if (!igConnected) {
+    return (
+      <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <div>
+          <p className="mb-2 text-xs font-bold uppercase tracking-[0.2em] text-primary">Configuración inicial</p>
+          <h1 className="text-3xl font-display font-bold tracking-tight md:text-4xl">Avatares</h1>
+          <p className="mt-1 max-w-2xl text-muted-foreground">
+            Conecta primero tu cuenta de Instagram para extraer sus datos y crear una estrategia de contenido adecuada.
+          </p>
+        </div>
+        <InstagramConnectCard />
+      </div>
+    )
   }
 
   return (
