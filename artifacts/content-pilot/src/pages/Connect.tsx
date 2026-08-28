@@ -235,16 +235,13 @@ export default function Connect() {
       <div className="pointer-events-none absolute bottom-0 left-0 h-64 w-64 rounded-full bg-blue-300/10 blur-3xl" />
 
       <div className="relative mx-auto max-w-6xl space-y-6 p-4 md:p-8">
-        <div className="flex items-center justify-between gap-5">
+        <div className="flex items-center gap-5">
           <div>
             <p className="mb-2 text-xs font-bold uppercase tracking-[0.2em] text-[#6754df]">Canal conectado</p>
             <h1 className="text-4xl font-display font-extrabold tracking-tight text-slate-950 sm:text-5xl dark:text-foreground">Instagram</h1>
             <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-500 sm:text-base">
               Conecta tu cuenta para publicar automáticamente y analizar tu contenido.
             </p>
-          </div>
-          <div className="hidden pr-4 sm:block">
-            <InstagramHeroMark connected={!!(status?.connected && account && !needsReconnection)} />
           </div>
         </div>
 
@@ -288,8 +285,7 @@ export default function Connect() {
                   Autoriza a Reelsona a publicar Reels en tu nombre, organizar tu contenido y leer las estadísticas de tus posts.
                 </p>
               </div>
-              <Button size="lg" onClick={handleConnect} className="gap-2 border-0 bg-gradient-to-r from-[#6d5dfc] via-[#5541e8] to-[#3827c8] px-7 text-white shadow-lg shadow-indigo-300/30 hover:opacity-90">
-                <Instagram className="h-5 w-5" />
+              <Button size="lg" onClick={handleConnect} className="border-0 bg-gradient-to-r from-[#6d5dfc] via-[#5541e8] to-[#3827c8] px-7 text-white shadow-lg shadow-indigo-300/30 hover:opacity-90">
                 Conectar con Instagram
               </Button>
               <p className="flex items-center gap-2 text-xs text-slate-400">
