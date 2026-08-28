@@ -320,6 +320,7 @@ router.get("/admin/entitlements", async (req: Request, res: Response): Promise<v
         userId:                   userEntitlements.userId,
         courseAccess:             userEntitlements.courseAccess,
         toolAccessStatus:         userEntitlements.toolAccessStatus,
+         planSlug:                  userEntitlements.planSlug,
         toolAccessEndsAt:         userEntitlements.toolAccessEndsAt,
         source:                   userEntitlements.source,
         createdAt:                userEntitlements.createdAt,
@@ -369,6 +370,7 @@ router.get("/admin/entitlements/export.csv", async (req: Request, res: Response)
         userId:           userEntitlements.userId,
         courseAccess:     userEntitlements.courseAccess,
         toolAccessStatus: userEntitlements.toolAccessStatus,
+         planSlug:        userEntitlements.planSlug,
         toolAccessEndsAt: userEntitlements.toolAccessEndsAt,
         source:           userEntitlements.source,
         createdAt:        userEntitlements.createdAt,
@@ -384,7 +386,7 @@ router.get("/admin/entitlements/export.csv", async (req: Request, res: Response)
       d ? new Date(d).toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit", year: "numeric" }) : "";
     const esc = (v: string) => `"${v.replace(/"/g, '""')}"`;
 
-    const header = "ID,Nombre,Email,Curso,Herramienta,Vencimiento,Días restantes,Fuente,Alta,Activo\n";
+    const header = "ID,Nombre,Email,Curso,Herramienta,Plan,Vencimiento,Días restantes,Fuente,Alta,Activo\n";
     const csvRows = rows.map((r) => {
       const ends = r.toolAccessEndsAt ? new Date(r.toolAccessEndsAt) : null;
       const daysLeft = ends ? Math.ceil((ends.getTime() - Date.now()) / 86_400_000) : null;
@@ -394,6 +396,7 @@ router.get("/admin/entitlements/export.csv", async (req: Request, res: Response)
         esc(r.username),
         r.courseAccess ? "Sí" : "No",
         esc(r.toolAccessStatus),
+        esc(r.planSlug ?? ""),
         fmt(r.toolAccessEndsAt),
         daysLeft !== null ? String(daysLeft) : "",
         esc(r.source ?? ""),

@@ -72,6 +72,32 @@ function daysRemaining(isoEnd: string | null): number | null {
   return Math.ceil(ms / (1000 * 60 * 60 * 24))
 }
 
+const PLAN_LABELS: Record<string, string> = {
+  basic: "Basic",
+  pro: "Pro",
+  founder: "Founder",
+}
+
+function activePlanLabel(entitlement: AdminEntitlement): string {
+  if (!entitlement.planSlug || !["active", "trialing"].includes(entitlement.toolAccessStatus)) {
+    return "Sin plan activo"
+  }
+  return PLAN_LABELS[entitlement.planSlug] ?? entitlement.planSlug
+}
+
+function activePlanClass(entitlement: AdminEntitlement): string {
+  if (!entitlement.planSlug || !["active", "trialing"].includes(entitlement.toolAccessStatus)) {
+    return "border-border bg-muted/50 text-muted-foreground"
+  }
+  if (entitlement.planSlug === "founder") {
+    return "border-amber-500/25 bg-amber-500/10 text-amber-600"
+  }
+  if (entitlement.planSlug === "pro") {
+    return "border-violet-500/25 bg-violet-500/10 text-violet-600"
+  }
+  return "border-blue-500/25 bg-blue-500/10 text-blue-600"
+}
+
 // ── Admin user dialogs ────────────────────────────────────────────────────────
 
 function AddUserDialog() {
@@ -1254,6 +1280,9 @@ function EntitlementsSection() {
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">
                     <span className="flex items-center gap-1"><Wrench className="w-3.5 h-3.5" /> Herramienta</span>
                   </th>
+                   <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">
+                     <span className="flex items-center gap-1"><Crown className="w-3.5 h-3.5" /> Plan activo</span>
+                   </th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">
                     <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5" /> Vencimiento</span>
                   </th>
@@ -1330,6 +1359,15 @@ function EntitlementsSection() {
                           {badge.label}
                         </span>
                       </td>
+                       {/* Plan activo */}
+                       <td className="px-4 py-3.5">
+                         <span className={cn(
+                           "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold",
+                           activePlanClass(ent),
+                         )}>
+                           {activePlanLabel(ent)}
+                         </span>
+                       </td>
                       {/* Vencimiento */}
                       <td className={cn(
                         "px-4 py-3.5 text-xs whitespace-nowrap",
