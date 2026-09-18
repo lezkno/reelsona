@@ -23,7 +23,7 @@ Abrir el instructivo (Artifact) y seguir el checklist paso a paso, empezando por
 
 ## Questions
 
-- ¿Ya existe una política de privacidad pública para Reelsona (URL)? Si no, hay que crearla y publicarla antes de poder enviar la revisión.
+- ~~¿Ya existe una política de privacidad pública para Reelsona (URL)?~~ **Resuelto**: sí existe, en `https://reelsona.com/privacy` (`artifacts/content-pilot/src/pages/PrivacyPolicy.tsx`, ruta registrada en `App.tsx`). Ya cubre datos de Instagram/Meta (sección 2.2) y borrado de datos en 30 días hábiles (sección 6) — usar esa URL tal cual en el Dashboard de Meta.
 - ¿La app de Meta for Developers ya fue creada (usando el `INSTAGRAM_APP_ID` que está en Replit Secrets), o hay que crearla desde cero?
 - ¿Quién tiene acceso al Meta Business Manager de la empresa/marca para hacer la Business Verification?
 

@@ -34,8 +34,8 @@ Ninguno del lado del código. El usuario debe ejecutar manualmente los pasos del
 ## Known Issues
 
 - No se pudo hacer `WebFetch` directo a `developers.facebook.com` (bloqueado por el proxy de egress del entorno) — la investigación de reglas de Meta se hizo con fuentes secundarias vía `WebSearch`, cruzando varias fuentes para confirmar cada dato.
-- No hay confirmación en el repo de que exista ya una URL pública de política de privacidad para Reelsona/ContentPilot — hay que verificarlo/crearlo antes de enviar la revisión (queda como pregunta abierta en `NEXT_STEPS.md`).
+- ~~No hay confirmación en el repo de que exista ya una URL pública de política de privacidad~~ **Resuelto (2026-09-18)**: sí existe, verificada leyendo `artifacts/content-pilot/src/pages/PrivacyPolicy.tsx` y su ruta en `App.tsx` — pública en `https://reelsona.com/privacy`, confirmada también en el footer de `reelsona.com/landing`.
 
 ## Last Update
 
-2026-09-17 — Sesión inicial de continuidad + instructivo de Meta App Review.
+2026-09-18 — Verificada la política de privacidad real (`reelsona.com/privacy`) contra el checklist del Kit de revisión de Meta; se actualizó el Artifact con esa URL y se generó el PDF descargable del kit.

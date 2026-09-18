@@ -64,7 +64,13 @@ Ver `NEXT_STEPS.md`. Es trabajo manual del usuario en el navegador (Meta for Dev
 
 ## Instructivo (Artifact)
 
-https://claude.ai/artifact/GNMSRuQn2DQ8aR8fmm3fvQ
+https://claude.ai/artifact/GNMSRuQn2DQ8aR8fmm3fvQ (también entregado como PDF descargable, `Kit-Meta-App-Review-Reelsona.pdf`)
+
+## Update 2026-09-18
+
+- Se verificó contra el código real que Reelsona **sí tiene** política de privacidad pública en `https://reelsona.com/privacy` (`artifacts/content-pilot/src/pages/PrivacyPolicy.tsx`), con sección de datos de Instagram/Meta y borrado de datos en 30 días. Esto resuelve la pregunta abierta que había quedado en `NEXT_STEPS.md`.
+- Se actualizó el Artifact del Kit con esa URL real (checklist ítem `pre-5` marcado como cumplido) y se republicó.
+- Se exportó el Kit a PDF (`Kit-Meta-App-Review-Reelsona.pdf`) usando Chromium/Playwright para renderizar el mismo HTML del Artifact, y se entregó al usuario.
 
 ## Restart Prompt
 
