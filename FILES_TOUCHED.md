@@ -22,3 +22,14 @@ El instructivo de Meta App Review se publicó como **Artifact** (fuera del repo,
 | `Kit-Meta-App-Review-Reelsona.pdf` | created (entregado al usuario, no versionado en el repo) | Exportar el instructivo a PDF descargable usando Playwright/Chromium a partir del mismo HTML del Artifact | low | verificado con screenshot del render |
 
 Se leyó (sin modificar) `artifacts/content-pilot/src/pages/PrivacyPolicy.tsx` y `artifacts/content-pilot/src/App.tsx` para confirmar la URL y el contenido de la política de privacidad.
+
+## Sesión 2026-09-22
+
+| File | Action | Why | Risk | Test Status |
+|---|---|---|---|---|
+| `PROGRESS.md` | edited | Registrar la auditoría de `stabilization-current-workspace` y el resultado (scopes/URLs sin cambios) | low | not tested (doc) |
+| `DECISIONS.md` | edited | Documentar la decisión de sincronizar el kit por lectura, sin merge de ramas | low | not tested (doc) |
+| Kit de revisión de Meta (Artifact) | republished | Agregar hoja de referencia rápida y sección de troubleshooting de OAuth basada en hardening real hecho en Replit | low | verificado con screenshots del render |
+| `Kit-Meta-App-Review-Reelsona.pdf` | regenerated (entregado al usuario, no versionado en el repo) | Regenerar el PDF con el contenido actualizado del kit | low | verificado con screenshots del render impreso |
+
+Se leyeron (sin modificar, vía agente Explore, solo `git fetch`/`git log`/`git diff` de solo lectura) los commits recientes de `origin/stabilization-current-workspace`: `instagram-api.ts`, `routes/instagram.ts`, `.agents/memory/instagram-oauth-setup.md`, `.agents/memory/instagram-publish-pipeline.md`, `Connect.tsx`, y los commits de HeyGen/WaveSpeed/Stripe/outage (confirmados como no relacionados con Instagram/Meta). No se hizo `git merge`, `checkout` ni ningún cambio sobre esa rama.

@@ -38,4 +38,4 @@ Ninguno del lado del código. El usuario debe ejecutar manualmente los pasos del
 
 ## Last Update
 
-2026-09-18 — Verificada la política de privacidad real (`reelsona.com/privacy`) contra el checklist del Kit de revisión de Meta; se actualizó el Artifact con esa URL y se generó el PDF descargable del kit.
+2026-09-22 — Se auditó todo el desarrollo hecho directamente desde Replit en `origin/stabilization-current-workspace` (262 commits desde que se armó el kit) para sincronizar el conocimiento del proyecto. Conclusión: scopes, redirect URIs y política de privacidad siguen exactamente iguales — el core del kit no cambió. Sí se agregó al kit (Artifact + PDF): una hoja de referencia rápida (scopes, env vars, URLs) pensada para que un asistente humano o un agente la use de un vistazo, y una sección de troubleshooting con hallazgos reales del hardening de OAuth (error código 100 de Meta, distinción de fallas de red vs. rechazos de permisos, verbos HTTP correctos por llamada, comportamiento de reintento de Reels fallidos).

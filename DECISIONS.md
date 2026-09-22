@@ -34,3 +34,22 @@ Pedir permisos que la app no usa realmente es una causa común de rechazo en Met
 ## Impact
 
 El instructivo queda 100% alineado con el código real, reduciendo riesgo de rechazo por "permiso no usado" o "screencast no corresponde al permiso".
+
+---
+
+## Decision
+
+Sincronizar el kit con el desarrollo hecho directamente en Replit (rama `stabilization-current-workspace`, 262 commits) mediante un agente de exploración de solo lectura, sin hacer merge/checkout de esa rama ni tocar código.
+
+## Reason
+
+El usuario mostró evidencia (panel de Git de Replit) de que hay desarrollo activo fuera de la rama de esta sesión, y pidió explícitamente verificar esos cambios antes de dar por bueno el kit — que además será usado por otro agente (extensión de Chrome) durante el proceso real de revisión, así que la precisión importa más que de costumbre.
+
+## Alternatives Considered
+
+- Hacer `git merge` u obtener el checkout de `stabilization-current-workspace` en esta sesión — descartado: no es necesario tocar código para verificar, y mezclar ramas sin que el usuario lo pida es un cambio de mayor alcance del solicitado.
+- Ignorar los cambios de Replit y asumir que el kit seguía vigente — descartado porque el usuario pidió explícitamente la verificación.
+
+## Impact
+
+Se confirmó que los datos "core" del kit (scopes, redirect URIs, política de privacidad) siguen vigentes sin cambios. Se agregaron al kit dos secciones nuevas derivadas de hallazgos reales del código (hoja de referencia rápida + troubleshooting de OAuth) sin alterar ningún dato existente.

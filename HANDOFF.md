@@ -72,6 +72,19 @@ https://claude.ai/artifact/GNMSRuQn2DQ8aR8fmm3fvQ (también entregado como PDF d
 - Se actualizó el Artifact del Kit con esa URL real (checklist ítem `pre-5` marcado como cumplido) y se republicó.
 - Se exportó el Kit a PDF (`Kit-Meta-App-Review-Reelsona.pdf`) usando Chromium/Playwright para renderizar el mismo HTML del Artifact, y se entregó al usuario.
 
+## Update 2026-09-22
+
+- El usuario mostró evidencia de que hay desarrollo activo directamente en Replit, en una rama separada `origin/stabilization-current-workspace` (262 commits desde que se armó el kit, por Replit Agent y el usuario), y pidió sincronizar el conocimiento del proyecto y actualizar el kit si hacía falta — aclarando que el kit también lo usará un agente Claude (extensión de Chrome) durante el proceso real de revisión.
+- Se auditó esa rama de solo lectura (agente Explore: `git fetch`/`git log`/`git diff`, sin merge ni checkout). Resultado: los datos "core" del kit (los 3 scopes, redirect URIs, `INSTAGRAM_APP_ID`/`INSTAGRAM_APP_SECRET`, contenido y URL de la política de privacidad, schema de `instagram-accounts`) están **byte-idénticos** — no hubo que corregir nada de eso.
+- Sí se detectó hardening real del flujo OAuth que se agregó al kit como contenido nuevo:
+  - Reintentos automáticos ante fallas de red transitorias en `instagram-api.ts` (timeout/reset ya no se confunden con rechazo de permisos).
+  - Mensaje específico para el error código 100 de Meta en el intercambio del token de larga duración (revisar modo Live, acceso de `instagram_business_basic`, tester/Advanced Access) — documentado en `.agents/memory/instagram-oauth-setup.md`.
+  - Aclaración de verbos HTTP: intercambio de código = POST, intercambio/refresh de token largo = GET.
+  - Un Reel fallido ahora se puede reintentar sin regenerar el video (`.agents/memory/instagram-publish-pipeline.md`).
+- Se agregaron dos secciones nuevas al Kit (Artifact + PDF), sin alterar ningún dato existente: una **hoja de referencia rápida** al inicio (scopes, env vars, URLs, dominios de redirect) pensada para que un agente o persona la lea de un vistazo, y una **sección 07 de troubleshooting** con los 4 hallazgos de arriba.
+- Se regeneró el PDF y se reentregó al usuario. La página `Connect.tsx` (UI de "Conectar Instagram") tuvo un rediseño visual sin cambios funcionales — no afecta el kit porque este no incluye capturas de pantalla.
+- Cambios no relacionados con Instagram/Meta (WaveSpeed, HeyGen, Stripe, outage de producción) quedaron **fuera de alcance** del kit a propósito — están documentados en el reporte del agente Explore si se necesitan después, pero no se incorporaron aquí.
+
 ## Restart Prompt
 
 Continue this project from the current handoff.
