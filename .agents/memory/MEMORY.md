@@ -1,4 +1,5 @@
 - [API Server build cycle](api-server-build.md) — no hot-reload; TypeScript changes need WorkflowsRestart; `continue` inside nested if → use `return` instead.
+- [Production API outage diagnosis](production-api-outage.md) — static frontend can stay online while the API artifact is down; generic 500 on `/api/healthz` means process/routing failure, not login credentials.
 - [Instagram OAuth setup gotchas](instagram-oauth-setup.md) — "Invalid redirect_uri" can mean wrong Instagram App ID; redirect_uri must match in 3 places; open OAuth in new tab from Replit iframe.
 - [HeyGen API quirks](heygen-api-quirks.md) — voices use `preview_audio` (not `_url`); group looks mix two field shapes; dump a raw response before writing schemas.
 - [HeyGen account integration](heygen-account-integration.md) — API key stored in settings.heygen_api_key (DB) with env var fallback; quota via GET /v2/user/remaining.quota; custom hooks in lib/api-client-react/src/custom-endpoints.ts.
