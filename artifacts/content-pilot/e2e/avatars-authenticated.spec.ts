@@ -7,7 +7,19 @@ import { expect, test, type Page } from "@playwright/test";
  * this verifies the authenticated UI contract without creating provider data
  * or depending on a particular user's avatars, voices, or subscription.
  */
-async function mockAuthenticatedAvatarApi(page: Page) {
+type AvatarSession = {
+  userId: number;
+  username: string;
+  fullName: string;
+  personas: Array<{
+    id: number;
+    name: string;
+    looks: Array<{ id: number; name: string; imageUrl: string | null }>;
+  }>;
+  voices: Array<{ id: number; displayName: string; status: "ready" }>;
+};
+
+async function mockAuthenticatedAvatarApi(page: Page, session: AvatarSession) {
   const forbiddenPrivateHeyGenCalls: string[] = [];
 
   await page.route("**/api/**", async (route) => {
@@ -27,10 +39,10 @@ async function mockAuthenticatedAvatarApi(page: Page) {
         json: {
           authenticated: true,
           user: {
-            userId: 406,
-            username: "avatar-e2e",
+            userId: session.userId,
+            username: session.username,
             role: "user",
-            fullName: "Avatar E2E",
+            fullName: session.fullName,
           },
         },
       });
@@ -97,13 +109,13 @@ async function mockAuthenticatedAvatarApi(page: Page) {
 
     if (path === "/api/wavespeed/personas") {
       await route.fulfill({
-        json: { personas: [], planSlug: "pro", planLimit: 3 },
+        json: { personas: session.personas, planSlug: "pro", planLimit: 3 },
       });
       return;
     }
 
     if (path === "/api/wavespeed/voices") {
-      await route.fulfill({ json: { voices: [] } });
+      await route.fulfill({ json: { voices: session.voices } });
       return;
     }
 
@@ -116,14 +128,20 @@ async function mockAuthenticatedAvatarApi(page: Page) {
 }
 
 async function dismissOnboarding(page: Page) {
-  const onboarding = page.getByRole("dialog", { name: /Reelsona/i });
-  if (await onboarding.isVisible().catch(() => false)) {
-    await onboarding.getByRole("button", { name: "Ahora no" }).click();
+  const dismissButton = page.getByText("Ahora no", { exact: true });
+  if (await dismissButton.isVisible().catch(() => false)) {
+    await dismissButton.click();
   }
 }
 
 test("sesión autenticada cubre Mi Avatar, Voces y clonación WaveSpeed", async ({ page }) => {
-  const api = await mockAuthenticatedAvatarApi(page);
+  const api = await mockAuthenticatedAvatarApi(page, {
+    userId: 406,
+    username: "avatar-e2e",
+    fullName: "Avatar E2E",
+    personas: [],
+    voices: [],
+  });
   await page.goto("/avatars");
   await dismissOnboarding(page);
 
@@ -149,4 +167,56 @@ test("sesión autenticada cubre Mi Avatar, Voces y clonación WaveSpeed", async 
   await expect(page.getByText("Conectar cuenta HeyGen", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Crear avatar con HeyGen", { exact: true })).toHaveCount(0);
   expect(api.forbiddenPrivateHeyGenCalls).toEqual([]);
+});
+
+test("dos sesiones autenticadas solo reciben sus propios avatares, looks y voces", async ({
+  browser,
+}) => {
+  const sessionA: AvatarSession = {
+    userId: 701,
+    username: "avatar-user-a",
+    fullName: "Avatar User A",
+    personas: [{
+      id: 7011,
+      name: "Persona A",
+      looks: [{ id: 7012, name: "Look A", imageUrl: null }],
+    }],
+    voices: [{ id: 7013, displayName: "Voz A", status: "ready" }],
+  };
+  const sessionB: AvatarSession = {
+    userId: 702,
+    username: "avatar-user-b",
+    fullName: "Avatar User B",
+    personas: [{
+      id: 7021,
+      name: "Persona B",
+      looks: [{ id: 7022, name: "Look B", imageUrl: null }],
+    }],
+    voices: [{ id: 7023, displayName: "Voz B", status: "ready" }],
+  };
+
+  const contextA = await browser.newContext();
+  const contextB = await browser.newContext();
+  const pageA = await contextA.newPage();
+  const pageB = await contextB.newPage();
+  try {
+    await mockAuthenticatedAvatarApi(pageA, sessionA);
+    await mockAuthenticatedAvatarApi(pageB, sessionB);
+    await Promise.all([pageA.goto("/avatars"), pageB.goto("/avatars")]);
+    await Promise.all([dismissOnboarding(pageA), dismissOnboarding(pageB)]);
+
+    await expect(pageA.getByText("Persona A", { exact: true })).toBeVisible();
+    await expect(pageA.getByText("Persona B", { exact: true })).toHaveCount(0);
+    await expect(pageB.getByText("Persona B", { exact: true })).toBeVisible();
+    await expect(pageB.getByText("Persona A", { exact: true })).toHaveCount(0);
+
+    await pageA.getByRole("tab", { name: "Voces" }).click();
+    await pageB.getByRole("tab", { name: "Voces" }).click();
+    await expect(pageA.getByText("Voz A", { exact: true })).toBeVisible();
+    await expect(pageA.getByText("Voz B", { exact: true })).toHaveCount(0);
+    await expect(pageB.getByText("Voz B", { exact: true })).toBeVisible();
+    await expect(pageB.getByText("Voz A", { exact: true })).toHaveCount(0);
+  } finally {
+    await Promise.all([contextA.close(), contextB.close()]);
+  }
 });
