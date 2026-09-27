@@ -14,3 +14,9 @@ Stripe can also contain active subscriptions from a legacy or separate product s
 **Why:** An active paid subscription was found with a legacy product price and UUID/camelCase metadata while no local account or configured price matched it; automatic attachment would risk granting access to the wrong user.
 
 **How to apply:** Require an exact ownership signal and a locally configured price before provisioning; classify unmatched renewal webhooks as orphan/foreign billing records until an explicit reconciliation proves ownership.
+
+Do not let subscription-event ordering discard a verified `invoice.paid` credit grant. Claim the grant idempotently by invoice ID; a newer `subscription.updated` event may arrive first even when the paid invoice still represents the current renewal.
+
+**Why:** Production logs showed a renewal invoice paid after payment retries, then ignored because a later subscription event had already advanced `lastStripeEventCreatedAt`; the subscription renewed but its monthly credits did not.
+
+**How to apply:** Keep stale-event ordering guards for subscription state/period updates, but evaluate paid-invoice credit eligibility and invoice-ID idempotency independently.
