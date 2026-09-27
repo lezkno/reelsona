@@ -52,6 +52,8 @@ import type {
   InstagramAccountStatus,
   InstagramPost,
   OAuthCallbackInput,
+  PaidInvoiceReconciliationInput,
+  PaidInvoiceReconciliationResult,
   ProcessContentItemNow200,
   PublishInput,
   ScheduleVideoBody,
@@ -237,6 +239,78 @@ export const useSendFeedback = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getSendFeedbackMutationOptions(options));
+    }
+
+export const getReconcilePaidInvoiceCreditsUrl = (userId: number,) => {
+
+
+
+
+  return `/api/admin/users/${userId}/reconcile-paid-invoice`
+}
+
+/**
+ * @summary Reconcile credits for a verified paid subscription invoice
+ */
+export const reconcilePaidInvoiceCredits = async (userId: number,
+    paidInvoiceReconciliationInput: PaidInvoiceReconciliationInput, options?: Parameters<typeof customFetch>[1]): Promise<PaidInvoiceReconciliationResult> => {
+
+  return customFetch<PaidInvoiceReconciliationResult>(getReconcilePaidInvoiceCreditsUrl(userId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(paidInvoiceReconciliationInput)
+  }
+);}
+
+
+
+
+
+export const getReconcilePaidInvoiceCreditsMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reconcilePaidInvoiceCredits>>, TError,{userId: number;data: BodyType<PaidInvoiceReconciliationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof reconcilePaidInvoiceCredits>>, TError,{userId: number;data: BodyType<PaidInvoiceReconciliationInput>}, TContext> => {
+
+const mutationKey = ['reconcilePaidInvoiceCredits'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof reconcilePaidInvoiceCredits>>, {userId: number;data: BodyType<PaidInvoiceReconciliationInput>}> = (props) => {
+          const {userId,data} = props ?? {};
+
+          return  reconcilePaidInvoiceCredits(userId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReconcilePaidInvoiceCreditsMutationResult = NonNullable<Awaited<ReturnType<typeof reconcilePaidInvoiceCredits>>>
+    export type ReconcilePaidInvoiceCreditsMutationBody = BodyType<PaidInvoiceReconciliationInput>
+    export type ReconcilePaidInvoiceCreditsMutationError = ErrorType<void>
+
+    /**
+ * @summary Reconcile credits for a verified paid subscription invoice
+ */
+export const useReconcilePaidInvoiceCredits = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reconcilePaidInvoiceCredits>>, TError,{userId: number;data: BodyType<PaidInvoiceReconciliationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof reconcilePaidInvoiceCredits>>,
+        TError,
+        {userId: number;data: BodyType<PaidInvoiceReconciliationInput>},
+        TContext
+      > => {
+      return useMutation(getReconcilePaidInvoiceCreditsMutationOptions(options));
     }
 
 export const getGetDashboardUrl = () => {

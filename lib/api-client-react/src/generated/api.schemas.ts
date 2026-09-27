@@ -5,6 +5,22 @@
  * ContentPilot API — automated Instagram Reels content machine using HeyGen avatars
  * OpenAPI spec version: 0.1.0
  */
+export interface PaidInvoiceReconciliationInput {
+  /** @pattern ^in_[A-Za-z0-9]+$ */
+  invoiceId: string;
+}
+
+export interface PaidInvoiceReconciliationResult {
+  ok: boolean;
+  alreadyProcessed: boolean;
+  planSlug: string;
+  creditsGranted: number;
+  /** @nullable */
+  availableCredits?: number | null;
+  /** @nullable */
+  subscriptionCredits?: number | null;
+}
+
 export interface BrandLogoInput {
   /** Object path returned from storage upload (starts with /objects/) */
   object_path: string;

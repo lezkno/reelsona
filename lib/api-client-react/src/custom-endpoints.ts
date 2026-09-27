@@ -5,6 +5,7 @@
 import { useMutation, useQuery, useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { customFetch } from "./custom-fetch";
+import { useReconcilePaidInvoiceCredits as useGeneratedReconcilePaidInvoiceCredits } from "./generated/api";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -512,6 +513,20 @@ export interface ProvisionResult {
 }
 
 export const ADMIN_ENTITLEMENTS_KEY = ["admin", "entitlements"] as const;
+
+/** Add admin wallet and entitlement refreshes to the generated invoice mutation. */
+export function useAdminReconcilePaidInvoiceCredits() {
+  const qc = useQueryClient();
+  return useGeneratedReconcilePaidInvoiceCredits({
+    mutation: {
+      onSuccess: () => {
+        qc.invalidateQueries({ queryKey: ADMIN_CREDITS_KEY });
+        invalidateCreditState(qc);
+        qc.invalidateQueries({ queryKey: ADMIN_ENTITLEMENTS_KEY });
+      },
+    },
+  });
+}
 
 /** List all student entitlements. */
 export function useAdminEntitlements(filters?: { from?: string; to?: string }) {

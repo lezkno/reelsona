@@ -39,6 +39,33 @@ export const SendFeedbackResponse = zod.object({
 
 
 /**
+ * @summary Reconcile credits for a verified paid subscription invoice
+ */
+
+
+
+export const ReconcilePaidInvoiceCreditsParams = zod.object({
+  "userId": zod.coerce.number().int().min(1)
+})
+
+export const reconcilePaidInvoiceCreditsBodyInvoiceIdRegExp = new RegExp('^in_[A-Za-z0-9]+$');
+
+
+export const ReconcilePaidInvoiceCreditsBody = zod.object({
+  "invoiceId": zod.string().regex(reconcilePaidInvoiceCreditsBodyInvoiceIdRegExp)
+})
+
+export const ReconcilePaidInvoiceCreditsResponse = zod.object({
+  "ok": zod.boolean(),
+  "alreadyProcessed": zod.boolean(),
+  "planSlug": zod.string(),
+  "creditsGranted": zod.number(),
+  "availableCredits": zod.number().nullish(),
+  "subscriptionCredits": zod.number().nullish()
+})
+
+
+/**
  * @summary Get dashboard summary
  */
 export const GetDashboardResponse = zod.object({

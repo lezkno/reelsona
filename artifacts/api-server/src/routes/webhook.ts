@@ -32,6 +32,7 @@ import {
   resolveVerifiedCreditAmount,
   resolveVerifiedPlanSlug,
 } from "../lib/payment-validation";
+import { getPaidInvoiceOrderPolicy } from "../lib/paid-invoice-ordering";
 
 const router = Router();
 
@@ -386,7 +387,7 @@ async function handleSubscriptionDeleted(sub: Stripe.Subscription, _stripe: Stri
   logger.info({ userId: existing.userId }, "[webhook/stripe] Subscription canceled — entitlement expired");
 }
 
-async function handleInvoicePaid(invoice: Stripe.Invoice, stripe: Stripe, eventCreated = 0): Promise<void> {
+export async function handleInvoicePaid(invoice: Stripe.Invoice, stripe: Stripe, eventCreated = 0): Promise<void> {
   const subRef = invoice.parent?.subscription_details?.subscription;
   const stripeSubId = typeof subRef === "string" ? subRef : (subRef as Stripe.Subscription | undefined)?.id ?? null;
 
@@ -502,18 +503,26 @@ async function handleInvoicePaid(invoice: Stripe.Invoice, stripe: Stripe, eventC
     }
     throw new Error(`invoice.paid arrived before local subscription ${stripeSubId} exists`);
   }
-  if (eventCreated > 0 && sub.lastStripeEventCreatedAt &&
-      sub.lastStripeEventCreatedAt.getTime() >= eventCreated * 1000) {
-    logger.info({ stripeSubId, invoiceId, eventCreated }, "[webhook/stripe] Ignoring stale invoice.paid event");
-    return;
+  const orderPolicy = getPaidInvoiceOrderPolicy({
+    eventCreated,
+    lastSubscriptionEventAt: sub.lastStripeEventCreatedAt,
+    invoicePeriodEnd: newPeriodEnd,
+    currentPeriodEnd: sub.currentPeriodEnd,
+  });
+  if (!orderPolicy.updateSubscriptionState) {
+    logger.info(
+      { stripeSubId, invoiceId, eventCreated },
+      "[webhook/stripe] Paid invoice is older than subscription state; preserving state while evaluating idempotent credit grant",
+    );
   }
 
   if (sub.planSlug === "founder") {
+    if (!orderPolicy.updateSubscriptionState) return;
     await db
       .update(subscriptionsTable)
       .set({
         status: "active",
-        currentPeriodEnd: newPeriodEnd ?? undefined,
+        currentPeriodEnd: orderPolicy.updatePeriodEnd ? newPeriodEnd : undefined,
         updatedAt: new Date(),
         lastStripeEventCreatedAt: eventCreated > 0 ? new Date(eventCreated * 1000) : undefined,
       })
@@ -523,7 +532,11 @@ async function handleInvoicePaid(invoice: Stripe.Invoice, stripe: Stripe, eventC
   }
 
   const nonProrationLines = (invoice.lines?.data ?? []).filter((l: any) => !l.proration);
-  const invoiceLinePrice = (nonProrationLines[0] as any)?.price?.id ?? null;
+  const invoiceLine = nonProrationLines[0] as any;
+  const invoiceLinePrice =
+    (typeof invoiceLine?.price === "string" ? invoiceLine.price : invoiceLine?.price?.id) ??
+    invoiceLine?.pricing?.price_details?.price ??
+    null;
   let invoicePlanSlug: string | null = null;
   if (invoiceLinePrice) {
     const [priceRow] = await db
@@ -555,20 +568,24 @@ async function handleInvoicePaid(invoice: Stripe.Invoice, stripe: Stripe, eventC
       return;
     }
 
-    const subUpdate: Record<string, unknown> = {
-      status: "active",
-      currentPeriodEnd: newPeriodEnd ?? undefined,
-      updatedAt: new Date(),
-      lastStripeEventCreatedAt: eventCreated > 0 ? new Date(eventCreated * 1000) : undefined,
-    };
-    if (planChanged) {
-      subUpdate.planSlug = effectivePlanSlug;
-      subUpdate.pendingPlanSlug = null;
+    if (orderPolicy.updateSubscriptionState) {
+      const subUpdate: Record<string, unknown> = {
+        status: "active",
+        updatedAt: new Date(),
+        lastStripeEventCreatedAt: eventCreated > 0 ? new Date(eventCreated * 1000) : undefined,
+      };
+      if (orderPolicy.updatePeriodEnd) {
+        subUpdate.currentPeriodEnd = newPeriodEnd;
+      }
+      if (planChanged) {
+        subUpdate.planSlug = effectivePlanSlug;
+        subUpdate.pendingPlanSlug = null;
+      }
+      await tx
+        .update(subscriptionsTable)
+        .set(subUpdate)
+        .where(eq(subscriptionsTable.id, sub.id));
     }
-    await tx
-      .update(subscriptionsTable)
-      .set(subUpdate)
-      .where(eq(subscriptionsTable.id, sub.id));
 
     if (planCredits <= 0) return;
 
@@ -625,12 +642,15 @@ async function handleInvoicePaid(invoice: Stripe.Invoice, stripe: Stripe, eventC
     credited = true;
   });
 
-  if (credited && newPeriodEnd) {
+  if (credited && orderPolicy.updateSubscriptionState) {
+    const entitlementPeriodEnd = orderPolicy.updatePeriodEnd
+      ? newPeriodEnd
+      : sub.currentPeriodEnd ?? newPeriodEnd;
     await upsertEntitlement({
       userId: sub.userId,
       courseAccess: true,
       toolAccessStatus: "active",
-      toolAccessEndsAt: newPeriodEnd,
+      toolAccessEndsAt: entitlementPeriodEnd,
       source: "stripe_renewal",
       planSlug: effectivePlanSlug,
     });
@@ -650,8 +670,19 @@ async function handleInvoicePaid(invoice: Stripe.Invoice, stripe: Stripe, eventC
       }
     }
 
+  }
+
+  if (credited) {
     logger.info(
-      { userId: sub.userId, effectivePlanSlug, prevPlanSlug: sub.planSlug, invoiceLinePrice, planCredits, invoiceId },
+      {
+        userId: sub.userId,
+        effectivePlanSlug,
+        prevPlanSlug: sub.planSlug,
+        invoiceLinePrice,
+        planCredits,
+        invoiceId,
+        subscriptionStateUpdated: orderPolicy.updateSubscriptionState,
+      },
       "[webhook/stripe] Renewal credits granted ✓",
     );
   }

@@ -26,6 +26,8 @@ tags:
     description: App settings and niche configuration
   - name: captions
     description: Caption Studio — dynamic motion captions layer
+  - name: admin
+    description: Administrative account and billing operations
 
 paths:
   /healthz:
@@ -65,6 +67,42 @@ paths:
           description: Too many feedback submissions
         "502":
           description: Email delivery failed
+
+  /admin/users/{userId}/reconcile-paid-invoice:
+    post:
+      operationId: reconcilePaidInvoiceCredits
+      tags: [admin]
+      summary: Reconcile credits for a verified paid subscription invoice
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PaidInvoiceReconciliationInput"
+      responses:
+        "200":
+          description: Invoice was reconciled or had already been processed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaidInvoiceReconciliationResult"
+        "400":
+          description: Invalid user or invoice ID
+        "403":
+          description: Admin access required
+        "404":
+          description: Invoice does not belong to this user's subscription
+        "409":
+          description: Invoice is not an eligible paid renewal
+        "500":
+          description: Reconciliation failed
 
   /dashboard:
     get:
@@ -742,6 +780,31 @@ paths:
 
 components:
   schemas:
+    PaidInvoiceReconciliationInput:
+      type: object
+      properties:
+        invoiceId:
+          type: string
+          pattern: "^in_[A-Za-z0-9]+$"
+      required: [invoiceId]
+
+    PaidInvoiceReconciliationResult:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        alreadyProcessed:
+          type: boolean
+        planSlug:
+          type: string
+        creditsGranted:
+          type: integer
+        availableCredits:
+          type: ["integer", "null"]
+        subscriptionCredits:
+          type: ["integer", "null"]
+      required: [ok, alreadyProcessed, planSlug, creditsGranted]
+
     BrandLogoInput:
       type: object
       properties:

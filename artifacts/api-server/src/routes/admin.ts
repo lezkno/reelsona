@@ -14,8 +14,18 @@ import type { Request, Response } from "express";
 import { randomBytes } from "crypto";
 import { db } from "@workspace/db";
 import { users, userEntitlements, videosTable, settingsTable, captionConfigTable, userCreditsTable, stripePriceConfigsTable } from "@workspace/db";
-import { subscriptionsTable, instagramAccountsTable, wavespeedPersonasTable } from "@workspace/db/schema";
+import {
+  subscriptionsTable,
+  instagramAccountsTable,
+  wavespeedPersonasTable,
+  invoiceCreditGrantsTable,
+} from "@workspace/db/schema";
 import { and, eq, gte, lte, sql } from "drizzle-orm";
+import {
+  ReconcilePaidInvoiceCreditsBody,
+  ReconcilePaidInvoiceCreditsParams,
+  ReconcilePaidInvoiceCreditsResponse,
+} from "@workspace/api-zod";
 import { normalizeVideoEffects } from "../lib/video-pipeline-effects";
 import {
   adjustCredits,
@@ -34,6 +44,7 @@ import { invalidateAccessCache } from "../middleware/requireToolAccess";
 import { invalidatePlanCache } from "../middleware/requirePlanAccess";
 import { upsertEntitlement } from "../lib/access";
 import { getCurrentSessionUser } from "../middleware/auth";
+import { handleInvoicePaid } from "./webhook";
 
 const router = Router();
 
@@ -571,6 +582,158 @@ router.post("/admin/credits/:userId/adjust", async (req: Request, res: Response)
     }
     console.error("[admin/credits/:userId/adjust]", err);
     res.status(500).json({ error: "Error interno del servidor" });
+  }
+});
+
+// ── POST /api/admin/users/:userId/reconcile-paid-invoice ───────────────────────
+/**
+ * Reprocess a Stripe-paid subscription-cycle invoice that was acknowledged
+ * without its credit grant. The invoice is fetched live, ownership and price
+ * are verified, and invoiceCreditGrantsTable makes retries idempotent.
+ */
+router.post("/admin/users/:userId/reconcile-paid-invoice", async (req: Request, res: Response): Promise<void> => {
+  if (!isAdminRequest(req)) {
+    res.status(403).json({ error: "Acceso denegado" }); return;
+  }
+
+  const parsedParams = ReconcilePaidInvoiceCreditsParams.safeParse(req.params);
+  if (!parsedParams.success) {
+    res.status(400).json({ error: "userId inválido" }); return;
+  }
+  const parsedBody = ReconcilePaidInvoiceCreditsBody.safeParse(req.body);
+  if (!parsedBody.success) {
+    res.status(400).json({ error: "invoiceId inválido" }); return;
+  }
+  const userId = parsedParams.data.userId;
+  const invoiceId = parsedBody.data.invoiceId;
+
+  try {
+    const stripe = getStripe();
+    const invoice = await stripe.invoices.retrieve(invoiceId);
+    if (invoice.status !== "paid" || invoice.billing_reason !== "subscription_cycle") {
+      res.status(409).json({ error: "La factura no está pagada o no es una renovación de suscripción" });
+      return;
+    }
+
+    const subscriptionRef = invoice.parent?.subscription_details?.subscription;
+    const stripeSubscriptionId =
+      typeof subscriptionRef === "string" ? subscriptionRef : subscriptionRef?.id ?? null;
+    if (!stripeSubscriptionId) {
+      res.status(409).json({ error: "La factura no está vinculada a una suscripción" });
+      return;
+    }
+
+    const [subscription] = await db
+      .select()
+      .from(subscriptionsTable)
+      .where(and(
+        eq(subscriptionsTable.userId, userId),
+        eq(subscriptionsTable.stripeSubscriptionId, stripeSubscriptionId),
+      ))
+      .limit(1);
+    if (!subscription) {
+      res.status(404).json({ error: "La factura no pertenece a la suscripción de este usuario" });
+      return;
+    }
+    if (subscription.planSlug === "founder") {
+      res.status(409).json({ error: "Las renovaciones Founder usan el proceso mensual dedicado" });
+      return;
+    }
+
+    const invoiceLine = (invoice.lines?.data ?? []).find((line: any) => !line.proration) as any;
+    const invoicePriceId =
+      (typeof invoiceLine?.price === "string" ? invoiceLine.price : invoiceLine?.price?.id) ??
+      invoiceLine?.pricing?.price_details?.price ??
+      null;
+    if (!invoicePriceId) {
+      res.status(409).json({ error: "No se pudo verificar el precio recurrente de la factura" });
+      return;
+    }
+
+    const [priceConfig] = await db
+      .select({
+        planSlug: stripePriceConfigsTable.planSlug,
+        creditAmount: stripePriceConfigsTable.creditAmount,
+        isRecurring: stripePriceConfigsTable.isRecurring,
+      })
+      .from(stripePriceConfigsTable)
+      .where(eq(stripePriceConfigsTable.stripePriceId, invoicePriceId))
+      .limit(1);
+    if (
+      !priceConfig?.isRecurring ||
+      !priceConfig.planSlug ||
+      !PLAN_CREDITS[priceConfig.planSlug] ||
+      priceConfig.creditAmount !== PLAN_CREDITS[priceConfig.planSlug]
+    ) {
+      res.status(409).json({ error: "El precio de la factura no coincide con un plan recurrente configurado" });
+      return;
+    }
+
+    const [existingGrant] = await db
+      .select({
+        userId: invoiceCreditGrantsTable.userId,
+        planSlug: invoiceCreditGrantsTable.planSlug,
+        creditsGranted: invoiceCreditGrantsTable.creditsGranted,
+      })
+      .from(invoiceCreditGrantsTable)
+      .where(eq(invoiceCreditGrantsTable.stripeInvoiceId, invoiceId))
+      .limit(1);
+    if (existingGrant) {
+      if (existingGrant.userId !== userId) {
+        res.status(409).json({ error: "La factura ya está asociada a otro usuario" });
+        return;
+      }
+      res.json(ReconcilePaidInvoiceCreditsResponse.parse({
+        ok: true,
+        alreadyProcessed: true,
+        planSlug: existingGrant.planSlug,
+        creditsGranted: existingGrant.creditsGranted,
+      }));
+      return;
+    }
+
+    await handleInvoicePaid(invoice, stripe);
+
+    const [grant] = await db
+      .select({
+        userId: invoiceCreditGrantsTable.userId,
+        planSlug: invoiceCreditGrantsTable.planSlug,
+        creditsGranted: invoiceCreditGrantsTable.creditsGranted,
+      })
+      .from(invoiceCreditGrantsTable)
+      .where(eq(invoiceCreditGrantsTable.stripeInvoiceId, invoiceId))
+      .limit(1);
+    if (!grant || grant.userId !== userId) {
+      res.status(500).json({ error: "No se pudo confirmar el abono de créditos" });
+      return;
+    }
+
+    const [wallet] = await db
+      .select({
+        availableCredits: userCreditsTable.availableCredits,
+        subscriptionCredits: userCreditsTable.subscriptionCredits,
+      })
+      .from(userCreditsTable)
+      .where(eq(userCreditsTable.userId, userId))
+      .limit(1);
+
+    req.log.info({
+      userId,
+      invoiceId,
+      planSlug: grant.planSlug,
+      creditsGranted: grant.creditsGranted,
+    }, "Subscription invoice grant confirmed");
+    res.json(ReconcilePaidInvoiceCreditsResponse.parse({
+      ok: true,
+      alreadyProcessed: false,
+      planSlug: grant.planSlug,
+      creditsGranted: grant.creditsGranted,
+      availableCredits: wallet?.availableCredits ?? 0,
+      subscriptionCredits: wallet?.subscriptionCredits ?? 0,
+    }));
+  } catch (err: any) {
+    req.log.error({ err, userId, invoiceId }, "Paid invoice reconciliation failed");
+    res.status(500).json({ error: "No se pudo conciliar la factura pagada" });
   }
 });
 

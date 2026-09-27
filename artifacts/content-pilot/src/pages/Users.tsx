@@ -35,7 +35,7 @@ import {
   useAdminUsers, useCreateAdminUser, useUpdateAdminUser,
   useDeleteAdminUser, useAuthStatus,
   useAdminEntitlements, useProvisionStudent, useResendActivation,
-  useUpdateEntitlementDays, useAdjustUserCredits, useAdminSetUserPlan,
+  useUpdateEntitlementDays, useAdjustUserCredits, useAdminReconcilePaidInvoiceCredits, useAdminSetUserPlan,
   useAdminUserDetail, useToggleSuspendUser,
   useAdminSetPassword, useAdminSendResetEmail,
   type AdminUser, type UpdateAdminUserInput, type AdminEntitlement,
@@ -882,6 +882,89 @@ function AdjustCreditsButton({
   )
 }
 
+function ReconcilePaidInvoiceButton({
+  userId, displayName,
+}: {
+  userId: number; displayName: string
+}) {
+  const [open, setOpen] = useState(false)
+  const [invoiceId, setInvoiceId] = useState("")
+  const reconcile = useAdminReconcilePaidInvoiceCredits()
+  const { toast } = useToast()
+
+  const handleReconcile = () => {
+    const id = invoiceId.trim()
+    if (!id) {
+      toast({ title: "Falta el ID de factura", variant: "destructive" })
+      return
+    }
+    reconcile.mutate(
+      { userId, data: { invoiceId: id } },
+      {
+        onSuccess: (result) => {
+          toast({
+            title: result.alreadyProcessed ? "Factura ya conciliada" : "Renovación conciliada",
+            description: result.alreadyProcessed
+              ? `${result.creditsGranted} créditos ya estaban registrados para ${displayName}`
+              : `Se acreditaron ${result.creditsGranted} créditos de ${result.planSlug} para ${displayName}`,
+          })
+          setOpen(false)
+          setInvoiceId("")
+        },
+        onError: (err: any) =>
+          toast({ title: "No se pudo conciliar", description: err?.data?.error ?? "Verifica el ID de factura y su estado en Stripe", variant: "destructive" }),
+      },
+    )
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(value) => { setOpen(value); if (!value) setInvoiceId("") }}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 text-muted-foreground hover:text-primary"
+            title="Conciliar factura pagada"
+            aria-label={`Conciliar factura pagada de ${displayName}`}
+            onClick={() => setOpen(true)}
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="left" className="text-xs">Conciliar factura pagada</TooltipContent>
+      </Tooltip>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Conciliar renovación pagada</DialogTitle>
+          <DialogDescription>
+            {displayName}. Se comprobará en Stripe que la factura esté pagada y pertenezca a esta suscripción.
+            Repetir el mismo ID no duplica los créditos.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-1.5">
+          <Label htmlFor={`paid-invoice-${userId}`}>ID de factura de Stripe</Label>
+          <Input
+            id={`paid-invoice-${userId}`}
+            placeholder="in_..."
+            value={invoiceId}
+            onChange={(event) => setInvoiceId(event.target.value)}
+            onKeyDown={(event) => { if (event.key === "Enter") handleReconcile() }}
+            autoFocus
+          />
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
+          <Button onClick={handleReconcile} disabled={!invoiceId.trim() || reconcile.isPending}>
+            {reconcile.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+            Verificar y acreditar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 // ── Edit access days button ───────────────────────────────────────────────────
 
 function EditAccessDaysButton({ entitlement }: { entitlement: AdminEntitlement }) {
@@ -1446,6 +1529,10 @@ function EntitlementsSection() {
                             displayName={ent.fullName ?? ent.username}
                             currentCredits={ent.availableCredits}
                           />
+                          <ReconcilePaidInvoiceButton
+                            userId={ent.userId}
+                            displayName={ent.fullName ?? ent.username}
+                          />
                           <AdminSetPasswordDialog
                             userId={ent.userId}
                             username={ent.username}
@@ -1811,6 +1898,7 @@ export default function Users() {
                             <Eye className="w-3.5 h-3.5" />
                           </Button>
                           <AdjustCreditsButton userId={user.id} displayName={user.fullName ?? user.username} />
+                          <ReconcilePaidInvoiceButton userId={user.id} displayName={user.fullName ?? user.username} />
                           <AdminSetPlanDialog userId={user.id} username={user.username} />
                           <EditUserDialog user={user} selfUsername={selfUsername} />
                           <ChangePasswordDialog user={user} />
