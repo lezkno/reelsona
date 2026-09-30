@@ -12,6 +12,8 @@ Only the avatar video step changed (`artifacts/api-server/src/lib/wan3-talking.t
 - WAN generates the speech itself from the `EXACT DIALOGUE … spoken once` block (without it WAN repeats phrases). Captions still work because they are transcribed from the final MP4.
 - WAN caps at 30 s and repeats phrases on long dialogues → script split into ≤36-word segments (sentence boundaries), one job each, `duration = ceil(words/2.2 + 1.5)`. Sentinel `wavespeed-wan:{id1},{id2},…` → lease `wavespeed-wan-finalizing:` (stages in `wavespeed-video-pipeline-policy.ts`). When all complete: FFmpeg concat at 720×1280/30 fps → `raw-videos/{id}.mp4`.
 - Language comes from `settings.language` (never hard-coded).
+- Owner wants DYNAMIC reels, not a static presenter: ACTIVE PERFORMANCE block (gestures, leaning, walking; hands never cover the mouth) and a different shot per segment in the SAME location (`wan3ShotFor`: opening handheld medium → close-up / three-quarter arc / walk-and-talk → closing pull-back). A single-segment reel does three shot sizes in one take. Chosen over per-segment Seedream scenes (extra cost) and rotating looks (outfit changes).
+- Trailing silence (~1.5 s headroom per segment) is trimmed with FFmpeg silencedetect before concat so shots cut on the beat.
 
 ## Safety
 - Every accepted WAN job is inserted in `wavespeed_jobs` right after submission; a retry reuses them and NEVER resubmits.

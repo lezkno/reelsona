@@ -87,7 +87,7 @@ test("prompt omits accent for non-Spanish and marks multi-part videos", () => {
   const prompt = buildWan3Prompt({ dialogue: "Hi there.", language: "en", segmentIndex: 1, segmentCount: 3 });
   assert.match(prompt, /Generate clear English speech/);
   assert.doesNotMatch(prompt, /accent, /);
-  assert.match(prompt, /part 2 of 3/);
+  assert.match(prompt, /SHOT 2 OF 3/);
 });
 
 test("payload puts the look image in reference_images[0] and never sends `image`", () => {
@@ -278,4 +278,54 @@ test("provider media is only fetched over HTTPS", async () => {
   } finally {
     nodeFs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// ── Dynamic camera (same location, different shot per segment) ───────────────
+
+import { wan3ShotFor } from "./wan3-talking";
+
+test("long reels get a different shot per segment: opening, varied middles, closing", () => {
+  const names = Array.from({ length: 6 }, (_, i) => wan3ShotFor(i, 6).name);
+  assert.equal(names[0], "OPENING HANDHELD MEDIUM SHOT");
+  assert.equal(names[5], "CLOSING MEDIUM SHOT");
+  // consecutive segments never repeat the same shot
+  for (let i = 1; i < names.length; i++) assert.notEqual(names[i], names[i - 1]);
+  assert.ok(new Set(names).size >= 4);
+});
+
+test("segment prompts are active, change the shot and stay in the same place", () => {
+  const prompt = buildWan3Prompt({ dialogue: "Hola a todos.", segmentIndex: 1, segmentCount: 4 });
+  assert.match(prompt, /ACTIVE PERFORMANCE/);
+  assert.match(prompt, /SHOT 2 OF 4 — INTIMATE CLOSE-UP/);
+  assert.match(prompt, /inside that same place/);
+  assert.doesNotMatch(prompt, /same pose, framing and location/);
+  assert.doesNotMatch(prompt, /Prioritize lip synchronization over cinematic movement/);
+  assert.match(prompt, /AUDIO LOCK/);
+});
+
+test("a single-segment reel moves through three shot sizes in one take", () => {
+  const prompt = buildWan3Prompt({ dialogue: "Hola a todos, hoy te cuento algo.", segmentIndex: 0, segmentCount: 1 });
+  assert.match(prompt, /THREE SHOT SIZES IN ONE CONTINUOUS HANDHELD TAKE/);
+  assert.match(prompt, /\[0\.0-/);
+});
+
+// ── Trailing-silence trim between shots ───────────────────────────────────────
+
+import { trailingSilenceCut } from "./wan3-talking";
+
+test("trailing silence after the last word is cut (keeps a short tail)", () => {
+  const stderr = "  Duration: 00:00:18.00, start: 0.000000\n[silencedetect] silence_start: 3.1\n[silencedetect] silence_end: 3.6 | silence_duration: 0.5\n[silencedetect] silence_start: 16.2\n";
+  assert.equal(trailingSilenceCut(stderr, 0.3), 16.5);
+});
+
+test("silence that ends exactly at the end of the file also counts as trailing", () => {
+  const stderr = "Duration: 00:00:10.00,\nsilence_start: 8.0\nsilence_end: 10.0 | silence_duration: 2\n";
+  assert.equal(trailingSilenceCut(stderr, 0.3), 8.3);
+});
+
+test("no trailing silence, mid-clip pauses only, or tiny clips are left untouched", () => {
+  assert.equal(trailingSilenceCut("Duration: 00:00:10.00,\nsilence_start: 3\nsilence_end: 4\n", 0.3), null);
+  assert.equal(trailingSilenceCut("Duration: 00:00:10.00,\n", 0.3), null);
+  assert.equal(trailingSilenceCut("Duration: 00:00:02.00,\nsilence_start: 0.2\n", 0.3), null);
+  assert.equal(trailingSilenceCut("no duration here", 0.3), null);
 });
