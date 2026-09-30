@@ -22,6 +22,8 @@
  */
 
 import nodeFs from "fs";
+import nodePath from "path";
+import { randomUUID } from "crypto";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import { submitJob, WAVESPEED_MODELS } from "./wavespeed";
@@ -162,6 +164,8 @@ export function buildWan3Prompt(opts: {
   dialogue: string;
   language?: string | null;
   topic?: string | null;
+  /** Optional delivery style (e.g. from a Voice Director preset). */
+  delivery?: string | null;
   segmentIndex?: number;
   segmentCount?: number;
 }): string {
@@ -184,6 +188,7 @@ export function buildWan3Prompt(opts: {
       "creator talking to their audience.",
     "Prioritize lip synchronization over cinematic movement. Keep the mouth clearly visible whenever the person speaks.",
     opts.topic ? `The video is about: ${opts.topic.replace(/\s+/g, " ").trim().slice(0, 200)}.` : "",
+    opts.delivery ? `Delivery style: ${opts.delivery}` : "",
     segmentCount > 1
       ? `This is part ${segmentIndex + 1} of ${segmentCount} of one continuous video: start and end in the same ` +
         "pose, framing and location as IMAGE 1 so the parts join seamlessly."
@@ -210,6 +215,7 @@ export function buildWan3Payload(opts: {
   dialogue: string;
   language?: string | null;
   topic?: string | null;
+  delivery?: string | null;
   segmentIndex?: number;
   segmentCount?: number;
   resolution?: string;
@@ -262,18 +268,28 @@ export async function submitWan3Segments(opts: {
   segments: string[];
   language?: string | null;
   topic?: string | null;
+  delivery?: string | null;
   apiKey?: string;
   onAccepted?: (requestId: string, segmentIndex: number, payload: Record<string, unknown>) => Promise<void>;
+  /**
+   * Checked before every segment after the first; returning false stops the
+   * loop (e.g. the video was cancelled) so no further billable job is created.
+   */
+  shouldContinue?: () => Promise<boolean>;
 }): Promise<{ requestIds: string[]; resolution: string; error: Error | null }> {
   const requestIds: string[] = [];
   let resolution = getWan3Resolution();
   for (let i = 0; i < opts.segments.length; i++) {
+    if (requestIds.length > 0 && opts.shouldContinue && !(await opts.shouldContinue())) {
+      return { requestIds, resolution, error: new Error("WAN 3.0 submission stopped: the video is no longer generating") };
+    }
     const payload = buildWan3Payload({
       imageUrl: opts.imageUrl,
       voiceReferenceUrl: opts.voiceReferenceUrl,
       dialogue: opts.segments[i]!,
       language: opts.language,
       topic: opts.topic,
+      delivery: opts.delivery,
       segmentIndex: i,
       segmentCount: opts.segments.length,
       resolution,
@@ -297,9 +313,10 @@ export async function submitWan3Segments(opts: {
 
 /** Write the first `seconds` of an audio URL or local file to a local MP3 (voice reference clip). */
 export async function trimAudioToFile(audioSource: string, outPath: string, seconds = WAN3_VOICE_REFERENCE_SECONDS): Promise<void> {
-  const isRemote = /^https?:\/\//i.test(audioSource);
-  const inPath = isRemote ? `${outPath}.src` : audioSource;
+  const isRemote = /^[a-z][a-z0-9+.-]*:/i.test(audioSource);
+  const inPath = isRemote ? `${outPath}.${randomUUID()}.src` : audioSource;
   if (isRemote) {
+    assertHttpsUrl(audioSource);
     const res = await fetch(audioSource, { signal: AbortSignal.timeout(60_000) });
     if (!res.ok) throw new Error(`Audio download failed: HTTP ${res.status}`);
     nodeFs.writeFileSync(inPath, Buffer.from(await res.arrayBuffer()));
@@ -321,12 +338,16 @@ export async function trimAudioToFile(audioSource: string, outPath: string, seco
  * A single clip is re-encoded the same way so every output has the same format.
  */
 export async function concatWan3Clips(clipUrls: string[], outPath: string): Promise<void> {
+  // Unique work dir per call: two concurrent joins of the same video never
+  // share (or delete) each other's part files.
+  const workDir = nodeFs.mkdtempSync(nodePath.join(nodePath.dirname(outPath), "wan3-join-"));
   const inputs: string[] = [];
   try {
     for (let i = 0; i < clipUrls.length; i++) {
+      assertHttpsUrl(clipUrls[i]!);
       const res = await fetch(clipUrls[i]!, { signal: AbortSignal.timeout(300_000) });
       if (!res.ok) throw new Error(`WAN clip ${i + 1} download failed: HTTP ${res.status}`);
-      const path = `${outPath}.part${i}.mp4`;
+      const path = nodePath.join(workDir, `part${i}.mp4`);
       nodeFs.writeFileSync(path, Buffer.from(await res.arrayBuffer()));
       inputs.push(path);
     }
@@ -340,6 +361,9 @@ export async function concatWan3Clips(clipUrls: string[], outPath: string): Prom
     const concatInputs = inputs.map((_, i) => `[v${i}][a${i}]`).join("");
     const filterComplex = `${filters.join(";")};${concatInputs}concat=n=${inputs.length}:v=1:a=1[v][a]`;
 
+    // Render inside the work dir, then move into place so a reader never sees
+    // a half-written file at `outPath`.
+    const tmpOut = nodePath.join(workDir, "joined.mp4");
     await execFileAsync("ffmpeg", [
       "-y",
       ...inputs.flatMap((p) => ["-i", p]),
@@ -348,9 +372,21 @@ export async function concatWan3Clips(clipUrls: string[], outPath: string): Prom
       "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p",
       "-c:a", "aac", "-b:a", "192k",
       "-movflags", "+faststart",
-      outPath,
+      tmpOut,
     ], { maxBuffer: 10 * 1024 * 1024 });
+    nodeFs.renameSync(tmpOut, outPath);
   } finally {
-    for (const p of inputs) nodeFs.rmSync(p, { force: true });
+    nodeFs.rmSync(workDir, { recursive: true, force: true });
   }
+}
+
+/** Provider media (WaveSpeed CDN, signed storage URLs) is always HTTPS. */
+function assertHttpsUrl(url: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error("Invalid media URL");
+  }
+  if (parsed.protocol !== "https:") throw new Error(`Refusing non-HTTPS media URL (${parsed.protocol})`);
 }

@@ -28,6 +28,8 @@
 import { Router, type Request, type Response } from "express";
 import { createReadStream, existsSync }         from "node:fs";
 import { basename }                             from "node:path";
+import { and, eq, inArray }                     from "drizzle-orm";
+import { db, wavespeedJobsTable }               from "@workspace/db";
 
 import {
   VOICE_DIRECTOR_PRESET_IDS,
@@ -407,6 +409,27 @@ router.get("/wavespeed/voice-director/job/:requestId", async (req: Request, res:
   const { requestId } = req.params;
   if (!requestId || typeof requestId !== "string" || requestId.trim().length === 0) {
     res.status(400).json({ error: "requestId path parameter is required" });
+    return;
+  }
+
+  // Only the user who created a job may read it (and receive its media URL).
+  // Voice Director records every audio/video job in wavespeed_jobs with its userId.
+  const ids = requestId.split(",").map((id) => id.trim()).filter(Boolean);
+  if (ids.length === 0 || ids.length > 20) {
+    res.status(400).json({ error: "Invalid requestId" });
+    return;
+  }
+  const owned = await db
+    .select({ id: wavespeedJobsTable.wavespeedRequestId })
+    .from(wavespeedJobsTable)
+    .where(and(
+      eq(wavespeedJobsTable.userId, userId),
+      inArray(wavespeedJobsTable.wavespeedRequestId, ids),
+    ));
+  const ownedIds = new Set(owned.map((row) => row.id));
+  if (!ids.every((id) => ownedIds.has(id))) {
+    // 404 rather than 403 so job existence is not disclosed across accounts.
+    res.status(404).json({ error: "Not found" });
     return;
   }
 

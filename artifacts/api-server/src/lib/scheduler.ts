@@ -3113,6 +3113,20 @@ async function submitWan3Handoff(input: {
     segments,
     language,
     topic: input.topic,
+    // A cancel during a multi-segment submission must stop further billable
+    // jobs: only keep going while this worker still owns the handoff lease.
+    shouldContinue: async () => {
+      const [row] = await db
+        .select({ id: videosTable.id })
+        .from(videosTable)
+        .where(and(
+          eq(videosTable.id, videoId),
+          eq(videosTable.status, "generating"),
+          eq(videosTable.heygenVideoId, input.handoffSentinel),
+        ))
+        .limit(1);
+      return !!row;
+    },
     onAccepted: async (requestId, segmentIndex, payload) => {
       // Record every accepted (billed) job immediately.
       await db.insert(wavespeedJobsTable).values({

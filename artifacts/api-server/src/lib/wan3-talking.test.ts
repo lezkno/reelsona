@@ -234,3 +234,48 @@ test("a later segment failing stops submission and reports the accepted ids", as
     stub.restore();
   }
 });
+
+// ── Review fixes ──────────────────────────────────────────────────────────────
+
+import { trimAudioToFile, concatWan3Clips } from "./wan3-talking";
+import nodeFs from "node:fs";
+import nodeOs from "node:os";
+import nodePath from "node:path";
+
+test("a cancelled video stops submitting further segments", async () => {
+  const stub = stubWavespeed([ok("a"), ok("b"), ok("c")]);
+  try {
+    let checks = 0;
+    const result = await submitWan3Segments({
+      imageUrl: "https://cdn/look.jpg",
+      voiceReferenceUrl: "https://cdn/voice.mp3",
+      segments: ["Uno.", "Dos.", "Tres."],
+      shouldContinue: async () => { checks++; return false; },
+    });
+    assert.deepEqual(result.requestIds, ["a"]);
+    assert.ok(result.error);
+    assert.equal(stub.calls.length, 1, "no billable job after cancellation");
+    assert.equal(checks, 1);
+  } finally {
+    stub.restore();
+  }
+});
+
+test("the delivery style (Voice Director preset) reaches the prompt", () => {
+  const prompt = buildWan3Prompt({ dialogue: "Hola.", delivery: "high-energy and upbeat." });
+  assert.match(prompt, /Delivery style: high-energy and upbeat\./);
+  assert.doesNotMatch(buildWan3Prompt({ dialogue: "Hola." }), /Delivery style/);
+});
+
+test("provider media is only fetched over HTTPS", async () => {
+  const dir = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), "wan3-test-"));
+  try {
+    await assert.rejects(trimAudioToFile("http://169.254.169.254/latest", nodePath.join(dir, "a.mp3")), /non-HTTPS/);
+    await assert.rejects(trimAudioToFile("file:///etc/passwd", nodePath.join(dir, "b.mp3")), /non-HTTPS/);
+    await assert.rejects(concatWan3Clips(["http://127.0.0.1/a.mp4"], nodePath.join(dir, "out.mp4")), /non-HTTPS/);
+    // The per-call work dir is always cleaned up.
+    assert.deepEqual(nodeFs.readdirSync(dir), []);
+  } finally {
+    nodeFs.rmSync(dir, { recursive: true, force: true });
+  }
+});

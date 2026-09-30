@@ -58,6 +58,7 @@ import {
 import type { VoiceDirectorPresetId } from "./wavespeed.js";
 import {
   isWan3Enabled,
+  isWavespeedRejection,
   splitScriptIntoWan3Segments,
   submitWan3Segments,
   trimAudioToFile,
@@ -256,7 +257,7 @@ export async function resolveVideoJobsUrl(
 
   const [exists] = await file.exists();
   if (!exists) {
-    const tmpPath = `/tmp/vd-wan3-${hash}.mp4`;
+    const tmpPath = `/tmp/vd-wan3-${hash}-${randomUUID()}.mp4`;
     try {
       await concatWan3Clips(clipUrls, tmpPath);
       await file.save(await readFile(tmpPath), { contentType: "video/mp4" });
@@ -298,9 +299,26 @@ async function pollVideoJob(
 }
 
 /**
+ * WAN generates the speech itself, so the preset's per-segment speed/pitch
+ * cannot be replayed from the TTS audio; describe the intended delivery in
+ * the prompt instead (the ≤10 s reference still carries the cloned voice).
+ */
+const WAN3_PRESET_DELIVERY: Record<VoiceDirectorPresetId, string> = {
+  natural:    "calm, natural and conversational, like talking to a friend.",
+  energetico: "high-energy, upbeat and enthusiastic, with a lively pace and emphatic key words.",
+  dramatico:  "dramatic and intense, with deliberate pauses before key ideas and strong emphasis.",
+};
+
+type VdWan3Outcome =
+  | { kind: "submitted"; requestIds: string }
+  /** WaveSpeed definitively refused the first request: nothing was created or billed. */
+  | { kind: "rejected"; error: string }
+  /** Ambiguous (timeout / 5xx) or partial: a billed job may exist — never submit another video. */
+  | { kind: "failed"; error: string };
+
+/**
  * Submit the WAN 3.0 segments for a preview and persist each accepted job.
- * Returns the comma-separated ids, or null when WAN rejected the submission
- * before accepting any job (the caller then falls back to InfiniteTalk).
+ * Only a definitive rejection lets the caller fall back to InfiniteTalk.
  */
 async function submitVdWan3(opts: {
   text: string;
@@ -311,9 +329,9 @@ async function submitVdWan3(opts: {
   voiceId: string;
   apiKey: string;
   userId: number;
-}): Promise<{ requestIds: string | null; error: string | null }> {
+}): Promise<VdWan3Outcome> {
   const segments = splitScriptIntoWan3Segments(opts.text);
-  if (segments.length === 0) return { requestIds: null, error: "Empty script" };
+  if (segments.length === 0) return { kind: "rejected", error: "Empty script" };
 
   // ≤10 s voice reference (WaveSpeed recommends 3–10 s); full audio on failure.
   let voiceReferenceUrl = opts.audioSignedUrl;
@@ -331,6 +349,7 @@ async function submitVdWan3(opts: {
     imageUrl: opts.lookImageUrl,
     voiceReferenceUrl,
     segments,
+    delivery: WAN3_PRESET_DELIVERY[opts.presetId],
     apiKey: opts.apiKey,
     onAccepted: async (requestId) => {
       try {
@@ -353,13 +372,16 @@ async function submitVdWan3(opts: {
     },
   });
 
-  if (requestIds.length === 0) return { requestIds: null, error: error?.message ?? "WAN 3.0 submission failed" };
-  if (error) {
-    // Some segments were accepted (and billed) but not all: the preview cannot
-    // be completed with WAN. Report it instead of submitting more jobs.
-    return { requestIds: null, error: `WAN 3.0 accepted ${requestIds.length}/${segments.length} segments: ${error.message}` };
+  if (!error) return { kind: "submitted", requestIds: requestIds.join(",") };
+  if (requestIds.length === 0 && isWavespeedRejection(error)) {
+    return { kind: "rejected", error: error.message };
   }
-  return { requestIds: requestIds.join(","), error: null };
+  return {
+    kind: "failed",
+    error: requestIds.length > 0
+      ? `WAN 3.0 accepted ${requestIds.length}/${segments.length} segments: ${error.message}`
+      : `WAN 3.0 submission could not be confirmed (not retried to avoid a duplicate charge): ${error.message}`,
+  };
 }
 
 // ── Main entry point ───────────────────────────────────────────────────────────
@@ -465,10 +487,10 @@ export async function generateVdVideoPreview(opts: {
       apiKey,
       userId,
     });
-    if (wan.requestIds) {
+    if (wan.kind === "submitted") {
       videoRequestId = wan.requestIds;
-    } else if (wan.error?.startsWith("WAN 3.0 accepted")) {
-      // Partial submission: never add more billed jobs on top of it.
+    } else if (wan.kind === "failed") {
+      // A billed WAN job may exist: never add an InfiniteTalk job on top.
       return {
         ...baseResult,
         audioSignedUrl,
@@ -479,6 +501,7 @@ export async function generateVdVideoPreview(opts: {
         videoErrorMessage: wan.error,
       };
     }
+    // "rejected" → nothing was created; fall back to InfiniteTalk below.
   }
 
   if (!videoRequestId) {
@@ -530,23 +553,29 @@ export async function generateVdVideoPreview(opts: {
   // ── 7. Poll (short window — return requestId if still processing) ──────────
   const pollResult = await pollVideoJob(videoRequestId, apiKey);
 
-  const videoStatus = (
-    pollResult.status === "completed" ||
-    pollResult.status === "failed" ||
-    pollResult.status === "queued" ||
-    pollResult.status === "processing"
-      ? pollResult.status
-      : "processing"
-  ) as VdVideoPreviewResult["videoStatus"];
-
   let videoUrl: string | null = null;
+  let joinPending = false;
   if (pollResult.status === "completed" && Array.isArray(pollResult.outputs)) {
     try {
       videoUrl = await resolveVideoJobsUrl(videoRequestId, pollResult.outputs as string[]);
     } catch {
-      // Joining failed — GET /job/:requestId retries it later
+      // Joining failed (transient download/storage error). Report the preview
+      // as still processing so the client keeps polling GET /job/:requestId,
+      // which retries the join — "completed" always carries a playable URL.
+      joinPending = true;
     }
   }
+
+  const videoStatus = (
+    joinPending
+      ? "processing"
+      : pollResult.status === "completed" ||
+        pollResult.status === "failed" ||
+        pollResult.status === "queued" ||
+        pollResult.status === "processing"
+        ? pollResult.status
+        : "processing"
+  ) as VdVideoPreviewResult["videoStatus"];
 
   // ── 8. Update DB row with final status (best-effort) ──────────────────────
   if (videoDbJobId || videoRequestId) {
@@ -554,9 +583,9 @@ export async function generateVdVideoPreview(opts: {
       await db
         .update(wavespeedJobsTable)
         .set({
-          status:        pollResult.status === "processing" || pollResult.status === "queued"
+          status:        videoStatus === "processing" || videoStatus === "queued"
                            ? "processing"
-                           : pollResult.status,
+                           : videoStatus,
           outputUrl:     videoUrl ?? undefined,
           outputPayload: pollResult.outputs ? JSON.stringify(pollResult.outputs) : undefined,
           errorMessage:  pollResult.error ?? undefined,
