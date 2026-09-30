@@ -6,7 +6,8 @@
  * callers must poll getJobStatus() until status is "completed" or "failed".
  *
  * Supported models (current phase):
- *   wavespeed-ai/infinitetalk            — talking-head video generation (480p / 720p)
+ *   alibaba/wan-3.0/reference-to-video  — talking-head video (default, see wan3-talking.ts)
+ *   wavespeed-ai/infinitetalk            — talking-head video generation (fallback, 480p / 720p)
  *   minimax/speech-2.6-turbo            — text-to-speech synthesis
  *   minimax/voice-clone                 — voice cloning from audio
  *   bytedance/seedream-v5.0-pro/edit    — image editing / composition
@@ -22,6 +23,8 @@ const WAVESPEED_RETRYABLE_GET_STATUSES = new Set([429, 500, 502, 503, 504]);
 export const WAVESPEED_MODELS = {
   /** Talking-head video: image + audio → video */
   TALKING_HEAD: "wavespeed-ai/infinitetalk",
+  /** Talking-head video: start frame + voice reference + dialogue → video with native speech (see wan3-talking.ts) */
+  WAN3_TALKING: "alibaba/wan-3.0/reference-to-video",
   /** Text-to-speech with a cloned or preset voice */
   SPEECH: "minimax/speech-2.6-turbo",
   /** Voice cloning from a reference audio file */

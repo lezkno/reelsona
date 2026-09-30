@@ -37,6 +37,12 @@ test("WaveSpeed poll delay backs off and is capped", () => {
 });
 
 test("WaveSpeed polling has a hard attempt ceiling", () => {
-  assert.equal(hasExceededWaveSpeedPollAttempts(39), false);
-  assert.equal(hasExceededWaveSpeedPollAttempts(40), true);
+  assert.equal(hasExceededWaveSpeedPollAttempts(129), false);
+  assert.equal(hasExceededWaveSpeedPollAttempts(130), true);
+});
+
+test("attempt limit outlasts the 60-minute age timeout (long WAN 3.0 videos)", () => {
+  let totalMs = 0;
+  for (let attempt = 1; attempt < 130; attempt++) totalMs += getWaveSpeedPollDelayMs(attempt);
+  assert.ok(totalMs > 60 * 60_000, `only ${Math.round(totalMs / 60_000)} min of polling`);
 });

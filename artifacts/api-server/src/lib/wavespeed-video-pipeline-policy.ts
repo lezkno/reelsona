@@ -1,4 +1,14 @@
-export type WavespeedVideoStage = "tts" | "tts-handoff" | "th" | "th-finalizing";
+/**
+ * tts → tts-handoff → th (InfiniteTalk) | wan (WAN 3.0) → *-finalizing → ready.
+ * For `wan` the request id is the comma-separated list of segment job ids.
+ */
+export type WavespeedVideoStage =
+  | "tts"
+  | "tts-handoff"
+  | "th"
+  | "th-finalizing"
+  | "wan"
+  | "wan-finalizing";
 
 export interface WavespeedVideoSentinel {
   stage: WavespeedVideoStage;
@@ -6,7 +16,7 @@ export interface WavespeedVideoSentinel {
 }
 
 const SENTINEL_PREFIX = "wavespeed-";
-const STAGES = new Set<WavespeedVideoStage>(["tts", "tts-handoff", "th", "th-finalizing"]);
+const STAGES = new Set<WavespeedVideoStage>(["tts", "tts-handoff", "th", "th-finalizing", "wan", "wan-finalizing"]);
 
 /**
  * The provider request id lives in videos.heygenVideoId for historical
@@ -36,4 +46,11 @@ export function shouldMonitorWavespeedVideo(status: string, sentinel: string | n
  */
 export function recoveryStage(stage: WavespeedVideoStage): "resume" | "fail_safely" {
   return stage === "tts-handoff" ? "fail_safely" : "resume";
+}
+
+/** Polling stage a finalizing lease returns to after a restart (`th` / `wan`), else null. */
+export function finalizingSourceStage(stage: WavespeedVideoStage): "th" | "wan" | null {
+  if (stage === "th-finalizing") return "th";
+  if (stage === "wan-finalizing") return "wan";
+  return null;
 }

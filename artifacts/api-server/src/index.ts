@@ -3,6 +3,8 @@ import { logger } from "./lib/logger";
 import { runMigrations } from "./lib/run-migrations";
 import { startSchedulerLeaderElection } from "./lib/scheduler-leader";
 import { resumePendingWavespeedVideoMonitors } from "./lib/scheduler";
+import { isWan3Enabled, getWan3Resolution } from "./lib/wan3-talking";
+import { WAVESPEED_MODELS } from "./lib/wavespeed";
 import { seedAdminUser } from "./lib/seed";
 import { migrateInstagramTokensAtRest } from "./lib/instagram-token-crypto";
 
@@ -49,6 +51,14 @@ async function initialize(): Promise<void> {
   await resumePendingWavespeedVideoMonitors().catch((err) => {
     logger.error({ err }, "Could not resume pending WaveSpeed video monitors");
   });
+
+  logger.info(
+    {
+      talkingModel: isWan3Enabled() ? WAVESPEED_MODELS.WAN3_TALKING : WAVESPEED_MODELS.TALKING_HEAD,
+      resolution: isWan3Enabled() ? getWan3Resolution() : undefined,
+    },
+    "[WaveSpeed] Modelo de video de avatar activo",
+  );
 
   // Scheduler jobs can trigger billable provider calls. Never run cron
   // automatically from a development process unless explicitly opted in.

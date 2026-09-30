@@ -4,6 +4,7 @@ import {
   parseWavespeedVideoSentinel,
   recoveryStage,
   shouldMonitorWavespeedVideo,
+  finalizingSourceStage,
 } from "./wavespeed-video-pipeline-policy";
 
 test("accepts all durable WaveSpeed pipeline stages", () => {
@@ -46,4 +47,18 @@ test("a concurrent poller observes finalization but cannot start a second finali
   const sentinel = parseWavespeedVideoSentinel("wavespeed-th-finalizing:video_1");
   assert.equal(sentinel?.stage, "th-finalizing");
   assert.equal(shouldMonitorWavespeedVideo("generating", "wavespeed-th-finalizing:video_1"), true);
+});
+test("WAN 3.0 stages keep every comma-separated segment id", () => {
+  assert.deepEqual(parseWavespeedVideoSentinel("wavespeed-wan:a1,b2,c3"), { stage: "wan", requestId: "a1,b2,c3" });
+  assert.deepEqual(parseWavespeedVideoSentinel("wavespeed-wan-finalizing:a1,b2"), { stage: "wan-finalizing", requestId: "a1,b2" });
+  assert.equal(shouldMonitorWavespeedVideo("generating", "wavespeed-wan:a1,b2"), true);
+  assert.equal(shouldMonitorWavespeedVideo("generating", "wavespeed-wan-finalizing:a1"), true);
+});
+
+test("restart resumes submitted WAN segments without resubmitting", () => {
+  assert.equal(recoveryStage("wan"), "resume");
+  assert.equal(recoveryStage("wan-finalizing"), "resume");
+  assert.equal(finalizingSourceStage("wan-finalizing"), "wan");
+  assert.equal(finalizingSourceStage("th-finalizing"), "th");
+  assert.equal(finalizingSourceStage("wan"), null);
 });
