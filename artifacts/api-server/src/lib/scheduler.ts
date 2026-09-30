@@ -91,7 +91,17 @@ import {
   parseWavespeedVideoSentinel,
   recoveryStage as getWavespeedRecoveryStage,
   shouldMonitorWavespeedVideo,
+  finalizingSourceStage,
 } from "./wavespeed-video-pipeline-policy";
+import {
+  isWan3Enabled,
+  isWavespeedRejection,
+  splitScriptIntoWan3Segments,
+  submitWan3Segments,
+  trimAudioToFile,
+  concatWan3Clips,
+  buildWan3Sentinel,
+} from "./wan3-talking";
 import {
   evaluateWaveSpeedPollingAge,
   getWaveSpeedPollDelayMs,
@@ -2982,6 +2992,17 @@ async function advanceWavespeedTtsToTalkingHead(
       .set({ status: "completed", outputUrl: audioUrl, updatedAt: new Date() })
       .where(eq(wavespeedJobsTable.wavespeedRequestId, ttsRequestId));
 
+    // WAN 3.0 is the default avatar model. InfiniteTalk below only runs when
+    // WAN is switched off or WaveSpeed definitively rejected every WAN request
+    // (a rejection creates no job, so nothing can be billed twice).
+    if (isWan3Enabled()) {
+      const script = ttsJobRow?.inputPayload
+        ? (JSON.parse(ttsJobRow.inputPayload) as { text?: string }).text ?? ""
+        : "";
+      const wan = await submitWan3Handoff({ videoId, userId, topic, imageUrl, audioUrl, script, handoffSentinel });
+      if (wan === "submitted") return "advanced";
+    }
+
     const motionPrompt = topic
       ? `Natural upper body movement with expressive gestures and slight head turns. ` +
         `Dynamic presenter energy: torso sway, occasional hand movement, engaged eye contact. ` +
@@ -3021,6 +3042,153 @@ async function advanceWavespeedTtsToTalkingHead(
         err instanceof Error ? err.message : String(err)
       }`,
     );
+  }
+}
+
+// ── WaveSpeed WAN 3.0 talking-head ─────────────────────────────────────────────
+//
+// Same durable guarantees as the InfiniteTalk path: the WAN jobs are submitted
+// while the row holds the `tts-handoff` lease, every accepted job is recorded
+// at once, and the row then moves to `wavespeed-wan:{id1},{id2},…`. A crash in
+// between leaves `tts-handoff`, which recovery fails safely instead of
+// resubmitting billable jobs.
+
+/**
+ * Upload the first seconds of the TTS audio as the WAN voice reference and
+ * return a signed URL WaveSpeed can download. Falls back to the TTS URL.
+ */
+async function prepareWan3VoiceReference(videoId: number, audioUrl: string): Promise<string> {
+  const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
+  if (!bucketId) return audioUrl;
+  const tmpPath = `/tmp/wan3-voice-${videoId}.mp3`;
+  try {
+    await trimAudioToFile(audioUrl, tmpPath);
+    const objectName = `voice-references/wan3-${videoId}.mp3`;
+    await objectStorageClient
+      .bucket(bucketId)
+      .file(objectName)
+      .save(nodeFs.readFileSync(tmpPath), { contentType: "audio/mpeg" });
+    return await getSignedObjectUrl(objectName, 24 * 3600);
+  } catch (err) {
+    logger.warn({ videoId, err }, "[WAN3] No se pudo recortar la referencia de voz — se usa el audio TTS completo");
+    return audioUrl;
+  } finally {
+    nodeFs.rmSync(tmpPath, { force: true });
+  }
+}
+
+/**
+ * Submit the WAN 3.0 segments while the row holds the handoff lease.
+ * "submitted" → row moved to `wavespeed-wan:`; "rejected" → WaveSpeed refused
+ * the first request (nothing created or billed) and the caller may use
+ * InfiniteTalk. Any other failure throws (terminal, never resubmitted).
+ */
+async function submitWan3Handoff(input: {
+  videoId: number;
+  userId: number;
+  topic: string | null;
+  imageUrl: string;
+  audioUrl: string;
+  script: string;
+  handoffSentinel: string;
+}): Promise<"submitted" | "rejected"> {
+  const { videoId, userId } = input;
+  const [userSettings] = await db
+    .select({ language: settingsTable.language })
+    .from(settingsTable)
+    .where(eq(settingsTable.userId, userId))
+    .limit(1);
+  const language = userSettings?.language ?? "es";
+  const segments = splitScriptIntoWan3Segments(normalizeScriptForTTS(input.script, language));
+  if (segments.length === 0) {
+    logger.warn({ videoId }, "[WAN3] Guion vacío — se usa InfiniteTalk");
+    return "rejected";
+  }
+
+  const voiceReferenceUrl = await prepareWan3VoiceReference(videoId, input.audioUrl);
+  logger.info({ videoId, segments: segments.length }, "[WAN3] Enviando segmentos a WAN 3.0");
+  const { requestIds, resolution, error } = await submitWan3Segments({
+    imageUrl: input.imageUrl,
+    voiceReferenceUrl,
+    segments,
+    language,
+    topic: input.topic,
+    onAccepted: async (requestId, segmentIndex, payload) => {
+      // Record every accepted (billed) job immediately.
+      await db.insert(wavespeedJobsTable).values({
+        userId,
+        model: WAVESPEED_MODELS.WAN3_TALKING,
+        status: "processing",
+        wavespeedRequestId: requestId,
+        inputPayload: JSON.stringify({ ...payload, segmentIndex, segmentCount: segments.length, tts_audio_url: input.audioUrl }),
+        relatedVideoId: videoId,
+      });
+    },
+  });
+
+  if (error) {
+    if (requestIds.length === 0 && isWavespeedRejection(error)) {
+      logger.error({ videoId, err: error.message }, "[WAN3] WaveSpeed rechazó WAN 3.0 — se usa InfiniteTalk");
+      return "rejected";
+    }
+    throw new Error(
+      `WAN 3.0 aceptó ${requestIds.length}/${segments.length} segmentos y no se puede completar sin riesgo de duplicar cargos: ${error.message}`,
+    );
+  }
+
+  await db
+    .update(videosTable)
+    .set({ heygenVideoId: buildWan3Sentinel(requestIds), updatedAt: new Date() })
+    .where(and(
+      eq(videosTable.id, videoId),
+      eq(videosTable.status, "generating"),
+      eq(videosTable.heygenVideoId, input.handoffSentinel),
+    ));
+  logger.info({ videoId, requestIds, resolution }, "[WAN3] Segmentos enviados");
+  return "submitted";
+}
+
+/** Poll every WAN segment; finalize once all are done. */
+async function advanceWan3Segments(
+  video: typeof videosTable.$inferSelect,
+  requestIds: string,
+): Promise<WavespeedAdvanceResult> {
+  const ids = requestIds.split(",").map((id) => id.trim()).filter(Boolean);
+  const results = await Promise.all(ids.map((id) => getWavespeedJobStatus(id)));
+
+  const failed = results.find((r) => r.status === "failed");
+  if (failed) {
+    throw new Error(`WS_TERMINAL: WAN 3.0 fallido: ${failed.error ?? "error desconocido"}`);
+  }
+  if (!results.every((r) => r.status === "completed")) return "waiting";
+
+  const clipUrls = results.map((r, i) => {
+    const url = wavespeedOutputUrl(r.outputs, ["video_url", "video", "url"]);
+    if (!url) throw new Error(`WS_TERMINAL: WAN 3.0 segmento ${i + 1} completado sin video`);
+    return url;
+  });
+  return finalizeWavespeedTalkingHead(video, requestIds, clipUrls[0]!, { clipUrls });
+}
+
+/** Join finished WAN clips into one MP4 and store it like any raw video. */
+async function joinWan3ClipsToStorage(
+  videoId: number,
+  clipUrls: string[],
+): Promise<{ videoUrl: string; thumbnailUrl: string | null }> {
+  const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
+  if (!bucketId) throw new Error("Object Storage no configurado para unir los segmentos WAN 3.0");
+  const tmpPath = `/tmp/wan3-${videoId}.mp4`;
+  try {
+    await concatWan3Clips(clipUrls, tmpPath);
+    const objectName = `raw-videos/${videoId}.mp4`;
+    await objectStorageClient
+      .bucket(bucketId)
+      .file(objectName)
+      .save(nodeFs.readFileSync(tmpPath), { contentType: "video/mp4" });
+    logger.info({ videoId, segments: clipUrls.length }, "[WAN3] Segmentos unidos y guardados");
+    return { videoUrl: `${getCanonicalOrigin()}/api/captioned-objects/${objectName}`, thumbnailUrl: null };
+  } finally {
+    nodeFs.rmSync(tmpPath, { force: true });
   }
 }
 
@@ -3085,9 +3253,13 @@ async function finalizeWavespeedTalkingHead(
   video: typeof videosTable.$inferSelect,
   requestId: string,
   sourceVideoUrl: string,
+  // WAN 3.0: `requestId` is the comma-separated segment ids and `clipUrls`
+  // holds every finished segment in order; several clips are joined first.
+  wan?: { clipUrls: string[] },
 ): Promise<"waiting" | "complete" | "inactive"> {
-  const sourceSentinel = `wavespeed-th:${requestId}`;
-  const finalizingSentinel = `wavespeed-th-finalizing:${requestId}`;
+  const stage = wan ? "wan" : "th";
+  const sourceSentinel = `wavespeed-${stage}:${requestId}`;
+  const finalizingSentinel = `wavespeed-${stage}-finalizing:${requestId}`;
   const claimed = await db
     .update(videosTable)
     .set({ heygenVideoId: finalizingSentinel, updatedAt: new Date() })
@@ -3101,16 +3273,24 @@ async function finalizeWavespeedTalkingHead(
   if (!claimed[0]) return "waiting";
 
   try {
-    await db
-      .update(wavespeedJobsTable)
-      .set({ status: "completed", outputUrl: sourceVideoUrl, updatedAt: new Date() })
-      .where(eq(wavespeedJobsTable.wavespeedRequestId, requestId));
+    const jobIds = wan ? requestId.split(",") : [requestId];
+    const jobUrls = wan ? wan.clipUrls : [sourceVideoUrl];
+    for (let i = 0; i < jobIds.length; i++) {
+      await db
+        .update(wavespeedJobsTable)
+        .set({ status: "completed", outputUrl: jobUrls[i], updatedAt: new Date() })
+        .where(eq(wavespeedJobsTable.wavespeedRequestId, jobIds[i]!));
+    }
 
     // The persistence helper intentionally falls back to the provider URL if
     // Object Storage has a temporary failure. The video is still usable and a
     // later recovery can re-persist it; never leave a completed provider job
-    // stuck merely because an upload retry is needed.
-    const persistent = await persistVideoAssetsToStorage(video.id, sourceVideoUrl, null);
+    // stuck merely because an upload retry is needed. Joining several WAN
+    // segments has no such fallback: a failure throws and is retried from the
+    // already-completed jobs on the next tick (never resubmitted).
+    const persistent = wan && wan.clipUrls.length > 1
+      ? await joinWan3ClipsToStorage(video.id, wan.clipUrls)
+      : await persistVideoAssetsToStorage(video.id, sourceVideoUrl, null);
     const thumbnailUrl = persistent.thumbnailUrl ??
       await createRawVideoThumbnail(video.id, persistent.videoUrl);
     const ready = await db
@@ -3332,8 +3512,11 @@ export async function advanceWavespeedVideo(videoId: number): Promise<WavespeedA
       );
       return "failed";
     }
-    if (sentinel.stage === "th-finalizing") {
+    if (sentinel.stage === "th-finalizing" || sentinel.stage === "wan-finalizing") {
       return "waiting";
+    }
+    if (sentinel.stage === "wan") {
+      return advanceWan3Segments(video, sentinel.requestId);
     }
 
     const jobResult = await getWavespeedJobStatus(sentinel.requestId);
@@ -3478,12 +3661,13 @@ export async function resumePendingWavespeedVideoMonitors(): Promise<void> {
       startWavespeedVideoMonitor({ videoId: video.id });
       continue;
     }
-    if (sentinel.stage === "th-finalizing") {
+    const sourceStage = finalizingSourceStage(sentinel.stage);
+    if (sourceStage) {
       // A restart may interrupt persistence after the remote job completed. Its
       // request id is durable, so return to the polling sentinel and resume.
       await db
         .update(videosTable)
-        .set({ heygenVideoId: `wavespeed-th:${sentinel.requestId}`, updatedAt: new Date() })
+        .set({ heygenVideoId: `wavespeed-${sourceStage}:${sentinel.requestId}`, updatedAt: new Date() })
         .where(and(
           eq(videosTable.id, video.id),
           eq(videosTable.status, "generating"),

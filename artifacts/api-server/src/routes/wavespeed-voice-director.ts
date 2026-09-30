@@ -41,7 +41,11 @@ import {
   generateVdAudioPreview,
   VD_AUDIO_DIR,
 }                                       from "../lib/wavespeed-voice-director-audio.js";
-import { generateVdVideoPreview }       from "../lib/wavespeed-voice-director-video.js";
+import {
+  generateVdVideoPreview,
+  getVideoJobsStatus,
+  resolveVideoJobsUrl,
+}                                      from "../lib/wavespeed-voice-director-video.js";
 
 // ── Router ────────────────────────────────────────────────────────────────────
 
@@ -247,14 +251,15 @@ router.post("/wavespeed/voice-director/preview-audio", async (req: Request, res:
 // ── POST /wavespeed/voice-director/preview-video ──────────────────────────────
 
 /**
- * Generate a full voice-director video preview (audio + InfiniteTalk).
+ * Generate a full voice-director video preview (audio + WAN 3.0 / InfiniteTalk).
  * Exclusively WaveSpeed/MiniMax — no HeyGen code touched.
  *
  * Flow:
  *   1. analyzeScriptForWavespeed → segments with per-intent speed/pitch
  *   2. minimax/speech-2.6-turbo per segment → concat MP3
  *   3. Upload MP3 to Object Storage → signed GCS URL
- *   4. wavespeed-ai/infinitetalk (lookImageUrl + audio) → video
+ *   4. alibaba/wan-3.0/reference-to-video (look + voice reference + dialogue,
+ *      one job per ≤36-word segment) → video; wavespeed-ai/infinitetalk as fallback
  *   5. Poll ≤25 s; return requestId if still processing so caller can check later
  *
  * COSTS WAVESPEED CREDITS — N speech jobs + 1 video job.
@@ -361,7 +366,9 @@ router.post("/wavespeed/voice-director/preview-video", async (req: Request, res:
           ? `/api/wavespeed/voice-director/job/${result.videoRequestId}`
           : null,
         creditNote: `${segmentCount} segment(s) + ` +
-          (result.videoRequestId ? "1 video job processed." : "0 video jobs (audio failed).") +
+          (result.videoRequestId
+            ? `${result.videoRequestId.split(",").length} video job(s) processed.`
+            : "0 video jobs (audio failed).") +
           " Credits consumed from your balance.",
       },
     });
@@ -404,6 +411,22 @@ router.get("/wavespeed/voice-director/job/:requestId", async (req: Request, res:
   }
 
   try {
+    // Multi-segment WAN 3.0 preview: comma-separated ids → combined status,
+    // segments joined into one video once all are completed.
+    if (requestId.includes(",")) {
+      const combined = await getVideoJobsStatus(requestId.trim(), process.env.WAVESPEED_API_KEY!);
+      const outputUrl = combined.status === "completed"
+        ? await resolveVideoJobsUrl(requestId.trim(), combined.outputs as string[])
+        : null;
+      res.json({
+        requestId,
+        status:   combined.status,
+        outputUrl,
+        error:    combined.error ?? null,
+      });
+      return;
+    }
+
     const result = await getJobStatus(requestId.trim(), process.env.WAVESPEED_API_KEY!);
 
     // Extract URL — works for both audio and video outputs

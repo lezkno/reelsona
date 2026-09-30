@@ -8,12 +8,14 @@
  *      (minimax/speech-2.6-turbo, per-segment speed/pitch, FFmpeg concat)
  *   2. Upload of the concatenated MP3 to Object Storage (signed GET URL
  *      for WaveSpeed to download — bypasses the mTLS proxy)
- *   3. Talking-head video via wavespeed-ai/infinitetalk
- *      (look image + audio → lip-synced vertical presenter video)
+ *   3. Talking-head video via alibaba/wan-3.0/reference-to-video (default:
+ *      look image + ≤10 s voice reference + dialogue, one job per ≤36-word
+ *      segment, joined with FFmpeg) or wavespeed-ai/infinitetalk (fallback /
+ *      WAVESPEED_TALKING_MODEL=infinitetalk: look image + audio → video)
  *
  * SCOPE
  * -----
- * Exclusively for WaveSpeed/MiniMax/InfiniteTalk.
+ * Exclusively for WaveSpeed/MiniMax/WAN 3.0/InfiniteTalk.
  * ZERO imports from or modifications to HeyGen modules.
  * HeyGen voice generation, SSML, resolveVoiceId, generateVideo, and the
  * scheduler's HeyGen pipeline remain completely untouched.
@@ -27,11 +29,11 @@
  * uploadAudioForWavespeed, generateVdVideoPreview — I/O.
  */
 
-import { readFile }                from "node:fs/promises";
-import { randomUUID }              from "node:crypto";
+import { readFile, rm }            from "node:fs/promises";
+import { randomUUID, createHash }  from "node:crypto";
 import { basename }                from "node:path";
 
-import { eq }                      from "drizzle-orm";
+import { inArray }                 from "drizzle-orm";
 import { db }                      from "@workspace/db";
 import { wavespeedJobsTable }       from "@workspace/db/schema";
 
@@ -54,6 +56,13 @@ import {
   type SegmentJobRecord,
 }                                  from "./wavespeed-voice-director-audio.js";
 import type { VoiceDirectorPresetId } from "./wavespeed.js";
+import {
+  isWan3Enabled,
+  splitScriptIntoWan3Segments,
+  submitWan3Segments,
+  trimAudioToFile,
+  concatWan3Clips,
+}                                  from "./wan3-talking.js";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -62,6 +71,9 @@ import type { VoiceDirectorPresetId } from "./wavespeed.js";
  * Files are auto-named with a UUID so they are unguessable.
  */
 const GCS_AUDIO_PREFIX = "vd-audio-previews";
+
+/** GCS object prefix for joined multi-segment WAN 3.0 preview videos. */
+const GCS_VIDEO_PREFIX = "vd-video-previews";
 
 /**
  * How long the signed GET URL remains valid.
@@ -90,9 +102,12 @@ export interface VdVideoPreviewResult {
   audioFilename: string | null;
   /** Signed GCS URL used as the `audio` input to InfiniteTalk */
   audioSignedUrl: string | null;
-  /** WaveSpeed requestId for the InfiniteTalk video job */
+  /**
+   * WaveSpeed requestId of the video job. For a multi-segment WAN 3.0 video
+   * the ids are comma-separated; GET /job/:requestId accepts the same string.
+   */
   videoRequestId: string | null;
-  /** Current status of the InfiniteTalk job */
+  /** Current status of the video job(s) */
   videoStatus: "queued" | "processing" | "completed" | "failed" | "not_started";
   /** Output video URL — only present when status is "completed" */
   videoUrl: string | null;
@@ -128,6 +143,7 @@ export function buildInfiniteTalkPrompt(): string {
  * Pure: no I/O.
  */
 export function buildVideoJobInputPayload(opts: {
+  model?: string;
   lookImageUrl: string;
   audioSignedUrl: string;
   presetId: string;
@@ -137,7 +153,7 @@ export function buildVideoJobInputPayload(opts: {
 }): string {
   return JSON.stringify({
     source:        "voice_director_video_preview",
-    model:         WAVESPEED_MODELS.TALKING_HEAD,
+    model:         opts.model ?? WAVESPEED_MODELS.TALKING_HEAD,
     lookImageUrl:  opts.lookImageUrl,
     audioSignedUrl: opts.audioSignedUrl,
     presetId:      opts.presetId,
@@ -196,10 +212,63 @@ export async function uploadAudioForWavespeed(
   return getSignedObjectUrl(objectName, AUDIO_SIGNED_URL_TTL_SEC);
 }
 
-// ── InfiniteTalk polling ───────────────────────────────────────────────────────
+// ── Video job polling ──────────────────────────────────────────────────────────
 
 /**
- * Poll an InfiniteTalk job for up to VIDEO_POLL_TIMEOUT_MS.
+ * Combined status of one or more video jobs (comma-separated ids):
+ * failed if any failed, completed only when all completed (outputs = the
+ * clip URLs in order), otherwise processing.
+ */
+export async function getVideoJobsStatus(
+  requestIds: string,
+  apiKey: string,
+): Promise<WavespeedJobResult> {
+  const ids = requestIds.split(",").map((id) => id.trim()).filter(Boolean);
+  const results = await Promise.all(ids.map((id) => getJobStatus(id, apiKey)));
+  const failed = results.find((r) => r.status === "failed");
+  if (failed) return { ...failed, id: requestIds };
+  if (results.every((r) => r.status === "completed")) {
+    const urls = results.map((r) => extractVideoUrl(r.outputs));
+    if (urls.some((u) => !u)) {
+      return { id: requestIds, status: "failed", error: "Video job completed without an output URL" };
+    }
+    return { id: requestIds, status: "completed", outputs: urls };
+  }
+  return { id: requestIds, status: results.some((r) => r.status === "processing") ? "processing" : "queued" };
+}
+
+/**
+ * Final playable URL for completed video jobs. A single clip is returned as
+ * is; several WAN 3.0 segments are joined once, stored in Object Storage
+ * under a name derived from the ids, and returned as a signed URL.
+ */
+export async function resolveVideoJobsUrl(
+  requestIds: string,
+  clipUrls: string[],
+): Promise<string> {
+  if (clipUrls.length === 1) return clipUrls[0]!;
+
+  const bucketName = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
+  if (!bucketName) throw new Error("DEFAULT_OBJECT_STORAGE_BUCKET_ID is not set — cannot join video segments");
+  const hash = createHash("sha1").update(requestIds).digest("hex").slice(0, 24);
+  const objectName = `${GCS_VIDEO_PREFIX}/${hash}.mp4`;
+  const file = objectStorageClient.bucket(bucketName).file(objectName);
+
+  const [exists] = await file.exists();
+  if (!exists) {
+    const tmpPath = `/tmp/vd-wan3-${hash}.mp4`;
+    try {
+      await concatWan3Clips(clipUrls, tmpPath);
+      await file.save(await readFile(tmpPath), { contentType: "video/mp4" });
+    } finally {
+      await rm(tmpPath, { force: true });
+    }
+  }
+  return getSignedObjectUrl(objectName, 24 * 3600);
+}
+
+/**
+ * Poll the video job(s) for up to VIDEO_POLL_TIMEOUT_MS.
  * Returns the final result, or the last seen result if still processing
  * when the timeout expires.
  *
@@ -215,7 +284,7 @@ async function pollVideoJob(
     await new Promise((r) => setTimeout(r, interval));
 
     try {
-      const result = await getJobStatus(requestId, apiKey);
+      const result = await getVideoJobsStatus(requestId, apiKey);
       lastResult = result;
       if (result.status === "completed" || result.status === "failed") {
         return result;
@@ -228,16 +297,82 @@ async function pollVideoJob(
   return lastResult; // Still processing after timeout
 }
 
+/**
+ * Submit the WAN 3.0 segments for a preview and persist each accepted job.
+ * Returns the comma-separated ids, or null when WAN rejected the submission
+ * before accepting any job (the caller then falls back to InfiniteTalk).
+ */
+async function submitVdWan3(opts: {
+  text: string;
+  lookImageUrl: string;
+  audioPath: string;
+  audioSignedUrl: string;
+  presetId: VoiceDirectorPresetId;
+  voiceId: string;
+  apiKey: string;
+  userId: number;
+}): Promise<{ requestIds: string | null; error: string | null }> {
+  const segments = splitScriptIntoWan3Segments(opts.text);
+  if (segments.length === 0) return { requestIds: null, error: "Empty script" };
+
+  // ≤10 s voice reference (WaveSpeed recommends 3–10 s); full audio on failure.
+  let voiceReferenceUrl = opts.audioSignedUrl;
+  const refPath = `/tmp/vd-wan3-voice-${randomUUID()}.mp3`;
+  try {
+    await trimAudioToFile(opts.audioPath, refPath);
+    voiceReferenceUrl = await uploadAudioForWavespeed(refPath, opts.userId);
+  } catch {
+    // keep the full audio as reference
+  } finally {
+    await rm(refPath, { force: true });
+  }
+
+  const { requestIds, error } = await submitWan3Segments({
+    imageUrl: opts.lookImageUrl,
+    voiceReferenceUrl,
+    segments,
+    apiKey: opts.apiKey,
+    onAccepted: async (requestId) => {
+      try {
+        await db.insert(wavespeedJobsTable).values({
+          userId:             opts.userId,
+          model:              WAVESPEED_MODELS.WAN3_TALKING,
+          status:             "queued",
+          wavespeedRequestId: requestId,
+          inputPayload:       buildVideoJobInputPayload({
+            model:          WAVESPEED_MODELS.WAN3_TALKING,
+            lookImageUrl:   opts.lookImageUrl,
+            audioSignedUrl: voiceReferenceUrl,
+            presetId:       opts.presetId,
+            voiceId:        opts.voiceId,
+            segmentCount:   segments.length,
+            userId:         opts.userId,
+          }),
+        });
+      } catch { /* non-fatal — preview works without the DB row */ }
+    },
+  });
+
+  if (requestIds.length === 0) return { requestIds: null, error: error?.message ?? "WAN 3.0 submission failed" };
+  if (error) {
+    // Some segments were accepted (and billed) but not all: the preview cannot
+    // be completed with WAN. Report it instead of submitting more jobs.
+    return { requestIds: null, error: `WAN 3.0 accepted ${requestIds.length}/${segments.length} segments: ${error.message}` };
+  }
+  return { requestIds: requestIds.join(","), error: null };
+}
+
 // ── Main entry point ───────────────────────────────────────────────────────────
 
 /**
- * Generate a Voice Director video preview using InfiniteTalk.
+ * Generate a Voice Director video preview using WAN 3.0 (InfiniteTalk fallback).
  *
  * Full flow (all WaveSpeed/MiniMax — no HeyGen):
  *   1. analyzeScriptForWavespeed(text, preset) → segments
  *   2. generateVdAudioPreview() → concatenated MP3 (minimax/speech-2.6-turbo)
  *   3. uploadAudioForWavespeed() → signed GCS URL
- *   4. submitTalkingHead(lookImageUrl, signedAudioUrl) → InfiniteTalk requestId
+ *   4. WAN 3.0 segments (look + ≤10 s voice reference + dialogue) → requestIds,
+ *      or submitTalkingHead(lookImageUrl, signedAudioUrl) → InfiniteTalk requestId
  *   5. Save to wavespeed_jobs with source="voice_director_video_preview"
  *   6. Poll ≤VIDEO_POLL_TIMEOUT_MS → return result (or requestId if still processing)
  *
@@ -316,51 +451,80 @@ export async function generateVdVideoPreview(opts: {
     };
   }
 
-  // ── 5. Submit InfiniteTalk ─────────────────────────────────────────────────
-  let videoRequestId: string;
-  try {
-    const { requestId } = await submitTalkingHead(
+  // ── 5. Submit WAN 3.0 (default) or InfiniteTalk (fallback) ─────────────────
+  let videoRequestId: string | null = null;
+  let videoDbJobId: number | null = null;
+  if (isWan3Enabled()) {
+    const wan = await submitVdWan3({
+      text,
       lookImageUrl,
+      audioPath: audioResult.concatenatedAudioPath,
       audioSignedUrl,
-      { prompt: buildInfiniteTalkPrompt() },
+      presetId,
+      voiceId,
       apiKey,
-    );
-    videoRequestId = requestId;
-  } catch (err: any) {
-    return {
-      ...baseResult,
-      audioSignedUrl,
-      videoRequestId:    null,
-      videoStatus:       "not_started",
-      videoUrl:          null,
-      videoDbJobId:      null,
-      videoErrorMessage: `InfiniteTalk submission failed: ${err.message ?? "Unknown error"}`,
-    };
+      userId,
+    });
+    if (wan.requestIds) {
+      videoRequestId = wan.requestIds;
+    } else if (wan.error?.startsWith("WAN 3.0 accepted")) {
+      // Partial submission: never add more billed jobs on top of it.
+      return {
+        ...baseResult,
+        audioSignedUrl,
+        videoRequestId:    null,
+        videoStatus:       "failed",
+        videoUrl:          null,
+        videoDbJobId:      null,
+        videoErrorMessage: wan.error,
+      };
+    }
   }
 
-  // ── 6. Persist to wavespeed_jobs ───────────────────────────────────────────
-  let videoDbJobId: number | null = null;
-  try {
-    const [row] = await db
-      .insert(wavespeedJobsTable)
-      .values({
-        userId,
-        model:              WAVESPEED_MODELS.TALKING_HEAD,
-        status:             "queued",
-        wavespeedRequestId: videoRequestId,
-        inputPayload:       buildVideoJobInputPayload({
-          lookImageUrl,
-          audioSignedUrl,
-          presetId,
-          voiceId,
-          segmentCount: analysis.segments.length,
+  if (!videoRequestId) {
+    try {
+      const { requestId } = await submitTalkingHead(
+        lookImageUrl,
+        audioSignedUrl,
+        { prompt: buildInfiniteTalkPrompt() },
+        apiKey,
+      );
+      videoRequestId = requestId;
+    } catch (err: any) {
+      return {
+        ...baseResult,
+        audioSignedUrl,
+        videoRequestId:    null,
+        videoStatus:       "not_started",
+        videoUrl:          null,
+        videoDbJobId:      null,
+        videoErrorMessage: `InfiniteTalk submission failed: ${err.message ?? "Unknown error"}`,
+      };
+    }
+
+    // ── 6. Persist to wavespeed_jobs ─────────────────────────────────────────
+    try {
+      const [row] = await db
+        .insert(wavespeedJobsTable)
+        .values({
           userId,
-        }),
-      })
-      .returning({ id: wavespeedJobsTable.id });
-    videoDbJobId = row?.id ?? null;
-  } catch {
-    // Non-fatal — preview works without the DB row
+          model:              WAVESPEED_MODELS.TALKING_HEAD,
+          status:             "queued",
+          wavespeedRequestId: videoRequestId,
+          inputPayload:       buildVideoJobInputPayload({
+            lookImageUrl,
+            audioSignedUrl,
+            presetId,
+            voiceId,
+            segmentCount: analysis.segments.length,
+            userId,
+          }),
+        })
+        .returning({ id: wavespeedJobsTable.id });
+      videoDbJobId = row?.id ?? null;
+    } catch {
+      // Non-fatal — preview works without the DB row
+    }
   }
 
   // ── 7. Poll (short window — return requestId if still processing) ──────────
@@ -375,9 +539,14 @@ export async function generateVdVideoPreview(opts: {
       : "processing"
   ) as VdVideoPreviewResult["videoStatus"];
 
-  const videoUrl = pollResult.status === "completed"
-    ? (extractVideoUrl(pollResult.outputs) ?? null)
-    : null;
+  let videoUrl: string | null = null;
+  if (pollResult.status === "completed" && Array.isArray(pollResult.outputs)) {
+    try {
+      videoUrl = await resolveVideoJobsUrl(videoRequestId, pollResult.outputs as string[]);
+    } catch {
+      // Joining failed — GET /job/:requestId retries it later
+    }
+  }
 
   // ── 8. Update DB row with final status (best-effort) ──────────────────────
   if (videoDbJobId || videoRequestId) {
@@ -393,7 +562,7 @@ export async function generateVdVideoPreview(opts: {
           errorMessage:  pollResult.error ?? undefined,
           updatedAt:     new Date(),
         })
-        .where(eq(wavespeedJobsTable.wavespeedRequestId, videoRequestId));
+        .where(inArray(wavespeedJobsTable.wavespeedRequestId, videoRequestId.split(",")));
     } catch { /* non-fatal */ }
   }
 

@@ -2,7 +2,12 @@ export type WaveSpeedPollingDecision =
   | { action: "continue" }
   | { action: "timeout"; reason: string };
 
-export const WAVESPEED_POLL_MAX_ATTEMPTS = 40;
+/**
+ * ≈63 min at the capped 30 s delay — just past the 60-minute age timeout, so
+ * the age limit decides. 40 attempts (~19 min) failed long WAN 3.0 videos
+ * (several segments queued at WaveSpeed) that were still running and billed.
+ */
+export const WAVESPEED_POLL_MAX_ATTEMPTS = 130;
 export const WAVESPEED_POLL_INITIAL_DELAY_MS = 3_000;
 export const WAVESPEED_POLL_MAX_DELAY_MS = 30_000;
 
