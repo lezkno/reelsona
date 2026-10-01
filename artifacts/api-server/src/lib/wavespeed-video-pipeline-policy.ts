@@ -54,3 +54,23 @@ export function finalizingSourceStage(stage: WavespeedVideoStage): "th" | "wan" 
   if (stage === "wan-finalizing") return "wan";
   return null;
 }
+
+/**
+ * How long a `tts-handoff` lease stays valid without a heartbeat. The worker
+ * that owns the handoff refreshes the TTS job row's updated_at when it starts
+ * and before every WAN segment it submits (a WAN handoff can take a minute or
+ * more: voice reference upload + several sequential submissions). Until the
+ * lease expires, other workers (cron, monitors, startup recovery) must WAIT:
+ * failing it early killed live multi-segment WAN submissions after segment 1.
+ */
+export const WAVESPEED_HANDOFF_LEASE_MS = 10 * 60_000;
+
+/** True when a tts-handoff lease has no heartbeat within the lease window. */
+export function isHandoffLeaseExpired(
+  heartbeatAt: Date | null | undefined,
+  now: Date = new Date(),
+  leaseMs: number = WAVESPEED_HANDOFF_LEASE_MS,
+): boolean {
+  if (!heartbeatAt) return true;
+  return now.getTime() - heartbeatAt.getTime() > leaseMs;
+}

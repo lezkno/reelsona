@@ -17,6 +17,7 @@ Only the avatar video step changed (`artifacts/api-server/src/lib/wan3-talking.t
 
 ## Safety
 - Every accepted WAN job is inserted in `wavespeed_jobs` right after submission; a retry reuses them and NEVER resubmits.
+- PRODUCTION BUG FIXED: other workers (1-min cron in prod, monitors, startup recovery) used to fail ANY `tts-handoff` row immediately, killing a live WAN submission after segment 1 (dev worked because cron is off there). The handoff lease now has a heartbeat — the TTS job row's `updated_at` (videos.updated_at is touched by every poll tick) — refreshed at start and before every segment; others wait until `WAVESPEED_HANDOFF_LEASE_MS` (10 min) passes without heartbeat (`isHandoffLeaseExpired`).
 - WAN is submitted inside the `tts-handoff` lease (crash there → fail safely, like InfiniteTalk). WaveSpeed rejected the FIRST request (4xx, nothing billed) → InfiniteTalk. Partial/ambiguous submission or a failed segment → terminal failure + credit release (never resubmitted).
 - `WAVESPEED_TALKING_MODEL=infinitetalk` → old behaviour. `WAN3_RESOLUTION` = 480p | 720p (default) | 1080p.
 - Voice Director preview (`wavespeed-voice-director-video.ts`) also uses WAN 3.0; multi-segment ids are comma-separated in `videoRequestId` and GET /wavespeed/voice-director/job/:ids joins them (cached in `vd-video-previews/`).
