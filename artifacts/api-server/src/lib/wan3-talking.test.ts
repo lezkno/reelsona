@@ -346,3 +346,73 @@ test("uses the audio stream end (last time=) when audio is shorter than the vide
   ].join("\n");
   assert.equal(trailingSilenceCut(stderr, 0.3), 8.3);
 });
+
+// ── Per-segment voice reference ───────────────────────────────────────────────
+
+import { prepareSegmentVoiceReferences } from "./wan3-talking";
+import { execFileSync } from "node:child_process";
+
+test("the prompt forbids speaking the words of the audio reference", () => {
+  const prompt = buildWan3Prompt({ dialogue: "Hola.", language: "es", segmentIndex: 2, segmentCount: 4 });
+  assert.match(prompt, /audio reference ONLY as the target person's voice identity/);
+  assert.match(prompt, /Never speak, repeat or continue the words heard in the audio reference/);
+});
+
+test("each segment gets the slice of the TTS audio that says its own words", async (t) => {
+  try {
+    execFileSync("ffmpeg", ["-version"], { stdio: "ignore" });
+  } catch {
+    t.skip("ffmpeg not installed");
+    return;
+  }
+  const dir = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), "wan3-ref-"));
+  try {
+    // Speech 0.3–2.3 s, pause, 3.0–5.0 s, pause, 5.8–7.8 s.
+    const audio = nodePath.join(dir, "tts.mp3");
+    execFileSync("ffmpeg", [
+      "-y", "-loglevel", "error", "-f", "lavfi", "-i",
+      "aevalsrc=if(between(t\\,0.3\\,2.3)+between(t\\,3.0\\,5.0)+between(t\\,5.8\\,7.8)\\,0.5*sin(2*PI*440*t)\\,0):s=22050:d=8.2",
+      "-acodec", "libmp3lame", audio,
+    ]);
+    const uploaded: Array<{ index: number; bytes: number }> = [];
+    const urls = await prepareSegmentVoiceReferences({
+      audioSource: audio,
+      segments: ["Hola a todos, bienvenidos.", "Hoy te cuento un secreto.", "Quédate hasta el final."],
+      fallbackUrl: "https://cdn/fallback.mp3",
+      upload: async (localPath, index) => {
+        uploaded.push({ index, bytes: nodeFs.statSync(localPath).size });
+        return `https://cdn/ref-${index}.mp3`;
+      },
+    });
+    assert.deepEqual(urls, ["https://cdn/ref-0.mp3", "https://cdn/ref-1.mp3", "https://cdn/ref-2.mp3"]);
+    assert.deepEqual(uploaded.map((u) => u.index), [0, 1, 2]);
+    assert.ok(uploaded.every((u) => u.bytes > 1_000), "every slice has audio");
+  } finally {
+    nodeFs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("unalignable audio → null so the caller keeps a single reference", async () => {
+  const urls = await prepareSegmentVoiceReferences({
+    audioSource: "/nonexistent/tts.mp3",
+    segments: ["Hola."],
+    fallbackUrl: "https://cdn/fallback.mp3",
+    upload: async () => "https://cdn/x.mp3",
+  });
+  assert.equal(urls, null);
+});
+
+test("each payload uses its own segment reference when provided", async () => {
+  const stub = stubWavespeed([ok("a"), ok("b")]);
+  try {
+    await submitWan3Segments({
+      imageUrl: "https://cdn/look.jpg",
+      voiceReferenceUrl: "https://cdn/full.mp3",
+      voiceReferenceUrls: ["https://cdn/ref-0.mp3", "https://cdn/ref-1.mp3"],
+      segments: ["Uno.", "Dos."],
+    });
+    assert.deepEqual(stub.calls.map((c) => c.body.reference_audios), [["https://cdn/ref-0.mp3"], ["https://cdn/ref-1.mp3"]]);
+  } finally {
+    stub.restore();
+  }
+});

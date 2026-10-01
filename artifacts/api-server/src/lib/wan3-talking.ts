@@ -23,10 +23,12 @@
 
 import nodeFs from "fs";
 import nodePath from "path";
+import os from "os";
 import { randomUUID } from "crypto";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import { submitJob, WAVESPEED_MODELS } from "./wavespeed";
+import { detectSpeechIntervals, probeDurationMs, segmentTimeRanges } from "./speech-aligned-srt";
 
 const execFileAsync = promisify(execFile);
 
@@ -272,9 +274,10 @@ export function buildWan3Prompt(opts: {
       "structure, eyes, nose, mouth, skin tone, hair and recognizable likeness, the same outfit, and the same " +
       "place, background style and lighting from the first frame to the last frame. Do not invent or replace the " +
       "face. The camera position and shot size may change as directed below, but always inside that same place. " +
-      "Use the audio reference as the target person's voice identity, timbre, " +
-      `${isSpanish ? "accent, " : ""}and natural speaking style. Generate clear ${language} speech with accurate ` +
-      "lip synchronization and natural blinking.",
+      "Use the audio reference ONLY as the target person's voice identity, timbre, " +
+      `${isSpanish ? "accent, " : ""}and natural speaking style. Never speak, repeat or continue the words heard ` +
+      "in the audio reference: the only words spoken are the EXACT DIALOGUE below. Generate clear " +
+      `${language} speech with accurate lip synchronization and natural blinking.`,
     "The person in IMAGE 1 is the only person in the scene and the only person who speaks.",
     `The person speaks to the camera in ${language}, with clear pronunciation, believable phoneme-level lip ` +
       "synchronization, natural pauses, and an engaging, energetic tone, like a real content creator talking " +
@@ -356,6 +359,12 @@ export function isWavespeedRejection(err: unknown): boolean {
 export async function submitWan3Segments(opts: {
   imageUrl: string;
   voiceReferenceUrl: string;
+  /**
+   * Optional per-segment voice reference (the TTS audio saying that same
+   * segment). A reference that says OTHER words makes WAN mix them into the
+   * speech, so each segment should get its own slice.
+   */
+  voiceReferenceUrls?: string[];
   segments: string[];
   language?: string | null;
   topic?: string | null;
@@ -376,7 +385,7 @@ export async function submitWan3Segments(opts: {
     }
     const payload = buildWan3Payload({
       imageUrl: opts.imageUrl,
-      voiceReferenceUrl: opts.voiceReferenceUrl,
+      voiceReferenceUrl: opts.voiceReferenceUrls?.[i] ?? opts.voiceReferenceUrl,
       dialogue: opts.segments[i]!,
       language: opts.language,
       topic: opts.topic,
@@ -400,6 +409,67 @@ export async function submitWan3Segments(opts: {
     await opts.onAccepted?.(requestId, i, payload);
   }
   return { requestIds, resolution, error: null };
+}
+
+/**
+ * One voice reference per segment: the slice of the TTS audio that speaks that
+ * segment's own words (≤ WAN3_VOICE_REFERENCE_SECONDS from its start), found by
+ * aligning the segment texts over the detected speech of the TTS audio.
+ *
+ * Why: WAN conditions on what the reference SAYS, not only on the timbre. With
+ * the script's opening as the reference for every segment, later segments
+ * mixed the opening words into their own dialogue ("garbled" speech).
+ *
+ * `segments` must be consecutive pieces of the text the audio says. Returns
+ * null when the audio cannot be aligned (caller keeps a single reference);
+ * a single failed slice falls back to `fallbackUrl`.
+ */
+export async function prepareSegmentVoiceReferences(opts: {
+  audioSource: string;
+  segments: string[];
+  fallbackUrl: string;
+  upload: (localPath: string, segmentIndex: number) => Promise<string>;
+}): Promise<string[] | null> {
+  const workDir = nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), "wan3-voice-"));
+  try {
+    let audioPath = opts.audioSource;
+    if (/^[a-z][a-z0-9+.-]*:/i.test(opts.audioSource)) {
+      assertHttpsUrl(opts.audioSource);
+      const res = await fetch(opts.audioSource, { signal: AbortSignal.timeout(60_000) });
+      if (!res.ok) throw new Error(`Audio download failed: HTTP ${res.status}`);
+      audioPath = nodePath.join(workDir, "tts.audio");
+      nodeFs.writeFileSync(audioPath, Buffer.from(await res.arrayBuffer()));
+    }
+    const durationMs = await probeDurationMs(audioPath);
+    if (!durationMs) return null;
+    const intervals = await detectSpeechIntervals(audioPath, durationMs);
+    const ranges = intervals ? segmentTimeRanges(opts.segments, intervals) : null;
+    if (!ranges) return null;
+
+    const urls: string[] = [];
+    for (let i = 0; i < ranges.length; i++) {
+      const { startMs, endMs } = ranges[i]!;
+      const start = Math.max(0, startMs - 150) / 1000;
+      const length = Math.min(WAN3_VOICE_REFERENCE_SECONDS, Math.max(1, (endMs - startMs + 300) / 1000));
+      const outPath = nodePath.join(workDir, `ref-${i}.mp3`);
+      try {
+        await execFileAsync("ffmpeg", [
+          "-y", "-ss", start.toFixed(3), "-i", audioPath,
+          "-t", length.toFixed(3),
+          "-vn", "-acodec", "libmp3lame", "-b:a", "128k",
+          outPath,
+        ]);
+        urls.push(await opts.upload(outPath, i));
+      } catch {
+        urls.push(opts.fallbackUrl);
+      }
+    }
+    return urls;
+  } catch {
+    return null;
+  } finally {
+    nodeFs.rmSync(workDir, { recursive: true, force: true });
+  }
 }
 
 /** Write the first `seconds` of an audio URL or local file to a local MP3 (voice reference clip). */

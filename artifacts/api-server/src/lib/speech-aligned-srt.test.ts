@@ -118,3 +118,29 @@ test("the split between speech runs snaps to punctuation (the word after a perio
   assert.match(firstAfterPause.text, /^Y cómo/);
   assert.ok(blocks.filter((b) => b.endMs <= 4_000).every((b) => !/\bY\b/.test(b.text)));
 });
+
+import { segmentTimeRanges } from "./speech-aligned-srt";
+
+test("each text segment maps to the time range where the audio says it", () => {
+  // Three sentences spoken in three runs of speech separated by pauses.
+  const intervals = [
+    { startMs: 300, endMs: 2_300 },
+    { startMs: 3_000, endMs: 5_000 },
+    { startMs: 5_800, endMs: 7_800 },
+  ];
+  const ranges = segmentTimeRanges(
+    ["Hola a todos, bienvenidos.", "Hoy te cuento un secreto.", "Quédate hasta el final."],
+    intervals,
+  )!;
+  assert.equal(ranges.length, 3);
+  assert.equal(ranges[0]!.startMs, 300);
+  assert.equal(ranges[1]!.startMs, 3_000);
+  assert.equal(ranges[2]!.startMs, 5_800);
+  assert.equal(ranges[2]!.endMs, 7_800);
+  for (let i = 1; i < ranges.length; i++) assert.ok(ranges[i]!.startMs >= ranges[i - 1]!.endMs);
+});
+
+test("segment ranges are null when there is nothing to align", () => {
+  assert.equal(segmentTimeRanges(["hola"], []), null);
+  assert.equal(segmentTimeRanges(["hola", "   "], [{ startMs: 0, endMs: 1_000 }]), null);
+});
