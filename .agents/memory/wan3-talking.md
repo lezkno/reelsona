@@ -22,5 +22,5 @@ Only the avatar video step changed (`artifacts/api-server/src/lib/wan3-talking.t
 - Voice Director preview (`wavespeed-voice-director-video.ts`) also uses WAN 3.0; multi-segment ids are comma-separated in `videoRequestId` and GET /wavespeed/voice-director/job/:ids joins them (cached in `vd-video-previews/`).
 - First segment rejected (HTTP/API 4xx ≠ 429) at 720p/1080p → retried once at 480p (rejections are not billed). Timeouts/5xx are never retried.
 - On startup (index.ts) the log line `[WaveSpeed] Modelo de video de avatar activo` shows the active model.
-- Replit works on branch `stabilization-current-workspace` (remote `gitsafe-backup`), NOT `main`. Always base changes on origin/stabilization-current-workspace; a change on `main` never reaches the running app.
+- Replit works on branch `stabilization-current-workspace` (remote `gitsafe-backup`), NOT `main`. Always base changes on origin/stabilization-current-workspace; a change on `main` never reaches the running app. The owner updates Replit with `bash actualizar.sh` (fetch + ff/merge, pnpm install, build, restart API on PORT=8080 — starting it from the Shell without PORT=8080 gives a 502 at login).
 - Credits estimate is unchanged (same as InfiniteTalk); WAN cost per second is higher on WaveSpeed.
