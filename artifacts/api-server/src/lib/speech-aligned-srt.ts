@@ -91,7 +91,7 @@ export function syllableWeight(word: string): number {
   return Math.max(1, vowelGroups + digits);
 }
 
-interface TimedWord {
+export interface TimedWord {
   text: string;
   startMs: number;
   endMs: number;
@@ -99,15 +99,13 @@ interface TimedWord {
 }
 
 /**
- * Place transcript words over the detected speech intervals and group them
- * into caption blocks (≤5 words, never spanning a pause).
- * Returns null when there is nothing to align.
+ * Time every word of `words` over the detected speech intervals (pauses get
+ * no words). Returns null when there is nothing to align.
  */
-export function alignTranscriptToSpeech(
-  transcript: string,
+export function alignWordsToSpeech(
+  words: string[],
   intervals: SpeechInterval[],
-): Array<{ text: string; startMs: number; endMs: number }> | null {
-  const words = transcript.replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
+): TimedWord[] | null {
   const usable = intervals.filter((iv) => iv.endMs > iv.startMs);
   if (words.length === 0 || usable.length === 0) return null;
 
@@ -164,6 +162,20 @@ export function alignTranscriptToSpeech(
       t += dur;
     }
   }
+  return timed;
+}
+
+/**
+ * Place transcript words over the detected speech intervals and group them
+ * into caption blocks (≤5 words, never spanning a pause).
+ * Returns null when there is nothing to align.
+ */
+export function alignTranscriptToSpeech(
+  transcript: string,
+  intervals: SpeechInterval[],
+): Array<{ text: string; startMs: number; endMs: number }> | null {
+  const timed = alignWordsToSpeech(transcript.replace(/\s+/g, " ").trim().split(" ").filter(Boolean), intervals);
+  if (!timed) return null;
 
   // 3. Group into blocks of ≤5 words that never cross a pause.
   const blocks: Array<{ text: string; startMs: number; endMs: number }> = [];
@@ -183,6 +195,44 @@ export function alignTranscriptToSpeech(
   }
   flush();
   return blocks.filter((b) => b.endMs > b.startMs);
+}
+
+
+/**
+ * Time range in the audio where each text segment is spoken (segments are
+ * consecutive pieces of the same text the audio says). Null if not alignable.
+ */
+export function segmentTimeRanges(
+  segments: string[],
+  intervals: SpeechInterval[],
+): Array<{ startMs: number; endMs: number }> | null {
+  const perSegment = segments.map((seg) => seg.replace(/\s+/g, " ").trim().split(" ").filter(Boolean));
+  const timed = alignWordsToSpeech(perSegment.flat(), intervals);
+  if (!timed) return null;
+  const ranges: Array<{ startMs: number; endMs: number }> = [];
+  let index = 0;
+  for (const words of perSegment) {
+    if (words.length === 0) return null;
+    const first = timed[index]!;
+    const last = timed[index + words.length - 1]!;
+    ranges.push({ startMs: first.startMs, endMs: last.endMs });
+    index += words.length;
+  }
+  return ranges;
+}
+
+/** Media duration in ms from FFmpeg's "Duration:" line, or null. */
+export async function probeDurationMs(path: string): Promise<number | null> {
+  let stderr = "";
+  try {
+    await execFileAsync("ffmpeg", ["-hide_banner", "-i", path], { maxBuffer: 10 * 1024 * 1024 });
+  } catch (err) {
+    // `ffmpeg -i` with no output always exits non-zero; the header is in stderr.
+    stderr = String((err as { stderr?: string }).stderr ?? "");
+  }
+  const m = /Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/.exec(stderr);
+  if (!m) return null;
+  return Math.round((Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3])) * 1000);
 }
 
 function formatSrtTime(milliseconds: number): string {

@@ -100,6 +100,7 @@ import {
   isWavespeedRejection,
   splitScriptIntoWan3Segments,
   submitWan3Segments,
+  prepareSegmentVoiceReferences,
   trimAudioToFile,
   concatWan3Clips,
   buildWan3Sentinel,
@@ -3139,11 +3140,32 @@ async function submitWan3Handoff(input: {
   }
 
   const voiceReferenceUrl = await prepareWan3VoiceReference(videoId, input.audioUrl);
+  // One reference per segment: the TTS slice saying that segment's own words.
+  // (TTS and segments come from the same normalized script.)
+  const voiceReferenceUrls = await prepareSegmentVoiceReferences({
+    audioSource: input.audioUrl,
+    segments,
+    fallbackUrl: voiceReferenceUrl,
+    upload: async (localPath, segmentIndex) => {
+      const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
+      if (!bucketId) return voiceReferenceUrl;
+      const objectName = `voice-references/wan3-${videoId}-${segmentIndex}.mp3`;
+      await objectStorageClient
+        .bucket(bucketId)
+        .file(objectName)
+        .save(nodeFs.readFileSync(localPath), { contentType: "audio/mpeg" });
+      return getSignedObjectUrl(objectName, 24 * 3600);
+    },
+  });
+  if (!voiceReferenceUrls) {
+    logger.warn({ videoId }, "[WAN3] No se pudo alinear el audio por segmento — se usa una sola referencia de voz");
+  }
   await touchWavespeedHandoff(input.ttsRequestId, videoId);
   logger.info({ videoId, segments: segments.length }, "[WAN3] Enviando segmentos a WAN 3.0");
   const { requestIds, resolution, error } = await submitWan3Segments({
     imageUrl: input.imageUrl,
     voiceReferenceUrl,
+    voiceReferenceUrls: voiceReferenceUrls ?? undefined,
     segments,
     language,
     topic: input.topic,

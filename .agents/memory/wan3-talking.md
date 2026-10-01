@@ -8,7 +8,7 @@ The WaveSpeed pipeline is still script → MiniMax TTS → avatar video → Whis
 Only the avatar video step changed (`artifacts/api-server/src/lib/wan3-talking.ts` + `scheduler.ts`: `submitWan3Handoff`, `advanceWan3Segments`, `finalizeWavespeedTalkingHead(..., { clipUrls })`):
 
 - Look image → `reference_images[0]` (start frame + identity). The endpoint silently DROPS an `image` field.
-- First 10 s of the TTS audio → `reference_audios` (voice identity). Stored as `voice-references/wan3-{videoId}.mp3` + signed URL; falls back to the full TTS URL.
+- Voice reference is PER SEGMENT: the slice of the TTS audio that says that segment's own words (≤10 s from its start), via `prepareSegmentVoiceReferences` (silencedetect + `segmentTimeRanges`), stored as `voice-references/wan3-{videoId}-{i}.mp3`. WAN conditions on what the reference SAYS: one shared reference (the script opening) made segments 2..n mix the opening words into their speech ("garbled" audio in production). The prompt also says to never speak the reference's words. Fallback: first 10 s of TTS (`wan3-{videoId}.mp3`), then the full TTS URL.
 - WAN generates the speech itself from the `EXACT DIALOGUE … spoken once` block (without it WAN repeats phrases). Captions still work because they are transcribed from the final MP4.
 - WAN caps at 30 s and repeats phrases on long dialogues → script split into ≤36-word segments (sentence boundaries), one job each, `duration = ceil(words/2.2 + 1.5)`. Sentinel `wavespeed-wan:{id1},{id2},…` → lease `wavespeed-wan-finalizing:` (stages in `wavespeed-video-pipeline-policy.ts`). When all complete: FFmpeg concat at 720×1280/30 fps → `raw-videos/{id}.mp4`.
 - Language comes from `settings.language` (never hard-coded).
