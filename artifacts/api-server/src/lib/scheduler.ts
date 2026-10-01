@@ -93,6 +93,7 @@ import {
   recoveryStage as getWavespeedRecoveryStage,
   shouldMonitorWavespeedVideo,
   finalizingSourceStage,
+  isHandoffLeaseExpired,
 } from "./wavespeed-video-pipeline-policy";
 import {
   isWan3Enabled,
@@ -3003,7 +3004,7 @@ async function advanceWavespeedTtsToTalkingHead(
       const script = ttsJobRow?.inputPayload
         ? (JSON.parse(ttsJobRow.inputPayload) as { text?: string }).text ?? ""
         : "";
-      const wan = await submitWan3Handoff({ videoId, userId, topic, imageUrl, audioUrl, script, handoffSentinel });
+      const wan = await submitWan3Handoff({ videoId, userId, topic, imageUrl, audioUrl, script, handoffSentinel, ttsRequestId });
       if (wan === "submitted") return "advanced";
     }
 
@@ -3082,6 +3083,33 @@ async function prepareWan3VoiceReference(videoId: number, audioUrl: string): Pro
 }
 
 /**
+ * Heartbeat of a tts-handoff lease: the TTS job row's updated_at. (videos.updated_at
+ * cannot be used — the polling loop touches it on every tick.)
+ */
+async function touchWavespeedHandoff(ttsRequestId: string, videoId: number): Promise<void> {
+  await db
+    .update(wavespeedJobsTable)
+    .set({ updatedAt: new Date() })
+    .where(and(
+      eq(wavespeedJobsTable.wavespeedRequestId, ttsRequestId),
+      eq(wavespeedJobsTable.relatedVideoId, videoId),
+    ));
+}
+
+/** True when nobody has refreshed this video's tts-handoff lease recently. */
+async function isWavespeedHandoffStale(ttsRequestId: string, videoId: number): Promise<boolean> {
+  const [job] = await db
+    .select({ updatedAt: wavespeedJobsTable.updatedAt })
+    .from(wavespeedJobsTable)
+    .where(and(
+      eq(wavespeedJobsTable.wavespeedRequestId, ttsRequestId),
+      eq(wavespeedJobsTable.relatedVideoId, videoId),
+    ))
+    .limit(1);
+  return isHandoffLeaseExpired(job?.updatedAt);
+}
+
+/**
  * Submit the WAN 3.0 segments while the row holds the handoff lease.
  * "submitted" → row moved to `wavespeed-wan:`; "rejected" → WaveSpeed refused
  * the first request (nothing created or billed) and the caller may use
@@ -3095,6 +3123,7 @@ async function submitWan3Handoff(input: {
   audioUrl: string;
   script: string;
   handoffSentinel: string;
+  ttsRequestId: string;
 }): Promise<"submitted" | "rejected"> {
   const { videoId, userId } = input;
   const [userSettings] = await db
@@ -3110,6 +3139,7 @@ async function submitWan3Handoff(input: {
   }
 
   const voiceReferenceUrl = await prepareWan3VoiceReference(videoId, input.audioUrl);
+  await touchWavespeedHandoff(input.ttsRequestId, videoId);
   logger.info({ videoId, segments: segments.length }, "[WAN3] Enviando segmentos a WAN 3.0");
   const { requestIds, resolution, error } = await submitWan3Segments({
     imageUrl: input.imageUrl,
@@ -3120,6 +3150,8 @@ async function submitWan3Handoff(input: {
     // A cancel during a multi-segment submission must stop further billable
     // jobs: only keep going while this worker still owns the handoff lease.
     shouldContinue: async () => {
+      // Heartbeat first, so other workers keep waiting while we submit.
+      await touchWavespeedHandoff(input.ttsRequestId, videoId);
       const [row] = await db
         .select({ id: videosTable.id })
         .from(videosTable)
@@ -3524,6 +3556,9 @@ export async function advanceWavespeedVideo(videoId: number): Promise<WavespeedA
       return "waiting";
     }
     if (sentinel.stage === "tts-handoff") {
+      // Another worker may be submitting right now (a WAN handoff takes a
+      // while). Only a handoff whose heartbeat has expired was interrupted.
+      if (!(await isWavespeedHandoffStale(sentinel.requestId, video.id))) return "waiting";
       await failWavespeedVideo(
         video,
         "La solicitud se interrumpió antes de guardar el ID de talking-head. Reintenta el video para evitar duplicar cargos.",
@@ -3666,7 +3701,12 @@ export async function resumePendingWavespeedVideoMonitors(): Promise<void> {
   for (const video of pending) {
     const sentinel = parseWavespeedVideoSentinel(video.heygenVideoId);
     if (!sentinel) continue;
-    if (getWavespeedRecoveryStage(sentinel.stage) === "fail_safely") {
+    if (
+      getWavespeedRecoveryStage(sentinel.stage) === "fail_safely" &&
+      // Autoscale may run several instances: another one may still own a live
+      // handoff. A fresh lease is left to the monitor, which waits for it.
+      (await isWavespeedHandoffStale(sentinel.requestId, video.id))
+    ) {
       await failWavespeedVideo(
         video as typeof videosTable.$inferSelect,
         "La solicitud se interrumpió antes de guardar el ID de talking-head. Reintenta el video para evitar duplicar cargos.",

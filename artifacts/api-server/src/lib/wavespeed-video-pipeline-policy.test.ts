@@ -5,6 +5,8 @@ import {
   recoveryStage,
   shouldMonitorWavespeedVideo,
   finalizingSourceStage,
+  isHandoffLeaseExpired,
+  WAVESPEED_HANDOFF_LEASE_MS,
 } from "./wavespeed-video-pipeline-policy";
 
 test("accepts all durable WaveSpeed pipeline stages", () => {
@@ -61,4 +63,16 @@ test("restart resumes submitted WAN segments without resubmitting", () => {
   assert.equal(finalizingSourceStage("wan-finalizing"), "wan");
   assert.equal(finalizingSourceStage("th-finalizing"), "th");
   assert.equal(finalizingSourceStage("wan"), null);
+});
+
+test("a live handoff (recent heartbeat) is NOT failed by another worker", () => {
+  const now = new Date("2026-10-01T12:05:00Z");
+  assert.equal(isHandoffLeaseExpired(new Date("2026-10-01T12:04:30Z"), now), false);
+  assert.equal(isHandoffLeaseExpired(new Date(now.getTime() - WAVESPEED_HANDOFF_LEASE_MS + 1_000), now), false);
+});
+
+test("a handoff without heartbeat for longer than the lease fails safely", () => {
+  const now = new Date("2026-10-01T12:30:00Z");
+  assert.equal(isHandoffLeaseExpired(new Date("2026-10-01T12:00:00Z"), now), true);
+  assert.equal(isHandoffLeaseExpired(null, now), true);
 });
