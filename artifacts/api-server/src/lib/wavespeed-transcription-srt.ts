@@ -1,7 +1,13 @@
 import { generateBasicSRT } from "./caption-engine";
 import { parseSRT } from "./browser-caption-engine";
+import { speechAlignedSrt, type SpeechInterval } from "./speech-aligned-srt";
 
-export type TranscriptionSrtSource = "provider_srt" | "word_timestamps" | "segment_timestamps" | "transcript";
+export type TranscriptionSrtSource =
+  | "provider_srt"
+  | "word_timestamps"
+  | "segment_timestamps"
+  | "speech_aligned"
+  | "transcript";
 
 export type TranscriptionSrtResult = {
   srt: string;
@@ -93,21 +99,30 @@ function validSrt(value: string): string | null {
  * The Replit proxy currently accepts response_format:"json" for
  * gpt-4o-mini-transcribe, not response_format:"srt". Future proxy responses
  * may include word or segment timestamps; preserve them exactly when present.
- * Plain JSON transcripts still become phrase SRTs tied to the final MP4 audio
- * duration, so caption processing receives a subtitle artifact instead of
- * falling through because the provider rejected an output format.
+ * Plain JSON transcripts are laid over the detected speech intervals of the
+ * final MP4 audio (speech-aligned-srt.ts) so pauses never shift the captions;
+ * only without speech intervals do they fall back to an even spread over the
+ * whole duration.
  */
 export function transcriptionResponseToSrt(
   response: unknown,
   audioDurationMs: number,
+  speechIntervals?: SpeechInterval[] | null,
 ): TranscriptionSrtResult | null {
+  const fromTranscript = (transcript: string): TranscriptionSrtResult => {
+    const aligned = speechIntervals?.length ? speechAlignedSrt(transcript, speechIntervals) : null;
+    return aligned
+      ? { srt: aligned, source: "speech_aligned" }
+      : { srt: generateBasicSRT(transcript, audioDurationMs), source: "transcript" };
+  };
+
   const normalized = typeof response === "string" ? parseJsonString(response) : response;
 
   if (typeof normalized === "string") {
     const srt = validSrt(normalized);
     if (srt) return { srt, source: "provider_srt" };
     if (audioDurationMs > 0 && normalized.trim()) {
-      return { srt: generateBasicSRT(normalized, audioDurationMs), source: "transcript" };
+      return fromTranscript(normalized);
     }
     return null;
   }
@@ -126,7 +141,7 @@ export function transcriptionResponseToSrt(
 
   const transcript = getText(normalized);
   if (!transcript || audioDurationMs <= 0) return null;
-  return { srt: generateBasicSRT(transcript, audioDurationMs), source: "transcript" };
+  return fromTranscript(transcript);
 }
 
 /**

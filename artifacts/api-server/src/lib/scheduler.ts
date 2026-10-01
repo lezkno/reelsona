@@ -82,6 +82,7 @@ import {
 import { getWaveSpeedProviderImageUrl } from "./wavespeed-avatar-storage";
 import { makeOpenAIClient } from "./openai-client";
 import { getWavDurationMs, transcriptionResponseToSrt } from "./wavespeed-transcription-srt";
+import { detectSpeechIntervals } from "./speech-aligned-srt";
 import {
   captionsAreEnabled,
   resolveVideoEffectsForCreation,
@@ -2719,7 +2720,10 @@ async function transcribeAudioToSrt(videoUrl: string, videoId: number): Promise<
 
     const audioDurationMs = getWavDurationMs(audioBuffer);
     if (!audioDurationMs) throw new Error("Could not determine extracted WAV duration");
-    const converted = transcriptionResponseToSrt(transcription, audioDurationMs);
+    // The proxy returns plain text (no timestamps): lay it over the real speech
+    // intervals of this audio so pauses and leading silence never shift captions.
+    const speechIntervals = await detectSpeechIntervals(tmpAudio, audioDurationMs);
+    const converted = transcriptionResponseToSrt(transcription, audioDurationMs, speechIntervals);
     if (!converted) throw new Error("Whisper returned no usable transcript or timestamps");
     const { srt: srtContent, source: timingSource } = converted;
 

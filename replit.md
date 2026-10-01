@@ -4,6 +4,7 @@ Máquina de generación de contenido automático para Instagram Reels usando ava
 
 ## Run & Operate
 
+- `bash actualizar.sh` — trae lo último de GitHub (`stabilization-current-workspace`), instala, compila y arranca la API en el puerto 8080 (`--sin-arrancar` para solo actualizar)
 - `pnpm --filter @workspace/content-pilot run dev` — frontend (port auto-assigned)
 - `pnpm --filter @workspace/api-server run dev` — API server (port 8080 en dev)
 - `pnpm run typecheck` — typecheck completo de todos los paquetes

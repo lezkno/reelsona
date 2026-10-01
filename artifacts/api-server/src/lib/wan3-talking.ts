@@ -154,11 +154,102 @@ export function wan3DurationForText(text: string): number {
   return Math.min(WAN3_MAX_DURATION_SEC, Math.max(WAN3_MIN_DURATION_SEC, seconds));
 }
 
+interface Wan3Shot {
+  name: string;
+  camera: string;
+  action: string;
+}
+
+/**
+ * Shot plan for multi-segment reels: every segment is a different shot in the
+ * SAME location (same look image), so the cuts between segments read as
+ * intentional edits instead of the same static frame repeated.
+ */
+const WAN3_OPENING_SHOT: Wan3Shot = {
+  name: "OPENING HANDHELD MEDIUM SHOT",
+  camera:
+    "Start in the IMAGE 1 composition (waist-up medium shot). Handheld camera with a gentle natural sway, " +
+    "then a slow 10% push-in as the hook lands.",
+  action:
+    "The person leans slightly toward the lens, raises one hand to punctuate the hook, with lively eyebrows " +
+    "and a genuine smile.",
+};
+
+const WAN3_MIDDLE_SHOTS: Wan3Shot[] = [
+  {
+    name: "INTIMATE CLOSE-UP",
+    camera:
+      "New camera position in the same place: chest-up close-up, slow continuous 8-12% push-in followed by " +
+      "a subtle lateral slide.",
+    action:
+      "Expressive face, small nods, hands rising into frame at chest height, a brief glance down as if " +
+      "thinking, then straight back to the lens.",
+  },
+  {
+    name: "THREE-QUARTER SIDE ANGLE",
+    camera:
+      "New angle in the same place: the camera is 25-35 degrees to the side for a three-quarter view and " +
+      "arcs smoothly like a gimbal while the person turns head and shoulders back toward the lens.",
+    action:
+      "Counts points on the fingers, shifts weight from one leg to the other, open-palm gestures, keeps " +
+      "talking while turning toward the camera.",
+  },
+  {
+    name: "WALK-AND-TALK WIDER SHOT",
+    camera:
+      "Wider shot from the knees up in the same place. Handheld follow shot: the camera slowly backs up while " +
+      "the person takes two or three steps toward it.",
+    action:
+      "Walks naturally while talking with a relaxed arm swing, then stops and delivers the key line with a " +
+      "confident gesture.",
+  },
+];
+
+const WAN3_CLOSING_SHOT: Wan3Shot = {
+  name: "CLOSING MEDIUM SHOT",
+  camera:
+    "Medium shot in the same place with a gentle 5-8% pull-back and a slight lateral move for the call to action.",
+  action:
+    "Warm smile, points toward the camera on the call to action, relaxed confident body language, final nod.",
+};
+
+/** Shot for a segment: opening, rotating middle shots, closing. */
+export function wan3ShotFor(segmentIndex: number, segmentCount: number): Wan3Shot {
+  if (segmentIndex === 0) return WAN3_OPENING_SHOT;
+  if (segmentIndex === segmentCount - 1) return WAN3_CLOSING_SHOT;
+  return WAN3_MIDDLE_SHOTS[(segmentIndex - 1) % WAN3_MIDDLE_SHOTS.length]!;
+}
+
+const fmt = (n: number) => n.toFixed(1);
+
+/**
+ * Camera direction for one WAN job. A single-segment reel gets three shot sizes
+ * in one continuous take; each segment of a longer reel gets its own shot.
+ */
+function buildWan3CameraDirection(segmentIndex: number, segmentCount: number, duration: number): string {
+  if (segmentCount <= 1) {
+    const h = Math.max(0.8, duration * 0.3);
+    const p = Math.max(h + 0.5, duration * 0.7);
+    return (
+      "CAMERA — THREE SHOT SIZES IN ONE CONTINUOUS HANDHELD TAKE, NO CUTS: " +
+      `[0.0-${fmt(h)}s] ${WAN3_OPENING_SHOT.camera} ${WAN3_OPENING_SHOT.action} ` +
+      `[${fmt(h)}-${fmt(p)}s] smooth continuous move into a chest-up close-up with a slow push-in; ${WAN3_MIDDLE_SHOTS[0]!.action} ` +
+      `[${fmt(p)}-${fmt(duration)}s] gentle lateral arc and pull-back into a three-quarter medium shot; ${WAN3_CLOSING_SHOT.action}`
+    );
+  }
+  const shot = wan3ShotFor(segmentIndex, segmentCount);
+  return (
+    `SHOT ${segmentIndex + 1} OF ${segmentCount} — ${shot.name}, one continuous take (the edit cuts between ` +
+    `shots, never inside this one). CAMERA: ${shot.camera} ACTION: ${shot.action}`
+  );
+}
+
 /**
  * Build the WAN 3.0 prompt for one segment.
  * Dialogue goes in its own "spoken once" block: without it WAN repeats phrases
- * after a camera or gesture transition. Camera stays calm — aggressive moves
- * compete with phoneme-level lip sync.
+ * after a camera or gesture transition. The person keeps moving like a real
+ * creator (active mode) and every segment of a long reel is a different shot
+ * in the same location.
  */
 export function buildWan3Prompt(opts: {
   dialogue: string;
@@ -174,36 +265,36 @@ export function buildWan3Prompt(opts: {
   const dialogue = opts.dialogue.replace(/"/g, "'").trim();
   const segmentCount = opts.segmentCount ?? 1;
   const segmentIndex = opts.segmentIndex ?? 0;
+  const duration = wan3DurationForText(opts.dialogue);
 
   const lines = [
-    "IMAGE 1 is the START FRAME and the authoritative identity anchor. Preserve its scene, composition, " +
-      "camera framing, outfit, lighting, background and initial pose, and keep the exact same face, facial " +
-      "structure, eyes, nose, mouth, skin tone, hair and recognizable likeness stable from the first frame to " +
-      "the last frame. Do not invent or replace the face. Use the audio reference as the target person's voice " +
-      `identity, timbre, ${isSpanish ? "accent, " : ""}and natural speaking style. Generate clear ${language} ` +
-      "speech with accurate lip synchronization, natural blinking, subtle head movement, and realistic gestures.",
+    "IMAGE 1 is the authoritative identity anchor and defines the location. Keep the exact same face, facial " +
+      "structure, eyes, nose, mouth, skin tone, hair and recognizable likeness, the same outfit, and the same " +
+      "place, background style and lighting from the first frame to the last frame. Do not invent or replace the " +
+      "face. The camera position and shot size may change as directed below, but always inside that same place. " +
+      "Use the audio reference as the target person's voice identity, timbre, " +
+      `${isSpanish ? "accent, " : ""}and natural speaking style. Generate clear ${language} speech with accurate ` +
+      "lip synchronization and natural blinking.",
     "The person in IMAGE 1 is the only person in the scene and the only person who speaks.",
-    `The person speaks naturally to the camera in ${language}, with clear pronunciation, believable ` +
-      "phoneme-level lip synchronization, natural pauses, and an engaging warm tone, like a real content " +
-      "creator talking to their audience.",
-    "Prioritize lip synchronization over cinematic movement. Keep the mouth clearly visible whenever the person speaks.",
+    `The person speaks to the camera in ${language}, with clear pronunciation, believable phoneme-level lip ` +
+      "synchronization, natural pauses, and an engaging, energetic tone, like a real content creator talking " +
+      "to their audience.",
+    "ACTIVE PERFORMANCE — never a stiff presenter standing still: hands, shoulders and body keep moving " +
+      "naturally while talking, with expressive gestures, head tilts, leaning in and shifting weight. " +
+      "Accurate lip sync on every word; hands never cover or touch the mouth, and the face stays well lit with " +
+      "the mouth clearly visible in every shot.",
     opts.topic ? `The video is about: ${opts.topic.replace(/\s+/g, " ").trim().slice(0, 200)}.` : "",
     opts.delivery ? `Delivery style: ${opts.delivery}` : "",
-    segmentCount > 1
-      ? `This is part ${segmentIndex + 1} of ${segmentCount} of one continuous video: start and end in the same ` +
-        "pose, framing and location as IMAGE 1 so the parts join seamlessly."
-      : "",
-    "CAMERA — one continuous take, no cuts: stable framing with at most a slow, subtle push-in during the " +
-      "core message. Never jump-cut, teleport, switch angle, crop the mouth, zoom abruptly or interrupt the speech. " +
-      "Allow natural blinking, subtle head movement and one or two restrained hand gestures after natural phrase breaks.",
+    buildWan3CameraDirection(segmentIndex, segmentCount, duration),
+    "Camera motion is smooth and physically plausible (handheld or gimbal feel). Never teleport to another " +
+      "location, crop the mouth, zoom abruptly or interrupt the speech.",
     "AUDIO LOCK — Speak the following dialogue exactly once from beginning to end, in order. Never repeat, " +
       "restart, paraphrase, summarize, or add any word after a camera or gesture transition. Keep the same " +
       "uninterrupted audio performance. After the last word, stay silent with a natural closed-mouth expression.",
     `EXACT DIALOGUE — spoken once, in order, without adding or repeating words: "${dialogue}"`,
     "CONTINUITY RULES — Same person, exact face, body, outfit, location, background and lighting throughout. " +
-      "Camera motion must be smooth and physically plausible. No abrupt cuts, location changes, second speaker, " +
-      "background music, subtitles, text, captions, logos, duplicated limbs, or extra people. " +
-      "Cinematic vertical 9:16 composition.",
+      "No location changes, second speaker, background music, subtitles, text, captions, logos, duplicated " +
+      "limbs, or extra people. Cinematic vertical 9:16 composition.",
   ];
   return lines.filter(Boolean).join("\n");
 }
@@ -352,12 +443,22 @@ export async function concatWan3Clips(clipUrls: string[], outPath: string): Prom
       inputs.push(path);
     }
 
+    // Each segment is generated with ~1.5 s of headroom after the last word.
+    // Trim that trailing silence so the shots cut on the beat like an edited
+    // reel instead of pausing between every shot.
+    const keepSeconds = await Promise.all(inputs.map((p) => speechEndSeconds(p)));
+
     const W = WAN3_OUTPUT_WIDTH;
     const H = WAN3_OUTPUT_HEIGHT;
-    const filters = inputs.map((_, i) =>
-      `[${i}:v]scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30[v${i}];` +
-      `[${i}:a]aresample=44100,aformat=channel_layouts=stereo[a${i}]`,
-    );
+    const filters = inputs.map((_, i) => {
+      const keep = keepSeconds[i];
+      const vTrim = keep ? `trim=0:${keep.toFixed(3)},setpts=PTS-STARTPTS,` : "";
+      const aTrim = keep ? `atrim=0:${keep.toFixed(3)},asetpts=PTS-STARTPTS,` : "";
+      return (
+        `[${i}:v]${vTrim}scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30[v${i}];` +
+        `[${i}:a]${aTrim}aresample=44100,aformat=channel_layouts=stereo[a${i}]`
+      );
+    });
     const concatInputs = inputs.map((_, i) => `[v${i}][a${i}]`).join("");
     const filterComplex = `${filters.join(";")};${concatInputs}concat=n=${inputs.length}:v=1:a=1[v][a]`;
 
@@ -378,6 +479,87 @@ export async function concatWan3Clips(clipUrls: string[], outPath: string): Prom
   } finally {
     nodeFs.rmSync(workDir, { recursive: true, force: true });
   }
+}
+
+/** Keep this much audio after the last spoken word when trimming a segment. */
+const WAN3_TAIL_KEEP_SECONDS = 0.3;
+/**
+ * Never trim more than this from a segment: it is the headroom
+ * wan3DurationForText adds (+1.5 s, plus up to 1 s of rounding). Anything
+ * beyond it may be real dialogue, so it is always kept.
+ */
+const WAN3_MAX_TRIM_SECONDS = 2.5;
+/**
+ * Only true digital silence counts: WAN pads with near-zero audio, while a
+ * softly spoken closing phrase stays well above -50 dB. A -35 dB threshold
+ * could mistake quiet final words for silence and cut them.
+ */
+const WAN3_SILENCE_FILTER = "silencedetect=noise=-50dB:d=0.6";
+
+/**
+ * Length (s) to keep from a clip so it ends WAN3_TAIL_KEEP_SECONDS after the
+ * last speech, or null to keep the whole clip.
+ */
+export async function speechEndSeconds(path: string): Promise<number | null> {
+  let stderr = "";
+  try {
+    // -vn: analyse the audio only (no video decoding). Stats stay on so the
+    // final "time=" reports the AUDIO stream's real end, which can be shorter
+    // than the container duration.
+    ({ stderr } = await execFileAsync(
+      "ffmpeg",
+      ["-hide_banner", "-i", path, "-vn", "-af", WAN3_SILENCE_FILTER, "-f", "null", "-"],
+      { maxBuffer: 10 * 1024 * 1024 },
+    ));
+  } catch {
+    return null; // detection is an optimisation only
+  }
+  return trailingSilenceCut(stderr, WAN3_TAIL_KEEP_SECONDS);
+}
+
+function parseClock(h: string, m: string, sec: string): number {
+  return Number(h) * 3600 + Number(m) * 60 + Number(sec);
+}
+
+/**
+ * Parse FFmpeg silencedetect output → cut point, or null. Pure.
+ * The audio end is the last progress "time=" (audio-only run), falling back to
+ * the container "Duration:".
+ */
+export function trailingSilenceCut(
+  ffmpegStderr: string,
+  tailKeep: number,
+  maxTrim = WAN3_MAX_TRIM_SECONDS,
+): number | null {
+  const times = [...ffmpegStderr.matchAll(/time=\s*(\d+):(\d+):(\d+(?:\.\d+)?)/g)];
+  const lastTime = times[times.length - 1];
+  const durationMatch = /Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/.exec(ffmpegStderr);
+  const audioEnd = lastTime
+    ? parseClock(lastTime[1]!, lastTime[2]!, lastTime[3]!)
+    : durationMatch
+      ? parseClock(durationMatch[1]!, durationMatch[2]!, durationMatch[3]!)
+      : null;
+  if (audioEnd === null || audioEnd <= 0) return null;
+
+  const events = [...ffmpegStderr.matchAll(/silence_(start|end):\s*(-?\d+(?:\.\d+)?)/g)];
+  const last = events[events.length - 1];
+  // Trailing silence = the last event is a start with no matching end, or an
+  // end that reaches the end of the audio.
+  let silenceStart: number | null = null;
+  if (last?.[1] === "start") {
+    silenceStart = Number(last[2]);
+  } else if (last?.[1] === "end" && Math.abs(Number(last[2]) - audioEnd) < 0.15) {
+    const prevStart = events[events.length - 2];
+    if (prevStart?.[1] === "start") silenceStart = Number(prevStart[2]);
+  }
+  if (silenceStart === null) return null;
+
+  // Keep a short tail, never trim more than the generation headroom, never
+  // trim to (almost) nothing, and ignore negligible savings. The cut is
+  // measured against the audio end; the video is cut at the same point.
+  const keep = Math.max(Math.max(0, silenceStart) + tailKeep, audioEnd - maxTrim);
+  if (keep < 1 || audioEnd - keep < 0.2) return null;
+  return keep;
 }
 
 /** Provider media (WaveSpeed CDN, signed storage URLs) is always HTTPS. */
