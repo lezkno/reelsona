@@ -329,3 +329,20 @@ test("no trailing silence, mid-clip pauses only, or tiny clips are left untouche
   assert.equal(trailingSilenceCut("Duration: 00:00:02.00,\nsilence_start: 0.2\n", 0.3), null);
   assert.equal(trailingSilenceCut("no duration here", 0.3), null);
 });
+
+test("never trims more than the generation headroom (a quiet closing phrase is kept)", () => {
+  // Detector claims silence from 12 s in an 18 s clip: at most 2.5 s may go.
+  const stderr = "Duration: 00:00:18.00,\nsilence_start: 12.0\nsize=N/A time=00:00:18.00 bitrate=N/A\n";
+  assert.equal(trailingSilenceCut(stderr, 0.3), 15.5);
+});
+
+test("uses the audio stream end (last time=) when audio is shorter than the video", () => {
+  const stderr = [
+    "Duration: 00:00:12.00, start: 0.000000",
+    "size=N/A time=00:00:05.00 bitrate=N/A",
+    "silence_start: 8.0",
+    "silence_end: 10.0 | silence_duration: 2",
+    "size=N/A time=00:00:10.00 bitrate=N/A",
+  ].join("\n");
+  assert.equal(trailingSilenceCut(stderr, 0.3), 8.3);
+});

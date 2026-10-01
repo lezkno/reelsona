@@ -483,18 +483,32 @@ export async function concatWan3Clips(clipUrls: string[], outPath: string): Prom
 
 /** Keep this much audio after the last spoken word when trimming a segment. */
 const WAN3_TAIL_KEEP_SECONDS = 0.3;
+/**
+ * Never trim more than this from a segment: it is the headroom
+ * wan3DurationForText adds (+1.5 s, plus up to 1 s of rounding). Anything
+ * beyond it may be real dialogue, so it is always kept.
+ */
+const WAN3_MAX_TRIM_SECONDS = 2.5;
+/**
+ * Only true digital silence counts: WAN pads with near-zero audio, while a
+ * softly spoken closing phrase stays well above -50 dB. A -35 dB threshold
+ * could mistake quiet final words for silence and cut them.
+ */
+const WAN3_SILENCE_FILTER = "silencedetect=noise=-50dB:d=0.6";
 
 /**
  * Length (s) to keep from a clip so it ends WAN3_TAIL_KEEP_SECONDS after the
- * last speech, or null to keep the whole clip (no trailing silence found, or
- * trimming would leave too little).
+ * last speech, or null to keep the whole clip.
  */
 export async function speechEndSeconds(path: string): Promise<number | null> {
   let stderr = "";
   try {
+    // -vn: analyse the audio only (no video decoding). Stats stay on so the
+    // final "time=" reports the AUDIO stream's real end, which can be shorter
+    // than the container duration.
     ({ stderr } = await execFileAsync(
       "ffmpeg",
-      ["-hide_banner", "-nostats", "-i", path, "-af", "silencedetect=noise=-35dB:d=0.4", "-f", "null", "-"],
+      ["-hide_banner", "-i", path, "-vn", "-af", WAN3_SILENCE_FILTER, "-f", "null", "-"],
       { maxBuffer: 10 * 1024 * 1024 },
     ));
   } catch {
@@ -503,28 +517,48 @@ export async function speechEndSeconds(path: string): Promise<number | null> {
   return trailingSilenceCut(stderr, WAN3_TAIL_KEEP_SECONDS);
 }
 
-/** Parse FFmpeg silencedetect output → cut point, or null. Pure. */
-export function trailingSilenceCut(ffmpegStderr: string, tailKeep: number): number | null {
+function parseClock(h: string, m: string, sec: string): number {
+  return Number(h) * 3600 + Number(m) * 60 + Number(sec);
+}
+
+/**
+ * Parse FFmpeg silencedetect output → cut point, or null. Pure.
+ * The audio end is the last progress "time=" (audio-only run), falling back to
+ * the container "Duration:".
+ */
+export function trailingSilenceCut(
+  ffmpegStderr: string,
+  tailKeep: number,
+  maxTrim = WAN3_MAX_TRIM_SECONDS,
+): number | null {
+  const times = [...ffmpegStderr.matchAll(/time=\s*(\d+):(\d+):(\d+(?:\.\d+)?)/g)];
+  const lastTime = times[times.length - 1];
   const durationMatch = /Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/.exec(ffmpegStderr);
-  if (!durationMatch) return null;
-  const duration = Number(durationMatch[1]) * 3600 + Number(durationMatch[2]) * 60 + Number(durationMatch[3]);
+  const audioEnd = lastTime
+    ? parseClock(lastTime[1]!, lastTime[2]!, lastTime[3]!)
+    : durationMatch
+      ? parseClock(durationMatch[1]!, durationMatch[2]!, durationMatch[3]!)
+      : null;
+  if (audioEnd === null || audioEnd <= 0) return null;
 
   const events = [...ffmpegStderr.matchAll(/silence_(start|end):\s*(-?\d+(?:\.\d+)?)/g)];
   const last = events[events.length - 1];
   // Trailing silence = the last event is a start with no matching end, or an
-  // end that reaches the end of the file.
+  // end that reaches the end of the audio.
   let silenceStart: number | null = null;
   if (last?.[1] === "start") {
     silenceStart = Number(last[2]);
-  } else if (last?.[1] === "end" && Math.abs(Number(last[2]) - duration) < 0.1) {
+  } else if (last?.[1] === "end" && Math.abs(Number(last[2]) - audioEnd) < 0.15) {
     const prevStart = events[events.length - 2];
     if (prevStart?.[1] === "start") silenceStart = Number(prevStart[2]);
   }
   if (silenceStart === null) return null;
 
-  const keep = Math.max(0, silenceStart) + tailKeep;
-  // Never trim to (almost) nothing, and ignore negligible savings.
-  if (keep < 1 || duration - keep < 0.2) return null;
+  // Keep a short tail, never trim more than the generation headroom, never
+  // trim to (almost) nothing, and ignore negligible savings. The cut is
+  // measured against the audio end; the video is cut at the same point.
+  const keep = Math.max(Math.max(0, silenceStart) + tailKeep, audioEnd - maxTrim);
+  if (keep < 1 || audioEnd - keep < 0.2) return null;
   return keep;
 }
 
