@@ -23,7 +23,14 @@ import { eq, and, inArray, isNull, sql } from "drizzle-orm";
 import { logger } from "./logger";
 import { computeRenewalBalances, computeReleaseRestore } from "./credit-cycle-policy";
 
-export const REEL_CREDITS_PER_30S = 50;
+import {
+  REEL_CREDITS_PER_30S,
+  computeReelCreditCost,
+  estimateDurationFromScript,
+} from "./reel-pricing";
+
+// Pricing formulas live in reel-pricing.ts (pure); re-exported for existing callers.
+export { REEL_CREDITS_PER_30S, computeReelCreditCost, estimateDurationFromScript };
 export const WAVESPEED_CREDITS_PER_30S = REEL_CREDITS_PER_30S;
 export const HEYGEN_CREDITS_PER_30S = REEL_CREDITS_PER_30S;
 export const LOOK_CREDIT_COST = 2;
@@ -38,21 +45,12 @@ export const PLAN_CREDITS: Record<string, number> = {
 export const FOUNDER_MAX_SEATS = 10;
 export const FOUNDER_MAX_MONTHS = 12;
 
-export function computeReelCreditCost(durationSec: number): number {
-  return Math.max(15, Math.ceil(durationSec * REEL_CREDITS_PER_30S / 30));
-}
-
 export function computeWavespeedCost(durationSec: number): number {
   return computeReelCreditCost(durationSec);
 }
 
 export function computeHeygenCost(durationSec: number): number {
   return computeReelCreditCost(durationSec);
-}
-
-export function estimateDurationFromScript(script: string): number {
-  const words = script.trim().split(/\s+/).filter(Boolean).length;
-  return Math.max(10, Math.ceil(words / 2.5));
 }
 
 export const VIDEO_CREDIT_COST = REEL_CREDITS_PER_30S;

@@ -46,6 +46,8 @@ export const contentPlanItemsTable = pgTable("content_plan_items", {
   // ─────────────────────────────────────────────────────────────────────────────
   /** Optional per-video override for VideoEffects; null = use account default */
   videoEffectsOverride: jsonb("video_effects_override"),
+  /** Per-reel avatar quality override ("standard" | "premium"); NULL = account default. */
+  avatarQuality: text("avatar_quality"),
   /** WaveSpeed look used to generate this item's video (null = HeyGen path or not yet resolved) */
   wavespeedLookId: integer("wavespeed_look_id"),
   // ─────────────────────────────────────────────────────────────────────────────

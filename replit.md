@@ -50,6 +50,7 @@ Máquina de generación de contenido automático para Instagram Reels usando ava
 - **Conectar Instagram**: OAuth flow con Meta, vista de cuenta conectada con métricas
 - **Auditoría**: top posts por engagement, análisis IA de qué funciona, temas recomendados, mejores horarios
 - **Plan de Contenido**: lista de items por estado, generación automática de temas con IA, editor de guión
+- **Calidad del avatar**: Estándar (InfiniteTalk, 50 créditos/30 s) o Premium (WAN 3.0 con escenas dinámicas, 1,5 créditos por segundo de WAN); por defecto en Configuración y elegible en cada reel
 - **Avatares**: selección de avatares HeyGen, voz clonada, estrategia de rotación
 - **Videos**: cola de videos en proceso/listos/publicados, publicación manual o automática
 - **Automatización**: toggle maestro, días y horarios de publicación, sub-toggles de auto-generar/auto-publicar

@@ -1,5 +1,6 @@
 /**
  * tts → tts-handoff → th (InfiniteTalk) | wan (WAN 3.0) → *-finalizing → ready.
+ * wan → wan-retry → wan: one failed WAN segment is resubmitted once.
  * For `wan` the request id is the comma-separated list of segment job ids.
  */
 export type WavespeedVideoStage =
@@ -8,6 +9,7 @@ export type WavespeedVideoStage =
   | "th"
   | "th-finalizing"
   | "wan"
+  | "wan-retry"
   | "wan-finalizing";
 
 export interface WavespeedVideoSentinel {
@@ -16,7 +18,9 @@ export interface WavespeedVideoSentinel {
 }
 
 const SENTINEL_PREFIX = "wavespeed-";
-const STAGES = new Set<WavespeedVideoStage>(["tts", "tts-handoff", "th", "th-finalizing", "wan", "wan-finalizing"]);
+const STAGES = new Set<WavespeedVideoStage>([
+  "tts", "tts-handoff", "th", "th-finalizing", "wan", "wan-retry", "wan-finalizing",
+]);
 
 /**
  * The provider request id lives in videos.heygenVideoId for historical
@@ -45,7 +49,9 @@ export function shouldMonitorWavespeedVideo(status: string, sentinel: string | n
  * could create a second billable prediction, so it must fail explicitly.
  */
 export function recoveryStage(stage: WavespeedVideoStage): "resume" | "fail_safely" {
-  return stage === "tts-handoff" ? "fail_safely" : "resume";
+  // `wan-retry` is the same kind of lease: one failed WAN segment is being
+  // resubmitted and the new id may not be recorded yet.
+  return stage === "tts-handoff" || stage === "wan-retry" ? "fail_safely" : "resume";
 }
 
 /** Polling stage a finalizing lease returns to after a restart (`th` / `wan`), else null. */

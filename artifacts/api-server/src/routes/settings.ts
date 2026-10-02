@@ -40,6 +40,7 @@ function mapSettings(s: typeof settingsTable.$inferSelect) {
     voice_style: s.voiceStyle ?? null,
     common_objections: s.commonObjections ?? null,
     custom_cta: s.customCta ?? null,
+    avatar_quality: s.avatarQuality === "premium" ? "premium" as const : "standard" as const,
   };
 }
 
@@ -132,6 +133,7 @@ router.put("/settings", async (req, res): Promise<void> => {
   if (d.voice_style !== undefined) updates.voiceStyle = d.voice_style ?? null;
   if (d.common_objections !== undefined) updates.commonObjections = d.common_objections ?? null;
   if (d.custom_cta !== undefined) updates.customCta = d.custom_cta ?? null;
+  if (d.avatar_quality !== undefined) updates.avatarQuality = d.avatar_quality;
 
   let settings;
   if (existing) {

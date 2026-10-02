@@ -1,3 +1,5 @@
+import AvatarQualityPicker, { type AvatarQuality } from "@/components/AvatarQualityPicker"
+import { estimateReelCredits } from "@/lib/reel-credits"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { VideoExpressDialog } from "@/components/VideoExpressDialog"
@@ -79,6 +81,7 @@ export default function ContentPlan() {
   const { data: igStatus, isLoading: igStatusLoading } = useGetInstagramAccount()
   const igConnected = !!(igStatus?.connected && igStatus.account)
   const [localEffects, setLocalEffects] = useState<VideoEffects>(DEFAULT_VIDEO_EFFECTS)
+  const [localQuality, setLocalQuality] = useState<AvatarQuality>("standard")
   const [dialogOpen, setDialogOpen] = useState(false)
   const [expressOpen, setExpressOpen] = useState(false)
   const [days, setDays] = useState(7)
@@ -247,6 +250,9 @@ export default function ContentPlan() {
     // Init per-video effects from item override or account default
     const itemOverride = (item as any).video_effects_override as VideoEffects | null
     setLocalEffects({ ...(itemOverride ?? settings?.video_effects ?? DEFAULT_VIDEO_EFFECTS), text_cards: false })
+    // Avatar quality: this reel's choice, else the account default.
+    const itemQuality = (item as any).avatar_quality as AvatarQuality | null | undefined
+    setLocalQuality(itemQuality ?? (settings?.avatar_quality === "premium" ? "premium" : "standard"))
 
     if (item.hook || item.script || item.cta) {
       setScriptDraft({ hook: item.hook ?? "", script: item.script ?? "", cta: item.cta ?? "" })
@@ -328,7 +334,7 @@ export default function ContentPlan() {
         : {}
 
     updateItem.mutate(
-      { id: item.id, data: { hook: draft.hook, script: draft.script, cta: draft.cta, video_effects_override: localEffects, ...lookPin } },
+      { id: item.id, data: { hook: draft.hook, script: draft.script, cta: draft.cta, video_effects_override: localEffects, avatar_quality: localQuality, ...lookPin } },
       {
         onSuccess: () => {
           generateVideo.mutate(
@@ -1347,6 +1353,23 @@ export default function ContentPlan() {
               </div>
             </div>
           ) : null}
+
+          {/* ── Avatar quality for this reel (credits shown before generating) ── */}
+          {scriptDraft && !scriptGenerating && (() => {
+            const credits = estimateReelCredits(scriptDraft.script)
+            return (
+              <div className="rounded-xl border bg-muted/30 px-4 py-3 space-y-2.5">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Calidad del avatar para este video</p>
+                <AvatarQualityPicker
+                  value={localQuality}
+                  onChange={setLocalQuality}
+                  creditsStandard={credits.standard}
+                  creditsPremium={credits.premium}
+                  disabled={updateItem.isPending || generateVideo.isPending}
+                />
+              </div>
+            )
+          })()}
 
           {/* ── Per-video effects override ────────────────────────────────── */}
           {scriptDraft && !scriptGenerating && (

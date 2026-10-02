@@ -54,10 +54,14 @@ export function isWan3Enabled(): boolean {
   return (process.env.WAVESPEED_TALKING_MODEL ?? "wan3").trim().toLowerCase() !== "infinitetalk";
 }
 
-/** WAN output resolution: WAN3_RESOLUTION env (480p | 720p | 1080p), default 720p. */
+/**
+ * WAN output resolution: WAN3_RESOLUTION env (480p | 720p | 1080p), default
+ * 480p — the premium credit price (reel-pricing.ts) is sized for 480p
+ * (USD 0.05/s); 720p costs twice as much per second.
+ */
 export function getWan3Resolution(): string {
-  const value = (process.env.WAN3_RESOLUTION ?? "720p").trim().toLowerCase();
-  return ["480p", "720p", "1080p"].includes(value) ? value : "720p";
+  const value = (process.env.WAN3_RESOLUTION ?? "480p").trim().toLowerCase();
+  return ["480p", "720p", "1080p"].includes(value) ? value : "480p";
 }
 
 // ── Pure helpers (unit-testable) ───────────────────────────────────────────────
@@ -154,6 +158,21 @@ export function splitScriptIntoWan3Segments(
 export function wan3DurationForText(text: string): number {
   const seconds = Math.ceil(countWords(text) / WAN3_WORDS_PER_SECOND + 1.5);
   return Math.min(WAN3_MAX_DURATION_SEC, Math.max(WAN3_MIN_DURATION_SEC, seconds));
+}
+
+/** Headroom after the last TTS word when sizing a segment from its real audio. */
+const WAN3_SPOKEN_HEADROOM_SECONDS = 1.2;
+
+/**
+ * `duration` for a segment whose TTS audio lasts `spokenMs`: the real speech
+ * plus a small headroom, never more than the word-count estimate (so it only
+ * ever lowers the WAN bill) and within WAN's 2–30 s range.
+ */
+export function wan3DurationForSpoken(text: string, spokenMs: number): number {
+  const fromWords = wan3DurationForText(text);
+  if (!Number.isFinite(spokenMs) || spokenMs <= 0) return fromWords;
+  const fromAudio = Math.ceil(spokenMs / 1000 + WAN3_SPOKEN_HEADROOM_SECONDS);
+  return Math.min(fromWords, Math.max(WAN3_MIN_DURATION_SEC, fromAudio));
 }
 
 interface Wan3Shot {
@@ -313,6 +332,8 @@ export function buildWan3Payload(opts: {
   segmentIndex?: number;
   segmentCount?: number;
   resolution?: string;
+  /** Override for `duration` (seconds), e.g. sized from the real TTS audio. */
+  duration?: number;
 }): Record<string, unknown> {
   return {
     prompt: buildWan3Prompt(opts),
@@ -321,7 +342,7 @@ export function buildWan3Payload(opts: {
     reference_audios: [opts.voiceReferenceUrl],
     resolution: opts.resolution ?? getWan3Resolution(),
     aspect_ratio: "9:16",
-    duration: wan3DurationForText(opts.dialogue),
+    duration: opts.duration ?? wan3DurationForText(opts.dialogue),
     enable_prompt_expansion: false,
     enable_audio: true,
     seed: -1,
@@ -365,6 +386,8 @@ export async function submitWan3Segments(opts: {
    * speech, so each segment should get its own slice.
    */
   voiceReferenceUrls?: string[];
+  /** Optional per-segment `duration` (seconds); defaults to the word estimate. */
+  durations?: number[];
   segments: string[];
   language?: string | null;
   topic?: string | null;
@@ -386,6 +409,7 @@ export async function submitWan3Segments(opts: {
     const payload = buildWan3Payload({
       imageUrl: opts.imageUrl,
       voiceReferenceUrl: opts.voiceReferenceUrls?.[i] ?? opts.voiceReferenceUrl,
+      duration: opts.durations?.[i],
       dialogue: opts.segments[i]!,
       language: opts.language,
       topic: opts.topic,
@@ -420,16 +444,17 @@ export async function submitWan3Segments(opts: {
  * the script's opening as the reference for every segment, later segments
  * mixed the opening words into their own dialogue ("garbled" speech).
  *
- * `segments` must be consecutive pieces of the text the audio says. Returns
- * null when the audio cannot be aligned (caller keeps a single reference);
- * a single failed slice falls back to `fallbackUrl`.
+ * `segments` must be consecutive pieces of the text the audio says. Also
+ * returns how long the TTS takes to say each segment (to size its WAN
+ * `duration`). Returns null when the audio cannot be aligned (caller keeps a
+ * single reference); a single failed slice falls back to `fallbackUrl`.
  */
 export async function prepareSegmentVoiceReferences(opts: {
   audioSource: string;
   segments: string[];
   fallbackUrl: string;
   upload: (localPath: string, segmentIndex: number) => Promise<string>;
-}): Promise<string[] | null> {
+}): Promise<{ urls: string[]; spokenMs: number[] } | null> {
   const workDir = nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), "wan3-voice-"));
   try {
     let audioPath = opts.audioSource;
@@ -464,7 +489,7 @@ export async function prepareSegmentVoiceReferences(opts: {
         urls.push(opts.fallbackUrl);
       }
     }
-    return urls;
+    return { urls, spokenMs: ranges.map((r) => r.endMs - r.startMs) };
   } catch {
     return null;
   } finally {

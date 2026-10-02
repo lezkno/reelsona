@@ -184,6 +184,8 @@ test("submits every segment to wan-3.0/reference-to-video in order", async () =>
 });
 
 test("first segment rejected at 720p → whole video retried once at 480p", async () => {
+  const prevRes = process.env.WAN3_RESOLUTION;
+  process.env.WAN3_RESOLUTION = "720p";
   const stub = stubWavespeed([
     { status: 400, body: { code: 400, message: "resolution not supported" } },
     ok("a"),
@@ -200,6 +202,8 @@ test("first segment rejected at 720p → whole video retried once at 480p", asyn
     assert.deepEqual(stub.calls.map((c) => c.body.resolution), ["720p", "480p", "480p"]);
   } finally {
     stub.restore();
+    if (prevRes === undefined) delete process.env.WAN3_RESOLUTION;
+    else process.env.WAN3_RESOLUTION = prevRes;
   }
 });
 
@@ -384,7 +388,10 @@ test("each segment gets the slice of the TTS audio that says its own words", asy
         return `https://cdn/ref-${index}.mp3`;
       },
     });
-    assert.deepEqual(urls, ["https://cdn/ref-0.mp3", "https://cdn/ref-1.mp3", "https://cdn/ref-2.mp3"]);
+    assert.deepEqual(urls?.urls, ["https://cdn/ref-0.mp3", "https://cdn/ref-1.mp3", "https://cdn/ref-2.mp3"]);
+    // Each segment's spoken time ≈ its 2 s run of speech.
+    assert.equal(urls?.spokenMs.length, 3);
+    for (const ms of urls!.spokenMs) assert.ok(ms > 1_500 && ms < 2_500, `spoken ${ms}`);
     assert.deepEqual(uploaded.map((u) => u.index), [0, 1, 2]);
     assert.ok(uploaded.every((u) => u.bytes > 1_000), "every slice has audio");
   } finally {
@@ -414,5 +421,45 @@ test("each payload uses its own segment reference when provided", async () => {
     assert.deepEqual(stub.calls.map((c) => c.body.reference_audios), [["https://cdn/ref-0.mp3"], ["https://cdn/ref-1.mp3"]]);
   } finally {
     stub.restore();
+  }
+});
+
+// ── Duration sized from the real TTS audio ────────────────────────────────────
+
+import { wan3DurationForSpoken } from "./wan3-talking";
+
+test("segment duration follows the real speech + 1.2 s, never above the word estimate", () => {
+  const text = Array.from({ length: 30 }, () => "palabra").join(" "); // estimate: ceil(30/2.2+1.5)=16
+  assert.equal(wan3DurationForText(text), 16);
+  assert.equal(wan3DurationForSpoken(text, 12_000), 14); // 12 + 1.2 → 14 (saves 2 s)
+  assert.equal(wan3DurationForSpoken(text, 20_000), 16); // slow TTS → keep the estimate
+  assert.equal(wan3DurationForSpoken(text, 0), 16); // unknown → estimate
+  assert.equal(wan3DurationForSpoken("Hola.", 300), 2); // WAN minimum
+});
+
+test("submitWan3Segments sends the per-segment durations", async () => {
+  const stub = stubWavespeed([ok("a"), ok("b")]);
+  try {
+    await submitWan3Segments({
+      imageUrl: "https://cdn/look.jpg",
+      voiceReferenceUrl: "https://cdn/full.mp3",
+      durations: [9, 11],
+      segments: ["Uno.", "Dos."],
+    });
+    assert.deepEqual(stub.calls.map((c) => c.body.duration), [9, 11]);
+  } finally {
+    stub.restore();
+  }
+});
+
+test("premium renders at 480p by default (the credit price is sized for it)", () => {
+  const prev = process.env.WAN3_RESOLUTION;
+  try {
+    delete process.env.WAN3_RESOLUTION;
+    const payload = buildWan3Payload({ imageUrl: "https://cdn/l.jpg", voiceReferenceUrl: "https://cdn/v.mp3", dialogue: "Hola." });
+    assert.equal(payload.resolution, "480p");
+  } finally {
+    if (prev === undefined) delete process.env.WAN3_RESOLUTION;
+    else process.env.WAN3_RESOLUTION = prev;
   }
 });

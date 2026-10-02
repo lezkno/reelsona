@@ -68,7 +68,7 @@ import { generateScript, regenerateCaption, generateContentTopics } from "./ai-s
 import { getLatestAuditCache } from "./audit-cache";
 import { getStrategyProfile, toStrategyContext } from "./strategy-profile";
 import { generateVideo, getVideoStatus, listVoices, getAvatarDefaultVoiceId, getAllAvailableAvatarIds, invalidateAvatarIdsCache, getVoiceCloneStatus, ensureSelectedLooksHaveMetadata, normalizeScriptForTTS } from "./heygen";
-import { isWavespeedConfigured, submitSpeech, submitTalkingHead, getJobStatus as getWavespeedJobStatus, WAVESPEED_MODELS, isValidWavespeedVoiceId } from "./wavespeed";
+import { isWavespeedConfigured, submitJob, submitSpeech, submitTalkingHead, getJobStatus as getWavespeedJobStatus, WAVESPEED_MODELS, isValidWavespeedVoiceId } from "./wavespeed";
 import { wavespeedPersonasTable, wavespeedLooksTable, wavespeedVoicesTable, wavespeedJobsTable } from "@workspace/db";
 import { getUserPlanSlug, getAvatarLimit, computePersonaPlanEnabled, PlanBlockedError } from "./planLimits";
 import { createReelContainer, checkContainerStatus, publishContainer, getPermalink, refreshInstagramToken } from "./instagram-api";
@@ -83,6 +83,7 @@ import { getWaveSpeedProviderImageUrl } from "./wavespeed-avatar-storage";
 import { makeOpenAIClient } from "./openai-client";
 import { getWavDurationMs, transcriptionResponseToSrt } from "./wavespeed-transcription-srt";
 import { detectSpeechIntervals } from "./speech-aligned-srt";
+import { estimateReelCredits, resolveAvatarQuality, type AvatarQuality } from "./reel-pricing";
 import {
   captionsAreEnabled,
   resolveVideoEffectsForCreation,
@@ -101,6 +102,7 @@ import {
   splitScriptIntoWan3Segments,
   submitWan3Segments,
   prepareSegmentVoiceReferences,
+  wan3DurationForSpoken,
   trimAudioToFile,
   concatWan3Clips,
   buildWan3Sentinel,
@@ -1537,7 +1539,14 @@ export async function runAutomationCycle(
   // Check the balance before the claim. A rejected manual start must leave the
   // card on its planned calendar date rather than briefly moving it to now.
   const estimatedDurationSec = estimateDurationFromScript(contentItem.script);
-  const estimatedCreditCost = computeReelCreditCost(estimatedDurationSec);
+  // Avatar quality: per-reel override → account default → "standard". Premium
+  // (WAN 3.0) only applies to WaveSpeed avatars and while WAN is enabled; it is
+  // billed per WAN second of the exact segmentation the pipeline will submit.
+  const avatarQuality: AvatarQuality =
+    wavespeedCtx && isWan3Enabled()
+      ? resolveAvatarQuality(contentItem.avatarQuality, settings.avatarQuality)
+      : "standard";
+  const estimatedCreditCost = estimateReelCredits(contentItem.script, avatarQuality);
   const [userForCredits] = await db
     .select({ role: users.role })
     .from(users)
@@ -1634,7 +1643,7 @@ export async function runAutomationCycle(
         userId,
         estimatedCreditCost,
         videoRow.id,
-        `Generación de video ${videoRow.id}: ~${estimatedDurationSec}s ${wavespeedCtx ? "WaveSpeed" : "HeyGen"} — ${contentItem.topic ?? "sin tema"}`,
+        `Generación de video ${videoRow.id}: ~${estimatedDurationSec}s ${wavespeedCtx ? (avatarQuality === "premium" ? "WaveSpeed Premium (WAN 3.0)" : "WaveSpeed Estándar") : "HeyGen"} — ${contentItem.topic ?? "sin tema"}`,
       );
     } catch (creditErr) {
       logger.error({ creditErr, videoId: videoRow.id }, "[Credits] Reserve falló — abortando generación");
@@ -1711,6 +1720,8 @@ export async function runAutomationCycle(
           text: contentItem.script,
           voice_id: wavespeedCtx.voiceId,
           imageUrl: wavespeedCtx.imageUrl,
+          // Read by the TTS → video handoff: "premium" → WAN 3.0, else InfiniteTalk.
+          avatarQuality,
         }),
         relatedVideoId: videoRow.id,
       });
@@ -3001,10 +3012,14 @@ async function advanceWavespeedTtsToTalkingHead(
     // WAN 3.0 is the default avatar model. InfiniteTalk below only runs when
     // WAN is switched off or WaveSpeed definitively rejected every WAN request
     // (a rejection creates no job, so nothing can be billed twice).
-    if (isWan3Enabled()) {
-      const script = ttsJobRow?.inputPayload
-        ? (JSON.parse(ttsJobRow.inputPayload) as { text?: string }).text ?? ""
-        : "";
+    const ttsPayload = ttsJobRow?.inputPayload
+      ? (JSON.parse(ttsJobRow.inputPayload) as { text?: string; avatarQuality?: string })
+      : {};
+    // Reels started before avatar quality existed carry no flag: they were
+    // reserved as WAN reels, so keep them on WAN.
+    const wantsPremium = ttsPayload.avatarQuality === undefined || ttsPayload.avatarQuality === "premium";
+    if (wantsPremium && isWan3Enabled()) {
+      const script = ttsPayload.text ?? "";
       const wan = await submitWan3Handoff({ videoId, userId, topic, imageUrl, audioUrl, script, handoffSentinel, ttsRequestId });
       if (wan === "submitted") return "advanced";
     }
@@ -3142,7 +3157,7 @@ async function submitWan3Handoff(input: {
   const voiceReferenceUrl = await prepareWan3VoiceReference(videoId, input.audioUrl);
   // One reference per segment: the TTS slice saying that segment's own words.
   // (TTS and segments come from the same normalized script.)
-  const voiceReferenceUrls = await prepareSegmentVoiceReferences({
+  const segmentAudio = await prepareSegmentVoiceReferences({
     audioSource: input.audioUrl,
     segments,
     fallbackUrl: voiceReferenceUrl,
@@ -3157,15 +3172,21 @@ async function submitWan3Handoff(input: {
       return getSignedObjectUrl(objectName, 24 * 3600);
     },
   });
-  if (!voiceReferenceUrls) {
+  if (!segmentAudio) {
     logger.warn({ videoId }, "[WAN3] No se pudo alinear el audio por segmento — se usa una sola referencia de voz");
   }
+  // Size each segment from how long the TTS takes to say it (never above the
+  // word estimate): WaveSpeed bills every requested second.
+  const durations = segmentAudio
+    ? segments.map((seg, i) => wan3DurationForSpoken(seg, segmentAudio.spokenMs[i] ?? 0))
+    : undefined;
   await touchWavespeedHandoff(input.ttsRequestId, videoId);
   logger.info({ videoId, segments: segments.length }, "[WAN3] Enviando segmentos a WAN 3.0");
   const { requestIds, resolution, error } = await submitWan3Segments({
     imageUrl: input.imageUrl,
     voiceReferenceUrl,
-    voiceReferenceUrls: voiceReferenceUrls ?? undefined,
+    voiceReferenceUrls: segmentAudio?.urls,
+    durations,
     segments,
     language,
     topic: input.topic,
@@ -3228,9 +3249,11 @@ async function advanceWan3Segments(
   const ids = requestIds.split(",").map((id) => id.trim()).filter(Boolean);
   const results = await Promise.all(ids.map((id) => getWavespeedJobStatus(id)));
 
-  const failed = results.find((r) => r.status === "failed");
-  if (failed) {
-    throw new Error(`WS_TERMINAL: WAN 3.0 fallido: ${failed.error ?? "error desconocido"}`);
+  const failedIndex = results.findIndex((r) => r.status === "failed");
+  if (failedIndex >= 0) {
+    // Retry ONLY that segment once instead of losing the whole reel (the other
+    // segments are already paid for).
+    return retryFailedWan3Segment(video, ids, failedIndex, results[failedIndex]!.error);
   }
   if (!results.every((r) => r.status === "completed")) return "waiting";
 
@@ -3240,6 +3263,100 @@ async function advanceWan3Segments(
     return url;
   });
   return finalizeWavespeedTalkingHead(video, requestIds, clipUrls[0]!, { clipUrls });
+}
+
+/**
+ * Resubmit one failed WAN segment, once. The row moves to the
+ * `wavespeed-wan-retry:` lease while the new job is created (atomic claim: only
+ * one worker retries), then back to `wavespeed-wan:` with the new id in place.
+ * A segment that already is a retry, or a retry submission that fails, ends
+ * the video (credits released) — never a second resubmission.
+ */
+async function retryFailedWan3Segment(
+  video: typeof videosTable.$inferSelect,
+  ids: string[],
+  index: number,
+  providerError: string | undefined,
+): Promise<WavespeedAdvanceResult> {
+  const failedId = ids[index]!;
+  const reason = providerError || "error desconocido";
+  const [row] = await db
+    .select({ id: wavespeedJobsTable.id, inputPayload: wavespeedJobsTable.inputPayload })
+    .from(wavespeedJobsTable)
+    .where(and(
+      eq(wavespeedJobsTable.wavespeedRequestId, failedId),
+      eq(wavespeedJobsTable.relatedVideoId, video.id),
+    ))
+    .limit(1);
+  const stored = row?.inputPayload ? (JSON.parse(row.inputPayload) as Record<string, unknown>) : null;
+  if (!row || !stored || stored.retryOf != null) {
+    throw new Error(
+      `WS_TERMINAL: WAN 3.0 fallido en el segmento ${index + 1}${stored?.retryOf != null ? " también tras reintentarlo" : ""}: ${reason}`,
+    );
+  }
+
+  const sourceSentinel = buildWan3Sentinel(ids);
+  const retrySentinel = `wavespeed-wan-retry:${ids.join(",")}`;
+  const claimed = await db
+    .update(videosTable)
+    .set({ heygenVideoId: retrySentinel, updatedAt: new Date() })
+    .where(and(
+      eq(videosTable.id, video.id),
+      eq(videosTable.status, "generating"),
+      eq(videosTable.heygenVideoId, sourceSentinel),
+    ))
+    .returning({ id: videosTable.id });
+  if (!claimed[0]) return "waiting"; // another worker is handling it
+
+  // Also the heartbeat of the retry lease (see isWan3RetryStale).
+  await db
+    .update(wavespeedJobsTable)
+    .set({ status: "failed", errorMessage: reason, updatedAt: new Date() })
+    .where(eq(wavespeedJobsTable.id, row.id));
+
+  const { segmentIndex, segmentCount, tts_audio_url, retryOf: _retryOf, ...wanPayload } = stored;
+  let newId: string;
+  try {
+    ({ requestId: newId } = await submitJob(WAVESPEED_MODELS.WAN3_TALKING, wanPayload));
+  } catch (err) {
+    throw new Error(
+      `WS_TERMINAL: No se pudo reintentar el segmento ${index + 1} de WAN 3.0: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  await db.insert(wavespeedJobsTable).values({
+    userId: video.userId,
+    model: WAVESPEED_MODELS.WAN3_TALKING,
+    status: "processing",
+    wavespeedRequestId: newId,
+    inputPayload: JSON.stringify({ ...wanPayload, segmentIndex, segmentCount, tts_audio_url, retryOf: row.id }),
+    relatedVideoId: video.id,
+  });
+  const newIds = [...ids];
+  newIds[index] = newId;
+  await db
+    .update(videosTable)
+    .set({ heygenVideoId: buildWan3Sentinel(newIds), updatedAt: new Date() })
+    .where(and(
+      eq(videosTable.id, video.id),
+      eq(videosTable.status, "generating"),
+      eq(videosTable.heygenVideoId, retrySentinel),
+    ));
+  logger.warn({ videoId: video.id, segment: index + 1, failedId, newId, reason }, "[WAN3] Segmento fallido — reintentado una vez");
+  return "waiting";
+}
+
+/** True when a `wan-retry` lease has no recent heartbeat (latest WAN job update). */
+async function isWan3RetryStale(videoId: number): Promise<boolean> {
+  const [row] = await db
+    .select({ latest: sql<Date | null>`max(${wavespeedJobsTable.updatedAt})` })
+    .from(wavespeedJobsTable)
+    .where(and(
+      eq(wavespeedJobsTable.relatedVideoId, videoId),
+      eq(wavespeedJobsTable.model, WAVESPEED_MODELS.WAN3_TALKING),
+    ));
+  const latest = row?.latest ? new Date(row.latest) : null;
+  return isHandoffLeaseExpired(latest);
 }
 
 /** Join finished WAN clips into one MP4 and store it like any raw video. */
@@ -3587,6 +3704,13 @@ export async function advanceWavespeedVideo(videoId: number): Promise<WavespeedA
       );
       return "failed";
     }
+    if (sentinel.stage === "wan-retry") {
+      // A worker is resubmitting one failed segment; only an expired lease
+      // (crash mid-retry) fails the video — never a second resubmission.
+      if (!(await isWan3RetryStale(video.id))) return "waiting";
+      await failWavespeedVideo(video, "El reintento de un segmento de WAN 3.0 se interrumpió. Reintenta el video.");
+      return "failed";
+    }
     if (sentinel.stage === "th-finalizing" || sentinel.stage === "wan-finalizing") {
       return "waiting";
     }
@@ -3727,7 +3851,9 @@ export async function resumePendingWavespeedVideoMonitors(): Promise<void> {
       getWavespeedRecoveryStage(sentinel.stage) === "fail_safely" &&
       // Autoscale may run several instances: another one may still own a live
       // handoff. A fresh lease is left to the monitor, which waits for it.
-      (await isWavespeedHandoffStale(sentinel.requestId, video.id))
+      (sentinel.stage === "wan-retry"
+        ? await isWan3RetryStale(video.id)
+        : await isWavespeedHandoffStale(sentinel.requestId, video.id))
     ) {
       await failWavespeedVideo(
         video as typeof videosTable.$inferSelect,
