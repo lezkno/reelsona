@@ -18,6 +18,7 @@ import { useToast } from "@/hooks/use-toast"
 import { useEffect, useRef, useState } from "react"
 import { Save, CheckCircle2, Loader2, RefreshCw, Play, Upload, X, Palette, Sparkles } from "lucide-react"
 import AccessStatus from "@/components/AccessStatus"
+import AvatarQualityPicker from "@/components/AvatarQualityPicker"
 
 const WELCOME_STORAGE_KEY = "reelsona_welcome_dismissed"
 
@@ -583,6 +584,17 @@ export default function Settings() {
           <CardDescription>Preferencias para la generación de avatares.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
+          <div className="space-y-3">
+            <Label>Calidad del avatar</Label>
+            <AvatarQualityPicker
+              value={formData.avatar_quality === "premium" ? "premium" : "standard"}
+              onChange={(v) => handleChange('avatar_quality', v)}
+            />
+            <p className="text-xs text-muted-foreground">
+              Se usa en el piloto automático y como opción por defecto al generar. Puedes cambiarla en cada reel antes de generarlo.
+            </p>
+          </div>
+
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <Label>Duración del Video (Segundos)</Label>

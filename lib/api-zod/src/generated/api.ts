@@ -371,6 +371,9 @@ export const GetContentPlanResponseItem = zod.object({
   "avatar_fit_reason": zod.string().nullish(),
   "suggested_visual_support": zod.string().nullish().describe('JSON-serialized suggested visual support ideas for the talking-head constraint'),
   "thumbnail_url": zod.string().nullish().describe('Thumbnail URL from the associated video record'),
+  "avatar_quality": zod.union([zod.literal('standard'),zod.literal('premium'),zod.literal(null)]).nullish().describe('Per-item avatar quality override (null = account default)'),
+  "estimated_credits_standard": zod.number().optional().describe('Credits this item\'s script costs as a standard (InfiniteTalk) reel'),
+  "estimated_credits_premium": zod.number().optional().describe('Credits this item\'s script costs as a premium (WAN 3.0) reel'),
   "created_at": zod.string(),
   "updated_at": zod.string()
 })
@@ -428,6 +431,9 @@ export const GenerateContentPlanResponseItem = zod.object({
   "avatar_fit_reason": zod.string().nullish(),
   "suggested_visual_support": zod.string().nullish().describe('JSON-serialized suggested visual support ideas for the talking-head constraint'),
   "thumbnail_url": zod.string().nullish().describe('Thumbnail URL from the associated video record'),
+  "avatar_quality": zod.union([zod.literal('standard'),zod.literal('premium'),zod.literal(null)]).nullish().describe('Per-item avatar quality override (null = account default)'),
+  "estimated_credits_standard": zod.number().optional().describe('Credits this item\'s script costs as a standard (InfiniteTalk) reel'),
+  "estimated_credits_premium": zod.number().optional().describe('Credits this item\'s script costs as a premium (WAN 3.0) reel'),
   "created_at": zod.string(),
   "updated_at": zod.string()
 })
@@ -484,6 +490,9 @@ export const CreateContentItemResponse = zod.object({
   "avatar_fit_reason": zod.string().nullish(),
   "suggested_visual_support": zod.string().nullish().describe('JSON-serialized suggested visual support ideas for the talking-head constraint'),
   "thumbnail_url": zod.string().nullish().describe('Thumbnail URL from the associated video record'),
+  "avatar_quality": zod.union([zod.literal('standard'),zod.literal('premium'),zod.literal(null)]).nullish().describe('Per-item avatar quality override (null = account default)'),
+  "estimated_credits_standard": zod.number().optional().describe('Credits this item\'s script costs as a standard (InfiniteTalk) reel'),
+  "estimated_credits_premium": zod.number().optional().describe('Credits this item\'s script costs as a premium (WAN 3.0) reel'),
   "created_at": zod.string(),
   "updated_at": zod.string()
 })
@@ -569,6 +578,9 @@ export const GetContentItemResponse = zod.object({
   "avatar_fit_reason": zod.string().nullish(),
   "suggested_visual_support": zod.string().nullish().describe('JSON-serialized suggested visual support ideas for the talking-head constraint'),
   "thumbnail_url": zod.string().nullish().describe('Thumbnail URL from the associated video record'),
+  "avatar_quality": zod.union([zod.literal('standard'),zod.literal('premium'),zod.literal(null)]).nullish().describe('Per-item avatar quality override (null = account default)'),
+  "estimated_credits_standard": zod.number().optional().describe('Credits this item\'s script costs as a standard (InfiniteTalk) reel'),
+  "estimated_credits_premium": zod.number().optional().describe('Credits this item\'s script costs as a premium (WAN 3.0) reel'),
   "created_at": zod.string(),
   "updated_at": zod.string()
 })
@@ -596,7 +608,8 @@ export const UpdateContentItemBody = zod.object({
   "zoom": zod.boolean().describe('Ken Burns \/ zoompan effect applied at key script moments'),
   "ai_broll": zod.boolean().describe('AI-generated (gpt-image-1) B-roll images overlaid at timed segments'),
   "text_cards": zod.boolean().describe('Animated stats\/hook\/CTA cards rendered via canvas and overlaid')
-}).describe('Video post-processing effects applied after HeyGen renders the avatar'),zod.null()]).optional()
+}).describe('Video post-processing effects applied after HeyGen renders the avatar'),zod.null()]).optional(),
+  "avatar_quality": zod.union([zod.literal('standard'),zod.literal('premium'),zod.literal(null)]).nullish()
 })
 
 export const UpdateContentItemResponse = zod.object({
@@ -636,6 +649,9 @@ export const UpdateContentItemResponse = zod.object({
   "avatar_fit_reason": zod.string().nullish(),
   "suggested_visual_support": zod.string().nullish().describe('JSON-serialized suggested visual support ideas for the talking-head constraint'),
   "thumbnail_url": zod.string().nullish().describe('Thumbnail URL from the associated video record'),
+  "avatar_quality": zod.union([zod.literal('standard'),zod.literal('premium'),zod.literal(null)]).nullish().describe('Per-item avatar quality override (null = account default)'),
+  "estimated_credits_standard": zod.number().optional().describe('Credits this item\'s script costs as a standard (InfiniteTalk) reel'),
+  "estimated_credits_premium": zod.number().optional().describe('Credits this item\'s script costs as a premium (WAN 3.0) reel'),
   "created_at": zod.string(),
   "updated_at": zod.string()
 })
@@ -980,7 +996,8 @@ export const GetSettingsResponse = zod.object({
   "unique_value_prop": zod.string().nullish().describe('Unique value proposition'),
   "voice_style": zod.string().nullish().describe('Communication style and voice traits'),
   "common_objections": zod.string().nullish().describe('Common audience objections'),
-  "custom_cta": zod.string().nullish().describe('Custom CTA phrase')
+  "custom_cta": zod.string().nullish().describe('Custom CTA phrase'),
+  "avatar_quality": zod.enum(['standard', 'premium']).optional().describe('Default avatar video quality: standard = InfiniteTalk, premium = WAN 3.0 dynamic scenes')
 })
 
 
@@ -1012,7 +1029,8 @@ export const UpdateSettingsBody = zod.object({
   "unique_value_prop": zod.string().nullish(),
   "voice_style": zod.string().nullish(),
   "common_objections": zod.string().nullish(),
-  "custom_cta": zod.string().nullish()
+  "custom_cta": zod.string().nullish(),
+  "avatar_quality": zod.enum(['standard', 'premium']).optional().describe('Default avatar video quality: standard = InfiniteTalk, premium = WAN 3.0 dynamic scenes')
 })
 
 export const UpdateSettingsResponse = zod.object({
@@ -1040,7 +1058,8 @@ export const UpdateSettingsResponse = zod.object({
   "unique_value_prop": zod.string().nullish().describe('Unique value proposition'),
   "voice_style": zod.string().nullish().describe('Communication style and voice traits'),
   "common_objections": zod.string().nullish().describe('Common audience objections'),
-  "custom_cta": zod.string().nullish().describe('Custom CTA phrase')
+  "custom_cta": zod.string().nullish().describe('Custom CTA phrase'),
+  "avatar_quality": zod.enum(['standard', 'premium']).optional().describe('Default avatar video quality: standard = InfiniteTalk, premium = WAN 3.0 dynamic scenes')
 })
 
 

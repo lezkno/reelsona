@@ -62,6 +62,7 @@ import {
   splitScriptIntoWan3Segments,
   submitWan3Segments,
   prepareSegmentVoiceReferences,
+  wan3DurationForSpoken,
   trimAudioToFile,
   concatWan3Clips,
 }                                  from "./wan3-talking.js";
@@ -347,7 +348,7 @@ async function submitVdWan3(opts: {
   }
 
   // One reference per segment (the audio slice saying that segment's words).
-  const voiceReferenceUrls = await prepareSegmentVoiceReferences({
+  const segmentAudio = await prepareSegmentVoiceReferences({
     audioSource: opts.audioPath,
     segments,
     fallbackUrl: voiceReferenceUrl,
@@ -357,7 +358,10 @@ async function submitVdWan3(opts: {
   const { requestIds, error } = await submitWan3Segments({
     imageUrl: opts.lookImageUrl,
     voiceReferenceUrl,
-    voiceReferenceUrls: voiceReferenceUrls ?? undefined,
+    voiceReferenceUrls: segmentAudio?.urls,
+    durations: segmentAudio
+      ? segments.map((seg, i) => wan3DurationForSpoken(seg, segmentAudio.spokenMs[i] ?? 0))
+      : undefined,
     segments,
     delivery: WAN3_PRESET_DELIVERY[opts.presetId],
     apiKey: opts.apiKey,

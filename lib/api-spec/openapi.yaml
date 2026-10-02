@@ -1259,6 +1259,16 @@ components:
         thumbnail_url:
           type: ["string", "null"]
           description: Thumbnail URL from the associated video record
+        avatar_quality:
+          type: ["string", "null"]
+          enum: [standard, premium, null]
+          description: Per-item avatar quality override (null = account default)
+        estimated_credits_standard:
+          type: number
+          description: Credits this item's script costs as a standard (InfiniteTalk) reel
+        estimated_credits_premium:
+          type: number
+          description: Credits this item's script costs as a premium (WAN 3.0) reel
         created_at:
           type: string
         updated_at:
@@ -1292,6 +1302,9 @@ components:
           oneOf:
             - $ref: "#/components/schemas/VideoEffects"
             - type: "null"
+        avatar_quality:
+          type: ["string", "null"]
+          enum: [standard, premium, null]
 
     ContentPlanGenerateInput:
       type: object
@@ -1583,6 +1596,10 @@ components:
         custom_cta:
           type: ["string", "null"]
           description: Custom CTA phrase
+        avatar_quality:
+          type: string
+          enum: [standard, premium]
+          description: "Default avatar video quality: standard = InfiniteTalk, premium = WAN 3.0 dynamic scenes"
       required:
         - niche
         - topic_keywords
@@ -1644,6 +1661,10 @@ components:
           type: ["string", "null"]
         custom_cta:
           type: ["string", "null"]
+        avatar_quality:
+          type: string
+          enum: [standard, premium]
+          description: "Default avatar video quality: standard = InfiniteTalk, premium = WAN 3.0 dynamic scenes"
 
     CaptionPreset:
       type: object

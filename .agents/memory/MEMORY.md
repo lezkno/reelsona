@@ -1,4 +1,5 @@
 - [WAN 3.0 talking-head](wan3-talking.md) — avatar video step uses alibaba/wan-3.0/reference-to-video (look in reference_images[0], TTS clip as reference_audios, ≤36-word segments joined by FFmpeg); sentinel `wavespeed-wan:`; WAVESPEED_TALKING_MODEL=infinitetalk reverts.
+- [Avatar quality tiers & reel pricing](avatar-quality-pricing.md) — Estándar (InfiniteTalk, 50 cr/30 s) vs Premium (WAN 3.0 480p, 1.5 cr per WAN second, scene-aware); reel-pricing.ts; WAN at 720p loses money.
 - [WaveSpeed speech-aligned captions](wavespeed-speech-aligned-captions.md) — proxy transcript has no timestamps; captions are placed on FFmpeg-detected speech intervals (silencedetect) with punctuation-snapped splits, never spread evenly.
 - [API Server build cycle](api-server-build.md) — no hot-reload; TypeScript changes need WorkflowsRestart; `continue` inside nested if → use `return` instead.
 - [Production API outage diagnosis](production-api-outage.md) — static frontend can stay online while the API artifact is down; generic 500 on `/api/healthz` means process/routing failure, not login credentials.

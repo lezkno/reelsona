@@ -76,3 +76,10 @@ test("a handoff without heartbeat for longer than the lease fails safely", () =>
   assert.equal(isHandoffLeaseExpired(new Date("2026-10-01T12:00:00Z"), now), true);
   assert.equal(isHandoffLeaseExpired(null, now), true);
 });
+
+test("a WAN segment retry is a lease: parsed, monitored, and failed safely only on restart", () => {
+  assert.deepEqual(parseWavespeedVideoSentinel("wavespeed-wan-retry:a1,b2"), { stage: "wan-retry", requestId: "a1,b2" });
+  assert.equal(shouldMonitorWavespeedVideo("generating", "wavespeed-wan-retry:a1,b2"), true);
+  assert.equal(recoveryStage("wan-retry"), "fail_safely");
+  assert.equal(finalizingSourceStage("wan-retry"), null);
+});

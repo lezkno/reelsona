@@ -363,6 +363,18 @@ export const ContentPlanItemVideoStatus = {
 } as const;
 
 /**
+ * Per-item avatar quality override (null = account default)
+ * @nullable
+ */
+export type ContentPlanItemAvatarQuality = typeof ContentPlanItemAvatarQuality[keyof typeof ContentPlanItemAvatarQuality] | null;
+
+
+export const ContentPlanItemAvatarQuality = {
+  standard: 'standard',
+  premium: 'premium',
+} as const;
+
+/**
  * Video post-processing effects applied after HeyGen renders the avatar
  */
 export interface VideoEffects {
@@ -463,9 +475,29 @@ export interface ContentPlanItem {
      * @nullable
      */
   thumbnail_url?: string | null;
+  /**
+     * Per-item avatar quality override (null = account default)
+     * @nullable
+     */
+  avatar_quality?: ContentPlanItemAvatarQuality;
+  /** Credits this item's script costs as a standard (InfiniteTalk) reel */
+  estimated_credits_standard?: number;
+  /** Credits this item's script costs as a premium (WAN 3.0) reel */
+  estimated_credits_premium?: number;
   created_at: string;
   updated_at: string;
 }
+
+/**
+ * @nullable
+ */
+export type ContentPlanItemUpdateAvatarQuality = typeof ContentPlanItemUpdateAvatarQuality[keyof typeof ContentPlanItemUpdateAvatarQuality] | null;
+
+
+export const ContentPlanItemUpdateAvatarQuality = {
+  standard: 'standard',
+  premium: 'premium',
+} as const;
 
 export interface ContentPlanItemUpdate {
   topic?: string;
@@ -488,6 +520,8 @@ export interface ContentPlanItemUpdate {
   /** @nullable */
   scheduled_at?: string | null;
   video_effects_override?: VideoEffects | null;
+  /** @nullable */
+  avatar_quality?: ContentPlanItemUpdateAvatarQuality;
 }
 
 export interface ContentPlanGenerateInput {
@@ -668,6 +702,17 @@ export const SettingsTone = {
   inspirational: 'inspirational',
 } as const;
 
+/**
+ * Default avatar video quality: standard = InfiniteTalk, premium = WAN 3.0 dynamic scenes
+ */
+export type SettingsAvatarQuality = typeof SettingsAvatarQuality[keyof typeof SettingsAvatarQuality];
+
+
+export const SettingsAvatarQuality = {
+  standard: 'standard',
+  premium: 'premium',
+} as const;
+
 export interface Settings {
   niche: string;
   /** @nullable */
@@ -730,6 +775,8 @@ export interface Settings {
      * @nullable
      */
   custom_cta?: string | null;
+  /** Default avatar video quality: standard = InfiniteTalk, premium = WAN 3.0 dynamic scenes */
+  avatar_quality?: SettingsAvatarQuality;
 }
 
 export type SettingsInputTone = typeof SettingsInputTone[keyof typeof SettingsInputTone];
@@ -741,6 +788,17 @@ export const SettingsInputTone = {
   educational: 'educational',
   entertaining: 'entertaining',
   inspirational: 'inspirational',
+} as const;
+
+/**
+ * Default avatar video quality: standard = InfiniteTalk, premium = WAN 3.0 dynamic scenes
+ */
+export type SettingsInputAvatarQuality = typeof SettingsInputAvatarQuality[keyof typeof SettingsInputAvatarQuality];
+
+
+export const SettingsInputAvatarQuality = {
+  standard: 'standard',
+  premium: 'premium',
 } as const;
 
 export interface SettingsInput {
@@ -777,6 +835,8 @@ export interface SettingsInput {
   common_objections?: string | null;
   /** @nullable */
   custom_cta?: string | null;
+  /** Default avatar video quality: standard = InfiniteTalk, premium = WAN 3.0 dynamic scenes */
+  avatar_quality?: SettingsInputAvatarQuality;
 }
 
 export type CaptionPresetHighlightMode = typeof CaptionPresetHighlightMode[keyof typeof CaptionPresetHighlightMode];

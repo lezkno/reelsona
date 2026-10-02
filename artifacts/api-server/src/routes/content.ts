@@ -35,6 +35,7 @@ import { generateScript, generateContentTopics, regenerateCaption, regenerateScr
 import { makeOpenAIClient } from "../lib/openai-client";
 import { hasEnoughCredits, computeReelCreditCost, estimateDurationFromScript } from "../lib/credits";
 import { runAutomationCycle, triggerFillEmptySlots } from "../lib/scheduler";
+import { estimateReelCredits } from "../lib/reel-pricing";
 import { getLatestAuditCache } from "../lib/audit-cache";
 import { getStrategyProfile, toStrategyContext } from "../lib/strategy-profile";
 import { logger } from "../lib/logger";
@@ -112,6 +113,10 @@ function mapItem(
     novelty_level: item.noveltyLevel ?? null,
     // ────────────────────────────────────────────────────────────────────────
     video_effects_override: item.videoEffectsOverride ?? null,
+    avatar_quality: item.avatarQuality === "premium" || item.avatarQuality === "standard" ? item.avatarQuality : null,
+    // Credits the current script costs in each mode (shown before generating).
+    estimated_credits_standard: estimateReelCredits(item.script ?? "", "standard"),
+    estimated_credits_premium: estimateReelCredits(item.script ?? "", "premium"),
     created_at: item.createdAt.toISOString(),
     updated_at: item.updatedAt.toISOString(),
   };
@@ -848,6 +853,7 @@ router.patch("/content/:id", async (req, res): Promise<void> => {
   if (b.hashtags !== undefined) updates.hashtags = b.hashtags ?? null;
   if (b.scheduled_at !== undefined) updates.scheduledAt = b.scheduled_at ? new Date(b.scheduled_at) : null;
   if (b.video_effects_override !== undefined) updates.videoEffectsOverride = b.video_effects_override ?? null;
+  if (b.avatar_quality !== undefined) updates.avatarQuality = b.avatar_quality ?? null;
 
   // If script was added, move to scripted status
   if (b.script && b.script.length > 10) {

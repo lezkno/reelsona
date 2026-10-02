@@ -30,6 +30,8 @@ export const settingsTable = pgTable("settings", {
   voiceStyle: text("voice_style"),
   commonObjections: text("common_objections"),
   customCta: text("custom_cta"),
+  /** Default avatar video quality: "standard" (InfiniteTalk) | "premium" (WAN 3.0). */
+  avatarQuality: text("avatar_quality").notNull().default("standard"),
 });
 
 export const insertSettingsSchema = createInsertSchema(settingsTable).omit({ id: true });
